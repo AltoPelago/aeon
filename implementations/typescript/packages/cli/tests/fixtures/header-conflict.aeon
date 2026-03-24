@@ -1,0 +1,3 @@
+aeon:header = { mode = "strict" }
+aeon:mode = "strict"
+a:int32 = 1

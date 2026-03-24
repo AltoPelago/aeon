@@ -1,0 +1,4 @@
+app = {
+  name = "AEON"
+  port = 8080
+}

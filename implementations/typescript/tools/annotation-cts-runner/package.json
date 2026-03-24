@@ -1,0 +1,31 @@
+{
+  "name": "@aeon/annotation-cts-runner",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aeon-annotation-cts-runner": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "pnpm build",
+    "prepublishOnly": "pnpm run typecheck && pnpm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "description": "Annotation stream conformance test runner for AEON (annotations-only CTS lane)",
+  "keywords": ["aeon","cts","annotations","conformance","runner"],
+  "devDependencies": {
+    "@types/node": "^20.11.30"
+  }
+}

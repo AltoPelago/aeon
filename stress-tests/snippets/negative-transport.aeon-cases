@@ -1,0 +1,75 @@
+---
+a:object = { {}
+---
+a: = "hello"
+---
+s = "hello";
+---
+s = hello
+---
+a:list = [1,,2]
+---
+badGeneric3:set<string>[ab] = ^x
+---
+badNodeHead1:node = <tag:pair<int32,string>("x")>
+---
+badNodeHead2:node = <tag:contact[x]("x")>
+---
+`hello`:number = 2
+---
+a = { "" = 1 }
+v = ~a.[""]
+---
+a = 1
+v = ~a@
+---
+a = 1
+v = ~a.[""]
+---
+a = 1
+v = ~.["a"]
+---
+a = 1
+v = ~$.a@[
+---
+a = 1
+v = ~a.["b"]
+---
+a = 1
+v = ~a@["x.y"]
+---
+a@{ "" = 1 } = 3
+v = ~a@[""]
+---
+a@{ meta = 1 } = 3
+v = ~a@meta@["x"]
+---
+a = { b = 1 }
+v = ~a.["b"].["c"]
+---
+a:node = <
+  b:n = 1
+}
+---
+at:time = 09
+---
+ts:datetime = 2025-01-01T
+---
+a = +Infinity
+---
+a = NaN
+---
+a = inf
+---
+a:number = Infinity
+---
+a:number = -Infinity
+---
+a:infinity = +Infinity
+---
+a:infinity = NaN
+---
+a:'string' = 'hello world'
+---
+z5:zrut = 2025-01-01T00:00:00z&l
+---

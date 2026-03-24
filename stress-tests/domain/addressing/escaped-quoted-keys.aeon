@@ -1,0 +1,25 @@
+//!/bin/aeon --profile=ts.object.v1
+
+//# Escaped quoted-key and attribute-segment stress (current candidate)
+aeon:header = {
+  version = "1.0"
+  mode = "transport"
+  profile = "ts.object.v1"
+}
+
+"key\"quote":int32 = 1
+refKeyQuote = ~["key\"quote"]
+
+'single\'quote':int32 = 2
+refSingleQuote = ~['single\'quote']
+
+"slash\\key":int32 = 3
+refSlashKey = ~["slash\\key"]
+
+obj@{
+  "a\"b" = "x"
+  'c\'d' = "y"
+} = 10
+
+refAttrDouble = ~obj@["a\"b"]
+refAttrSingle = ~obj@['c\'d']

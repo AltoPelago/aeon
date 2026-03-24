@@ -1,0 +1,19 @@
+[package]
+name = "aeon-aeos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aeon-core = { path = "../aeon-core" }
+regex = "1.11.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,7 @@
+a = 1
+close:envelope = {
+    integrity:integrityBlock = {
+        alg:string = "sha-256"
+        hash:string = "deadbeef"
+    }
+}

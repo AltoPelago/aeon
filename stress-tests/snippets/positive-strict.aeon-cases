@@ -1,0 +1,147 @@
+---
+a:object = {}
+---
+a:string = ""
+---
+a:list<int32> = [1, 2, 3]
+---
+a:tuple<int32,int32> = (1, 2)
+---
+widget:node = <tag:node("x")>
+---
+glyph:node = <glyph>
+---
+glyphTyped:node = <glyph:node>
+---
+target:number = 1
+a:number = ~target
+---
+a:number = 1_1_1e2_2
+---
+a:number = 1_1_1.2_2e3_3
+---
+c:node = <'a'>
+---
+at:time = 09:
+---
+utcmin:time = 09:30Z
+---
+offhour:time = 09:+02:00
+---
+offmin:time = 09:30+02:00
+---
+ts:datetime = 2025-01-01T09
+---
+dt1:datetime = 2025-01-01T09Z
+---
+dt2:datetime = 2025-01-01T09+02:00
+---
+dt3:datetime = 2025-01-01T09:30Z
+---
+dt4:datetime = 2025-01-01T09:30+02:00
+---
+dt5:datetime = 2025-01-01T09:+02:00
+---
+zdt1:zrut = 2025-01-01T09&Europe/Belgium/Brussels
+---
+zdt2:zrut = 2025-01-01T09Z&Europe/Belgium/Brussels
+---
+zdt3:zrut = 2025-01-01T09+02:00&Europe/Belgium/Brussels
+---
+zdt4:zrut = 2025-01-01T09:30&Europe/Belgium/Brussels
+---
+zdt5:zrut = 2025-01-01T09:30Z&Europe/Belgium/Brussels
+---
+zdt6:zrut = 2025-01-01T09:30+02:00&Europe/Belgium/Brussels
+---
+zdt7:zrut = 2025-01-01T09:+02:00&Europe/Belgium/Brussels
+---
+zdt8:zrut = 2025-01-01T09:30Z&Local
+---
+good:date = 2024-02-29
+---
+good:datetime = 2024-02-29T09:30:00
+---
+a:infinity = Infinity
+---
+a:infinity = -Infinity
+---
+bits:radix = %+9&.!
+---
+payload:base64 = $abc-_+/==
+---
+blue:base64 = $FF_FF_FF_
+---
+a:base64 = $F__F
+---
+a:base64 = $_FF
+---
+z5:zrut = 2025-01-01T00:00:00Z&l
+---
+sep3:sep[a] = ^1920x1080
+---
+c:trimtick = >> ``
+---
+a:tuple<n> = (3)
+---
+a:tuple<n> = (3,)
+---
+b:list = [<a>, <a>]
+---
+c:o = {a:node = <a>, b:node = <b>}
+---
+a:list = [
+    1e6
+    1E6
+    1e+6
+    1e-6
+    1.2e3
+    1_000e-3
+    1.5e1_0
+]
+---
+a:list = [
+    0, -0, +0, 5, -5, +5, .5, -.5, +.5, 0.5, 12.34, 1_000, 1_000.25, 1_000_000, 1_000.100_001, .25e2, .25E+2, 1e3, 1E3, 1e+3, 1e-3, 1.5e2, -1.5e-2, +1_000.25e+03
+]
+b:list = [
+.5        //-> 0.5
++.5       //-> 0.5
+1E03      //-> 1e3
+1.2300    //-> 1.23
+1_000     //-> 1000
+]
+---
+z5:zrut = 2025-01-01T00:00:00Z&l/l
+---
+z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels
+---
+z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels // comment
+---
+z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels,/* comment */
+---
+file1:sep[/] = ^root/main/file.aeon
+---
+file2:sep[/] = ^root/main/file.aeon
+---
+file3:sep[/] = ^http://www.aeonite.org
+---
+file4:sep[/] = ^root/main/file.aeon // comment
+---
+file5:sep[/] = ^root/main/*hello*/file.aeon /* comment */
+---
+file6:sep[/] = ^http://www.aeonite.org//?notahint
+---
+file7:sep[/] = ^http://www.aeonite.org //? hint
+---
+file8:sep[/] = ^http://www.aeonite.org/?...?/ /? comment ?/
+---
+file9:sep[/] = ^http://www.aeonite.org/#...#/  /#comment#/
+---
+file10:sep[/] = ^http://www.aeonite.org// // comment
+---
+a:list = [^http://www.aeonite.org/*hello*/]
+---
+b:o = {a:sep[/]=^http://www.aeonite.org/*hello*/}
+---
+c:tuple = (^http://www.aeonite.org/*hello*/)
+---

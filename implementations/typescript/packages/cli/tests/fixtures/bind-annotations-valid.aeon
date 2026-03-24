@@ -1,0 +1,6 @@
+app = {
+  //# app name
+  name = "AEON" //? required
+  //@ port metadata
+  port = 8080
+}

@@ -1,0 +1,20 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "baseUrl": ".",
+        "paths": {
+            "@aeon/core": ["../core/dist/index.d.ts"],
+            "@aeon/aes": ["../aes/dist/index.d.ts"],
+            "@aeon/lexer": ["../lexer/dist/index.d.ts"]
+        }
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
+    ]
+}

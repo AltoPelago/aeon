@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from aeon.core import compile_source
+from aeon.finalize import FinalizeOptions, finalize_json
+from aeon.lexer import tokenize
+from aeon.parser import parse_tokens
+
+
+def compile_events(source: str) -> list[dict[str, object]]:
+    result = compile_source(source)
+    if result.errors:
+        raise AssertionError([error.code for error in result.errors])
+    return result.events
+
+
+def compile_result(source: str):
+    result = compile_source(source)
+    if result.errors:
+        raise AssertionError([error.code for error in result.errors])
+    return result
+
+
+def compile_header(source: str) -> dict[str, object]:
+    lex = tokenize(source)
+    parsed = parse_tokens(source, lex.tokens)
+    if parsed.document is None or parsed.document.header is None:
+        raise AssertionError("header not found")
+    return {
+        "fields": parsed.document.header.fields,
+        "span": parsed.document.header.span.to_json(),
+    }
+
+
+class FinalizeJsonTests(unittest.TestCase):
+    def test_builds_json_output_from_top_level_bindings(self) -> None:
+        events = compile_events(
+            '\n'.join([
+                'name = "AEON"',
+                'count = 3',
+                'config = {',
+                '  host = "localhost"',
+                '  port:int32 = 5432',
+                '}',
+                'flags = [true, false]',
+            ])
+        )
+        result = finalize_json(events)
+        self.assertEqual(
+            {
+                "name": "AEON",
+                "count": 3,
+                "config": {"host": "localhost", "port": 5432},
+                "flags": [True, False],
+            },
+            result["document"],
+        )
+
+    def test_emits_top_level_attribute_projection_under_at(self) -> None:
+        result = finalize_json(compile_result('title@{lang="en"} = "Hello"'))
+        self.assertEqual(
+            {
+                "title": "Hello",
+                "@": {
+                    "title": {
+                        "lang": "en",
+                    }
+                },
+            },
+            result["document"],
+        )
+
+    def test_localizes_nested_object_attributes_under_at(self) -> None:
+        result = finalize_json(compile_result('a@{b=1} = { c@{d=3} = 2 }'))
+        self.assertEqual(
+            {
+                "a": {
+                    "c": 2,
+                    "@": {
+                        "c": {
+                            "d": 3,
+                        }
+                    },
+                },
+                "@": {
+                    "a": {
+                        "b": 1,
+                    }
+                },
+            },
+            result["document"],
+        )
+
+    def test_uses_node_and_children_for_node_projection(self) -> None:
+        events = compile_events('view = <div@{id="main"}("hello")>')
+        result = finalize_json(events)
+        self.assertEqual(
+            {
+                "view": {
+                    "$node": "div",
+                    "@": {"id": "main"},
+                    "$children": ["hello"],
+                }
+            },
+            result["document"],
+        )
+
+    def test_records_reference_diagnostics_and_preserves_tokens(self) -> None:
+        events = compile_events("a = 1\nb = ~>a")
+        result = finalize_json(events, FinalizeOptions(mode="strict"))
+        self.assertEqual("~>a", result["document"]["b"])
+        self.assertTrue(result["meta"]["errors"])
+
+    def test_materializes_switch_and_time_literals(self) -> None:
+        switch = finalize_json(compile_events("debug = yes"), FinalizeOptions(mode="loose"))
+        self.assertEqual(True, switch["document"]["debug"])
+
+        time = finalize_json(compile_events("opens = 09:30:00+02:40"), FinalizeOptions(mode="loose"))
+        self.assertEqual("09:30:00+02:40", time["document"]["opens"])
+
+    def test_projects_only_whitelisted_paths(self) -> None:
+        events = compile_events('app = { name = "demo", port = 8080 }\nother = "ignore"')
+        result = finalize_json(
+            events,
+            FinalizeOptions(
+                mode="strict",
+                materialization="projected",
+                include_paths=["$.app.name"],
+            ),
+        )
+        self.assertEqual({"app": {"name": "demo"}}, result["document"])
+
+    def test_supports_header_only_and_full_scopes(self) -> None:
+        source = 'aeon:mode = "strict"\naeon:profile = "aeon.gp.profile.v1"\nname:string = "AEON"'
+        events = compile_source(source).internal_events
+        assert events is not None
+        header = compile_header(source)
+
+        header_only = finalize_json(
+            events,
+            FinalizeOptions(mode="strict", scope="header", header=header),
+        )
+        self.assertEqual(
+            {"mode": "strict", "profile": "aeon.gp.profile.v1"},
+            header_only["document"],
+        )
+
+        full = finalize_json(
+            events,
+            FinalizeOptions(mode="strict", scope="full", header=header),
+        )
+        self.assertEqual(
+            {
+                "header": {"mode": "strict", "profile": "aeon.gp.profile.v1"},
+                "payload": {"name": "AEON"},
+            },
+            full["document"],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

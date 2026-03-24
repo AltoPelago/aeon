@@ -1,0 +1,36 @@
+---
+widget:node = <card@{ z:number = +10, "a.b":lookup = ~$.widget, meta:object = { y:number = 2, x:number = 1 } }:node(
+  { b:number = 2, a:number = 1 }
+)>
+---
+a = 0
+---
+a = ""
+---
+a = []
+---
+a = {}
+---
+debug = yes
+---
+stamp = 2025-01-01T09
+---
+zone = 2025-01-01T00:00:00Z&l
+---
+a:number = Infinity
+---
+a:number = -Infinity
+---
+a:infinity = +Infinity
+---
+a:infinity = NaN
+---
+a:infinity = inf
+---
+a:list = [1,,2]
+---
+`hello`:number = 2
+---
+a:string = 343
+---
+a: = 344

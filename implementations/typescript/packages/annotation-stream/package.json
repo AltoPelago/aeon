@@ -1,0 +1,27 @@
+{
+  "name": "@aeon/annotation-stream",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/*.test.js",
+    "perf:annotations": "pnpm --dir ../core build && pnpm build && node ./scripts/perf-annotations.mjs",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aeon/aes": "workspace:*",
+    "@aeon/lexer": "workspace:*"
+  }
+}

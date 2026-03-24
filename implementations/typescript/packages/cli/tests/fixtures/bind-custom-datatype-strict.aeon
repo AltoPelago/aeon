@@ -1,0 +1,5 @@
+aeon:mode = "strict"
+app:object = {
+  name:myText = "AEON"
+  port:int32 = 8080
+}

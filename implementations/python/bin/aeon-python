@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+from pathlib import Path
+import os
+import shutil
+import sys
+
+
+MIN_VERSION = (3, 12)
+
+
+def ensure_compatible_python() -> None:
+    if sys.version_info >= MIN_VERSION:
+        return
+
+    current = Path(sys.executable).resolve()
+    for candidate in ("python3.14", "python3.13", "python3.12"):
+        resolved = shutil.which(candidate)
+        if resolved is None:
+            continue
+        if Path(resolved).resolve() == current:
+            continue
+        os.execv(resolved, [resolved, __file__, *sys.argv[1:]])
+
+    raise SystemExit(
+        "Error: AEON Python requires Python 3.12+ and no compatible interpreter was found"
+    )
+
+
+ensure_compatible_python()
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from aeon.cli import main
+
+
+raise SystemExit(main())

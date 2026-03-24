@@ -1,0 +1,12 @@
+aeon:header = {
+  encoding:string = "utf-8"
+  mode:string = "strict"
+}
+
+content:node = <div(
+  <span@{id="text", class="dark"}:node(
+    "hello",
+    <br()>,
+    "world",
+  )>,
+)>

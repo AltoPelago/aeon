@@ -1,0 +1,29 @@
+{
+  "name": "@aeon/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "aeon": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@aeon/aes": "workspace:*",
+    "@aeon/canonical": "workspace:*",
+    "@aeon/core": "workspace:*",
+    "@aeon/finalize": "workspace:*",
+    "@aeon/integrity": "workspace:*",
+    "@aeon/lexer": "workspace:*",
+    "@aeon/parser": "workspace:*",
+    "@aeon/profiles": "workspace:*",
+    "@aeon/tonic": "workspace:*",
+    "@aeos/core": "workspace:*"
+  }
+}

@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementations/typescript
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.14.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: implementations/typescript/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Dependency graph checks
+        run: pnpm depcheck
+
+      - name: Unit tests
+        run: pnpm -r --filter './packages/**' --filter './tools/**' --filter '!@aeon/phase-fuzz' test
+
+      - name: Phase fuzz (CI)
+        run: pnpm test:fuzz
+
+      - name: Stress tests
+        run: pnpm test:stress
+
+      - name: CTS conformance (all lanes)
+        run: pnpm test:cts:all
+
+  canonical-cts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.14.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: implementations/typescript/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install TypeScript workspace dependencies
+        working-directory: implementations/typescript
+        run: pnpm install --frozen-lockfile
+
+      - name: Build TypeScript workspace
+        working-directory: implementations/typescript
+        run: pnpm build
+
+      - name: Build Rust CLI
+        working-directory: implementations/rust
+        run: cargo build -p aeon-cli
+
+      - name: Canonical CTS lane
+        run: bash ./scripts/canonical-cts.sh --mode all --brief

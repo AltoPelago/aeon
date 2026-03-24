@@ -1,0 +1,32 @@
+{
+  "name": "@aeon/aeon-lsp",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "aeon-lsp": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@aeon/finalize": "workspace:*",
+    "@aeon/core": "workspace:*",
+    "@aeon/lexer": "workspace:*",
+    "@aeon/parser": "workspace:*",
+    "@aeon/profiles": "workspace:*",
+    "@aeos/core": "workspace:*",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30"
+  }
+}

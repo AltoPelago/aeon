@@ -1,0 +1,38 @@
+{
+  "name": "@aeon/phase-fuzz",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aeon-phase-fuzz": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node ./dist/index.js --lane all --profile ci --seed 1337",
+    "fuzz:lexer": "node ./dist/index.js --lane lexer --profile ci --seed 1337",
+    "fuzz:parser": "node ./dist/index.js --lane parser --profile ci --seed 1337",
+    "fuzz:nightly": "node ./dist/index.js --lane all --profile nightly",
+    "fuzz:promote": "node ./dist/promote.js",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@aeon/lexer": "workspace:*",
+    "@aeon/parser": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "description": "Deterministic lexer and parser fuzz lanes for AEON",
+  "keywords": ["aeon", "fuzz", "lexer", "parser", "security"]
+}

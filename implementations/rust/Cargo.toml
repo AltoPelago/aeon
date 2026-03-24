@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "crates/aeon-aeos",
+    "crates/aeon-annotations",
+    "crates/aeon-canonical",
+    "crates/aeon-cli",
+    "crates/aeon-core",
+    "crates/aeon-finalize",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/altopelago/Aeon"
+rust-version = "1.85"
+version = "0.1.0"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

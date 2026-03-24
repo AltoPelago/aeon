@@ -1,0 +1,8 @@
+{
+  "schema_id": "aeon.gp.schema.v1",
+  "schema_version": "1.0.0",
+  "rules": [
+    { "path": "$.app.name", "constraints": { "type": "StringLiteral", "required": true } },
+    { "path": "$.app.port", "constraints": { "type": "NumberLiteral", "required": true } }
+  ]
+}

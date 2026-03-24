@@ -1,0 +1,32 @@
+{
+	"name": "aeon-typescript",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"bootstrap": "pnpm install && pnpm build",
+		"build": "pnpm -r --filter './packages/**' --filter './tools/**' build",
+		"typecheck": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
+		"test": "pnpm -r --filter './packages/**' --filter './tools/**' test",
+		"test:stress": "bash ../../scripts/stress-smoke.sh && pnpm -C ../../stress-tests/tools/aeon-stress-cli stress-advanced",
+		"test:fuzz": "pnpm --filter @aeon/phase-fuzz test",
+		"test:fuzz:lexer": "pnpm --filter @aeon/phase-fuzz fuzz:lexer",
+		"test:fuzz:parser": "pnpm --filter @aeon/phase-fuzz fuzz:parser",
+		"lint": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
+		"depcheck": "node ./tools/depcheck.mjs",
+		"test:cts": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/cts-runner/dist/index.js --sut ./packages/aeos/dist/bin/aeos-validator.js --cts ../../cts/aeos/v1/aeos-validator-cts.v1.json",
+		"test:cts:core": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/core/v1/core-cts.v1.json --lane core",
+		"test:cts:aes": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/aes/v1/aes-cts.v1.json --lane aes",
+		"test:cts:canonical": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/canonical/v1/canonical-cts.v1.json --lane canonical",
+		"test:cts:annotations": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/annotation-cts-runner/dist/index.js --sut ./packages/cli/dist/main.js --cts ../../cts/annotations/v1/annotation-stream-cts.v1.json",
+		"test:cts:all": "pnpm test:cts && pnpm test:cts:core && pnpm test:cts:aes && pnpm test:cts:canonical && pnpm test:cts:annotations",
+		"clean": "pnpm -r --filter './packages/**' --filter './tools/**' clean"
+	},
+	"devDependencies": {
+		"typescript": "5.3.3",
+		"@types/node": "20.10.6"
+	},
+	"packageManager": "pnpm@8.14.0",
+	"engines": {
+		"node": ">=20.0.0"
+	}
+}

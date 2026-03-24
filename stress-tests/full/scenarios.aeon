@@ -1,0 +1,671 @@
+//! format:aeon.test.v1
+
+/*
+	Strict
+*/
+
+
+/*
+	Header
+*/
+
+aeon:header = {
+  mode:string = "strict"
+  encoding:string = "utf-8"
+  profile:string = "aeon.gp.profile.v1"
+  schema:string = "aeon.gp.schema.v1"
+  version:string = "1"
+  "meta":o = {
+	filetype:string = "test"
+  }
+}
+
+
+/*
+	Keys
+*/
+
+test001:o = {
+
+	keys:string = "keys"
+	'key-1':string = 'keys'
+	"key-2":string = "keys"
+	k:string = "k"
+
+	k1:string = "k1", 'k2':string = "k2", "k3":string = "k3", "k4":string = `
+
+	`, 'k5':string = ""
+
+}
+
+/*
+	Boolean
+
+	| Field             | Names     |
+	| ----------------- | --------- |
+	| Type              | `boolean` |
+	| Alternative names | `bool`    |
+	| Reserved          | none      |
+*/
+
+test002:o = {
+
+	bool1:bool = true
+	bool2:bool = false
+	boolean1:boolean = true
+	boolean2:boolean = false
+
+}
+
+
+/*
+	Switch
+*/
+
+test003:o = {
+	switch1:switch = yes
+	switch2:switch = no
+	switch3:switch = on
+	switch4:switch = off
+}
+
+
+/*
+	Strings
+*/
+
+
+test004:o ={
+	string001:string = "hello"
+	string002:string = 'hello'
+	string003:string = `hello`
+	string004:string = `
+		hello
+		world
+	`
+	string005:string = "\""
+	string006:string = `\``
+	string007:string = `\``
+	string008:string = "'`"
+	string009:string = '"`'
+	srting010:string = `"'`
+	string011:string = '\\ t{\t} n{\n} r{\r} b{\b} f{\f}'
+	string012:string = "\\ t{\t} n{\n} r{\r} b{\b} f{\f}"
+	string013:string = `\\ t{\t} n{\n} r{\r} b{\b} f{\f}`
+	string014:string = '\u2B62 \u{10908} \u{2B95} \u{2B91}'
+	string015:string = "\u2B62 \u{10908} \u{2B95} \u{2B91}"
+	string016:string = `\u2B62 \u{10908} \u{2B95} \u{2B91}`
+	string017:string = "\"\"\"\"\"\""
+}
+
+/*
+	Trimtick
+
+	Trimticks are a distinct multiline string form using > through >>>> markers.
+	- >` : spaces-only indentation analysis
+	- >>` : tabs normalize to width 2
+	- >>>` : tabs normalize to width 3
+	- >>>>` : tabs normalize to width 4
+*/
+
+test005:o = {
+	trimtick001:trimtick = >`
+		one
+		two
+	`
+	trimtick002:trimtick = >>`
+			one
+		two
+	`
+	trimtick003:trimtick = >>>`
+				one
+			two
+	`
+	trimtick004:trimtick = >>>>`
+					one
+				two
+	`
+	trimtick005:trimtick = >`
+		hello
+	`
+	trimtick006:trimtick = >`
+	`
+	trimtick007:trimtick = >`single line`
+	trimtick008:trimtick = > `
+		spaces before backtick are accepted
+    | 4 spaces
+	`
+	trimtick009:trimtick = >> `
+		spaces before backtick are accepted
+    |< space control
+	`
+	trimtick010:trimtick = >>> `
+		spaces before backtick are accepted
+      |< space control
+	`
+	trimtick011:trimtick = >>>> `
+		spaces before backtick are accepted
+        |< space control
+	`
+	trimtick012:trimtick = > `
+	    spaces before backtick are accepted // 1 tab
+	`
+	trimtick013:trimtick = > `
+	    	spaces before backtick are accepted // 2 tabs
+	`
+	trimtick014:trimtick = > `  first line
+	  	|< spaces before backtick are accepted
+	`
+	trimtick015:trimtick = > `
+    spaces before backtick are accepted
+    |< spaces control
+	`
+}
+
+
+/*
+	Numbers
+
+	| Field             | Names                                                               |
+	| ----------------- | ------------------------------------------------------------------- |
+	| Type              | `number`                                                            |
+	| Alternative names | `n`                                                                 |
+	| Reserved          | `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16` |
+	|                   | `uint32`, `uint64`, `float`, `float32`, `float64`                   |
+*/
+
+test006:o ={
+	count1:number = 293499429234
+	count:n = 42
+	ratio:n = 3.14e-2
+	half:n = .5
+	large:n= 1_000_000
+	int:int = 0
+	int8:int8 = 1
+	int16:int16 = 2
+	int32:int32 = 3
+	int64:int64 = 4
+	uint:uint = 5
+	uint8:uint8 = 6
+	uint16:uint16 = 7
+	uint32:uint32 = 8
+	uint64:uint64 = 9
+	float:float = 10.9
+	float32:float32 = 11.2
+	float64:float64 = 12.3
+	float1:float = .3
+	float2:float = 0.3
+	float3:float = -2.0
+	float4:float = -3.3
+	float5:float = -3_3.3
+	float6:float = 233.333_233_3222_323
+	float7:float = -3.3_3_3
+	number1:number = -.5
+	number2:number = +.5
+	number3:number = -1
+	number4:number = +2
+	number5:number = -2.2
+	number6:number = +2.5
+	number7:number = -1.5
+	number8:number = 3e33
+	number9:number =3e333
+	number10:number = 3e1_1
+	number11:number = 3.2
+	number12:number = 0.5e3
+}
+
+
+/*
+	Hex
+
+	| Field             | Names |
+	| ----------------- | ----- |
+	| Type              | `hex` |
+	| Alternative names | none  |
+	| Reserved          | none  |
+*/
+
+test007:o = {
+	hex01:hex = #FF00AA
+	hex02:hex = #ff00aa
+	hex03:hex = #Ff00Aa
+	hex04:hex = #000000
+	hex05:hex = #FFFFFF
+	hex06:hex = #0
+	hex07:hex = #abc
+	hex08:hex = #AABBCCDD
+	hex09:hex = #FF00AA, hex10:hex = #00FF00, hex11:hex = #0000FF
+	hex12:hex = #00_00_00
+}
+
+/*
+	Radix
+
+	| Field             | Names                                   |
+	| ----------------- | --------------------------------------- |
+	| Type              | `radix`                                 |
+	| Alternative names | none                                    |
+	| Reserved          | `radix2`, `radix6`, `radix8`, `radix12` |
+*/
+
+test008:o = {
+	radix1:radix = %FF00FF
+	radix2:radix2 = %10101010101
+	radix6:radix6 = %33233242
+	radix8:radix8 = %28476273872
+	radix12:radix12 = %23423492344
+	radix14:radix12 = %23423492344, radix15:radix12 = %23423492344, radix16:radix12 = %23423_49234/.4-+=, 
+	radix17:radix =%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
+	radix18:radix2 = %101_010_101_012
+}
+
+/*
+	Encoding
+*/
+
+test009:o = {
+	encoding:encoding =$ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
+	base64:base64 =$ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
+	encoding001:base64 =$ABC_DEF_GHI_JKL_MNO_PQR_STU_VWX_YZa_bcd_efghijklmnopqrstuvwxyz1234567890=+/.+-==
+}
+
+/*
+	Date, Time, DateTime, ZRUT
+*/
+
+
+test010:o = {
+	start:date = 2025-12-12
+	at:time = 09:30:00
+	utc:time = 09:30:00Z
+	local:time = 09:30:00+02:40
+	ts:datetime = 2025-01-01T09:30:00Z
+	z:zrut = 2025-01-01T00:00:00Z&Australia/Sydney
+	localTime:zrut = 2025-01-01T00:00:00&Local         // ZRUT local time convention
+
+	t1:date = 2025-01-01, t2:time = 09:30:00, t3:time = 09:30:00+02:40, t4:datetime = 2025-01-01T09:30:00Z, t5:zrut = 2025-01-01T00:00:00Z&Australia/Sydney, t6:zrut = 2025-01-01T00:00:00&Local 
+}
+
+/*
+	Seperators
+
+	| Field             | Names |
+	| ----------------- | ----- |
+	| Type              | `sep` |
+	| Alternative names | none  |
+	| Reserved          | `set` |
+*/
+
+test011:o = {
+	sep1:sep = ^93.2.3.3
+	sep2:sep[.] = ^93.2.3.3
+	sep3:sep[x] = ^1920x1080
+	sep4:sep[-] = ^1-2-3
+	sep5:sep[:] = ^10:20:30
+	sep6:sep[/] = ^usr/local/bin
+	sep7:set = ^100x200y300z
+	sep8:sep = ^hello
+	sep9:sep[;] = ^one;two;three
+	sep10:sep[.] = ^93.2.3.3, sep11:sep[x] = ^800x600, sep12:sep[-] = ^2025-01-01
+	sep13:set[x] = ^100x200y300z
+
+	sep14:set[|] = ^"one"|"two"|"three"|"four"
+	sep15:set[|] = ^"one"|"two"|"threefour"|"five",
+
+	sep16:set[|] = ^one|two|three|four\ five
+
+}
+
+
+
+
+
+/*
+	Objects
+
+	| Field             | Names      |
+	| ----------------- | ---------- |
+	| Type              | `object`   |
+	| Alternative names | `obj`, `o` |
+	| Reserved          | `envelope` |
+*/
+
+test012:o = {
+	o1:o = {}
+	o2:object = {
+		o3:o = {
+			o4:o = {}
+		}
+	}
+	o3:o = {
+		a:n = 0, b:switch=yes, c:switch=no, d:boolean=true,
+		e:string = "  "
+		f:number = 24.23
+		g:sep = ^233.2333
+
+	}
+	o4:obj = {
+		l:list = [ { a:string = "1", b:set=^12.23.23, c:string = "333"}]
+		n1:node = <a>
+		n2:node = <a (
+				<title ("hello")>
+				<text ("world", {n:n = 234, m:node = <a>})>
+			)>
+	}
+}
+
+/*
+	Envelope
+
+	`:envelope` is a reserved object alias.
+	Core does not attach extra semantics; it performs the same compatibility
+	check as `:object` / `:obj` / `:o`.
+*/
+
+test013:o = {
+	close:envelope = {
+		integrity:object = {
+			alg:string = "sha-256"
+		}
+	}
+	env1:envelope = {}
+	env2:envelope = {
+		a:string = "hello",
+		b:number = 42
+	}
+}
+
+/*
+	Lists
+
+	| Field             | Names  |
+	| ----------------- | ------ |
+	| Type              | `list` |
+	| Alternative names | none   |
+	| Reserved          | none   |
+*/
+
+test014:o = {
+	list001:list = []
+	list002:list = [1]
+	list003:list = [1, 2, 3]
+	list004:list<number> = [1, 2, 3]
+	list005:list<string> = ["alpha", "beta", "gamma"]
+	list006:list<boolean> = [true, false, true]
+	list007:list<switch> = [yes, no, on, off]
+	list008:list = [
+		"a"
+		"b"
+		"c"
+	]
+	list009:list = [
+		1,
+		2,
+		3,
+	]
+	list010:list = [1, 2, 3,]
+	list011:list = [[1, 2], [3, 4]]
+	list012:list = ["hello", 42, true, yes, #FF00AA]
+	list013:list<number> = [1_000, 3.14, -2.0, .5, 1e3]
+	list014:list = [1], list015:list = [2], list016:list = [3]
+	list017:list = [
+		1
+		2
+		3
+	]
+	list018:list = [ <title("hello")>, 
+		<doc@{version:n=1,type:string="example.doc"} 
+		( 
+			<title ("example")>
+			<body(
+				<text("hello world")>
+			)>
+		)>
+		]
+}
+
+/*
+	Tuples
+
+	| Field             | Names   |
+	| ----------------- | ------- |
+	| Type              | `tuple` |
+	| Alternative names | none    |
+	| Reserved          | none    |
+*/
+
+
+test015:o = {
+	tuple001:tuple = ()
+	tuple002:tuple = (1,)
+	tuple003:tuple = (1, 2)
+	tuple004:tuple = (1, 2, 3)
+	tuple005:tuple<int32, int32> = (10, 20)
+	tuple006:tuple<string, number> = ("hello", 42)
+	tuple007:tuple<string, string, string> = ("r", "g", "b")
+	tuple008:tuple = (
+		1
+		2
+		3
+	)
+	tuple009:tuple = (1, 2, 3,)
+	tuple010:tuple = (
+		"a",
+		"b",
+		"c",
+	)
+	tuple011:tuple<number, number, number> = (0.8, 0.5, 1.0)
+	tuple012:tuple = (true, yes, "text", 42, #FF0000)
+	tuple013:tuple = (1, 2), tuple014:tuple = (3, 4), tuple015:tuple = (5, 6)
+}
+
+/*
+	Nodes
+
+	Node forms:
+	- `<tag>` empty node shorthand (equivalent to `<tag()>`)
+	- `<tag(...)>` node with children
+	- closing `>` after `)` is optional
+	- children may be separated by comma or newline
+*/
+
+test016:o = {
+	node001:node = <glyph>
+	node002:node = <br>
+	node003:node = <div("hello")>
+	node004:node = <div("hello", "world")>
+	node005:node = <span("hello", <br>, "world")>
+	node006:node = <div(
+		"hello"
+		<br>
+		"world"
+	)>
+	node007:node = <div(<span("nested")>)>
+	node008:node = <div@{id="main", class="container"}("content")>
+	node009:node = <img@{src="logo.png", alt="Logo"}>
+	node010:node = <section(
+		<h1("Title")>
+		<p("Paragraph one")>
+		<p("Paragraph two")>
+	)>
+	node011:node = <ul(
+		<li("item 1")>
+		<li("item 2")>
+		<li("item 3")>
+	)>
+	node012:node = <div("text", 42, true, #FF0000)>
+	node013:node = <empty()>
+	node014:node = <div("hello",)>
+	node015:node = <ul(
+		[
+			<li("item 1")>
+			<li("item 2")>
+			<li("item 3")>
+		]
+		{
+			a:node = <li("item 1")>
+			b:node = <li("item 2")>
+			c:node = <li("item 3")>
+		}
+		^"hello"|"world"|"draft"
+	)>
+	node016:node = <section(
+		<h1("Title")>
+		<p("Paragraph one")>
+		{
+			s1:node = <span@{class="line-1"} ("hello")>
+			s2:node = <span @{class="line-2"} ("world")>
+			s3:node = <span @ {class="line-3"} ("hello")>
+			s4:node = <span@ {class="line-4"} ("world")>
+			s5:node = <span
+									@ 
+									{class="line-4"} 
+									("world")
+								>
+		}
+		<p("Paragraph two")>
+	)>
+}
+
+/*	Null
+
+	| Field             | Names  |
+	| ----------------- | ------ |
+	| Type              | `null` |
+	| Alternative names | none   |
+	| Reserved          | none   |
+
+	Null is listed as a reserved datatype name but is not a distinct
+	parser value kind in Core v1. No literal form exists.
+*/
+
+
+/*
+	References (Clone and Pointer)
+
+	Clone:   ~path     (copies the value)
+	Pointer: ~>path    (preserves alias/pointer intent)
+
+	References may only address bindings defined prior (no forward refs).
+	Attribute selectors and quoted segments are valid in paths.
+*/
+
+test017:o = {
+	ref_source_num:number = 99
+	ref_source_str:string = "origin"
+	ref_source_bool:boolean = true
+	ref_source_obj:object = {
+		inner_a:string = "deep"
+		inner_b:number = 7
+	}
+	ref_source_list:list<number> = [10, 20, 30]
+	ref_source_attr@{meta:string = "info"}:string = "attributed"
+
+	clone001:number = ~test017.ref_source_num
+	clone002:string = ~test017.ref_source_str
+	clone003:boolean = ~test017.ref_source_bool
+	clone004:object = ~test017.ref_source_obj
+	clone005:string = ~test017.ref_source_obj.inner_a
+	clone006:number = ~test017.ref_source_obj.inner_b
+	clone007:number = ~test017.ref_source_list[0]
+	clone008:number = ~test017.ref_source_list[2]
+	clone009:string = ~test017.ref_source_attr@meta
+
+	pointer001:number = ~>test017.ref_source_num
+	pointer002:string = ~>test017.ref_source_str
+	pointer003:object = ~>test017.ref_source_obj
+	pointer004:string = ~>test017.ref_source_obj.inner_a
+	pointer005:list<number> = ~>test017.ref_source_list
+
+	ref_chain_a:number = ~test017.ref_source_num
+	ref_chain_b:number = ~test017.ref_chain_a
+	ref_chain_c:number = ~test017.ref_chain_b
+
+	"ref.dotted.key":string = "dotted"
+	ref_quoted:string = ~test017.["ref.dotted.key"]
+}
+
+/*
+	Whitespace
+*/
+
+test018:o = {
+	name
+  :
+  string = 
+  "playground"
+
+  zOrder:n = 1
+  aOrder:n = 2
+
+  order001:node = 
+  <
+  	aeon
+  	(
+  		"hello"
+  	)
+  >
+}
+
+/*
+	Recent regressions and depth-policy edges
+*/
+
+test019:o = {
+	quoted_attr_source@{meta = { "x.y":number = 1 }}:number = 0
+	quoted_attr_clone:number = ~test019.quoted_attr_source@meta.["x.y"]
+	quoted_key_scope:o = {
+		"a.b":string = "hello"
+		c:string = ~test019.quoted_key_scope.["a.b"]
+	}
+	root_clone:number = ~$.test017.ref_source_num
+	root_pointer:number = ~>$.test017.ref_source_num
+	same_scope:o = {
+		a:string = "hello"
+		b:string = ~test019.same_scope.a
+	}
+}
+
+// Comments
+//
+// AEON v1 has two comment families:
+// 1. Plain comments: line (//) and block
+// 2. Structured comments (annotation channels):
+//    doc, annotation, hint, host, structure, profile, future
+//
+// Comments never affect the data model.
+
+// plain line comment
+/* plain block comment */
+
+//# line doc comment
+/# block doc comment #/
+
+//@ line annotation
+/@ block annotation @/
+
+//? line hint
+/? block hint ?/
+
+//! host channel line
+
+//{ line structure
+/{ block structure }/
+
+//[ line profile
+/[ block profile ]/
+
+//( line future
+/( block future )/
+
+comment_target1:string = "with doc" //# doc for this binding
+comment_target2:number = 42 //? hint: number = [>=0] ?/
+comment_target3:boolean = true //@ env(selected=true)
+
+/# Multi-line
+   block documentation
+   spanning several lines #/
+comment_target4:string = "documented"
+
+/* block comment between bindings */
+comment_target5:string = "after block"

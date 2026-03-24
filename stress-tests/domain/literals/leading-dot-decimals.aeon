@@ -1,0 +1,6 @@
+metrics:o = {
+  half:number = .5
+  negative:number = -.5
+  positive:number = +.5
+  explicit:number = 0.5
+}

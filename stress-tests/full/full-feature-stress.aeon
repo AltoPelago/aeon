@@ -1,0 +1,109 @@
+//!/bin/aeon --profile=ts.object.v1
+
+//# AEON Core v1 Feature Stress File (current-passable subset)
+aeon:header = {
+  version = "1.0"
+  mode = "transport"
+  profile = "ts.object.v1"
+  schema = "com.example.full.v1"
+}
+
+environment:string = "dev" //@env(selected=true)
+build:int32 = 42
+
+flag:boolean = true
+toggle:switch = on
+count:n = 123
+ratio:float64 = 3.14159
+big:int64 = 9223372036854775807
+
+color:hex = #FF00AA
+binary:radix2 = %101101
+payload:base64 = $QmFzZTY0IQ==
+
+start:date = 2025-01-01
+alarm:string = "09:30:00"
+timestamp:datetime = 2025-01-01T00:00:00Z
+meeting:localDateTime = 2025-01-01T09:30:00
+zoned:zrut = 2025-01-01T00:00:00Z&Australia/Sydney
+
+user@{
+  role = "admin"
+  level = 5
+} = {
+  id = 1
+  name = "Patrik"
+  email = "patrik@example.com"
+}
+
+userCopy = ~user
+userAlias = ~>user
+
+numbers:list<int32> = [
+  1 /# first element doc #/
+  /# binds to second element #/ 2
+  3
+]
+
+secondNumber = ~numbers[1]
+
+point:tuple<int32,int32> = (10, 20)
+coords:tuple<int32,int32> = (3, 4)
+
+size:dim[x] = ^1920x1080
+
+config = {
+  port:int32 = 8080
+  debug:boolean = true
+  tags:list<string> = ["alpha", "beta", "gamma"]
+  limits = {
+    min:int32 = 1
+    max:int32 = 100
+  }
+}
+
+alpha:int32 = 1
+beta = ~alpha
+
+threshold:float64 = 0.75
+
+finance = {
+  revenue:int32 = 100000
+  expense:int32 = 75000
+}
+finance_profit = ~finance.revenue
+
+//# Standalone doc before next binding
+audit = {
+  enabled:boolean = true
+}
+
+/# Block documentation
+   for container binding #/
+emptyList:list<int32> = [ /# container fallback #/ ]
+
+a = {
+  value:int32 = 1
+}
+a_clone = ~a.value
+a_alias = ~>a
+
+r1:int32 = 1
+r2 = ~r1
+r3 = ~r2
+r4 = ~r3
+
+order = {
+  subtotal:int32 = 100
+  tax:int32 = 10
+  total:int32 = 110
+}
+order_check = ~order.total
+
+mixed = ~ /? inline hint ?/ order.total
+
+//? orphan: string = *
+
+close:envelope = {
+  canonical_hash_alg = "sha-256"
+}

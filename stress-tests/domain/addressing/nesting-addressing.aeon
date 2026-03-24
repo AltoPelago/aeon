@@ -1,0 +1,11 @@
+//!/bin/aeon --profile=ts.object.v1
+
+//# Nesting + indexed addressing stress case
+//# Core v1 should emit distinct indexed paths: $.a.b[0].c and $.a.b[1].c.
+
+a = {
+  b = [
+    { c = "hello" },
+    { c = "world" }
+  ]
+}

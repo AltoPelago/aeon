@@ -1,0 +1,24 @@
+{
+  "name": "aeon-52-cards",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cards": "node src/main.js",
+    "cards-summary": "node src/main.js --summary-only",
+    "cards-verbose": "node src/main.js --verbose",
+    "cards-markov": "node src/main.js --markov",
+    "cards-markov-only": "node src/main.js --markov-only",
+    "cards-heatmap": "node src/main.js --heatmap --summary-only"
+  },
+  "dependencies": {
+    "@aeon/aes": "file:../../../implementations/typescript/packages/aes",
+    "@aeon/annotation-stream": "file:../../../implementations/typescript/packages/annotation-stream",
+    "@aeon/canonical": "file:../../../implementations/typescript/packages/canonical",
+    "@aeon/core": "file:../../../implementations/typescript/packages/core",
+    "@aeon/finalize": "file:../../../implementations/typescript/packages/finalize",
+    "@aeon/lexer": "file:../../../implementations/typescript/packages/lexer",
+    "@aeon/parser": "file:../../../implementations/typescript/packages/parser",
+    "@aeon/sdk-internal": "file:../../../implementations/typescript/packages/sdk-internal"
+  }
+}

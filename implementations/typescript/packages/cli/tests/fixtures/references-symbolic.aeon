@@ -1,0 +1,3 @@
+target = { x:int32 = 1 }
+clone = ~target.x
+ptr = ~>target.x

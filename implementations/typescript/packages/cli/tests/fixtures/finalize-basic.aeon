@@ -1,0 +1,7 @@
+name = "AEON"
+count = 3
+config = {
+    host = "localhost"
+    port:int32 = 5432
+}
+flags = [true, false]

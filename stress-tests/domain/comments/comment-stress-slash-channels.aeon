@@ -1,0 +1,42 @@
+//!/bin/aeon --profile=ts.object.v1
+
+/# Comment Stress (r5 target forms) #/
+aeon:header = {
+  version = "2.1"
+  mode = "transport"
+  profile = "ts.object.v1"
+}
+
+//# line doc
+/# block doc #/
+a:int32 = 1 //? line hint
+/? block hint ?/
+
+//@ line annotation
+/@ block annotation @/
+b:int32 = 2
+
+//{ line structure
+/{ block structure }/
+
+//[ line profile
+/[ block profile ]/
+
+//( line instructions
+/( block instructions )/
+
+// plain line comment
+/* plain block comment */
+
+list:list<int32> = [
+  1 /# postfix element doc #/
+  /# prefix element doc #/ 2
+  3
+]
+
+mixed = ~ /? reference hint ?/ list[1]
+
+/# block doc for container #/
+emptyList:list<int32> = [ /# container fallback #/ ]
+
+/? orphan eof ?/

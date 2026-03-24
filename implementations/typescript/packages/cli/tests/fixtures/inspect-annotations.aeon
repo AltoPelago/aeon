@@ -1,0 +1,4 @@
+//# document a
+a = 1 //? required
+//@ tag("x")
+b = 2

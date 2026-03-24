@@ -1,0 +1,95 @@
+---
+color:stroke = #ff00ff
+---
+debug:switch = yes
+---
+label:string = ""
+---
+pair:tuple<n> = (3)
+---
+pair:tuple<n> = (3,)
+---
+node:node = <glyph>
+---
+grid:sep[a] = ^1920x1080
+---
+stamp:datetime = 2025-01-01T09
+---
+top:infinity = Infinity
+---
+bottom:infinity = -Infinity
+---
+zone:zrut = 2025-01-01T00:00:00Z&l
+---
+a:dim = ^300x300
+---
+a:flight = [ 'mel', 'hkg', 'bru' ]
+---
+b:flight = { departure:from = 'mel', destination:to = 'sng' }
+---
+b:room = <room( <kitchen>, <hallway>, <bedroom>
+ <living>, <bathroom>)>
+---
+a:object = { "b.c":number = 1 }
+v:lookup = ~a.["b.c"]
+---
+a@{ "x.y":number = 1 }:number = 3
+v:lookup = ~a@["x.y"]
+---
+a:number = 1
+v:pointer = ~>$.a
+---
+text:trimtick = >> `
+  alpha
+
+  beta
+`
+---
+items:list<string> = [
+  >> `
+    alpha
+
+    beta
+  `
+]
+---
+source:number = 1
+widget:node = <card@{ z:number = +10, "a.b":lookup = ~$.source, meta:object = { y:number = 2, x:number = 1 } }:node(
+  { b:number = 2, a:number = 1 }
+)>
+---
+target:number = 1
+scene:node = <panel@{ "z.k":lookup = ~$.target, alpha:number = 1 }:node(
+  <button@{ action:lookup = ~>$.target }:node>
+)>
+---
+config:object = {
+  zebra:number = 2,
+  alpha:object = { "z.k":number = 9, a:number = 1 },
+  items:list<object> = [
+    { y:number = 2, "a.b":number = 1 },
+    { beta:number = 2, alpha:number = 1 }
+  ]
+}
+---
+/* header note */
+target:number = 1
+scene:node = <panel@{ meta:object = { deep:number = 1 } }:node(
+  <button@{ action:lookup = ~>$.target }:node> // trailing child comment
+)> // trailing node comment
+---
+target:number = 1
+bundle:object = {
+  refs:list<object> = [
+    { "z.k":lookup = ~$.target, ptr:lookup = ~>$.target },
+    { beta:lookup = ~$.target, "a.b":lookup = ~>$.target }
+  ],
+  meta:object = { "z.k":lookup = ~$.target, alpha:lookup = ~>$.target }
+}
+---
+host@{ nested:object = { note:trimtick = >> `
+  hello
+
+  world
+` } }:node = <box>
+---

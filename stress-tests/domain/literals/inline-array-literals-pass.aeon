@@ -1,0 +1,20 @@
+//# Inline array literal pass cases.
+//# These value forms should remain individually delimited inside arrays.
+
+strings = ["alpha", 'beta']
+numbers = [1, -2, 3.5, 1_000]
+booleans = [true, false]
+switches = [on, off, yes, no]
+
+hexes = [#FF00AA, #00FF00]
+radixes = [%1011, %1100]
+encodings = [$QmFzZTY0IQ==, $SGVsbG8=]
+
+dates = [2025-01-01, 2025-12-31]
+datetimes = [2025-01-01T00:00:00Z, 2025-01-01T09:30:00]
+zruts = [2025-01-01T00:00:00Z&Australia/Sydney, 2025-01-01T00:00:00&Local]
+
+refs = [~strings[0], ~numbers[1]]
+objects = [{ a = 1 }, { a = 2 }]
+lists = [[1, 2], [3, 4]]
+tuples = [(1, 2), (3, 4)]

@@ -1,0 +1,123 @@
+---
+a:object = {}
+---
+a = {}
+---
+a:string = ""
+---
+a = ""
+---
+widget:node = <tag:pair("x", "y")>
+---
+glyphTyped:node = <glyph:node>
+---
+target:number = 1
+a = ~target
+---
+a = { "b.c" = 1 }
+v = ~a.["b.c"]
+---
+a@{ ns = 1 } = 3
+v = ~a@ns
+---
+a@{ "x.y" = 1 } = 3
+v = ~a@["x.y"]
+---
+a@{ meta = { "x.y" = 1 } } = 3
+v = ~a@meta.["x.y"]
+---
+a@{ "x.y" = { z = 1 } } = 3
+v = ~a@["x.y"].z
+---
+a@{ meta = { deep = 1 } } = 3
+v = ~a@meta.deep
+---
+a@{ meta = { deep = 1 } } = 3
+v = ~a@["meta"].deep
+---
+a@{ meta = { deep = 1 } } = 3
+v = ~$.a@["meta"].["deep"]
+---
+a = { b = { c = 1 } }
+v = ~$.a.b.c
+---
+a = { b = [10,20] }
+v = ~a.b[1]
+---
+a = 1
+v = ~>$.a
+---
+'hello' = 2
+---
+a:list = []
+---
+a = []
+---
+a:tuple = ()
+---
+a = ()
+---
+c:node = <'a'>
+---
+c = <'a'>
+---
+at:time = 09:
+---
+at = 09:
+---
+ts:datetime = 2025-01-01T09
+---
+ts = 2025-01-01T09
+---
+a = Infinity
+---
+a = -Infinity
+---
+a:infinity = Infinity
+---
+a:infinity = -Infinity
+---
+z5:zrut = 2025-01-01T00:00:00&l
+---
+z5 = 2025-01-01T00:00:00&l
+---
+z5:zrut = 2025-01-01T00:00:00Z&l
+---
+z5 = 2025-01-01T00:00:00&l
+---
+sep3 : sep [x] = ^1920x1080
+---
+sep3  = ^1920x1080
+---
+c:trimtick = >> ``, b:string = ""
+---
+c = >> ``, b = ""
+---
+a:tuple = (3)
+---
+a = (3,)
+---
+a = [3,3,]
+---
+c = {a:node = <a>, b:node = <b>}
+---
+target = 1
+button = <button@{ action = ~>$.target }:node>
+---
+target = 1
+scene = <panel@{ "z.k" = ~$.target, alpha = 1 }:node(
+  <button@{ action = ~>$.target }:node>
+)>
+---
+//? leading doc
+target = 1 // trailing note
+scene = <panel@{ meta = { deep = 1 } }:node(
+  <button@{ action = ~>$.target }:node> /* child note */
+)> // node note
+---
+host@{ nested = { note = >> `
+  hello
+
+  world
+` } }:node = <box>
+---

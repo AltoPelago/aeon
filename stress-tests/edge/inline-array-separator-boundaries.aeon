@@ -1,0 +1,11 @@
+//# Inline separator literal boundary failures.
+//# These cases document current lexer greediness and should fail until
+//# separator literal boundary rules are redesigned.
+
+badInline1 = [ ^0,0 , 0,1 ]
+badInline2 = [ ^0,0,0,1 ]
+badInline3 = [ ^300x250 ]
+
+//# Separator-char collisions that should be rejected by future policy.
+badSepType1:matrix[,][;] = ^1,2,3;4,5,6
+badSepType2:set[,] = ^0,0,0,

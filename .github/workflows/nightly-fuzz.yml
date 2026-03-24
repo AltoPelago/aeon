@@ -1,0 +1,38 @@
+name: Nightly Fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+jobs:
+  phase-fuzz-nightly:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementations/typescript
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.14.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: implementations/typescript/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Phase fuzz (nightly rotation)
+        run: pnpm --filter @aeon/phase-fuzz fuzz:nightly

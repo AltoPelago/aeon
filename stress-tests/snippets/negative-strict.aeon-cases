@@ -1,0 +1,220 @@
+---
+a = 0
+---
+a = ""
+---
+a = []
+---
+a = {}
+---
+a = yes
+---
+a = true
+---
+a = 2025-12-12
+---
+a:number = Infinity
+---
+a:number = -Infinity
+---
+a:infinity = +Infinity
+---
+a:infinity = NaN
+---
+a:infinity = inf
+---
+widget:node = <tag:contact("x")>
+---
+a:object = { {}
+---
+badGeneric1:tuple<> = (1)
+---
+badGeneric2:tuple<int32,> = (1)
+---
+badGeneric3:set<string>[ab] = ^x
+---
+badNode:node = <tag("x")
+---
+badSep:sep[/] = ^root\\]main
+---
+a:list = [1,,2]
+---
+`hello`:number = 2
+---
+b@{n:string=3}:n = 3
+---
+a:number = 1e_2
+---
+a:number = 1e2_
+---
+blue:hex = #FF_FF_FF_
+---
+a:hex = #F__F
+---
+bits:radix = %1/2
+---
+bits:radix = %1.
+---
+payload:base64 = $abc.
+---
+payload:base64 = $abc=a=
+---
+blue:radix = %FF_FF_FF_
+---
+blue:sep = ^ 200
+---
+at:time = 09
+---
+at:time = 24:00
+---
+at:time = 99:99
+---
+at:time = 23:59:60
+---
+at:time = 09:30z
+---
+at:time = 09:+24:99
+---
+ts:datetime = 2025-01-01T
+---
+dt:datetime = 2025-01-01T09z
+---
+dt:datetime = 2025-01-01T09:30z
+---
+dt:datetime = 2025-01-01T09:+24:99
+---
+dt:zrut = 2025-01-01T09:30Z&/
+---
+dt:zrut = 2025-01-01T09:30Z&Europe//Brussels
+---
+dt:zrut = 2025-01-01T09:30Z&Europe/Belgium/
+---
+ts:datetime = 2025-13-40T99:99:99
+---
+ts:datetime = 2025-02-29T09:30:00
+---
+bad:date = 2025-13-40
+---
+bad:date = 2025-02-29
+---
+z4:zrut = 2025-01-01T00:00:00Z
+---
+z5:zrut = 2025-01-01T00:00:00z&l
+---
+z5:zrut = 2025-01-01T00:00:00
+---
+z5:zrut = 2025-01-01T00:00:00&
+---
+z5:zrut = 2025-01-01T00:00:00Z&europe/
+---
+z5:zrut = 2025-01-01T00:00:00Z&/
+---
+/* comment ambiguity */
+z5:zrut = 2025-01-01T00:00:00Z&//
+---
+z5:zrut = 2025-01-01T00:00:00Z&/*comment*/
+---
+c:trimtick = `
+    helloo
+`
+---
+a:string = >`
+    helloo
+`
+---
+a:n = .
+---
+a:n = +.
+---
+a:n = -.
+---
+a:n = e10
+---
+a:n = 1e
+---
+a:n = 1e+
+---
+a:n = 1e-
+---
+a:n = .e2
+---
+a:n = _1
+---
+a:n = 1_
+---
+a:n = 1__2
+---
+a:n = 1._2
+---
+a:n = 1_.2
+---
+a:n = 1e_2
+---
+a:n = 1e+_2
+---
+a:n = 1e-_2
+---
+a:n = ._5
+---
+a:n = ._5e2
+---
+a:n = 1..2
+---
+a:n = 1.2.3
+---
+a:n = 1ee2
+---
+a:n = 1e2.3
+---
+a:n = .5.6
+---
+a:n = 1e+2e3
+---
+a:n = 00
+---
+a:n = 01
+---
+a:n = 0123
+---
+a:n = 00.5
+---
+a:n = 01.2
+---
+a:n = 001e3
+---
+a:n = NaN
+---
+a:n = Infinity
+---
+a:n = -Infinity
+---
+a:n = +Infinity
+---
+a:hex = #F#
+---
+a:hex = ##f
+---
+a:hex = # F
+---
+a:hex = #fff fff
+---
+a:hex = #ffff#ffff
+---
+a:hex == #FFF
+---
+a@{}: = #FFF
+---
+file2:sep[/] = ^[root/main/file.aeon]
+---
+file2:sep[/] = ^{root/main/file.aeon}
+---
+file2:sep[/] = ^(root/main/file.aeon)
+---
+filex:sep[/] = [^root/main/file.aeon]
+---
+file2:sep[/] = ^root/main/file.aeon]
+---
+file2:sep[/] = ^root/main/file.aeon}
+---
+file2:sep[/] = ^root/main/file.aeon)
+---

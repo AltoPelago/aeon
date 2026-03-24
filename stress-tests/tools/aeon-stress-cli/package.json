@@ -1,0 +1,21 @@
+{
+  "name": "aeon-stress-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "stress": "node src/run-stress.js",
+    "stress-advanced": "node src/run-stress-advanced.js",
+    "phase-timing": "node src/run-phase-timing.js"
+  },
+  "dependencies": {
+    "@aeon/aes": "file:../../../implementations/typescript/packages/aes",
+    "@aeon/annotation-stream": "file:../../../implementations/typescript/packages/annotation-stream",
+    "@aeon/canonical": "file:../../../implementations/typescript/packages/canonical",
+    "@aeon/core": "file:../../../implementations/typescript/packages/core",
+    "@aeon/finalize": "file:../../../implementations/typescript/packages/finalize",
+    "@aeon/lexer": "file:../../../implementations/typescript/packages/lexer",
+    "@aeon/parser": "file:../../../implementations/typescript/packages/parser",
+    "@aeon/sdk-internal": "file:../../../implementations/typescript/packages/sdk-internal"
+  }
+}

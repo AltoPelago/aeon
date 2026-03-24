@@ -1,0 +1,374 @@
+---
+a:object = { {}
+---
+a:o = ""
+---
+a:o = {
+---
+a:list = [1,,2]
+---
+badGeneric1:tuple<> = (1)
+---
+badGeneric2:tuple<int32,> = (1)
+---
+badGeneric3:set<string>[ab] = ^x
+---
+widget:node = <tag:pair<int32,string>("x")>
+---
+widget:node = <tag:contact[x]("x")>
+---
+a:node = <
+  b:n = 1
+}
+---
+a:node = <a> <b> <c> <d>
+---
+a:node = <a>,,<b>,,<c>,,<d>
+---
+a:string = "hello", "world"
+b:string = "more"
+---
+a:node = <hello( <br>, br>)
+---
+badNode:node = <tag("x")
+---
+badSep:sep[/] = ^root\\]main
+---
+a:string =  -"hello"
+b:number = -"hello"
+---
+a:number = --2.0
+---
+b:nunber = ++234.234
+---
+c:number = +00.5
+---
+c:number = -00.5
+---
+c:number = +e3
+---
+c:number = _22_22
+---
+c:number = 3_e3
+---
+c:number = 3e3_3
+---
+c:number = 3e3__3
+---
+c:number = 33__3
+---
+c:number = 3.2.3
+---
+c:number = 3..3
+---
+c:number = 3.
+---
+c:number = 3. 02
+---
+c:number = 3._02
+---
+target:number = 1
+a:string = ~target
+c:number == 0
+---
+c:number, b:number = 2
+---
+a@n:number = 2
+---
+a@n:number:number = 2
+---
+c:number:number = 2
+---
+`hello`:number = 2
+---
+'hello':string:string = "world"
+---
+hello:string = ("hello")
+---
+hello:tuple = ["hello"]
+---
+hello:list = ("hello")
+---
+hello:string = <a>
+---
+n:node = <a>,<a>,<a>,<a>
+---
+b@{n:node=[<a>,<br>]}:n = 3
+---
+b@{n:string=3}:n = 3
+---
+blue:hex = #FF_FF_FF_
+---
+a:hex = #F__F
+---
+a:hex = #_FF
+---
+blue:radix = %FF_FF_FF_
+---
+a:radix = %F__F
+---
+a:radix = %_FF
+---
+blue:hex = #_
+---
+blue:hex = # FFFF
+---
+blue:hex = #
+---
+blue:string = ~
+---
+blue:sep = ^
+---
+blue:sep = ^ 200
+---
+blue:radix = &
+---
+blue:radix = & AAA
+---
+blue:radix = %
+---
+blue:encode = $
+---
+bits:radix = %1/2
+---
+bits:radix = %1.
+---
+payload:base64 = $abc.
+---
+payload:base64 = $abc=a=
+---
+blue:hex = #FF#
+---
+blue:base64 = $ FFF
+---
+blue:node = @
+---
+blu:boolean = !
+---
+blu:boolean = truet
+---
+blu:boolean = tr_ue
+---
+a:switch = yesno
+---
+a:switch = yes,no
+---
+a:switch = yes
+no
+---
+a:switch = true
+---
+a:switch = false
+---
+a:boolean = yes
+---
+a:boolean = 'false'
+---
+a:boolean = 0
+---
+a:boolean = 1
+---
+a:boolean = True
+---
+a:boolean = False
+---
+a:swith = Yes
+---
+a:switch = Off
+---
+a:switch = 0
+---
+a:switch = 1
+---
+a:string = \"hello world\"
+---
+n:node = <>
+---
+c:node = <@{n="hello"}>
+---
+c:node = <(<a>)>
+---
+c:node = <()>
+---
+at:time = 09:z
+---
+at:time = 09
+---
+at:time = 24:00
+---
+at:time = 99:99
+---
+at:time = 23:59:60
+---
+at:time = 09:30z
+---
+at:time = 09:+24:99
+---
+at:time = 09:0
+---
+at:time = 09:0:0
+---
+at:time = 09:30:
+---
+at:time = 09::0::0
+---
+at:time = 09::00
+---
+ts:datetime = 2025-01-01T
+---
+dt:datetime = 2025-01-01T09z
+---
+dt:datetime = 2025-01-01T09:30z
+---
+dt:datetime = 2025-01-01T09:+24:99
+---
+dt:zrut = 2025-01-01T09:30Z&/
+---
+dt:zrut = 2025-01-01T09:30Z&Europe//Brussels
+---
+dt:zrut = 2025-01-01T09:30Z&Europe/Belgium/
+---
+ts:datetime = 2025-13-40T99:99:99
+---
+ts:datetime = 2025-02-29T09:30:00
+---
+ts:datetime = 2025-01-01T09:
+---
+ts:date = 2025-
+---
+ts:date = 2025-10
+---
+ts:date = 2025-1-10
+---
+ts:date = 2025-10-1
+---
+ts:date = 2025-1-1
+---
+bad:date = 2025-13-40
+---
+bad:date = 2025-02-29
+---
+a:'string' = 'hello world'
+---
+a:"string" = 'hello world'
+---
+a:tuple<'n'> =(3)
+---
+aa:tuple<string> =(3)
+---
+a:trimtick = >>'hello'
+---
+a:trimtick = >"hello"
+---
+string014:string = '\ufrom'
+---
+string014:string = '\u{from}'
+---
+string013:string = '\u{.}'
+---
+string013:string = '\u{}'
+---
+string013:string = '\ua}'
+---
+string013:string = '\ulalalalala'
+---
+string013:string = '\u{aaaaaa}'
+---
+ratio:n = 3.14e-
+---
+radix17:radix =%ABCDEFGHIJKLMNOPQR*STUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
+---
+z1:zrut = 2025-01-01T00:00:00Z&/
+---
+z2:zrut = 2025-01-01T00:00:00Z&a//a
+---
+z4:zrut = 2025-01-01T00:00:00Z
+---
+z5:zrut = 2025-01-01T00:00:00Z&a&
+---
+z5:zrut = 2025-01-01T00:00:00Z&&
+---
+z5:zrut = 2025-01-01T00:00:00Z&&
+---
+string009:string = ''''
+---
+string009:string = """"
+---
+string009:string = ''''
+---
+sep3:sep[xx] = ^1920x1080
+---
+sep3:sep[] = ^1920x1080
+---
+sep3 : sep [x] = ^ 1920x1080
+---
+sep3 : sep [x] = ^ 1920 x 1080
+---
+sep3 : sep [x] = ^ 1920,1080
+---
+c:trimtick = `
+    helloo
+`
+---
+a:string = >`
+    helloo
+`
+---
+a:string = >>`
+    helloo
+`
+---
+a:string = >>>`
+    helloo
+`
+---
+a:string = >>>>`
+    helloo
+`
+---
+c:trimtick = >>>>>`
+    helloo
+`
+---
+c:trimtick = > >`
+    helloo
+`
+---
+c:trimtick = >>,b:string="hello"
+---
+a = 0
+---
+a = ""
+---
+a = ^900
+---
+a = []
+---
+a = {}
+---
+a = ()
+---
+a = #f
+---
+a = $f
+---
+a = yes
+---
+a = true
+---
+a = %f
+---
+a = 2025-12-12
+---
+a:node = (<a>)
+---
+a:node = <a></a>
+---
+a:node =  <br/>
+---
+a:node = <a, b, c, d>
+---
+a:tuple<n> = (3)
+---
+z5:zrut = 2025-01-01T00:00:00z&l
+---
