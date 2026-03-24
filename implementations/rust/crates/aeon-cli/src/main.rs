@@ -1060,7 +1060,10 @@ fn cts_adapter() -> Result<ExitCode, String> {
 }
 
 fn default_contract_registry_path() -> String {
-    workspace_root()
+    specs_repo_root()
+        .join("aeon")
+        .join("v1")
+        .join("drafts")
         .join("contracts")
         .join("registry.json")
         .to_string_lossy()
@@ -1073,6 +1076,37 @@ fn workspace_root() -> PathBuf {
         .nth(4)
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+}
+
+fn family_root() -> PathBuf {
+    workspace_root()
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(workspace_root)
+}
+
+fn repo_root_from_env(env_key: &str, default_segments: &[&str]) -> PathBuf {
+    if let Some(path) = env::var_os(env_key).filter(|value| !value.is_empty()) {
+        return PathBuf::from(path);
+    }
+
+    let mut root = family_root();
+    for segment in default_segments {
+        root.push(segment);
+    }
+    root
+}
+
+fn specs_repo_root() -> PathBuf {
+    repo_root_from_env("AEONITE_SPECS_ROOT", &["aeonite-org", "aeonite-specs"])
+}
+
+fn examples_repo_root() -> PathBuf {
+    repo_root_from_env(
+        "AEON_EXAMPLES_PRIVATE_ROOT",
+        &["altopelago", "aeon-examples-private"],
+    )
 }
 
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
@@ -3045,33 +3079,36 @@ mod tests {
     use super::*;
     use aeon_annotations::extract_annotations;
     use aeon_core::{compile, CompileOptions};
-    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn normalize(text: &str) -> String {
         text.replace("\r\n", "\n").trim_end().to_string()
     }
 
-    fn repo_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../..")
-    }
-
-    fn repo_path(relative: &str) -> String {
-        repo_root().join(relative).to_string_lossy().into_owned()
-    }
-
     fn fixture_path(name: &str) -> String {
-        repo_path(&format!(
-            "implementations/typescript/packages/cli/tests/fixtures/{name}"
-        ))
+        workspace_root()
+            .join("implementations")
+            .join("typescript")
+            .join("packages")
+            .join("cli")
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn example_path(relative: &str) -> String {
-        repo_path(&format!("examples/{relative}"))
+        let base = if relative.starts_with("contracts-baseline/") {
+            examples_repo_root().join("shared")
+        } else {
+            examples_repo_root().join("typescript")
+        };
+        base.join(relative).to_string_lossy().into_owned()
     }
 
     fn contract_registry_path() -> String {
-        repo_path("contracts/registry.json")
+        default_contract_registry_path()
     }
 
     fn schema_contract_aeon_text(schema_id: &str) -> String {
