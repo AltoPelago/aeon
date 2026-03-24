@@ -1,6 +1,6 @@
 {
   "name": "@aeon/cli",
-  "version": "0.0.1",
+  "version": "0.9.0",
   "type": "module",
   "bin": {
     "aeon": "./dist/main.js"

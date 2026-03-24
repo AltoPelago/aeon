@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aeon-aeos"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "aeon-core",
  "regex",
@@ -14,21 +14,21 @@ dependencies = [
 
 [[package]]
 name = "aeon-annotations"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "aeon-core",
 ]
 
 [[package]]
 name = "aeon-canonical"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "aeon-core",
 ]
 
 [[package]]
 name = "aeon-cli"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "aeon-aeos",
  "aeon-annotations",
@@ -44,11 +44,11 @@ dependencies = [
 
 [[package]]
 name = "aeon-core"
-version = "0.1.0"
+version = "0.9.0"
 
 [[package]]
 name = "aeon-finalize"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "aeon-core",
  "serde",

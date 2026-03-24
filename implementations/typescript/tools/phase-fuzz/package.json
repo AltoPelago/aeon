@@ -1,6 +1,6 @@
 {
   "name": "@aeon/phase-fuzz",
-  "version": "0.0.1",
+  "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

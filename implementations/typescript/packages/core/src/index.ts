@@ -35,7 +35,7 @@ export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type Ho
 // PUBLIC API
 // =============================================================================
 
-export const VERSION = '0.0.1';
+export const VERSION = '0.9.0';
 
 /**
  * Union of all possible AEON errors

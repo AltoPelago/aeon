@@ -1,6 +1,6 @@
 # Release notes — @aeon/annotation-cts-runner
 
-## 0.0.1 (unreleased)
+## 0.9.0 (unreleased)
 
 - Initial scaffold of annotation-stream CTS runner
 - Adds CLI wrapper `aeon-annotation-cts-runner` to run annotation CTS suites
