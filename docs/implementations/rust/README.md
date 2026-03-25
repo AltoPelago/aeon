@@ -138,7 +138,6 @@ The Rust workspace README also tracks a macOS-specific release-binary note for l
 
 Relevant helper:
 
-- [`scripts/resign-rust-release.sh`](../../../scripts/resign-rust-release.sh)
 
 ## Boundary Note
 

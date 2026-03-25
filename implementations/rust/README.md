@@ -124,7 +124,6 @@ If `./target/release/aeon-rust help` hangs but `./target/debug/aeon-rust help`
 works, re-sign the release binary ad hoc:
 
 ```bash
-scripts/resign-rust-release.sh
 ```
 
 This produces a plain ad-hoc signature and has been sufficient to restore

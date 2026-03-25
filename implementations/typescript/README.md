@@ -56,7 +56,6 @@ pnpm --filter @aeon/cli test
 
 - `packages/` - published libraries and the CLI
 - `tools/` - implementation-specific runners and utilities
-- `internal-release/` - archival `0.0.1` packaging metadata only; not current `0.9.0` release state
 - `../../scripts/` - implementation-side helpers used by this workspace
 - sibling `aeonite-org/aeonite-cts/cts/` - language-neutral conformance suites
 - sibling tooling repo - shared CTS source-lane runner support today; this path is resolved through the repo helper layer rather than hardcoded in package scripts

@@ -28,6 +28,4 @@ Current public-readiness classification:
   - `stress-negative-snippets.py`
   - `stress-canonical-snippets.py`
 - likely archival or release-maintenance:
-  - `pack-sdk-internal.sh`
-  - `release-cut.sh`
-  - `resign-rust-release.sh`
+  - none currently retained

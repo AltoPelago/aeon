@@ -15,7 +15,6 @@ public `aeon` implementation surface.
 - decide whether the current script classification in `scripts/README.md` is final
 - decide whether `stress-tests/` stays entirely in `aeon` or is partly reduced further as public-facing implementation hardening material
 - keep replacing remaining private-oriented naming in env vars and docs where neutral names are preferable
-- decide the fate of archival packaging helpers such as `implementations/typescript/internal-release/`
 - add public release framing, versioning guidance, and contributor-facing repo documentation for the future `aeon` repo
 - verify that all sibling references use stable authority surfaces:
   - `aeonite-org/aeonite-specs`
