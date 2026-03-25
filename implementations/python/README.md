@@ -147,3 +147,5 @@ Run the repo-level canonical parity harness, which executes the full TypeScript 
 cd ../..
 python3 ./scripts/compare-canonical-implementations.py
 ```
+
+The Rust CLI also supports a future-facing sibling examples override via `AEON_EXAMPLES_ROOT`.

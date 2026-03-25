@@ -1103,10 +1103,11 @@ fn specs_repo_root() -> PathBuf {
 }
 
 fn examples_repo_root() -> PathBuf {
-    repo_root_from_env(
-        "AEON_EXAMPLES_PRIVATE_ROOT",
-        &["altopelago", "aeon-examples-private"],
-    )
+    if let Some(path) = env::var_os("AEON_EXAMPLES_ROOT").filter(|value| !value.is_empty()) {
+        return PathBuf::from(path);
+    }
+
+    repo_root_from_env("AEON_EXAMPLES_PRIVATE_ROOT", &["altopelago", "aeon-examples-private"])
 }
 
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {

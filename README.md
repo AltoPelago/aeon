@@ -24,9 +24,16 @@ The main environment overrides are:
 - `AEON_TOOLING_ROOT`
 - `AEONITE_SPECS_ROOT`
 
+Future-facing sibling alias:
+
+- `AEON_EXAMPLES_ROOT`
+
 Backward-compatible alias:
 
 - `AEON_TOOLING_PRIVATE_ROOT`
+- `AEON_EXAMPLES_PRIVATE_ROOT`
 
 TypeScript generated outputs under `implementations/typescript/**/dist/` are build artifacts, not source of truth.
 The expected workflow in this repo is to install dependencies and build locally before running CTS or package tests.
+
+See [PUBLIC-READINESS.md](./PUBLIC-READINESS.md) for the remaining work before this repo can become the public `aeon` surface.
