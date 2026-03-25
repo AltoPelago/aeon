@@ -1,6 +1,6 @@
-# AEON Private
+# AEON Implementation Workspace
 
-This repository is the private maintenance surface for the core AEON implementations.
+Core AEON implementation workspace.
 
 It currently contains:
 
@@ -21,8 +21,12 @@ Centralized sibling-path resolution lives under:
 The main environment overrides are:
 
 - `AEONITE_CTS_ROOT`
-- `AEON_TOOLING_PRIVATE_ROOT`
+- `AEON_TOOLING_ROOT`
 - `AEONITE_SPECS_ROOT`
+
+Backward-compatible alias:
+
+- `AEON_TOOLING_PRIVATE_ROOT`
 
 TypeScript generated outputs under `implementations/typescript/**/dist/` are build artifacts, not source of truth.
 The expected workflow in this repo is to install dependencies and build locally before running CTS or package tests.

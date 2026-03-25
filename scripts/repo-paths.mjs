@@ -3,6 +3,7 @@
 import path from 'node:path';
 
 export const AEONITE_CTS_ROOT_ENV = 'AEONITE_CTS_ROOT';
+export const AEON_TOOLING_ROOT_ENV = 'AEON_TOOLING_ROOT';
 export const AEON_TOOLING_PRIVATE_ROOT_ENV = 'AEON_TOOLING_PRIVATE_ROOT';
 export const AEONITE_SPECS_ROOT_ENV = 'AEONITE_SPECS_ROOT';
 
@@ -19,9 +20,14 @@ export function getAeoniteCtsRoot() {
     || path.resolve(getFamilyRoot(), 'aeonite-org', 'aeonite-cts', 'cts');
 }
 
-export function getAeonToolingPrivateRoot() {
-  return process.env[AEON_TOOLING_PRIVATE_ROOT_ENV]
+export function getAeonToolingRoot() {
+  return process.env[AEON_TOOLING_ROOT_ENV]
+    || process.env[AEON_TOOLING_PRIVATE_ROOT_ENV]
     || path.resolve(getFamilyRoot(), 'altopelago', 'aeon-tooling-private');
+}
+
+export function getAeonToolingPrivateRoot() {
+  return getAeonToolingRoot();
 }
 
 export function getAeoniteSpecsRoot() {
@@ -33,7 +39,8 @@ export function withRepoPathEnv(baseEnv = process.env) {
   return {
     ...baseEnv,
     [AEONITE_CTS_ROOT_ENV]: getAeoniteCtsRoot(),
-    [AEON_TOOLING_PRIVATE_ROOT_ENV]: getAeonToolingPrivateRoot(),
+    [AEON_TOOLING_ROOT_ENV]: getAeonToolingRoot(),
+    [AEON_TOOLING_PRIVATE_ROOT_ENV]: getAeonToolingRoot(),
     [AEONITE_SPECS_ROOT_ENV]: getAeoniteSpecsRoot(),
   };
 }

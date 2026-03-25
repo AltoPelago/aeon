@@ -41,7 +41,7 @@ For CLI spot checks, prefer the repo wrapper [./bin/aeon-python](./bin/aeon-pyth
 
 ```bash
 cd implementations/python
-./bin/aeon-python inspect ../../examples/aeon-1-hello-world/hello.aeon --json
+./bin/aeon-python inspect ../../stress-tests/full/full-feature-stress.aeon --json
 ```
 
 Finalize compiled events to a JSON-like document:
@@ -74,7 +74,7 @@ Annotation-only JSON:
 
 ```bash
 cd implementations/python
-./bin/aeon-python inspect ../../examples/aeon-1-hello-world/hello.aeon --json --annotations-only
+./bin/aeon-python inspect ../../stress-tests/full/full-feature-stress.aeon --json --annotations-only
 ```
 
 AEOS CTS adapter mode:
@@ -105,6 +105,10 @@ Those commands fall back to the sibling `aeonite-org/aeonite-cts` checkout autom
 The sibling roots can be overridden with:
 
 - `AEONITE_CTS_ROOT`
+- `AEON_TOOLING_ROOT`
+
+Backward-compatible alias:
+
 - `AEON_TOOLING_PRIVATE_ROOT`
 
 Run all supported CTS lanes from one command:
@@ -134,7 +138,7 @@ Compare a subset of fixtures:
 
 ```bash
 cd implementations/python
-python3 tools/compare_with_typescript.py ../../examples/aeon-1-hello-world/hello.aeon ../../stress-tests/canonical/node-introducer-singleline.aeon
+python3 tools/compare_with_typescript.py ../../stress-tests/full/full-feature-stress.aeon ../../stress-tests/canonical/node-introducer-singleline.aeon
 ```
 
 Run the repo-level canonical parity harness, which executes the full TypeScript and Python suites first and then compares `fmt` output across the shared fixture corpus:

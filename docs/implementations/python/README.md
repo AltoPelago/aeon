@@ -92,7 +92,7 @@ Example:
 
 ```bash
 cd implementations/python
-./bin/aeon-python inspect ../../examples/aeon-1-hello-world/hello.aeon --json
+./bin/aeon-python inspect ../../stress-tests/full/full-feature-stress.aeon --json
 ```
 
 ## Tests
