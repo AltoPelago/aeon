@@ -12,6 +12,7 @@ API references:
 - [AEOS API](./api/aeos.md)
 - [Profiles API](./api/profiles.md)
 - [Runtime API](./api/runtime.md)
+- [Convenience Layer Proposal](./api/sdk-proposal.md)
 - [CLI API](./api/cli.md)
 
 Behavior and controls:
