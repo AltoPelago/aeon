@@ -2,6 +2,8 @@
 
 Core AEON implementation workspace.
 
+License: MIT. See [LICENSE](./LICENSE).
+
 It currently contains:
 
 - `implementations/`
