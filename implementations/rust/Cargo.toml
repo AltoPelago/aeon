@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/aeon-sdk",
     "crates/aeon-aeos",
     "crates/aeon-annotations",
     "crates/aeon-canonical",

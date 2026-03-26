@@ -42,6 +42,7 @@ This workspace is now an active implementation rather than a placeholder scaffol
 
 The current crates include:
 
+- `aeon-sdk`
 - `aeon-core`
 - `aeon-annotations`
 - `aeon-aeos`

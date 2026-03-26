@@ -16,6 +16,7 @@ Rust workspace root:
 
 Current workspace members:
 
+- `aeon-sdk`
 - `aeon-core`
 - `aeon-annotations`
 - `aeon-aeos`
@@ -64,6 +65,13 @@ Finalization/materialization:
   - `finalize_map(events, options) -> FinalizeMapResult`
   - `from_aeon_str<T>(source, options) -> Result<T, MaterializeError>`
   - `finalize_into<T>(events, options) -> Result<T, MaterializeError>`
+
+Application convenience layer:
+
+- crate: `aeon-sdk`
+- primary entry points:
+  - `load_str::<T>(source, options) -> Result<LoadedDocument<T>, AeonLoadError>`
+  - `load_file::<T>(path, options) -> Result<LoadedDocument<T>, AeonLoadError>`
 
 CLI:
 
