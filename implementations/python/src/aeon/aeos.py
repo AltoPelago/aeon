@@ -147,6 +147,16 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     }
 
 
+def validate_events(events: list[dict[str, object]], schema: dict[str, object], options: dict[str, object] | None = None) -> dict[str, object]:
+    normalized: list[dict[str, object]] = []
+    for event in events:
+        path = event.get("path")
+        if not isinstance(path, str):
+            continue
+        normalized.append({**event, "path": canonical_path_to_json(path)})
+    return validate(normalized, schema, options)
+
+
 def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, dict[str, object]]:
     index: dict[str, dict[str, object]] = {}
     datatype_allowlist = schema.get("datatype_allowlist")
@@ -387,6 +397,50 @@ def format_canonical_path(path: object) -> str:
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
     return result or "$"
+
+
+def canonical_path_to_json(path: str) -> dict[str, object]:
+    segments: list[dict[str, object]] = [{"type": "root"}]
+    index = 1 if path.startswith("$") else 0
+    while index < len(path):
+        if path[index] == ".":
+            if path.startswith('.["', index):
+                key, index = parse_quoted_member(path, index + 3)
+                segments.append({"type": "member", "key": key})
+            else:
+                start = index + 1
+                end = start
+                while end < len(path) and path[end] not in ".[":
+                    end += 1
+                segments.append({"type": "member", "key": path[start:end]})
+                index = end
+                continue
+        elif path[index] == "[":
+            end = path.index("]", index)
+            segments.append({"type": "index", "index": int(path[index + 1:end], 10)})
+            index = end + 1
+            continue
+        index += 1
+    return {"segments": segments}
+
+
+def parse_quoted_member(path: str, start: int) -> tuple[str, int]:
+    value_chars: list[str] = []
+    index = start
+    while index < len(path):
+        char = path[index]
+        if char == "\\":
+            index += 1
+            if index >= len(path):
+                break
+            value_chars.append(path[index])
+            index += 1
+            continue
+        if char == '"' and index + 1 < len(path) and path[index + 1] == "]":
+            return "".join(value_chars), index + 2
+        value_chars.append(char)
+        index += 1
+    raise ValueError(f"Invalid canonical path: {path}")
 
 
 def to_span_tuple(span: object) -> list[int] | None:

@@ -49,12 +49,25 @@ Finalize compiled events to a JSON-like document:
 ```bash
 cd implementations/python
 python3 - <<'PY'
-from aeon import compile_source, finalize_json
+from aeon import load_text
 
-source = 'greeting:string = "Hello"'
-compiled = compile_source(source)
-finalized = finalize_json(compiled.events)
-print(finalized["document"])
+loaded = load_text('greeting:string = "Hello"')
+loaded.require_ok()
+print(loaded.document)
+PY
+```
+
+Load from disk and access a finalized value directly:
+
+```bash
+cd implementations/python
+python3 - <<'PY'
+from pathlib import Path
+from aeon import load_file
+
+loaded = load_file(Path('../../stress-tests/full/full-feature-stress.aeon'))
+loaded.require_ok()
+print(loaded.get('$.numbers[1]'))
 PY
 ```
 
