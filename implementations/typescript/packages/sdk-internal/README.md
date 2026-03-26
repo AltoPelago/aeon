@@ -1,32 +1,10 @@
 # @aeon/sdk-internal
 
-Internal convenience package for AEON read/write flows during integration testing.
+Compatibility wrapper around `@aeon/sdk`.
 
 ## Quick Start
 
-```ts
-import { readAeonStrictCustom, writeAeon } from '@aeon/sdk-internal';
-
-const emitted = writeAeon({ app: 'todo', version: 1, todos: [] }, {
-  includeHeader: true,
-  header: {
-    encoding: 'utf-8',
-    mode: 'loose',
-    profile: 'aeon.gp.profile.v1',
-    version: 1,
-  },
-});
-
-const parsed = readAeonStrictCustom(`
-aeon:mode = "strict"
-message:msgContainer = {
-  bodyText:body = {
-    msg:string = "Hello"
-  }
-  random:salt = 0.123456
-}
-`);
-```
+Prefer `@aeon/sdk` for new code.
 
 ## What This Package Does
 
@@ -45,5 +23,5 @@ message:msgContainer = {
 
 ## Notes
 
-- This is an internal convenience layer, not the primary public entrypoint.
-- Prefer `@aeon/core`, `@aeos/core`, `@aeon/runtime`, or `@aeon/canonical` directly for stable package-level usage.
+- This package exists only as a short-lived compatibility bridge.
+- New code should use `@aeon/sdk`.

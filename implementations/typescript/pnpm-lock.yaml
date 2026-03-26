@@ -166,7 +166,7 @@ importers:
         specifier: workspace:*
         version: link:../aeos
 
-  packages/sdk-internal:
+  packages/sdk:
     dependencies:
       '@aeon/canonical':
         specifier: workspace:*
@@ -177,6 +177,12 @@ importers:
       '@aeon/finalize':
         specifier: workspace:*
         version: link:../finalize
+
+  packages/sdk-internal:
+    dependencies:
+      '@aeon/sdk':
+        specifier: workspace:*
+        version: link:../sdk
 
   packages/tonic:
     dependencies:

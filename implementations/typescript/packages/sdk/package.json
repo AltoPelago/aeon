@@ -1,7 +1,6 @@
 {
-  "name": "@aeon/sdk-internal",
+  "name": "@aeon/sdk",
   "version": "0.9.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +11,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -21,6 +24,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeon/sdk": "workspace:*"
+    "@aeon/core": "workspace:*",
+    "@aeon/finalize": "workspace:*",
+    "@aeon/canonical": "workspace:*"
   }
 }
