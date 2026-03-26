@@ -39,3 +39,5 @@ TypeScript generated outputs under `implementations/typescript/**/dist/` are bui
 The expected workflow in this repo is to install dependencies and build locally before running CTS or package tests.
 
 Governance and contribution expectations are tracked in [GOVERNANCE.md](./GOVERNANCE.md).
+
+Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.md](./RELEASING.md).
