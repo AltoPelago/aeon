@@ -3,6 +3,34 @@
 Manual AEON stress fixtures and tooling for smoke validation.
 Last verified: 2026-03-10.
 
+## Public Surface Role
+
+This tree is kept in the implementation repo as hardening and parity material,
+not as the canonical conformance authority.
+
+Public-readiness classification:
+
+- `canonical/`
+  - implementation hardening copies of canonicalization-sensitive fixtures
+  - some reduced cases are already promoted into `aeonite-cts`
+- `edge/`
+  - implementation hardening negatives and boundary cases
+  - reduced deterministic cases may later be promoted into `aeonite-cts`
+- `domain/`
+  - feature-family hardening corpora used to prevent implementation drift
+- `full/`
+  - broad kitchen-sink implementation stress documents
+- `snippets/`
+  - editable parity corpora for positive/negative/canonical smoke work
+- `tools/`
+  - implementation-owned stress harnesses, not normative conformance tooling
+
+Rule of thumb:
+
+- if a fixture is normative and should gate public conformance, promote or
+  reduce it into `aeonite-cts`
+- if a fixture is primarily implementation hardening, keep it here
+
 ## Current Baseline
 
 | Lane | Command | Current expectation |
@@ -226,6 +254,6 @@ Compare only a subset of fixtures:
 
 ```bash
 python3 ./scripts/compare-canonical-implementations.py \
-  ./examples/aeon-1-hello-world/hello.aeon \
+  ./stress-tests/full/full-feature-stress.aeon \
   ./stress-tests/full/scenarios.aeon
 ```

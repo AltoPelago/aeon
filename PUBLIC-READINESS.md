@@ -13,7 +13,7 @@ public `aeon` implementation surface.
 ## Remaining work
 
 - decide whether the current script classification in `scripts/README.md` is final
-- decide whether `stress-tests/` stays entirely in `aeon` or is partly reduced further as public-facing implementation hardening material
+- keep `stress-tests/` as implementation hardening material, but continue promoting clearly normative reductions into `aeonite-cts`
 - keep replacing remaining private-oriented naming in env vars and docs where neutral names are preferable
 - add public release framing, versioning guidance, and contributor-facing repo documentation for the future `aeon` repo
 - verify that all sibling references use stable authority surfaces:
