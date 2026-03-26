@@ -4,6 +4,10 @@ This section documents the Rust implementation as an implementation, not as the 
 
 The pages here are informative. They describe the current Rust workspace structure, public crate entry points, CLI scope, and implementation-specific operational notes.
 
+Related design note:
+
+- [`api/sdk-proposal.md`](./api/sdk-proposal.md)
+
 ## Workspace
 
 Rust workspace root:
