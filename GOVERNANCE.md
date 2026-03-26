@@ -14,6 +14,8 @@ This repository is maintained under a single-maintainer model.
 - outside code contributions are not part of the default workflow
 - pull requests should not be assumed to be accepted or reviewed as a normal governance path
 - changes are maintained directly by the maintainer unless an invited collaboration is made explicit
+- forks, independent implementations, downstream tooling, and ecosystem experiments are encouraged
+- alternate implementations should track the published specification and conformance authority surfaces where applicable
 
 ## Authority boundaries
 
