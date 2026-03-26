@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import fs from 'node:fs';
 import path from 'node:path';
 
 export const AEONITE_CTS_ROOT_ENV = 'AEONITE_CTS_ROOT';
@@ -21,9 +22,12 @@ export function getAeoniteCtsRoot() {
 }
 
 export function getAeonToolingRoot() {
+  const publicDefault = path.resolve(getFamilyRoot(), 'altopelago', 'aeon-tooling');
   return process.env[AEON_TOOLING_ROOT_ENV]
     || process.env[AEON_TOOLING_PRIVATE_ROOT_ENV]
-    || path.resolve(getFamilyRoot(), 'altopelago', 'aeon-tooling-private');
+    || (fs.existsSync(publicDefault)
+      ? publicDefault
+      : path.resolve(getFamilyRoot(), 'altopelago', 'aeon-tooling-private'));
 }
 
 export function getAeonToolingPrivateRoot() {

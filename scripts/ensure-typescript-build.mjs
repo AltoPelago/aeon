@@ -16,7 +16,7 @@ const requiredOutputs = [
 const missing = requiredOutputs.filter((file) => !fs.existsSync(file));
 
 if (missing.length > 0) {
-  console.error('Missing built TypeScript artifacts in aeon-private.');
+  console.error('Missing built TypeScript artifacts in aeon.');
   console.error('Run `pnpm install` and `pnpm build` in `implementations/typescript` before running CTS or package tests.');
   for (const file of missing) {
     console.error(`- ${path.relative(repoRoot, file)}`);

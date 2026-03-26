@@ -19,7 +19,7 @@ This repository is maintained under a single-maintainer model.
 
 ## Authority boundaries
 
-- implementation authority lives in the future public `aeon` repo
+- implementation authority lives in this repo
 - specification authority lives in `aeonite-org/aeonite-specs`
 - conformance authority lives in `aeonite-org/aeonite-cts`
 

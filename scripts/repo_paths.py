@@ -27,11 +27,12 @@ def get_aeonite_cts_root() -> Path:
 
 
 def get_aeon_tooling_root() -> Path:
+    public_default = get_family_root() / "altopelago" / "aeon-tooling"
     return Path(
         os.environ.get(AEON_TOOLING_ROOT_ENV)
         or os.environ.get(
             AEON_TOOLING_PRIVATE_ROOT_ENV,
-            str(get_family_root() / "altopelago" / "aeon-tooling-private"),
+            str(public_default if public_default.exists() else get_family_root() / "altopelago" / "aeon-tooling-private"),
         )
     )
 
