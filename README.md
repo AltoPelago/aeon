@@ -37,3 +37,5 @@ TypeScript generated outputs under `implementations/typescript/**/dist/` are bui
 The expected workflow in this repo is to install dependencies and build locally before running CTS or package tests.
 
 See [PUBLIC-READINESS.md](./PUBLIC-READINESS.md) for the remaining work before this repo can become the public `aeon` surface.
+
+Governance and contribution expectations for the future public repo are tracked in [GOVERNANCE.md](./GOVERNANCE.md).
