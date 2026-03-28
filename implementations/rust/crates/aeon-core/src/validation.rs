@@ -631,7 +631,13 @@ fn validate_typed_mode_rules_in_scope(
                 .at_path(format_path(&path)),
             );
         }
-        validate_switch_literal_in_value(&binding.value, &path, binding.datatype.as_deref(), errors);
+        validate_switch_literal_in_value(
+            &binding.value,
+            &path,
+            binding.datatype.as_deref(),
+            mode,
+            errors,
+        );
         validate_node_head_datatypes_in_value(&binding.value, &path, mode, errors);
         if let Value::ObjectNode { bindings: nested } = &binding.value {
             validate_typed_mode_rules_in_scope(nested, &path, mode, errors);
@@ -695,11 +701,12 @@ fn validate_switch_literal_in_value(
     value: &Value,
     path: &CanonicalPath,
     datatype: Option<&str>,
+    mode: BehaviorMode,
     errors: &mut Vec<Diagnostic>,
 ) {
     match value {
         Value::SwitchLiteral { .. } => {
-            if datatype != Some("switch") {
+            if matches!(mode, BehaviorMode::Strict) && datatype != Some("switch") {
                 errors.push(
                     Diagnostic::new(
                         "UNTYPED_SWITCH_LITERAL",
@@ -716,7 +723,13 @@ fn validate_switch_literal_in_value(
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let nested_datatype = if datatype.is_some() { Some("switch") } else { None };
             for (index, item) in items.iter().enumerate() {
-                validate_switch_literal_in_value(item, &path.index(index), nested_datatype, errors);
+                validate_switch_literal_in_value(
+                    item,
+                    &path.index(index),
+                    nested_datatype,
+                    mode,
+                    errors,
+                );
             }
         }
         _ => {}
