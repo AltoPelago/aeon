@@ -338,6 +338,113 @@ describe('validate()', () => {
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_BINDING && e.path === '$.config.port'));
         });
 
+        it('allows indexed list descendants matched by wildcard rules in closed-world mode', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'message' }] },
+                    key: 'message',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'message' }, { type: 'member', key: 'points' }] },
+                    key: 'points',
+                    value: {
+                        type: 'ListNode',
+                        elements: [
+                            { type: 'ObjectNode', bindings: [], attributes: [], span: [3, 4] },
+                            { type: 'ObjectNode', bindings: [], attributes: [], span: [5, 6] },
+                        ],
+                        span: [3, 6],
+                    },
+                    span: [3, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'message' }, { type: 'member', key: 'points' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [7, 8] },
+                    span: [7, 8],
+                },
+                {
+                    path: {
+                        segments: [
+                            { type: 'root' },
+                            { type: 'member', key: 'message' },
+                            { type: 'member', key: 'points' },
+                            { type: 'index', index: 0 },
+                            { type: 'member', key: 'x' },
+                        ],
+                    },
+                    key: 'x',
+                    value: { type: 'NumberLiteral', value: '10', raw: '10', span: [9, 10] },
+                    span: [9, 10],
+                },
+                {
+                    path: {
+                        segments: [
+                            { type: 'root' },
+                            { type: 'member', key: 'message' },
+                            { type: 'member', key: 'points' },
+                            { type: 'index', index: 0 },
+                            { type: 'member', key: 'y' },
+                        ],
+                    },
+                    key: 'y',
+                    value: { type: 'NumberLiteral', value: '20', raw: '20', span: [11, 12] },
+                    span: [11, 12],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'message' }, { type: 'member', key: 'points' }, { type: 'index', index: 1 }] },
+                    key: '1',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [13, 14] },
+                    span: [13, 14],
+                },
+                {
+                    path: {
+                        segments: [
+                            { type: 'root' },
+                            { type: 'member', key: 'message' },
+                            { type: 'member', key: 'points' },
+                            { type: 'index', index: 1 },
+                            { type: 'member', key: 'x' },
+                        ],
+                    },
+                    key: 'x',
+                    value: { type: 'NumberLiteral', value: '30', raw: '30', span: [15, 16] },
+                    span: [15, 16],
+                },
+                {
+                    path: {
+                        segments: [
+                            { type: 'root' },
+                            { type: 'member', key: 'message' },
+                            { type: 'member', key: 'points' },
+                            { type: 'index', index: 1 },
+                            { type: 'member', key: 'y' },
+                        ],
+                    },
+                    key: 'y',
+                    value: { type: 'NumberLiteral', value: '40', raw: '40', span: [17, 18] },
+                    span: [17, 18],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    { path: '$.message', constraints: { type: 'ObjectNode' } },
+                    { path: '$.message.points', constraints: { type: 'ListNode' } },
+                    { path: '$.message.points[*]', constraints: { type: 'ObjectNode' } },
+                    { path: '$.message.points[*].x', constraints: { type: 'NumberLiteral' } },
+                    { path: '$.message.points[*].y', constraints: { type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('does not enforce forward attribute-reference legality (Core-owned)', () => {
             const aes: AES = [
                 {

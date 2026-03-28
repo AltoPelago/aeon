@@ -54,10 +54,10 @@ export function resolveCTSPath(candidate, cwd = process.cwd()) {
 
   const resolved = path.resolve(cwd, candidate);
   const normalized = candidate.replaceAll('\\', '/');
-  const marker = '/cts/';
-  const idx = normalized.lastIndexOf(marker);
-  if (idx === -1) return candidate;
+  const parts = normalized.split('/');
+  const ctsIndex = parts.lastIndexOf('cts');
+  if (ctsIndex === -1) return fs.existsSync(resolved) ? candidate : candidate;
 
-  const remainder = normalized.slice(idx + marker.length);
+  const remainder = parts.slice(ctsIndex + 1).join('/');
   return path.resolve(getAeoniteCtsRoot(), remainder);
 }
