@@ -256,10 +256,11 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should still enforce switch typing in custom mode', () => {
+        it('should treat untyped switch literals like other untyped bindings in custom mode', () => {
             const result = enforce('aeon:mode = "custom"\ndebug = yes');
 
-            assert.ok(result.errors.some((e) => e.code === 'UNTYPED_SWITCH_LITERAL'));
+            assert.ok(result.errors.some((e) => e.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
+            assert.ok(!result.errors.some((e) => e.code === 'UNTYPED_SWITCH_LITERAL'));
         });
     });
 
