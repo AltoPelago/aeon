@@ -55,7 +55,15 @@ jobs:
       - name: Stress tests
         run: pnpm test:stress
 
+      - name: Checkout aeonite-cts
+        uses: actions/checkout@v4
+        with:
+          repository: aeonite-org/aeonite-cts
+          path: aeonite-cts
+
       - name: CTS conformance (all lanes)
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: pnpm test:cts:all
 
   canonical-cts:

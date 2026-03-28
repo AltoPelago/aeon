@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { withRepoPathEnv } from './repo-paths.mjs';
+import { resolveCTSPath, withRepoPathEnv } from './repo-paths.mjs';
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
@@ -10,6 +10,12 @@ if (args.length === 0) {
 }
 
 const [command, ...commandArgs] = args;
+for (let i = 0; i < commandArgs.length; i += 1) {
+  if (commandArgs[i] === '--cts' && i + 1 < commandArgs.length) {
+    commandArgs[i + 1] = resolveCTSPath(commandArgs[i + 1], process.cwd());
+    break;
+  }
+}
 const child = spawn(command, commandArgs, {
   stdio: 'inherit',
   env: withRepoPathEnv(),

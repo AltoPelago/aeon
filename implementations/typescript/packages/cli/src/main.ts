@@ -301,7 +301,7 @@ function doctor(args: string[]): void {
     const doctorResult = runDoctor({
         contractRegistryPath: registryFlagValue
             ? path.resolve(process.cwd(), registryFlagValue)
-            : path.resolve(repoRoot, 'contracts/registry.json'),
+            : getDefaultContractRegistryPath(),
     });
 
     if (jsonOutput) {
@@ -311,6 +311,13 @@ function doctor(args: string[]): void {
     }
 
     process.exit(doctorResult.ok ? 0 : 1);
+}
+
+function getDefaultContractRegistryPath(): string {
+    const specsRoot = process.env.AEONITE_SPECS_ROOT
+        ? path.resolve(process.env.AEONITE_SPECS_ROOT)
+        : path.resolve(repoRoot, '..', '..', 'aeonite-org', 'aeonite-specs');
+    return path.resolve(specsRoot, 'aeon/v1/drafts/contracts/registry.json');
 }
 
 /**
@@ -600,7 +607,10 @@ function bind(args: string[]): void {
     const input = readFile(file);
     enforceInputByteLimitOrExit(input, maxInputBytes);
     const headerInfo = extractHeaderInfo(input);
-    const registry = contractRegistryPath ? readContractRegistryFile(contractRegistryPath) : null;
+    const resolvedRegistryPath = contractRegistryPath
+        ? path.resolve(process.cwd(), contractRegistryPath)
+        : null;
+    const registry = resolvedRegistryPath ? readContractRegistryFile(resolvedRegistryPath) : null;
 
     const effectiveProfile = profile ?? headerInfo.profile;
     if (registry && effectiveProfile) {
@@ -608,7 +618,7 @@ function bind(args: string[]): void {
         if (!entry) {
             failContract('CONTRACT_UNKNOWN_PROFILE_ID', `Unknown profile contract id in registry: ${effectiveProfile}`);
         }
-        const verified = verifyContractArtifact(entry, contractRegistryPath!);
+        const verified = verifyContractArtifact(entry, resolvedRegistryPath!);
         if (!verified.ok) {
             failContract(verified.code, verified.error);
         }
@@ -620,7 +630,7 @@ function bind(args: string[]): void {
             ? readSchemaContractAeonFile(schemaPath)
             : readSchemaFile(schemaPath);
     } else {
-        if (!registry) {
+        if (!registry || !resolvedRegistryPath) {
             console.error('Error: Missing required --schema <schema.json> (or provide --contract-registry with aeon:schema header id)');
             process.exit(2);
         }
@@ -632,7 +642,7 @@ function bind(args: string[]): void {
         if (!entry) {
             failContract('CONTRACT_UNKNOWN_SCHEMA_ID', `Unknown schema contract id in registry: ${headerInfo.schema}`);
         }
-        const verified = verifyContractArtifact(entry, contractRegistryPath!);
+        const verified = verifyContractArtifact(entry, resolvedRegistryPath!);
         if (!verified.ok) {
             failContract(verified.code, verified.error);
         }
