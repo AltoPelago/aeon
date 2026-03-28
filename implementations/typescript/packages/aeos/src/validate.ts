@@ -312,13 +312,13 @@ function checkWorldPolicy(
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
 
-    const allowedPaths = new Set(schema.rules.map((rule) => rule.path));
+    const allowedPaths = schema.rules.map((rule) => rule.path);
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
         if (key.startsWith('aeon:')) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
-        if (allowedPaths.has(path)) continue;
+        if (allowedPaths.some((allowedPath) => matchesAllowedPath(path, allowedPath))) continue;
         emitError(ctx, createDiag(
             path,
             toTupleLocal(event.span),
@@ -326,6 +326,18 @@ function checkWorldPolicy(
             ErrorCodes.UNEXPECTED_BINDING
         ));
     }
+}
+
+function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
+    if (actualPath === allowedPath) return true;
+
+    // Closed-world schemas may allow list descendants via canonical wildcard paths
+    // such as `$.items[*]` or `$.items[*].x`.
+    if (!allowedPath.includes('[*]')) return false;
+
+    const escaped = allowedPath.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+    const pattern = `^${escaped.replace(/\\\[\\\*\\\]/g, '\\[\\d+\\]')}$`;
+    return new RegExp(pattern).test(actualPath);
 }
 
 function checkDatatypeRules(
