@@ -2,6 +2,10 @@
 
 Rust workspace for the AEON implementation effort.
 
+Current crate/workspace line: `0.9.0`.
+This is the implementation/package version, not the AEON language version.
+See [`VERSIONING.md`](../../VERSIONING.md).
+
 ## Goal
 
 The Rust implementation is intended to validate that the current AEON v1 specs and CTS are strong enough to support a third independent implementation without copying TypeScript-specific structure.
