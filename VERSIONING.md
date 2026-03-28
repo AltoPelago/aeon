@@ -42,10 +42,11 @@ Implementation artifacts use their own release versions.
 Examples in this repo today:
 
 - TypeScript packages under `implementations/typescript/**/package.json`
+- Python package under `implementations/python/pyproject.toml`
 - Rust workspace/crates under `implementations/rust/**/Cargo.toml`
 
-At the moment, the public TypeScript and Rust implementation surfaces are both on
-`0.9.0`.
+At the moment, the public TypeScript, Python, and Rust implementation surfaces are
+all on `0.9.0`.
 
 These versions should follow SemVer as implementation releases:
 
@@ -77,4 +78,5 @@ Examples:
 - Language/spec line: `AEON v1`
 - CTS line: `v1`
 - TypeScript implementation/package line: `0.9.0`
+- Python implementation/package line: `0.9.0`
 - Rust implementation/package line: `0.9.0`
