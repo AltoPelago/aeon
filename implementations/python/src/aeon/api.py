@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 import re
 
+from ._compat import dataclass
 from .aeos import validate_events
 from .core import CompileOptions, CompileResult, compile_source
 from .finalize import FinalizeOptions, finalize_json

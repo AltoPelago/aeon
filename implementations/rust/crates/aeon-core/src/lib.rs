@@ -925,7 +925,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected `=` after key")));
+            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected '=' after key 'c'")));
     }
 
     #[test]
@@ -934,7 +934,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected `=` after key")));
+            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected '=' after key 'c'")));
     }
 
     #[test]

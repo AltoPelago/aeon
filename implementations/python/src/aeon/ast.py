@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
+from ._compat import dataclass
 from .spans import Span
 
 

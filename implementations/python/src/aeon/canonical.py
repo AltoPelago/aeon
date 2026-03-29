@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 
+from ._compat import dataclass
 from .ast import (
     Attribute,
     AttributePathSegment,

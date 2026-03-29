@@ -40,7 +40,8 @@ Rule of thumb:
 | Positive snippets | `python3 ./scripts/stress-positive-snippets.py` | editable corpus of mini fixtures that must pass |
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
-| Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests plus cross-implementation canonical snippet parity |
+| Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
+| Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests plus cross-implementation canonical and diagnostic snippet parity |
 | Stress CLI | `npm run stress` | `21/21` pass |
 | Stress CLI advanced | `npm run stress-advanced` | `15/15` pass |
 | Stress CLI phase timing | `npm run phase-timing` | `8/8` pass |
@@ -179,6 +180,13 @@ python3 ./scripts/stress-canonical-snippets.py --mode strict
 python3 ./scripts/stress-canonical-snippets.py --brief
 ```
 
+Run diagnostic parity across the curated syntax corpus:
+
+```bash
+python3 ./scripts/stress-diagnostic-snippets.py
+python3 ./scripts/stress-diagnostic-snippets.py --brief
+```
+
 Run the full canonical conformance lane:
 
 ```bash
@@ -191,6 +199,7 @@ This lane intentionally bundles:
 - TypeScript canonical package tests from the TypeScript workspace
 - Rust canonical package tests from the Rust workspace
 - cross-implementation canonical snippet parity via `stress-canonical-snippets.py`
+- cross-implementation diagnostic snippet parity via `stress-diagnostic-snippets.py`
 
 Canonical parity is intentionally limited to positive structural corpora. Negative
 strict/custom/transport corpora remain validation parity lanes, because `fmt` is

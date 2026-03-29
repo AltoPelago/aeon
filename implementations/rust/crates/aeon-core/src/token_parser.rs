@@ -63,7 +63,8 @@ impl<'a> TokenParser<'a> {
             datatype = Some(self.parse_simple_datatype()?);
         }
         self.skip_newlines();
-        self.consume(TokenKind::Equals, "Expected `=` after key")?;
+        let equals_message = format!("Expected '=' after key '{key}'");
+        self.consume(TokenKind::Equals, &equals_message)?;
         self.skip_newlines();
         let value = self.parse_value()?;
         let end = self.previous().span.end;
@@ -232,7 +233,7 @@ impl<'a> TokenParser<'a> {
             TokenKind::LeftAngle => self.parse_node_literal(),
             TokenKind::RightAngle => self.parse_trimtick(),
             TokenKind::Tilde | TokenKind::TildeArrow => self.parse_reference(),
-            _ => Err(self.error_at_current("Unsupported token-parser value")),
+            _ => Err(self.error_at_current(&format!("Unexpected token '{}'", token.text))),
         }
     }
 
@@ -864,5 +865,29 @@ mod tests {
             assert_eq!(error.code, "SYNTAX_ERROR");
             assert!(error.message.contains("Empty quoted path segments are not valid"));
         }
+    }
+
+    #[test]
+    fn reports_missing_equals_after_key_with_key_name() {
+        let error = parse_document_from_tokens("a hello\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected '=' after key 'a'");
+        let span = error.span.expect("span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 3);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, 8);
+    }
+
+    #[test]
+    fn reports_unexpected_identifier_token_in_value_position() {
+        let error = parse_document_from_tokens("a = hello\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Unexpected token 'hello'");
+        let span = error.span.expect("span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, 10);
     }
 }
