@@ -25,6 +25,7 @@ Runs the canonical conformance lane:
   1. TypeScript canonical package tests
   2. Rust canonical package tests
   3. Cross-implementation canonical snippet parity
+  4. Cross-implementation diagnostic snippet parity
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -97,3 +98,11 @@ if [[ "$brief" -eq 1 ]]; then
   parity_cmd+=(--brief)
 fi
 "${parity_cmd[@]}"
+echo
+
+echo "-- Cross-implementation diagnostic snippet parity"
+diag_cmd=("$PYTHON_BIN" "$ROOT_DIR/scripts/stress-diagnostic-snippets.py")
+if [[ "$brief" -eq 1 ]]; then
+  diag_cmd+=(--brief)
+fi
+"${diag_cmd[@]}"
