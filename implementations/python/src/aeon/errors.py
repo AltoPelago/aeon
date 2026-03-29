@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
+from ._compat import dataclass
 from .spans import Span
 
 

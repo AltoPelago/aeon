@@ -92,7 +92,7 @@ test('canonicalizes multiline strings as spaces-only trimticks', () => {
         '     Otherwise, fetch a fresh copy.',
         '  `',
         '}',
-    ].join('\n'));
+    ].join('\n') + '\n');
 });
 
 test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
@@ -225,6 +225,7 @@ test('indents multiline list items consistently', () => {
         '    4',
         '  ]',
         ']',
+        '',
     ].join('\n'));
 });
 
@@ -320,7 +321,7 @@ test('renders stable core v1 canonical output for mixed tuple and indexed refere
         'mixed:tuple<int32, int32> = (1, 2)',
         'target = [10, 20]',
         'use = ~target[1]',
-    ].join('\n');
+    ].join('\n') + '\n';
     assert.equal(result.text, expected);
 });
 
@@ -381,6 +382,23 @@ test('canonicalizes empty nodes to shorthand', () => {
     assert.ok(result.text.includes('badge:node = <glyph@{tone = "info"}>'));
 });
 
+test('canonicalizes nested node, list, and tuple children inside node introducers', () => {
+    const input = [
+        'b = <a(<a(1,2,3)>)>',
+        'c = <a([1,2])>',
+        'd = <a((1,2))>',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('b = <a('));
+    assert.ok(result.text.includes('  <a(1, 2, 3)>'));
+    assert.ok(result.text.includes('c = <a('));
+    assert.ok(result.text.includes('  [1, 2]'));
+    assert.ok(result.text.includes('d = <a('));
+    assert.ok(result.text.includes('  (1, 2)'));
+});
+
 test('canonicalizes quoted attribute selectors and root-prefixed attribute traversal', () => {
     const input = [
         'aeon:mode = "transport"',
@@ -398,7 +416,7 @@ test('canonicalizes quoted attribute selectors and root-prefixed attribute trave
             '}',
             'a@{meta = { deep = 1 }} = 3',
             'v = ~a@meta.deep',
-        ].join('\n')
+        ].join('\n') + '\n'
     );
 });
 
@@ -458,7 +476,7 @@ test('sorts nested object keys and preserves list item object ordering canonical
             '  ]',
             '  zebra:number = 2',
             '}',
-        ].join('\n')
+        ].join('\n') + '\n'
     );
 });
 
@@ -484,7 +502,7 @@ test('strips surrounding comments from multiline node layouts during canonicaliz
             '  <button@{action:lookup = ~>target}:node>',
             ')>',
             'target:number = 1',
-        ].join('\n')
+        ].join('\n') + '\n'
     );
 });
 
@@ -526,7 +544,7 @@ test('canonicalizes mixed clone and pointer references inside nested object and 
             '  ]',
             '}',
             'target:number = 1',
-        ].join('\n')
+        ].join('\n') + '\n'
     );
 });
 

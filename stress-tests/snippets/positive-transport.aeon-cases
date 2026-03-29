@@ -121,3 +121,20 @@ host@{ nested = { note = >> `
   world
 ` } }:node = <box>
 ---
+b = <a(<a(1,2,3)>)>
+---
+c = <a([1,2])>
+---
+d = <a((1,2))>
+---
+a = #FFF
+---
+b = #fff
+---
+c = %FFF
+---
+d = %fff
+---
+e = $FFF
+---
+f = $fff

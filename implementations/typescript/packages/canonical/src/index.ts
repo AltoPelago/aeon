@@ -132,7 +132,7 @@ function renderDocument(document: Document): string {
     for (const binding of bindings) {
         lines.push(...renderBinding(binding, 0));
     }
-    return lines.join('\n');
+    return `${lines.join('\n')}\n`;
 }
 
 function renderHeader(document: Document): string[] {

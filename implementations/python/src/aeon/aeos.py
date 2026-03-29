@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
+
+from ._compat import dataclass
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -393,7 +394,8 @@ def format_canonical_path(path: object) -> str:
             if is_identifier_safe(key):
                 result += f".{key}"
             else:
-                result += f'.["{key.replace("\\", "\\\\").replace("\"", "\\\"")}"]'
+                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                result += f'.["{escaped_key}"]'
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
     return result or "$"

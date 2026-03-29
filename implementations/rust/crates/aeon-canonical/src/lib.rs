@@ -299,7 +299,7 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
 
     let mut lines = vec![format!("{prefix}{head}(")];
     for (index, child) in node.children.iter().enumerate() {
-        let mut child_lines = render_value_multiline(child, indent + 2);
+        let mut child_lines = render_node_child(child, indent + 2);
         if index + 1 < node.children.len() {
             if let Some(last) = child_lines.last_mut() {
                 last.push(',');
@@ -309,6 +309,21 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
     }
     lines.push(format!("{prefix})>"));
     lines
+}
+
+fn render_node_child(value: &Value, indent: usize) -> Vec<String> {
+    match value {
+        Value::List(items) if items.iter().all(is_simple_value) => {
+            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+        }
+        Value::Tuple(items) if items.iter().all(is_simple_value) => {
+            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+        }
+        Value::Node(node) if node.children.iter().all(is_simple_value) => {
+            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+        }
+        _ => render_value_multiline(value, indent),
+    }
 }
 
 fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
@@ -398,6 +413,14 @@ fn render_datatype(datatype: Option<&str>) -> String {
 }
 
 fn is_simple_scalar(value: &Value) -> bool {
+    match value {
+        Value::String(value) => !value.contains('\n'),
+        Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
+        _ => false,
+    }
+}
+
+fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
@@ -643,6 +666,10 @@ fn normalize_datatype(raw: &str) -> String {
 }
 
 fn normalize_raw(raw: &str) -> String {
+    if let Some(hex) = raw.strip_prefix('#') {
+        return format!("#{}", hex.replace('_', "").to_ascii_lowercase());
+    }
+
     let mut value = raw
         .strip_prefix("~>$.")
         .map(|rest| format!("~>{rest}"))
@@ -1297,12 +1324,37 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_hex_literals_to_lowercase_without_underscores() {
+        let result = canonicalize("aeon:mode = \"transport\"\na = #F_Ff\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\na = #fff\n"
+        );
+    }
+
+    #[test]
     fn renders_child_bearing_nodes_multiline_in_bindings() {
         let result = canonicalize("aeon:mode = \"strict\"\nwidget:node = <tag:node(\"x\")>\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\nwidget:node = <tag:node(\n  \"x\"\n)>\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_nested_node_list_and_tuple_children_inside_nodes() {
+        let result = canonicalize(
+            "aeon:mode = \"transport\"\n\
+             b = <a(<a(1,2,3)>)>\n\
+             c = <a([1,2])>\n\
+             d = <a((1,2))>\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\nb = <a(\n  <a(1, 2, 3)>\n)>\nc = <a(\n  [1, 2]\n)>\nd = <a(\n  (1, 2)\n)>\n"
         );
     }
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
 
+from ._compat import dataclass
 from .spans import Position, Span
 
 

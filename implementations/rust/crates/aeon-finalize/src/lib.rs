@@ -438,8 +438,34 @@ fn value_to_json(
         | Value::RadixLiteral { raw }
         | Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
-        | Value::TimeLiteral { raw }
-        | Value::NodeLiteral { raw, .. } => JsonValue::String(raw.clone()),
+        | Value::TimeLiteral { raw } => JsonValue::String(raw.clone()),
+        Value::NodeLiteral {
+            tag,
+            attributes,
+            children,
+            ..
+        } => {
+            let mut output = Map::new();
+            output.insert(String::from("$node"), JsonValue::String(tag.clone()));
+            let attr_json = node_attributes_to_json(attributes, path_values, mode, errors, warnings);
+            if matches!(&attr_json, JsonValue::Object(map) if !map.is_empty()) {
+                output.insert(String::from("@"), attr_json);
+            }
+            output.insert(
+                String::from("$children"),
+                JsonValue::Array(
+                    children
+                        .iter()
+                        .enumerate()
+                        .map(|(index, child)| {
+                            let child_path = format!("{path}<{index}>");
+                            value_to_json(child, &child_path, projection, path_values, mode, errors, warnings)
+                        })
+                        .collect(),
+                ),
+            );
+            JsonValue::Object(output)
+        }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let mut output = Vec::new();
             for (index, item) in items.iter().enumerate() {
@@ -722,6 +748,36 @@ fn attributes_to_json(
     JsonValue::Object(object)
 }
 
+fn node_attributes_to_json(
+    attributes: &[BTreeMap<String, AttributeValue>],
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+) -> JsonValue {
+    let mut merged = Map::new();
+    for block in attributes {
+        let JsonValue::Object(current) = attributes_to_json(block, path_values, mode, errors, warnings) else {
+            continue;
+        };
+        merge_json_object(&mut merged, current);
+    }
+    JsonValue::Object(merged)
+}
+
+fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, JsonValue>) {
+    for (key, value) in source {
+        match (target.get_mut(&key), value) {
+            (Some(JsonValue::Object(existing)), JsonValue::Object(incoming)) => {
+                merge_json_object(existing, incoming);
+            }
+            (_, replacement) => {
+                target.insert(key, replacement);
+            }
+        }
+    }
+}
+
 fn attribute_value_to_json(
     entry: &AttributeValue,
     path_values: &BTreeMap<String, Value>,
@@ -871,6 +927,64 @@ mod tests {
                     "a": {
                         "b": 1
                     }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn materializes_node_literals_with_reserved_projection_keys() {
+        let source = "view = <div@{id = \"main\"}(\"hello\")>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "view": {
+                    "$node": "div",
+                    "@": {
+                        "id": "main"
+                    },
+                    "$children": ["hello"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn materializes_nested_node_list_and_tuple_children_like_typescript() {
+        let source = "b = <a(<a(1,2,3)>)>\nc = <a([1,2])>\nd = <a((1,2))>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                mode: FinalizeMode::Loose,
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "b": {
+                    "$node": "a",
+                    "$children": [
+                        {
+                            "$node": "a",
+                            "$children": [1, 2, 3]
+                        }
+                    ]
+                },
+                "c": {
+                    "$node": "a",
+                    "$children": [
+                        [1, 2]
+                    ]
+                },
+                "d": {
+                    "$node": "a",
+                    "$children": [
+                        [1, 2]
+                    ]
                 }
             })
         );

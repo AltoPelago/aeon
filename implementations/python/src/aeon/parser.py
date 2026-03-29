@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 from typing import cast
 
+from ._compat import dataclass
 from .ast import (
     Attribute,
     AttributeEntry,

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from typing import Iterable
 
-
+from ._compat import dataclass
 MAX_SAFE_INTEGER = 9007199254740991
 RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children"}
 
