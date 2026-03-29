@@ -843,6 +843,17 @@ mod tests {
     }
 
     #[test]
+    fn finalized_json_preserves_object_source_order() {
+        let source = "a:o = {\n  a:n = 2\n  c:list = [2, 2]\n  b:n = 3\n}\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        let rendered = serde_json::to_string_pretty(&finalized.document).expect("serialize finalized json");
+        let c_index = rendered.find("\"c\"").expect("c key present");
+        let b_index = rendered.find("\"b\"").expect("b key present");
+        assert!(c_index < b_index, "expected source order to keep c before b, got: {rendered}");
+    }
+
+    #[test]
     fn projected_materialization_keeps_selected_descendants() {
         let source = "config = {\n  host = \"localhost\"\n  port = 5432\n}\n";
         let result = compile(source, CompileOptions::default());
