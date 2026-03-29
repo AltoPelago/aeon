@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use aeon_core::{Diagnostic, strip_leading_bom};
+use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalResult {
@@ -771,7 +771,7 @@ impl<'a> Parser<'a> {
             None
         };
         self.skip_inline_ws();
-        self.expect_char('=')?;
+        self.expect_char_message('=', &format!("Expected '=' after key '{key}'"))?;
         self.skip_inline_ws();
         let value = self.parse_value()?;
         Ok(Binding {
@@ -1197,11 +1197,15 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_char(&mut self, expected: char) -> Result<(), Diagnostic> {
+        self.expect_char_message(expected, &format!("Expected `{expected}`"))
+    }
+
+    fn expect_char_message(&mut self, expected: char, message: &str) -> Result<(), Diagnostic> {
         if self.peek() == Some(expected) {
             self.index += 1;
             Ok(())
         } else {
-            Err(self.syntax_error(&format!("Expected `{expected}`")))
+            Err(self.syntax_error(message))
         }
     }
 
@@ -1234,7 +1238,53 @@ impl<'a> Parser<'a> {
     }
 
     fn syntax_error(&self, message: &str) -> Diagnostic {
-        Diagnostic::new("SYNTAX_ERROR", message).at_path("$")
+        let mut diagnostic = Diagnostic::new("SYNTAX_ERROR", message).at_path("$");
+        diagnostic.span = Some(self.current_span());
+        diagnostic
+    }
+
+    fn current_span(&self) -> Span {
+        let start = self.position_at(self.index);
+        let end_index = self.error_end_index();
+        Span {
+            start,
+            end: self.position_at(end_index),
+        }
+    }
+
+    fn error_end_index(&self) -> usize {
+        let mut index = self.index;
+        while let Some(byte) = self.source.get(index) {
+            let ch = char::from(*byte);
+            if ch.is_whitespace() || matches!(ch, ',' | '=' | ':' | '@' | '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>') {
+                break;
+            }
+            index += 1;
+        }
+        if index == self.index {
+            self.index
+        } else {
+            index
+        }
+    }
+
+    fn position_at(&self, index: usize) -> Position {
+        let mut line = 1usize;
+        let mut column = 1usize;
+        let limit = index.min(self.source.len());
+        for byte in &self.source[..limit] {
+            if *byte == b'\n' {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+        }
+        Position {
+            line,
+            column,
+            offset: limit,
+        }
     }
 }
 
@@ -1331,6 +1381,19 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\na = #fff\n"
         );
+    }
+
+    #[test]
+    fn reports_missing_equals_after_key_with_key_name() {
+        let result = canonicalize("a hello\n");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Expected '=' after key 'a'");
+        let span = result.errors[0].span.expect("span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 3);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, 8);
     }
 
     #[test]
