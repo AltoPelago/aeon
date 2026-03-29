@@ -831,6 +831,23 @@ mod tests {
     }
 
     #[test]
+    fn custom_mode_treats_untyped_switch_literals_like_other_untyped_values() {
+        let result = compile(
+            "aeon:mode = \"custom\"\ndebug = yes\n",
+            CompileOptions::default(),
+        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE" && error.path.as_deref() == Some("$.debug")));
+        assert!(!result
+            .errors
+            .iter()
+            .any(|error| error.code == "UNTYPED_SWITCH_LITERAL" && error.path.as_deref() == Some("$.debug")));
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
     fn rejects_duplicate_canonical_paths_fail_closed() {
         let result = compile("a = 1\na = 2\n", CompileOptions::default());
         assert!(result

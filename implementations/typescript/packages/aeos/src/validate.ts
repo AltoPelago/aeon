@@ -335,8 +335,11 @@ function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
     // such as `$.items[*]` or `$.items[*].x`.
     if (!allowedPath.includes('[*]')) return false;
 
-    const escaped = allowedPath.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
-    const pattern = `^${escaped.replace(/\\\[\\\*\\\]/g, '\\[\\d+\\]')}$`;
+    const escaped = allowedPath
+        .split('[*]')
+        .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
+        .join('\\[\\d+\\]');
+    const pattern = `^${escaped}$`;
     return new RegExp(pattern).test(actualPath);
 }
 

@@ -5,15 +5,34 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { lintManifest } from './lint.js';
 
-function resolveSiblingCtsManifest(relativePath: string): string {
-    const envRoot = process.env.AEONITE_CTS_ROOT;
-    return envRoot
-        ? path.resolve(envRoot, relativePath)
-        : path.resolve('../../../../cts', relativePath);
-}
+test('accepts valid manifest with existing suite and spec refs', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-author-'));
+    fs.mkdirSync(path.join(dir, 'suites'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'specs'), { recursive: true });
 
-test('accepts existing core CTS manifest', () => {
-    const result = lintManifest(resolveSiblingCtsManifest('core/v1/core-cts.v1.json'));
+    const manifest = path.join(dir, 'manifest.json');
+    const suite = path.join(dir, 'suites', '01-valid.json');
+    const spec = path.join(dir, 'specs', 'example.md');
+
+    fs.writeFileSync(spec, '# Example spec\n');
+    fs.writeFileSync(suite, JSON.stringify({
+        id: 'valid',
+        title: 'Valid',
+        meta: { spec_refs: ['specs/example.md'] },
+        tests: [{
+            id: 'ok',
+            description: 'accepts a valid suite',
+            input: {},
+            expected: {},
+            spec_refs: ['specs/example.md#section'],
+        }],
+    }, null, 2));
+    fs.writeFileSync(manifest, JSON.stringify({
+        meta: { version: '0.1.0' },
+        suites: [{ id: 'valid', file: 'suites/01-valid.json' }],
+    }, null, 2));
+
+    const result = lintManifest(manifest);
     assert.equal(result.ok, true);
     assert.equal(result.issues.length, 0);
 });

@@ -676,6 +676,9 @@ fn normalize_raw(raw: &str) -> String {
         .or_else(|| raw.strip_prefix("~$.").map(|rest| format!("~{rest}")))
         .unwrap_or_else(|| raw.to_owned());
 
+    if looks_like_hex_literal(&value) {
+        value.make_ascii_lowercase();
+    }
     value = normalize_quoted_reference_segments(&value, ".[\"", ".");
     value = normalize_quoted_reference_segments(&value, "@[\"", "@");
     value
@@ -683,6 +686,10 @@ fn normalize_raw(raw: &str) -> String {
 
 fn is_identifier_literal(raw: &str) -> bool {
     matches!(raw, "true" | "false" | "yes" | "no" | "on" | "off")
+}
+
+fn looks_like_hex_literal(raw: &str) -> bool {
+    raw.starts_with('#') && raw.len() > 1 && raw[1..].chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn normalize_quoted_reference_segments(raw: &str, needle: &str, replacement: &str) -> String {
@@ -844,7 +851,7 @@ impl<'a> Parser<'a> {
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         match self.peek() {
-            Some('"') | Some('\'') => Ok(Value::String(self.parse_quoted_string()?)),
+            Some('"') | Some('\'') | Some('`') => Ok(Value::String(self.parse_quoted_string()?)),
             Some('>') => Ok(Value::String(self.parse_trimtick()?)),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_list(),
@@ -969,7 +976,7 @@ impl<'a> Parser<'a> {
 
     fn parse_quoted_string(&mut self) -> Result<String, Diagnostic> {
         let quote = self.peek().ok_or_else(|| self.syntax_error("Expected quoted string"))?;
-        if !matches!(quote, '"' | '\'') {
+        if !matches!(quote, '"' | '\'' | '`') {
             return Err(self.syntax_error("Expected quoted string"));
         }
         self.index += 1;
@@ -1520,6 +1527,26 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = \"hello\\n\\nworld\" }}:node = <box>\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_backtick_strings_to_double_quoted_strings() {
+        let result = canonicalize("aeon:mode = \"custom\"\nwidth:unit = `3cm`\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"custom\"\n}\nwidth:unit = \"3cm\"\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_hex_literals_to_lowercase() {
+        let result = canonicalize("aeon:mode = \"custom\"\nshade:unit = #FF32\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"custom\"\n}\nshade:unit = #ff32\n"
         );
     }
 

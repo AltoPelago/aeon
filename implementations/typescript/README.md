@@ -2,6 +2,10 @@
 
 Reference AEON implementation workspace.
 
+Current package line: `0.9.0`.
+This is the implementation/package version, not the AEON language version.
+See [`VERSIONING.md`](../../VERSIONING.md).
+
 ## Start Here
 
 If you want to:

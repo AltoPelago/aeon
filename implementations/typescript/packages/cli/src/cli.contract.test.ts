@@ -18,13 +18,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cliPath = path.resolve(__dirname, 'main.js');
 const fixture = (name: string) => path.resolve(__dirname, '../tests/fixtures', name);
-const repoRoot = path.resolve(__dirname, '../../../../../');
+const baselineContractsSampleText = () => [
+    'aeon:mode = "strict"',
+    'aeon:profile = "aeon.gp.profile.v1"',
+    'aeon:schema = "aeon.gp.schema.v1"',
+    '',
+    'app:object = {',
+    '  name:string = "AEON"',
+    '  port:int32 = 8080',
+    '}',
+].join('\n');
 
 const normalize = (text: string) => text.replace(/\r\n/g, '\n').trimEnd();
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: NodeJS.ProcessEnv = {}) {
     try {
-        const { stdout, stderr } = await execFileAsync(process.execPath, [cliPath, ...args]);
+        const { stdout, stderr } = await execFileAsync(process.execPath, [cliPath, ...args], {
+            env: {
+                ...process.env,
+                ...env,
+            },
+        });
         return { code: 0, stdout, stderr };
     } catch (err) {
         const e = err as { code?: unknown; stdout?: unknown; stderr?: unknown; exitCode?: unknown };
@@ -38,6 +52,42 @@ async function runCli(args: string[]) {
             stderr: typeof e.stderr === 'string' ? e.stderr : '',
         };
     }
+}
+
+function createDefaultSpecsRootFixture(): { specsRoot: string; registryPath: string } {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-specs-root-'));
+    const contractsDir = path.join(tmpDir, 'aeon', 'v1', 'drafts', 'contracts');
+    fs.mkdirSync(contractsDir, { recursive: true });
+
+    const schemaArtifact = `${schemaContractAeonText('aeon.gp.schema.v1')}\n`;
+    const profileArtifact = 'profile_id = "aeon.gp.profile.v1"\nprofile_version = "1.0.0"\n';
+    fs.writeFileSync(path.join(contractsDir, 'schema.aeon'), schemaArtifact, 'utf-8');
+    fs.writeFileSync(path.join(contractsDir, 'profile.aeon'), profileArtifact, 'utf-8');
+
+    const registry = {
+        contracts: [
+            {
+                id: 'aeon.gp.profile.v1',
+                kind: 'profile',
+                version: '1.0.0',
+                path: 'profile.aeon',
+                sha256: sha256Hex(profileArtifact),
+                status: 'active',
+            },
+            {
+                id: 'aeon.gp.schema.v1',
+                kind: 'schema',
+                version: '1.0.0',
+                path: 'schema.aeon',
+                sha256: sha256Hex(schemaArtifact),
+                status: 'active',
+            },
+        ],
+    };
+
+    const registryPath = path.join(contractsDir, 'registry.json');
+    fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf-8');
+    return { specsRoot: tmpDir, registryPath };
 }
 
 async function runCliWithStdin(args: string[], input: string) {
@@ -76,6 +126,17 @@ function schemaContractAeonText(schemaId: string = 'aeon.gp.schema.v1'): string 
         '  { path = "$.app.name", constraints = { type = "StringLiteral", required = true } }',
         '  { path = "$.app.port", constraints = { type = "NumberLiteral", required = true } }',
         ']',
+    ].join('\n');
+}
+
+function schemaContractWithGpDatatypeRulesAeonText(schemaId: string = 'aeon.gp.schema.v1'): string {
+    return [
+        `schema_id = "${schemaId}"`,
+        'schema_version = "1.0.0"',
+        'rules = []',
+        'datatype_rules = {',
+        '  uint = { type = "IntegerLiteral", sign = "unsigned" }',
+        '}',
     ].join('\n');
 }
 
@@ -320,7 +381,10 @@ describe('AEON CLI output contract', () => {
 
     describe('aeon doctor', () => {
         it('reports passing environment and registry checks by default', async () => {
-            const { code, stdout, stderr } = await runCli(['doctor']);
+            const { specsRoot } = createDefaultSpecsRootFixture();
+            const { code, stdout, stderr } = await runCli(['doctor'], {
+                AEONITE_SPECS_ROOT: specsRoot,
+            });
             assert.strictEqual(code, 0);
             assert.strictEqual(stderr, '');
             const out = normalize(stdout);
@@ -331,7 +395,10 @@ describe('AEON CLI output contract', () => {
         });
 
         it('emits JSON output when requested', async () => {
-            const { code, stdout, stderr } = await runCli(['doctor', '--json']);
+            const { specsRoot } = createDefaultSpecsRootFixture();
+            const { code, stdout, stderr } = await runCli(['doctor', '--json'], {
+                AEONITE_SPECS_ROOT: specsRoot,
+            });
             assert.strictEqual(code, 0);
             assert.strictEqual(stderr, '');
             const parsed = JSON.parse(stdout) as { ok: boolean; checks: Array<{ name: string; status: string }> };
@@ -1342,7 +1409,7 @@ describe('AEON CLI output contract', () => {
             ].join('\n');
             fs.writeFileSync(docPath, source, 'utf-8');
 
-            const schemaContract = schemaContractAeonText('aeon.gp.schema.v1');
+            const schemaContract = schemaContractWithGpDatatypeRulesAeonText('aeon.gp.schema.v1');
             fs.writeFileSync(schemaPath, `${schemaContract}\n`, 'utf-8');
 
             const profileArtifact = 'profile_id = "aeon.gp.profile.v1"\nprofile_version = "1.0.0"\n';
@@ -1391,8 +1458,40 @@ describe('AEON CLI output contract', () => {
         });
 
         it('resolves schema/profile from repository baseline contracts registry', async () => {
-            const docPath = path.join(repoRoot, 'examples/contracts-baseline/sample-with-contracts.aeon');
-            const registryPath = path.join(repoRoot, 'contracts/registry.json');
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-contract-reg-baseline-'));
+            const docPath = path.join(tmpDir, 'sample-with-contracts.aeon');
+            const schemaPath = path.join(tmpDir, 'schema.aeon');
+            const profileArtifactPath = path.join(tmpDir, 'profile.aeon');
+            const registryPath = path.join(tmpDir, 'registry.json');
+
+            fs.writeFileSync(docPath, baselineContractsSampleText(), 'utf-8');
+            const schemaContract = schemaContractWithGpDatatypeRulesAeonText('aeon.gp.schema.v1');
+            fs.writeFileSync(schemaPath, `${schemaContract}\n`, 'utf-8');
+
+            const profileArtifact = 'profile_id = "aeon.gp.profile.v1"\nprofile_version = "1.0.0"\n';
+            fs.writeFileSync(profileArtifactPath, profileArtifact, 'utf-8');
+
+            const registry = {
+                contracts: [
+                    {
+                        id: 'aeon.gp.profile.v1',
+                        kind: 'profile',
+                        version: '1.0.0',
+                        path: 'profile.aeon',
+                        sha256: sha256Hex(profileArtifact),
+                        status: 'active',
+                    },
+                    {
+                        id: 'aeon.gp.schema.v1',
+                        kind: 'schema',
+                        version: '1.0.0',
+                        path: 'schema.aeon',
+                        sha256: sha256Hex(`${schemaContract}\n`),
+                        status: 'active',
+                    },
+                ],
+            };
+            fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf-8');
 
             const { code, stdout, stderr } = await runCli([
                 'bind',
@@ -1417,7 +1516,9 @@ describe('AEON CLI output contract', () => {
         it('enforces official GP datatype_rules from repository baseline contracts registry', async () => {
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-contract-reg-gp-'));
             const docPath = path.join(tmpDir, 'gp-numeric-contracts.aeon');
-            const registryPath = path.join(repoRoot, 'contracts/registry.json');
+            const schemaPath = path.join(tmpDir, 'schema.aeon');
+            const profileArtifactPath = path.join(tmpDir, 'profile.aeon');
+            const registryPath = path.join(tmpDir, 'registry.json');
 
             const source = [
                 'aeon:mode = "strict"',
@@ -1426,6 +1527,34 @@ describe('AEON CLI output contract', () => {
                 'value:uint = -1',
             ].join('\n');
             fs.writeFileSync(docPath, source, 'utf-8');
+
+            const schemaContract = schemaContractWithGpDatatypeRulesAeonText('aeon.gp.schema.v1');
+            fs.writeFileSync(schemaPath, `${schemaContract}\n`, 'utf-8');
+
+            const profileArtifact = 'profile_id = "aeon.gp.profile.v1"\nprofile_version = "1.0.0"\n';
+            fs.writeFileSync(profileArtifactPath, profileArtifact, 'utf-8');
+
+            const registry = {
+                contracts: [
+                    {
+                        id: 'aeon.gp.profile.v1',
+                        kind: 'profile',
+                        version: '1.0.0',
+                        path: 'profile.aeon',
+                        sha256: sha256Hex(profileArtifact),
+                        status: 'active',
+                    },
+                    {
+                        id: 'aeon.gp.schema.v1',
+                        kind: 'schema',
+                        version: '1.0.0',
+                        path: 'schema.aeon',
+                        sha256: sha256Hex(`${schemaContract}\n`),
+                        status: 'active',
+                    },
+                ],
+            };
+            fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf-8');
 
             const { code, stdout, stderr } = await runCli([
                 'bind',

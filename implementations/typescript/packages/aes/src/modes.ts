@@ -196,6 +196,8 @@ export function extractMode(header: Header | null): Mode {
  * 
  * In typed modes (`strict` and `custom`):
  * - Every binding must have an explicit type annotation
+ *
+ * In strict mode only:
  * - Untyped switch literals (yes/no/on/off) require :switch type
  *
  * In transport mode:
@@ -238,7 +240,7 @@ export function enforceMode(
 
         if (!event.datatype) {
             if (mode === 'strict' || mode === 'custom') {
-                if (event.value.type === 'SwitchLiteral') {
+                if (mode === 'strict' && event.value.type === 'SwitchLiteral') {
                     errors.push(new UntypedSwitchLiteralError(event.span, formatPath(event.path)));
                 } else {
                     errors.push(new UntypedValueInStrictModeError(event.span, formatPath(event.path)));

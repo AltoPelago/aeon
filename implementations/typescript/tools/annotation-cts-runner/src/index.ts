@@ -62,11 +62,10 @@ function resolveCTSPath(candidate: string | undefined): string {
         const resolved = path.resolve(process.cwd(), candidate);
         if (fs.existsSync(resolved)) return candidate;
 
-        const normalized = candidate.replaceAll('\\', '/');
-        const marker = '/cts/';
-        const idx = normalized.lastIndexOf(marker);
-        if (idx !== -1 && envRoot) {
-            const remainder = normalized.slice(idx + marker.length);
+        const parts = candidate.replaceAll('\\', '/').split('/');
+        const ctsIndex = parts.lastIndexOf('cts');
+        if (ctsIndex !== -1 && envRoot) {
+            const remainder = parts.slice(ctsIndex + 1).join('/');
             const envPath = path.resolve(envRoot, remainder);
             if (fs.existsSync(envPath)) return envPath;
         }
