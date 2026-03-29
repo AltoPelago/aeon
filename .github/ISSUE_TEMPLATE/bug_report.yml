@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible AEON implementation, CTS, or tooling issue.
+title: "[Bug]: "
+labels: []
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is happening, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Canonicalization
+        - Diagnostics
+        - Finalization
+        - Parser / Lexer
+        - CTS / Stress tests
+        - CLI / Tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest AEON input, command, or test case that reproduces the issue.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: implementations
+    attributes:
+      label: Implementations affected
+      description: Note whether this affects Rust, TypeScript, Python, or cross-implementation parity.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: What did you run, and what did you observe?
+  - type: markdown
+    attributes:
+      value: "For suspected vulnerabilities, do not file a public issue. Use the process in `SECURITY.md` instead."

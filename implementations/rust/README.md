@@ -6,6 +6,12 @@ Current crate/workspace line: `0.9.0`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
+Authority surfaces:
+
+- this workspace is the Rust implementation surface
+- normative AEON specification authority lives in [`aeonite-org/aeonite-specs`](https://github.com/aeonite-org/aeonite-specs)
+- cross-implementation conformance authority lives in [`aeonite-org/aeonite-cts`](https://github.com/aeonite-org/aeonite-cts)
+
 ## Goal
 
 The Rust implementation is intended to validate that the current AEON v1 specs and CTS are strong enough to support a third independent implementation without copying TypeScript-specific structure.
