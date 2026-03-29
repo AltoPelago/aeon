@@ -681,6 +681,10 @@ fn normalize_raw(raw: &str) -> String {
     value
 }
 
+fn is_identifier_literal(raw: &str) -> bool {
+    matches!(raw, "true" | "false" | "yes" | "no" | "on" | "off")
+}
+
 fn normalize_quoted_reference_segments(raw: &str, needle: &str, replacement: &str) -> String {
     let mut output = String::new();
     let mut rest = raw;
@@ -860,6 +864,7 @@ impl<'a> Parser<'a> {
                 Ok(Value::Raw(raw))
             }
             Some(_) => {
+                let start = self.index;
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
@@ -869,6 +874,9 @@ impl<'a> Parser<'a> {
                 }
                 if is_rejected_nonfinite_literal(&raw) {
                     return Err(self.syntax_error("Invalid number literal"));
+                }
+                if is_identifier(&raw) && !is_identifier_literal(&raw) {
+                    return Err(self.syntax_error_range(start, self.index, &format!("Unexpected token '{raw}'")));
                 }
                 Ok(Value::Raw(raw))
             }
@@ -1243,6 +1251,15 @@ impl<'a> Parser<'a> {
         diagnostic
     }
 
+    fn syntax_error_range(&self, start: usize, end: usize, message: &str) -> Diagnostic {
+        let mut diagnostic = Diagnostic::new("SYNTAX_ERROR", message).at_path("$");
+        diagnostic.span = Some(Span {
+            start: self.position_at(start),
+            end: self.position_at(end),
+        });
+        diagnostic
+    }
+
     fn current_span(&self) -> Span {
         let start = self.position_at(self.index);
         let end_index = self.error_end_index();
@@ -1394,6 +1411,19 @@ mod tests {
         assert_eq!(span.start.column, 3);
         assert_eq!(span.end.line, 1);
         assert_eq!(span.end.column, 8);
+    }
+
+    #[test]
+    fn rejects_unexpected_identifier_token_in_value_position() {
+        let result = canonicalize("a = hello\n");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Unexpected token 'hello'");
+        let span = result.errors[0].span.expect("span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, 10);
     }
 
     #[test]

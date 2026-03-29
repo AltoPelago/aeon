@@ -233,7 +233,7 @@ impl<'a> TokenParser<'a> {
             TokenKind::LeftAngle => self.parse_node_literal(),
             TokenKind::RightAngle => self.parse_trimtick(),
             TokenKind::Tilde | TokenKind::TildeArrow => self.parse_reference(),
-            _ => Err(self.error_at_current("Unsupported token-parser value")),
+            _ => Err(self.error_at_current(&format!("Unexpected token '{}'", token.text))),
         }
     }
 
@@ -877,5 +877,17 @@ mod tests {
         assert_eq!(span.start.column, 3);
         assert_eq!(span.end.line, 1);
         assert_eq!(span.end.column, 8);
+    }
+
+    #[test]
+    fn reports_unexpected_identifier_token_in_value_position() {
+        let error = parse_document_from_tokens("a = hello\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Unexpected token 'hello'");
+        let span = error.span.expect("span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, 10);
     }
 }
