@@ -768,22 +768,22 @@ impl<'a> Parser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let key = self.parse_key()?;
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let attributes = if self.peek() == Some('@') {
             self.parse_attribute_block()?
         } else {
             BTreeMap::new()
         };
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let datatype = if self.peek() == Some(':') {
             self.index += 1;
             Some(self.parse_datatype_like()?)
         } else {
             None
         };
-        self.skip_inline_ws();
+        self.skip_ws(true);
         self.expect_char_message('=', &format!("Expected '=' after key '{key}'"))?;
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let value = self.parse_value()?;
         Ok(Binding {
             key,
@@ -809,28 +809,28 @@ impl<'a> Parser<'a> {
 
     fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeEntry>, Diagnostic> {
         self.expect_char('@')?;
-        self.skip_inline_ws();
+        self.skip_ws(true);
         self.expect_char('{')?;
         let mut entries = BTreeMap::new();
         self.skip_ws(true);
         while self.peek() != Some('}') {
             let key = self.parse_key()?;
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let nested = if self.peek() == Some('@') {
                 self.parse_attribute_block()?
             } else {
                 BTreeMap::new()
             };
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let datatype = if self.peek() == Some(':') {
                 self.index += 1;
                 Some(self.parse_datatype_like()?)
             } else {
                 None
             };
-            self.skip_inline_ws();
+            self.skip_ws(true);
             self.expect_char('=')?;
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let value = self.parse_value()?;
             entries.insert(
                 key,
@@ -1099,7 +1099,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_datatype_like(&mut self) -> Result<String, Diagnostic> {
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let start = self.index;
         let mut angle_depth = 0usize;
         let mut bracket_depth = 0usize;
@@ -1515,6 +1515,31 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\na@{n:n = 2}:n = 3\nb@{n:n = 2}:n = 3\nc@{n:n = 2}:n = 3\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_extremely_multiline_binding_attributes_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a\n\
+             @ \n\
+             {\n\
+             n\n\
+             :\n\
+             n \n\
+             =\n\
+             1\n\
+             }\n\
+             :\n\
+             n \n\
+             = \n\
+             2\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\na@{n:n = 1}:n = 2\n"
         );
     }
 
