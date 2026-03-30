@@ -228,17 +228,26 @@ class Parser:
         name = self.consume("IDENT", "Expected type name").value
         generic_args: list[str] = []
         separators: list[str] = []
+        self.skip_layout()
         if self.check("LANGLE"):
             self.advance()
+            self.skip_layout()
             generic_args.append(self.parse_generic_argument(generic_depth))
+            self.skip_layout()
             while self.check("COMMA"):
                 self.advance()
+                self.skip_layout()
                 generic_args.append(self.parse_generic_argument(generic_depth))
+                self.skip_layout()
             self.consume("RANGLE", "Expected '>' to close generic arguments")
+            self.skip_layout()
         while self.check("LBRACKET"):
             self.advance()
+            self.skip_layout()
             separators.append(self.parse_separator_char())
+            self.skip_layout()
             self.consume("RBRACKET", "Expected ']' to close separator spec")
+            self.skip_layout()
             if len(separators) > self.max_separator_depth:
                 raise SeparatorDepthExceededError(len(separators), self.max_separator_depth, self.previous().span)
         return TypeAnnotation(name=name, generic_args=generic_args, separators=separators, span=Span(start=start, end=self.previous().span.end))
@@ -575,6 +584,10 @@ class Parser:
             self.advance()
 
     def consume_member_delimiter(self, terminator: str, message: str) -> None:
+        saw_newline = False
+        while self.check("NEWLINE"):
+            self.advance()
+            saw_newline = True
         if self.check("COMMA"):
             self.advance()
             self.skip_layout()
@@ -583,8 +596,7 @@ class Parser:
             return
         if self.check(terminator):
             return
-        if self.check("NEWLINE"):
-            self.skip_layout()
+        if saw_newline:
             return
         raise SyntaxError(message, self.peek().span)
 
