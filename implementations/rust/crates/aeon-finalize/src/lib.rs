@@ -267,7 +267,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         }),
         Value::HexLiteral { raw } => json!({
             "type": "HexLiteral",
-            "value": raw,
+            "value": raw.trim_start_matches('#'),
             "raw": raw,
         }),
         Value::SeparatorLiteral { raw } => json!({
@@ -277,12 +277,12 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         }),
         Value::EncodingLiteral { raw } => json!({
             "type": "EncodingLiteral",
-            "value": raw,
+            "value": raw.trim_start_matches('$'),
             "raw": raw,
         }),
         Value::RadixLiteral { raw } => json!({
             "type": "RadixLiteral",
-            "value": raw,
+            "value": raw.trim_start_matches('%'),
             "raw": raw,
         }),
         Value::DateLiteral { raw } => json!({
@@ -432,11 +432,11 @@ fn value_to_json(
         Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
         Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
-        Value::HexLiteral { raw }
-        | Value::SeparatorLiteral { raw }
-        | Value::EncodingLiteral { raw }
-        | Value::RadixLiteral { raw }
-        | Value::DateLiteral { raw }
+        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').to_owned()),
+        Value::SeparatorLiteral { raw } => JsonValue::String(raw.trim_start_matches('^').to_owned()),
+        Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
+        Value::RadixLiteral { raw } => JsonValue::String(raw.trim_start_matches('%').to_owned()),
+        Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => JsonValue::String(raw.clone()),
         Value::NodeLiteral {
@@ -997,6 +997,21 @@ mod tests {
                         [1, 2]
                     ]
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn strips_literal_sigils_in_finalized_json_like_typescript() {
+        let source = "hex = #FFF\nrad = %1011\nenc = $QmFzZTY0\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "hex": "FFF",
+                "rad": "1011",
+                "enc": "QmFzZTY0"
             })
         );
     }
