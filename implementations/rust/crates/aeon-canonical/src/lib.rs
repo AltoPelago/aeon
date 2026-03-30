@@ -809,6 +809,7 @@ impl<'a> Parser<'a> {
 
     fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeEntry>, Diagnostic> {
         self.expect_char('@')?;
+        self.skip_inline_ws();
         self.expect_char('{')?;
         let mut entries = BTreeMap::new();
         self.skip_ws(true);
@@ -941,6 +942,7 @@ impl<'a> Parser<'a> {
         let mut datatype = None;
         let mut attributes = BTreeMap::new();
         loop {
+            self.skip_inline_ws();
             if self.peek() == Some('@') && attributes.is_empty() {
                 attributes = self.parse_attribute_block()?;
                 continue;
@@ -952,6 +954,7 @@ impl<'a> Parser<'a> {
             }
             break;
         }
+        self.skip_inline_ws();
         let children = if self.peek() == Some('(') {
             self.expect_char('(')?;
             self.skip_ws(true);
@@ -965,6 +968,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
+        self.skip_inline_ws();
         self.expect_char('>')?;
         Ok(Value::Node(NodeValue {
             tag,
@@ -1481,6 +1485,36 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_whitespace_around_empty_node_children_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             b:node =  < a (   ) >\n\
+             c:node =  <a(  ) >\n\
+             d:node =  <a (  )>\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nb:node = <a>\nc:node = <a>\nd:node = <a>\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_whitespace_between_attribute_sigil_and_block_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a@ { n:n=2} : n = 3\n\
+             b @ { n:n=2} : n = 3\n\
+             c @ { n : n = 2 } : n = 3\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\na@{n:n = 2}:n = 3\nb@{n:n = 2}:n = 3\nc@{n:n = 2}:n = 3\n"
         );
     }
 
