@@ -1,0 +1,9 @@
+a@{n:n=1}:n = 2
+---
+v:node = <a()>
+---
+v:node = <a@{n:n=1}:node()>
+---
+o:object = { a:n = 1, b:list<n> = [1, 2] }
+---
+pair:tuple<n,n> = (1, 2)

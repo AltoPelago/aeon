@@ -41,6 +41,7 @@ Rule of thumb:
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
+| Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
 | Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests plus cross-implementation canonical and diagnostic snippet parity |
 | Stress CLI | `npm run stress` | `21/21` pass |
 | Stress CLI advanced | `npm run stress-advanced` | `15/15` pass |
@@ -185,6 +186,14 @@ Run diagnostic parity across the curated syntax corpus:
 ```bash
 python3 ./scripts/stress-diagnostic-snippets.py
 python3 ./scripts/stress-diagnostic-snippets.py --brief
+```
+
+Run generated whitespace/newline mutation parity from a curated seed corpus:
+
+```bash
+python3 ./scripts/stress-whitespace-mutations.py
+python3 ./scripts/stress-whitespace-mutations.py --depth 2
+python3 ./scripts/stress-whitespace-mutations.py --brief
 ```
 
 Run the full canonical conformance lane:

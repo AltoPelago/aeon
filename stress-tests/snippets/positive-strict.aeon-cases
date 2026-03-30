@@ -7,6 +7,10 @@ a:list<int32> = [1, 2, 3]
 ---
 a:tuple<int32,int32> = (1, 2)
 ---
+a : tuple < n , n > = (3 , 3)
+---
+a : list < n > = [ 3 , 3 ]
+---
 widget:node = <tag:node("x")>
 ---
 glyph:node = <glyph>
@@ -145,3 +149,78 @@ b:o = {a:sep[/]=^http://www.aeonite.org/*hello*/}
 ---
 c:tuple = (^http://www.aeonite.org/*hello*/)
 ---
+//new set
+b:node =  < a (   ) >
+---
+e:node =  < a(   )>
+---
+c:node =  <a(  ) >
+---
+d:node =  <a (  )>
+---
+a @{ n:n=2} : n = 3
+---
+a@ { n:n=2} : n = 3
+---
+a @ { n:n=2} : n = 3
+---
+a @ { n : n = 2 } : n = 3
+---
+a
+@ 
+{
+n
+:
+n 
+=
+1
+}
+:
+n 
+= 
+2
+---
+a
+:
+node
+= 
+<
+a
+>
+---
+a
+:
+node
+= 
+<
+a
+(
+1
+2
+<
+a
+>
+)
+>
+---
+a
+:
+set
+[ 
+. 
+]
+= 
+^0.0
+---
+a
+:
+list
+<
+n
+>
+=
+[
+2
+,
+3
+]

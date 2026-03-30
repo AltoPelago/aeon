@@ -49,6 +49,33 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('top:infinity = Infinity', result.text)
         self.assertIn('bottom:infinity = -Infinity', result.text)
 
+    def test_canonicalizes_multiline_generic_and_separator_boundaries(self) -> None:
+        result = canonicalize(
+            'aeon:mode = "strict"\n'
+            'size\n'
+            ':\n'
+            'sep\n'
+            '[\n'
+            'x\n'
+            ']\n'
+            '= ^300x250\n'
+            'items\n'
+            ':\n'
+            'list\n'
+            '<\n'
+            'n\n'
+            '>\n'
+            '=\n'
+            '[\n'
+            '2\n'
+            ',\n'
+            '3\n'
+            ']\n'
+        )
+        self.assertEqual([], result.errors)
+        self.assertIn('size:sep[x] = ^300x250', result.text)
+        self.assertIn('items:list<n> = [2, 3]', result.text)
+
     def test_scenarios_fixture_parses_in_python(self) -> None:
         fixture = ROOT.parents[1] / "stress-tests" / "full" / "scenarios.aeon"
         source = fixture.read_text(encoding="utf-8")

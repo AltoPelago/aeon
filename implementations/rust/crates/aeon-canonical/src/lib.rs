@@ -768,22 +768,22 @@ impl<'a> Parser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let key = self.parse_key()?;
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let attributes = if self.peek() == Some('@') {
             self.parse_attribute_block()?
         } else {
             BTreeMap::new()
         };
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let datatype = if self.peek() == Some(':') {
             self.index += 1;
             Some(self.parse_datatype_like()?)
         } else {
             None
         };
-        self.skip_inline_ws();
+        self.skip_ws(true);
         self.expect_char_message('=', &format!("Expected '=' after key '{key}'"))?;
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let value = self.parse_value()?;
         Ok(Binding {
             key,
@@ -809,27 +809,28 @@ impl<'a> Parser<'a> {
 
     fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeEntry>, Diagnostic> {
         self.expect_char('@')?;
+        self.skip_ws(true);
         self.expect_char('{')?;
         let mut entries = BTreeMap::new();
         self.skip_ws(true);
         while self.peek() != Some('}') {
             let key = self.parse_key()?;
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let nested = if self.peek() == Some('@') {
                 self.parse_attribute_block()?
             } else {
                 BTreeMap::new()
             };
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let datatype = if self.peek() == Some(':') {
                 self.index += 1;
                 Some(self.parse_datatype_like()?)
             } else {
                 None
             };
-            self.skip_inline_ws();
+            self.skip_ws(true);
             self.expect_char('=')?;
-            self.skip_inline_ws();
+            self.skip_ws(true);
             let value = self.parse_value()?;
             entries.insert(
                 key,
@@ -937,21 +938,25 @@ impl<'a> Parser<'a> {
 
     fn parse_node(&mut self) -> Result<Value, Diagnostic> {
         self.expect_char('<')?;
+        self.skip_ws(true);
         let tag = self.parse_key()?;
         let mut datatype = None;
         let mut attributes = BTreeMap::new();
         loop {
+            self.skip_ws(true);
             if self.peek() == Some('@') && attributes.is_empty() {
                 attributes = self.parse_attribute_block()?;
                 continue;
             }
             if self.peek() == Some(':') && datatype.is_none() {
                 self.index += 1;
+                self.skip_ws(true);
                 datatype = Some(self.parse_identifier_like(&['@', '(', '>', ' ', '\t', '\n', '\r'])?);
                 continue;
             }
             break;
         }
+        self.skip_ws(true);
         let children = if self.peek() == Some('(') {
             self.expect_char('(')?;
             self.skip_ws(true);
@@ -965,6 +970,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
+        self.skip_ws(true);
         self.expect_char('>')?;
         Ok(Value::Node(NodeValue {
             tag,
@@ -1095,7 +1101,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_datatype_like(&mut self) -> Result<String, Diagnostic> {
-        self.skip_inline_ws();
+        self.skip_ws(true);
         let start = self.index;
         let mut angle_depth = 0usize;
         let mut bracket_depth = 0usize;
@@ -1123,6 +1129,12 @@ impl<'a> Parser<'a> {
                     bracket_depth -= 1;
                     self.index += 1;
                 }
+                '\n' | '\r' if angle_depth > 0 || bracket_depth > 0 => {
+                    self.index += 1;
+                }
+                '\n' | '\r' if self.next_datatype_continuation().is_some() => {
+                    self.index += 1;
+                }
                 '@' | '=' | ',' | '{' | '}' | '(' | ')' | '\n' | '\r'
                     if angle_depth == 0 && bracket_depth == 0 =>
                 {
@@ -1137,7 +1149,7 @@ impl<'a> Parser<'a> {
         let value = std::str::from_utf8(&self.source[start..self.index])
             .map_err(|_| self.syntax_error("Invalid UTF-8"))?
             .chars()
-            .filter(|ch| !matches!(ch, ' ' | '\t'))
+            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
             .collect::<String>()
             .trim()
             .to_owned();
@@ -1145,6 +1157,27 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected token"));
         }
         Ok(value)
+    }
+
+    fn next_datatype_continuation(&self) -> Option<char> {
+        let mut probe = self.index;
+        while let Some(byte) = self.source.get(probe) {
+            let ch = char::from(*byte);
+            if matches!(ch, ' ' | '\t' | '\n' | '\r') {
+                probe += 1;
+                continue;
+            }
+            if ch == '/' {
+                if matches!(self.source.get(probe + 1).map(|b| char::from(*b)), Some('/')) {
+                    return None;
+                }
+                if self.source.get(probe + 1).is_some() {
+                    return None;
+                }
+            }
+            return Some(ch);
+        }
+        None
     }
 
     fn skip_delimiters(&mut self) -> Result<(), Diagnostic> {
@@ -1206,7 +1239,16 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_delimiter(&mut self) {
-        if matches!(self.peek(), Some(',') | Some('\n')) {
+        let mut consumed_newline = false;
+        while self.peek() == Some('\n') {
+            self.index += 1;
+            consumed_newline = true;
+        }
+        if self.peek() == Some(',') {
+            self.index += 1;
+            return;
+        }
+        if !consumed_newline && self.peek() == Some('\n') {
             self.index += 1;
         }
     }
@@ -1481,6 +1523,95 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_whitespace_around_empty_node_children_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a:node = <\n\
+             a\n\
+             >\n\
+             b:node =  < a (   ) >\n\
+             c:node =  <a(  ) >\n\
+             d:node =  <a (  )>\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\na:node = <a>\nb:node = <a>\nc:node = <a>\nd:node = <a>\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_whitespace_between_attribute_sigil_and_block_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a@ { n:n=2} : n = 3\n\
+             b @ { n:n=2} : n = 3\n\
+             c @ { n : n = 2 } : n = 3\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\na@{n:n = 2}:n = 3\nb@{n:n = 2}:n = 3\nc@{n:n = 2}:n = 3\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_extremely_multiline_binding_attributes_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a\n\
+             @ \n\
+             {\n\
+             n\n\
+             :\n\
+             n \n\
+             =\n\
+             1\n\
+             }\n\
+             :\n\
+             n \n\
+             = \n\
+             2\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\na@{n:n = 1}:n = 2\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_multiline_separator_specs_and_generic_boundaries_in_strict_mode() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             size\n\
+             :\n\
+             sep\n\
+             [\n\
+             x\n\
+             ]\n\
+             = ^300x250\n\
+             items\n\
+             :\n\
+             list\n\
+             <\n\
+             n\n\
+             >\n\
+             =\n\
+             [\n\
+             2\n\
+             ,\n\
+             3\n\
+             ]\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[x] = ^300x250\n"
         );
     }
 

@@ -126,8 +126,10 @@ impl<'a> TokenParser<'a> {
             });
         }
         self.consume(TokenKind::Identifier, "Expected datatype annotation")?;
+        self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
+            self.skip_newlines();
             loop {
                 match self.peek().kind {
                     TokenKind::Identifier => {
@@ -141,14 +143,18 @@ impl<'a> TokenParser<'a> {
                     }
                 }
 
+                self.skip_newlines();
                 if self.match_kind(TokenKind::RightAngle) {
+                    self.skip_newlines();
                     break;
                 }
                 self.consume(TokenKind::Comma, "Expected ',' between generic arguments")?;
+                self.skip_newlines();
             }
         }
 
         while self.match_kind(TokenKind::LeftBracket) {
+            self.skip_newlines();
             match self.peek().kind {
                 TokenKind::Identifier
                 | TokenKind::Number
@@ -172,13 +178,18 @@ impl<'a> TokenParser<'a> {
                     return Err(self.error_at_current("Expected separator character"));
                 }
             }
+            self.skip_newlines();
             self.consume(TokenKind::RightBracket, "Expected ']' to close separator spec")?;
+            self.skip_newlines();
         }
 
         Ok(self.tokens[start..self.current]
             .iter()
             .map(|token| token.text.as_str())
-            .collect::<String>())
+            .collect::<String>()
+            .chars()
+            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
+            .collect())
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -551,15 +562,21 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         while !self.check(terminator) {
             let key = self.parse_key()?;
+            self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
             while self.check(TokenKind::At) {
                 nested_attrs.extend(self.parse_attribute_block()?);
+                self.skip_newlines();
             }
+            self.skip_newlines();
             if self.match_kind(TokenKind::Colon) {
+                self.skip_newlines();
                 datatype = Some(self.parse_simple_datatype()?);
             }
+            self.skip_newlines();
             self.consume(TokenKind::Equals, equals_message)?;
+            self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
             members.insert(
                 key,
@@ -580,6 +597,10 @@ impl<'a> TokenParser<'a> {
         terminator: TokenKind,
         delimiter_message: &str,
     ) -> Result<(), Diagnostic> {
+        let mut saw_newline = false;
+        while self.match_kind(TokenKind::Newline) {
+            saw_newline = true;
+        }
         if self.match_kind(TokenKind::Comma) {
             self.skip_newlines();
             return Ok(());
@@ -587,8 +608,7 @@ impl<'a> TokenParser<'a> {
         if self.check(terminator) {
             return Ok(());
         }
-        if self.peek().kind == TokenKind::Newline {
-            self.skip_newlines();
+        if saw_newline {
             return Ok(());
         }
         Err(self.error_at_current(delimiter_message))
@@ -802,6 +822,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_multiline_separator_specs_and_generic_boundaries_from_tokens() {
+        let bindings = parse_document_from_tokens(
+            "size:sep\n[\nx\n]\n= ^300x250\nitems:list\n<\nn\n>\n=\n[\n2,\n3\n]\n",
+        )
+        .expect("token parse");
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].datatype.as_deref(), Some("sep[x]"));
+        assert_eq!(bindings[1].datatype.as_deref(), Some("list<n>"));
+        assert!(matches!(bindings[1].value, Value::ListNode { .. }));
+    }
+
+    #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings =
             parse_document_from_tokens("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
@@ -889,5 +921,18 @@ mod tests {
         assert_eq!(span.start.column, 5);
         assert_eq!(span.end.line, 1);
         assert_eq!(span.end.column, 10);
+    }
+
+    #[test]
+    fn parses_extremely_multiline_binding_attributes_from_tokens() {
+        let bindings = parse_document_from_tokens(
+            "a\n@ \n{\nn\n:\nn \n=\n1\n}\n:\nn \n= \n2\n",
+        )
+        .expect("token parse");
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "a");
+        assert_eq!(bindings[0].datatype.as_deref(), Some("n"));
+        assert!(bindings[0].attributes.contains_key("n"));
+        assert!(matches!(bindings[0].value, Value::NumberLiteral { .. }));
     }
 }

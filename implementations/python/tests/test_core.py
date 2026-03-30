@@ -219,6 +219,33 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIn("$.t[0]", paths)
         self.assertIn("$.t[1]", paths)
 
+    def test_structural_newlines_inside_generic_and_separator_boundaries_are_accepted(self) -> None:
+        result = compile_source(
+            'aeon:mode = "strict"\n'
+            'size\n'
+            ':\n'
+            'sep\n'
+            '[\n'
+            'x\n'
+            ']\n'
+            '= ^300x250\n'
+            'items\n'
+            ':\n'
+            'list\n'
+            '<\n'
+            'n\n'
+            '>\n'
+            '=\n'
+            '[\n'
+            '2\n'
+            ',\n'
+            '3\n'
+            ']\n'
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual("sep[x]", result.events[0]["datatype"])
+        self.assertEqual("list<n>", result.events[1]["datatype"])
+
     def test_reference_path_is_preserved_structurally(self) -> None:
         result = compile_source('a@{meta = { "x.y" = 1 }} = 0\nv = ~a@meta.["x.y"]')
         self.assertEqual([], result.errors)
