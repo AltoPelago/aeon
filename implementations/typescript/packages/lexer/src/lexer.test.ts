@@ -258,6 +258,13 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '^300x250');
         });
 
+        it('should tokenize bare caret as Caret when separator payload is split away', () => {
+            const result = tokenize('^\n0.0');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.Caret);
+            assert.strictEqual(result.tokens[0]!.value, '^');
+        });
+
         it('should terminate separator literal on structural comma', () => {
             const result = tokenize('^one,two');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);

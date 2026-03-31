@@ -82,7 +82,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_custom_mode_enforces_switch_typing(self) -> None:
         source = 'aeon:mode = "custom"\ndebug = yes'
         result = compile_source(source)
-        self.assertEqual(["UNTYPED_SWITCH_LITERAL"], [error.code for error in result.errors])
+        self.assertEqual(["UNTYPED_VALUE_IN_STRICT_MODE"], [error.code for error in result.errors])
 
     def test_reserved_radix12_alias_allowed_in_strict_mode(self) -> None:
         source = "aeon:mode = \"strict\"\nclock:radix12 = %AB10"
@@ -283,6 +283,28 @@ class CoreCompileTests(unittest.TestCase):
     def test_empty_separator_literal_is_rejected(self) -> None:
         result = compile_source("blue:sep = ^")
         self.assertNotEqual([], result.errors)
+
+    def test_spaces_only_separator_literal_inside_node_child_is_accepted(self) -> None:
+        result = compile_source("n:node = <b(^    )>")
+        self.assertEqual([], result.errors)
+        child = result.events[0]["value"]["children"][0]
+        self.assertEqual("    ", child["value"])
+
+    def test_unparameterized_separator_datatype_rejects_caret_with_non_space_payload(self) -> None:
+        result = compile_source("blue:sep = ^ 200")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
+        result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))
+        self.assertEqual(["INVALID_TIME", "INVALID_DATE", "INVALID_DATETIME"], [error.code for error in result.errors[:3]])
+
+    def test_invalid_radix_literal_reports_invalid_number(self) -> None:
+        result = compile_source("bits = %10A1-._/=")
+        self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
+
+    def test_custom_mode_untyped_switch_uses_general_typed_mode_error(self) -> None:
+        result = compile_source('aeon:mode = "custom"\nflag = yes\n')
+        self.assertEqual(["UNTYPED_VALUE_IN_STRICT_MODE"], [error.code for error in result.errors])
 
     def test_hex_literal_with_trailing_underscore_is_rejected(self) -> None:
         result = compile_source("blue = #FF_FF_FF_")

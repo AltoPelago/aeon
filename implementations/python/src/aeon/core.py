@@ -375,7 +375,7 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
             continue
         if binding.datatype is None:
             if mode in {"strict", "custom"}:
-                if value_kind(binding.value) == "SwitchLiteral":
+                if mode == "strict" and value_kind(binding.value) == "SwitchLiteral":
                     errors.append(UntypedSwitchLiteralError(format_path(binding.path), binding.span))
                 else:
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))

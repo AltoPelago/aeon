@@ -837,6 +837,14 @@ class Parser {
                 this.advance();
                 return this.createSeparatorLiteral(token);
 
+            case TokenType.Caret:
+                throw new SyntaxError(
+                    'Separator literals must contain a payload',
+                    token.span,
+                    'separator literal payload',
+                    token.value
+                );
+
             case TokenType.RadixLiteral:
                 this.advance();
                 return {

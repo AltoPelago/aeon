@@ -508,6 +508,12 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.length > 0);
         });
 
+        it('should reject separator literals whose payload is split onto the next line', () => {
+            const result = compile('a =\n^\n0.0');
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SYNTAX_ERROR'));
+        });
+
         it('should reject hex literals with trailing underscores', () => {
             const result = compile('blue = #FF_FF_FF_');
             assert.strictEqual(result.events.length, 0);
