@@ -3091,7 +3091,9 @@ mod tests {
     use super::*;
     use aeon_annotations::extract_annotations;
     use aeon_core::{compile, CompileOptions};
-    use std::path::PathBuf;
+    use ed25519_dalek::pkcs8::{EncodePrivateKey, EncodePublicKey};
+    use pkcs8::LineEnding;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn normalize(text: &str) -> String {
@@ -3120,25 +3122,34 @@ mod tests {
         base.join(relative).to_string_lossy().into_owned()
     }
 
-    fn required_example_path(relative: &str) -> String {
-        let path = PathBuf::from(example_path(relative));
-        assert!(
-            path.is_file(),
-            "missing required test fixture: {} (expected by aeon-cli integrity tests)",
-            path.display()
-        );
-        path.to_string_lossy().into_owned()
+    fn test_signing_key() -> SigningKey {
+        SigningKey::from_bytes(&[7u8; 32])
     }
 
-    fn read_required_example(relative: &str) -> String {
-        let path = required_example_path(relative);
-        fs::read_to_string(&path).unwrap_or_else(|error| {
-            panic!(
-                "failed to read required test fixture {}: {}",
-                path,
-                error
-            )
-        })
+    fn test_private_key_pem() -> String {
+        test_signing_key()
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("private key pem")
+            .to_string()
+    }
+
+    fn write_test_keypair(dir: &Path) -> (String, String) {
+        let signing_key = test_signing_key();
+        let private_key_path = dir.join("test.private.pem");
+        let public_key_path = dir.join("test.public.pem");
+        let private_pem = signing_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("private key pem");
+        let public_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .expect("public key pem");
+        fs::write(&private_key_path, private_pem.as_bytes()).expect("write private key");
+        fs::write(&public_key_path, public_pem.as_bytes()).expect("write public key");
+        (
+            private_key_path.to_string_lossy().into_owned(),
+            public_key_path.to_string_lossy().into_owned(),
+        )
     }
 
     fn contract_registry_path() -> String {
@@ -5361,7 +5372,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let file = dir.join("sign.aeon");
         fs::write(&file, "a = 1\n").expect("file");
-        let private_key = required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5387,7 +5398,7 @@ mod tests {
             },
         );
         let canonical = compute_canonical_hash(&compile_result.events, "sha-256");
-        let private_key = read_required_example("signed-aeon-cli-asymmetric/keys/alice.private.pem");
+        let private_key = test_private_key_pem();
         let signature = sign_string_payload(&canonical.hash, &private_key).expect("signature");
         let receipt = canonical_receipt_json(body, &canonical, compile_result.header.as_ref(), None, true);
         let payload = json!({
@@ -5433,8 +5444,9 @@ mod tests {
             },
         );
         let hash = compute_canonical_hash(&body_compile.events, "sha-256").hash;
-        let private_key = read_required_example("signed-aeon-cli-asymmetric/keys/alice.private.pem");
+        let private_key = test_private_key_pem();
         let signature = sign_string_payload(&hash, &private_key).expect("signature");
+        let (_, public_key) = write_test_keypair(&dir);
         let contents = format!(
             "a = 1\nclose:envelope = {{\n  integrity:integrityBlock = {{\n    alg:string = \"sha-256\"\n    hash:string = \"{hash}\"\n  }}\n  signatures:signatureSet = [\n    {{\n      alg:string = \"ed25519\"\n      kid:string = \"default\"\n      sig:string = \"{signature}\"\n    }}\n  ]\n}}\n"
         );
@@ -5446,7 +5458,7 @@ mod tests {
             String::from("verify"),
             file.to_string_lossy().into_owned(),
             String::from("--public-key"),
-            required_example_path("signed-aeon-cli-asymmetric/keys/alice.public.pem"),
+            public_key,
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
         let _ = fs::remove_dir_all(&dir);
@@ -5463,7 +5475,7 @@ mod tests {
             },
         );
         let hash = compute_canonical_hash(&body_compile.events, "sha-256").hash;
-        let private_key = read_required_example("signed-aeon-cli-asymmetric/keys/alice.private.pem");
+        let private_key = test_private_key_pem();
         let signature = sign_string_payload(&hash, &private_key).expect("signature");
         let source = format!(
             "a = 1\nclose:envelope = {{\n  integrity:integrityBlock = {{\n    alg:string = \"sha-256\"\n    hash:string = \"{hash}\"\n  }}\n  signatures:signatureSet = [\n    {{\n      alg:string = \"ed25519\"\n      kid:string = \"default\"\n      sig:string = \"{signature}\"\n    }}\n  ]\n}}\n"
@@ -5515,6 +5527,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let file = dir.join("sign-write.aeon");
         fs::write(&file, "a = 1\n").expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5522,9 +5535,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--write"),
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
@@ -5550,6 +5561,7 @@ mod tests {
         let file = dir.join("sign-write-custom.aeon");
         let receipt = dir.join("custom.receipt.json");
         fs::write(&file, "a = 1\n").expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5557,9 +5569,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--write"),
             String::from("--receipt"),
             receipt.to_string_lossy().into_owned(),
@@ -5625,6 +5635,7 @@ mod tests {
             "a = 1\nclose:envelope = {\n  integrity:integrityBlock = {\n    alg:string = \"sha-256\"\n    hash:string = \"deadbeef\"\n  }\n}\n",
         )
         .expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5632,9 +5643,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--write"),
             String::from("--replace"),
         ]);
@@ -5655,6 +5664,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let file = dir.join("sign-bytes.aeon");
         fs::write(&file, "a = 1\n").expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let parsed = {
             let body = "a = 1\n";
@@ -5685,9 +5695,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--include-bytes"),
             String::from("--json"),
         ]);
@@ -5707,6 +5715,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let file = dir.join("sign-checksum.aeon");
         fs::write(&file, "a = 1\n").expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let parsed = {
             let body = "a = 1\n";
@@ -5737,9 +5746,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--include-checksum"),
             String::from("--json"),
         ]);
@@ -5763,6 +5770,7 @@ mod tests {
             "aeon:header = {\n  mode = \"strict\"\n  conventions:conventionSet = [\n    \"aeon.gp.security.v1\"\n  ]\n}\n\na:number = 1\n",
         )
         .expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5770,9 +5778,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
             String::from("--write"),
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
@@ -5797,6 +5803,7 @@ mod tests {
             "a = 1\nclose:envelope = {\n  integrity:integrityBlock = {\n    alg:string = \"sha-256\"\n    hash:string = \"deadbeef\"\n  }\n}\n",
         )
         .expect("file");
+        let (private_key, _) = write_test_keypair(&dir);
 
         let result = run(vec![
             String::from("aeon-rust"),
@@ -5804,9 +5811,7 @@ mod tests {
             String::from("sign"),
             file.to_string_lossy().into_owned(),
             String::from("--private-key"),
-            String::from(
-                required_example_path("signed-aeon-cli-asymmetric/keys/alice.private.pem"),
-            ),
+            private_key,
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::from(1)));
         let _ = fs::remove_dir_all(&dir);
