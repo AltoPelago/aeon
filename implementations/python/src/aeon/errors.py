@@ -15,12 +15,43 @@ class AeonError(Exception):
         return self.message
 
     def to_json(self) -> dict[str, object]:
-        return {
+        payload = {
             "code": self.code,
             "path": self.path or "$",
             "span": self.span.to_json(),
             "message": self.message,
         }
+        phase_label = infer_phase_label_from_code(self.code)
+        if phase_label is not None:
+            payload["phaseLabel"] = phase_label
+        return payload
+
+
+def infer_phase_label_from_code(code: str) -> str | None:
+    if code == "INPUT_SIZE_EXCEEDED":
+        return "Input Validation"
+    if code in {"UNEXPECTED_CHARACTER", "UNTERMINATED_BLOCK_COMMENT", "UNTERMINATED_STRING", "UNTERMINATED_TRIMTICK"}:
+        return "Lexical Analysis"
+    if code in {
+        "SYNTAX_ERROR",
+        "INVALID_DATE",
+        "INVALID_TIME",
+        "INVALID_DATETIME",
+        "INVALID_NUMBER",
+        "INVALID_SEPARATOR_CHAR",
+        "SEPARATOR_DEPTH_EXCEEDED",
+        "GENERIC_DEPTH_EXCEEDED",
+    }:
+        return "Parsing"
+    if code in {"HEADER_CONFLICT", "DUPLICATE_CANONICAL_PATH", "DATATYPE_LITERAL_MISMATCH"}:
+        return "Core Validation"
+    if code in {"MISSING_REFERENCE_TARGET", "FORWARD_REFERENCE", "SELF_REFERENCE", "ATTRIBUTE_DEPTH_EXCEEDED"}:
+        return "Reference Validation"
+    if code in {"UNTYPED_SWITCH_LITERAL", "UNTYPED_VALUE_IN_STRICT_MODE", "CUSTOM_DATATYPE_NOT_ALLOWED", "INVALID_NODE_HEAD_DATATYPE"}:
+        return "Mode Enforcement"
+    if code.startswith("FINALIZE_") or code == "TYPE_GUARD_FAILED":
+        return "Finalization"
+    return None
 
 
 class SyntaxError(AeonError):
@@ -34,6 +65,36 @@ class InvalidNumberError(AeonError):
             message=f"Invalid number literal: '{raw}'",
             span=span,
             code="INVALID_NUMBER",
+            path=path,
+        )
+
+
+class InvalidDateError(AeonError):
+    def __init__(self, raw: str, span: Span, path: str | None = None) -> None:
+        super().__init__(
+            message=f"Invalid date literal: '{raw}'",
+            span=span,
+            code="INVALID_DATE",
+            path=path,
+        )
+
+
+class InvalidTimeError(AeonError):
+    def __init__(self, raw: str, span: Span, path: str | None = None) -> None:
+        super().__init__(
+            message=f"Invalid time literal: '{raw}'",
+            span=span,
+            code="INVALID_TIME",
+            path=path,
+        )
+
+
+class InvalidDateTimeError(AeonError):
+    def __init__(self, raw: str, span: Span, path: str | None = None) -> None:
+        super().__init__(
+            message=f"Invalid datetime literal: '{raw}'",
+            span=span,
+            code="INVALID_DATETIME",
             path=path,
         )
 

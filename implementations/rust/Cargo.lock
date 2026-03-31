@@ -36,6 +36,7 @@ dependencies = [
  "aeon-core",
  "aeon-finalize",
  "ed25519-dalek",
+ "pkcs8",
  "serde",
  "serde_json",
  "sha2",

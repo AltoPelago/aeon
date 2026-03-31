@@ -681,6 +681,15 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.value.type, 'SeparatorLiteral');
         });
 
+        it('should reject bare caret when a separator literal payload is split by newline', () => {
+            const tokens = tokenize('a =\n^\n0.0').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /Separator literals must contain a payload/);
+        });
+
         it('should parse infinity literals', () => {
             const tokens = tokenize('top = Infinity\nbottom = -Infinity').tokens;
             const result = parse(tokens);

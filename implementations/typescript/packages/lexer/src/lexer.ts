@@ -804,7 +804,7 @@ export class Lexer {
         }
 
         if (value === '^') {
-            this.errors.push(new UnexpectedCharacterError('^', createSpan(start, this.currentPosition())));
+            this.addToken(TokenType.Caret, value, start);
             return;
         }
 

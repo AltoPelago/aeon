@@ -3,7 +3,15 @@ from __future__ import annotations
 import re
 
 from ._compat import dataclass
-from .errors import AeonError, InvalidNumberError, SyntaxError, UnterminatedBlockCommentError
+from .errors import (
+    AeonError,
+    InvalidDateError,
+    InvalidDateTimeError,
+    InvalidNumberError,
+    InvalidTimeError,
+    SyntaxError,
+    UnterminatedBlockCommentError,
+)
 from .spans import Position, Span
 
 
@@ -283,6 +291,9 @@ class Lexer:
             chars.append(self.advance())
         value = "".join(chars)
         if not validator(value[1:]):
+            if kind == "RADIX":
+                self.errors.append(InvalidNumberError(value, self.make_span(start)))
+                return
             self.errors.append(SyntaxError(f"Invalid {kind.lower()} literal: '{value}'", self.make_span(start)))
             return
         self.add_token(kind, value, start)
@@ -330,8 +341,15 @@ class Lexer:
                 saw_payload_char = True
                 continue
             if char == " " and not saw_payload_char:
-                self.errors.append(SyntaxError("Separator literals must not begin with an unescaped space", self.make_span(start)))
-                return
+                probe = self.offset
+                while probe < len(self.source) and self.source[probe] == " ":
+                    probe += 1
+                next_visible = self.source[probe] if probe < len(self.source) else "\0"
+                if next_visible in {"\n", "\0", ",", "]", ")", "}"}:
+                    chars.append(self.advance())
+                    saw_payload_char = True
+                    continue
+                break
             if char == " " and saw_non_space:
                 break
             chars.append(self.advance())
@@ -446,7 +464,7 @@ class Lexer:
         if self.is_valid_time_literal(value):
             self.add_token("TIME", value, start)
             return
-        self.errors.append(SyntaxError(f"Invalid time literal: '{value}'", self.make_span(start)))
+        self.errors.append(InvalidTimeError(value, self.make_span(start)))
 
     def scan_date_or_datetime(self, start: Position, year: str) -> None:
         value = year
@@ -477,13 +495,13 @@ class Lexer:
             if self.is_valid_datetime_literal(value):
                 self.add_token("DATETIME", value, start)
             else:
-                self.errors.append(SyntaxError(f"Invalid datetime literal: '{value}'", self.make_span(start)))
+                self.errors.append(InvalidDateTimeError(value, self.make_span(start)))
             return
 
         if self.is_valid_date_literal(value):
             self.add_token("DATE", value, start)
             return
-        self.errors.append(SyntaxError(f"Invalid date literal: '{value}'", self.make_span(start)))
+        self.errors.append(InvalidDateError(value, self.make_span(start)))
 
     def scan_identifier(self, start: Position, first: str) -> None:
         chars = [first]
