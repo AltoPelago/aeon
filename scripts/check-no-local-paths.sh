@@ -16,7 +16,7 @@ for pattern in "${patterns[@]}"; do
   git_grep_args+=(-e "$pattern")
 done
 
-if git grep "${git_grep_args[@]}" -- .; then
+if git grep "${git_grep_args[@]}" -- . ':(exclude)scripts/check-no-local-paths.sh'; then
   cat <<'EOF'
 
 Local filesystem path markers were found in tracked files.
