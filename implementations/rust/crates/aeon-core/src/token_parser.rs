@@ -209,9 +209,7 @@ impl<'a> TokenParser<'a> {
                 | TokenKind::Dot
                 | TokenKind::Comma => {
                     let token = self.advance();
-                    if token.kind != TokenKind::Number
-                        && (token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]")
-                    {
+                    if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
                         return Err(Diagnostic {
                             code: String::from("INVALID_SEPARATOR_CHAR"),
                             path: Some(String::from("$")),

@@ -1044,30 +1044,20 @@ describe('Parser', () => {
             }
         });
 
-        it('should parse generic inline node head datatypes', () => {
+        it('should reject generic inline node head datatypes', () => {
             const tokens = tokenize('item = <tag:pair<int32,string>("x")>').tokens;
             const result = parse(tokens);
 
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'NodeLiteral');
-            if (value.type === 'NodeLiteral') {
-                assert.strictEqual(value.datatype?.name, 'pair');
-                assert.deepStrictEqual(value.datatype?.genericArgs, ['int32', 'string']);
-            }
+            assert.ok(result.errors.length > 0);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
         });
 
-        it('should parse separator-spec inline node head datatypes', () => {
+        it('should reject separator-spec inline node head datatypes', () => {
             const tokens = tokenize('item = <tag:contact[x]("x")>').tokens;
             const result = parse(tokens);
 
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'NodeLiteral');
-            if (value.type === 'NodeLiteral') {
-                assert.strictEqual(value.datatype?.name, 'contact');
-                assert.deepStrictEqual(value.datatype?.separators, ['x']);
-            }
+            assert.ok(result.errors.length > 0);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
         });
     });
 

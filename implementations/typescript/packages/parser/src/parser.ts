@@ -403,14 +403,6 @@ class Parser {
                     this.peek().value
                 );
             }
-            if (this.check(TokenType.Number)) {
-                separators.push(this.advance().value);
-                this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
-                if (separators.length > this.maxSeparatorDepth) {
-                    throw new SeparatorDepthExceededError(separators.length, this.maxSeparatorDepth, this.previous().span);
-                }
-                continue;
-            }
             const sep = this.parseSeparatorCharacter();
             separators.push(sep);
             this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
@@ -593,6 +585,14 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            if (datatype.genericArgs.length > 0 || datatype.radixBase !== null || datatype.separators.length > 0) {
+                throw new SyntaxError(
+                    'Node head datatypes must be simple labels without generics or separator specs',
+                    datatype.span,
+                    'simple node head datatype',
+                    this.formatTypeAnnotation(datatype)
+                );
+            }
         }
 
         const children: Value[] = [];
