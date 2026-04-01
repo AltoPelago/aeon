@@ -73,3 +73,158 @@ a:'string' = 'hello world'
 ---
 z5:zrut = 2025-01-01T00:00:00z&l
 ---
+i:infinity<infinity> = Infinity
+---
+a:string<string> = ""
+---
+a:number<number> = 0
+---
+a:int<int> = 0
+---
+a:int8<int8> = 0
+---
+a:int16<int16> = 0
+---
+a:int32<int32> = 0
+---
+a:int64<int64> = 0
+---
+a:uint<uint> = 0
+---
+a:uint8<uint8> = 0
+---
+a:uint16<uint16> = 0
+---
+a:uint32<uint32> = 0
+---
+a:uint64<uint64> = 0
+---
+a:float<float> = 0.1
+---
+a:float32<float32> = 0.1
+---
+a:float64<float64> = 0.1
+---
+b:boolean<boolean> = true
+---
+b:bool<bool> = false
+---
+s:switch<switch> = yes
+---
+h:hex<hex> = #fff
+---
+r:radix<radix>[2] = %0101
+---
+r:radix2<radix2> = %10101
+---
+r:radix6<radix6> = %10101
+---
+r:radix8<radix8> = %10101
+---
+r:radix12<radix12> = %10101
+---
+e:encoding<encoding> = $fff
+---
+b:base64<base64> = $fff
+---
+i:inline<inline> = $inline
+---
+e:embed<embed> = $embed
+---
+d:date<date> = 2007-01-02
+---
+t:time<time> = 10:10:35
+---
+z:zrut<zrut> = 2007-01-02T10:10:25Z&Australia/Melbourne
+---
+s:sep<sep>[x] = ^300x200
+---
+s:set<set>[.][;] = ^00.00;00
+---
+
+i:infinity[2] = Infinity
+---
+a:string[2] = ""
+---
+a:number[2] = 0
+---
+a:int[2] = 0
+---
+a:int8[2] = 0
+---
+a:int16[2] = 0
+---
+a:int32[2] = 0
+---
+a:int64[2] = 0
+---
+a:uint[2] = 0
+---
+a:uint8[2] = 0
+---
+a:uint16[2] = 0
+---
+a:uint32[2] = 0
+---
+a:uint64[2] = 0
+---
+a:float[2] = 0.1
+---
+a:float32[2] = 0.1
+---
+a:float64[2] = 0.1
+---
+b:boolean[2] = true
+---
+b:bool[2] = false
+---
+s:switch[2] = yes
+---
+h:hex[2] = #fff
+---
+r:radix[] = %0101
+---
+r:radix2[2] = %10101
+---
+r:radix6[2] = %10101
+---
+r:radix8[2] = %10101
+---
+r:radix12[2]= %10101
+---
+e:encoding[2] = $fff
+---
+b:base64[2] = $fff
+---
+i:inline[2] = $inline
+---
+e:embed[2] = $embed
+---
+d:date[2] = 2007-01-02
+---
+t:time[2] = 10:10:35
+z:zrut[2] = 2007-01-02T10:10:25Z&Australia/Melbourne
+---
+s:sep[22] = ^300x200
+---
+s:set[.][] = ^00.00;00
+---
+o:o[2] = { n:n = 0 }
+---
+o:object[2] = { n:n = 0 }
+---
+o:obj[2] = { n:n = 0 }
+---
+o:envelope[2] = { n:n = 0 }
+---
+l:list[2] = [ 2, 3, 4 ]
+---
+l:tuple[2] = ( 2, 3, 4 )
+---
+n:node[2] = <a>
+---
+n:node = <a[2]>
+---
+n:node = <a:node<node>>
+---
+n:node = <a:node[2]>

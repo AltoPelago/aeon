@@ -305,3 +305,5 @@ l:list = [ 2, 3, 4 ]
 l:tuple = ( 2, 3, 4 )
 ---
 n:node = <a>
+---
+n:node = <a:node>
