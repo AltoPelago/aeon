@@ -1114,6 +1114,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_datatype_with_non_literal_kind_wording() {
+        let result = compile("value:null = 0\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert_eq!(
+            result.errors[0].message,
+            "Datatype/literal mismatch at '$.value': datatype ':null' is not supported for literal matching, got NumberLiteral"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.value"));
+    }
+
+    #[test]
     fn rejects_empty_separator_literals() {
         let result = compile("blue:sep = ^\n", CompileOptions::default());
         assert!(!result.errors.is_empty());

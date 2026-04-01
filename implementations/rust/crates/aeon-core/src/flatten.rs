@@ -30,7 +30,7 @@ pub(crate) struct ValidationEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ValidationReferenceStep {
-    ValidateValue { path: String, value: Value, span: Span },
+    ValidateValue { path: String, value: Value },
     VisibleTarget(String),
 }
 
@@ -98,13 +98,11 @@ fn track_reference_binding(
     path_text: &str,
     attributes: &BTreeMap<String, AttributeValue>,
     value: &Value,
-    span: Span,
     shallow_event_values: bool,
 ) {
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         value: clone_validation_value(value, shallow_event_values),
-        span,
     });
     let _ = reference_targets.insert(render_child_member_path(parent_path, key));
     collect_attribute_targets(path_text, attributes, reference_targets, String::new());
@@ -146,7 +144,6 @@ fn flatten_validation_bindings(
             &path_text,
             &binding.attributes,
             &binding.value,
-            binding.span,
             shallow_event_values,
         );
         if !binding.key.starts_with("aeon:") {
@@ -323,7 +320,6 @@ fn flatten_bindings(
             &path_text,
             &binding.attributes,
             &binding.value,
-            binding.span,
             shallow_event_values,
         );
         let visible = !binding.key.starts_with("aeon:");

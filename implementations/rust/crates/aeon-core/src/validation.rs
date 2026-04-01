@@ -112,8 +112,8 @@ pub(crate) fn validate_reference_steps(
     let mut seen_base = HashSet::new();
     for step in steps {
         match step {
-            ValidationReferenceStep::ValidateValue { path, value, span } => {
-                validate_value_reference(value, path, *span, all_targets, &seen_base, max_attribute_depth, errors);
+            ValidationReferenceStep::ValidateValue { path, value } => {
+                validate_value_reference(value, path, all_targets, &seen_base, max_attribute_depth, errors);
             }
             ValidationReferenceStep::VisibleTarget(path) => {
                 let _ = seen_base.insert(path.clone());
@@ -125,7 +125,6 @@ pub(crate) fn validate_reference_steps(
 fn validate_value_reference(
     value: &Value,
     current_path: &str,
-    current_span: Span,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
@@ -186,7 +185,6 @@ fn validate_value_reference(
                 validate_attribute_reference_map(
                     &binding.attributes,
                     current_path,
-                    current_span,
                     all_targets,
                     seen_base,
                     max_attribute_depth,
@@ -204,7 +202,6 @@ fn validate_value_reference(
                 validate_attribute_reference_map(
                     attribute,
                     current_path,
-                    current_span,
                     all_targets,
                     seen_base,
                     max_attribute_depth,
@@ -215,7 +212,6 @@ fn validate_value_reference(
                 validate_value_reference(
                     child,
                     current_path,
-                    current_span,
                     all_targets,
                     seen_base,
                     max_attribute_depth,
@@ -230,7 +226,6 @@ fn validate_value_reference(
 fn validate_attribute_reference_map(
     attributes: &BTreeMap<String, AttributeValue>,
     current_path: &str,
-    current_span: Span,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
@@ -241,7 +236,6 @@ fn validate_attribute_reference_map(
             validate_attribute_reference_map(
                 nested,
                 current_path,
-                current_span,
                 all_targets,
                 seen_base,
                 max_attribute_depth,
@@ -252,7 +246,6 @@ fn validate_attribute_reference_map(
             validate_value_reference(
                 value,
                 current_path,
-                current_span,
                 all_targets,
                 seen_base,
                 max_attribute_depth,
@@ -311,20 +304,11 @@ pub(crate) fn validate_datatypes(
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
             if !datatype_matches_value(datatype, resolved_value) {
-                let expected = expected_kinds_for_reserved_datatype(datatype)
-                    .expect("reserved datatype should have expected kinds")
-                    .join(" or ");
+                let message = datatype_mismatch_message(path, datatype, resolved_value.value_kind());
                 errors.push(
-                    Diagnostic::new(
-                        "DATATYPE_LITERAL_MISMATCH",
-                        format!(
-                            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {expected}, got {}",
-                            path,
-                            resolved_value.value_kind()
-                        ),
-                    )
-                    .at_path(path.clone())
-                    .with_span(event.span),
+                    Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
+                        .at_path(path.clone())
+                        .with_span(event.span),
                 );
             }
         }
@@ -387,20 +371,12 @@ pub(crate) fn validate_datatypes_light(
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
             if !datatype_matches_value(datatype, resolved_value) {
-                let expected = expected_kinds_for_reserved_datatype(datatype)
-                    .expect("reserved datatype should have expected kinds")
-                    .join(" or ");
+                let message =
+                    datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
                 errors.push(
-                    Diagnostic::new(
-                        "DATATYPE_LITERAL_MISMATCH",
-                        format!(
-                            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {expected}, got {}",
-                            event.path,
-                            resolved_value.value_kind()
-                        ),
-                    )
-                    .at_path(event.path.clone())
-                    .with_span(event.span),
+                    Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
+                        .at_path(event.path.clone())
+                        .with_span(event.span),
                 );
             }
         }
@@ -937,9 +913,22 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
         "node" => Some(vec!["NodeLiteral"]),
-        "null" => Some(vec!["NullLiteral"]),
         _ => None,
     }
+}
+
+fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> String {
+    if let Some(expected) = expected_kinds_for_reserved_datatype(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
+            path,
+            expected.join(" or ")
+        );
+    }
+    format!(
+        "Datatype/literal mismatch at '{}': datatype ':{datatype}' is not supported for literal matching, got {actual_kind}",
+        path
+    )
 }
 
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
@@ -1179,17 +1168,10 @@ fn validate_attribute_datatype_map(
                     }
                 } else {
                     if !datatype_matches_value(datatype, value) {
-                        let expected = expected_kinds_for_reserved_datatype(datatype)
-                            .expect("reserved datatype should have expected kinds")
-                            .join(" or ");
                         errors.push(
                             Diagnostic::new(
                                 "DATATYPE_LITERAL_MISMATCH",
-                                format!(
-                                    "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {expected}, got {}",
-                                    attr_path,
-                                    value.value_kind()
-                                ),
+                                datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
                             )
                             .at_path(attr_path.clone()),
                         );
