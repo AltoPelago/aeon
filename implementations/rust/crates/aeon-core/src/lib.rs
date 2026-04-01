@@ -1081,6 +1081,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_oversized_radix_base_with_specific_radix_base_error() {
+        let result = compile(
+            "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.iter().any(|error| {
+            error.code == "SYNTAX_ERROR"
+                && error.message.contains("Radix base must be an integer from 2 to 64")
+        }));
+        assert!(!result
+            .errors
+            .iter()
+            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
     fn rejects_quoted_type_names() {
         let result = compile("a:'string' = 'hello world'\n", CompileOptions::default());
         assert!(result

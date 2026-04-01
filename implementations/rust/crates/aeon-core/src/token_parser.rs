@@ -165,9 +165,9 @@ impl<'a> TokenParser<'a> {
         let mut saw_radix_base = false;
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
-            if datatype_name == "radix" && !saw_radix_base && self.peek().kind == TokenKind::Number {
-                let token = self.advance();
-                if !is_valid_radix_base_token(&token.text) {
+            if datatype_name == "radix" && !saw_radix_base {
+                let token = self.peek().clone();
+                if token.kind == TokenKind::RightBracket {
                     return Err(Diagnostic {
                         code: String::from("SYNTAX_ERROR"),
                         path: Some(String::from("$")),
@@ -176,8 +176,23 @@ impl<'a> TokenParser<'a> {
                         message: String::from("Radix base must be an integer from 2 to 64"),
                     });
                 }
-                saw_radix_base = true;
+
+                let token = self.advance();
                 self.skip_newlines();
+                if self.peek().kind != TokenKind::RightBracket
+                    || token.kind != TokenKind::Number
+                    || !is_valid_radix_base_token(&token.text)
+                {
+                    return Err(Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from("Radix base must be an integer from 2 to 64"),
+                    });
+                }
+
+                saw_radix_base = true;
                 self.consume(TokenKind::RightBracket, "Expected ']' to close radix base spec")?;
                 self.skip_newlines();
                 continue;
