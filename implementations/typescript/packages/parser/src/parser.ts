@@ -362,13 +362,14 @@ class Parser {
         }
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
+        const normalizedName = name.toLowerCase();
         const genericArgs: string[] = [];
         let radixBase: number | null = null;
         const separators: string[] = [];
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
-            if (name === 'radix') {
+            if (normalizedName === 'radix') {
                 throw new SyntaxError(
                     "Radix datatype bases must use bracket syntax like 'radix[10]'",
                     this.peek().span,
@@ -390,10 +391,18 @@ class Parser {
         // Parse repeated separator specifiers: [x][,][;]
         while (this.check(TokenType.LeftBracket)) {
             this.advance(); // consume [
-            if (name === 'radix' && radixBase === null && this.check(TokenType.Number)) {
+            if (normalizedName === 'radix' && radixBase === null) {
                 radixBase = this.parseRadixBaseSpecifier();
                 this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
                 continue;
+            }
+            if (normalizedName === 'radix') {
+                throw new SyntaxError(
+                    "Radix datatype allows exactly one base bracket like 'radix[10]'",
+                    this.peek().span,
+                    'radix[10]',
+                    this.peek().value
+                );
             }
             if (this.check(TokenType.Number)) {
                 separators.push(this.advance().value);
@@ -450,6 +459,14 @@ class Parser {
     }
 
     private parseRadixBaseSpecifier(): number {
+        if (this.check(TokenType.RightBracket)) {
+            throw new SyntaxError(
+                'Radix base must be an integer from 2 to 64',
+                this.peek().span,
+                'integer from 2 to 64',
+                this.peek().value
+            );
+        }
         const token = this.consume(TokenType.Number, 'Expected radix base');
         const raw = token.value.replace(/_/g, '');
         if (!/^(0|[1-9]\d*)$/.test(raw) || raw !== token.value) {

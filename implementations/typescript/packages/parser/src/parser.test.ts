@@ -837,6 +837,38 @@ describe('Parser', () => {
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
+
+        it('should reject empty radix base brackets', () => {
+            const tokens = tokenize('mask:radix[] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject radix base brackets with leading zeroes', () => {
+            const tokens = tokenize('mask:radix[03] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject non-decimal radix base brackets', () => {
+            const tokens = tokenize('mask:radix[a] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject extra radix brackets after the base specifier', () => {
+            const tokens = tokenize('mask:radix[2][2] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
     });
 
     // ============================================
