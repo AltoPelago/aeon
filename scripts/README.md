@@ -13,6 +13,8 @@ These scripts should only move into a public implementation surface if they are 
 Current public-readiness classification:
 
 - likely public workflow:
+  - `check-no-local-paths.sh`
+  - `pre-commit-check.sh`
   - `cts-source-lane-runner.mjs`
   - `repo-paths.mjs`
   - `repo_paths.py`
