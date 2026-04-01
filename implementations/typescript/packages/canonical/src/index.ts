@@ -278,7 +278,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'RadixLiteral':
             return [`%${value.value.replace(/_/g, '')}`];
         case 'EncodingLiteral':
-            return [`$${value.value}`];
+            return [`$${formatEncoding(value.value)}`];
         case 'SeparatorLiteral':
             return [`^${formatSeparator(value.raw)}`];
         case 'DateLiteral':
@@ -431,7 +431,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'RadixLiteral':
             return `%${value.value.replace(/_/g, '')}`;
         case 'EncodingLiteral':
-            return `$${value.value}`;
+            return `$${formatEncoding(value.value)}`;
         case 'SeparatorLiteral':
             return `^${formatSeparator(value.raw)}`;
         case 'DateLiteral':
@@ -464,6 +464,10 @@ function renderCompactInlineValue(value: Value): string {
         default:
             return renderValue(value, 0, { inlineOnly: true })[0] ?? '';
     }
+}
+
+function formatEncoding(value: string): string {
+    return value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
 }
 
 function renderHeaderFromObject(

@@ -672,6 +672,9 @@ fn normalize_raw(raw: &str) -> String {
     if let Some(radix) = raw.strip_prefix('%') {
         return format!("%{}", radix.replace('_', ""));
     }
+    if let Some(encoding) = raw.strip_prefix('$') {
+        return format!("${}", normalize_encoding(encoding));
+    }
 
     let mut value = raw
         .strip_prefix("~>$.")
@@ -685,6 +688,10 @@ fn normalize_raw(raw: &str) -> String {
     value = normalize_quoted_reference_segments(&value, ".[\"", ".");
     value = normalize_quoted_reference_segments(&value, "@[\"", "@");
     value
+}
+
+fn normalize_encoding(raw: &str) -> String {
+    raw.replace('+', "-").replace('/', "_").trim_end_matches('=').to_owned()
 }
 
 fn is_identifier_literal(raw: &str) -> bool {
@@ -1509,6 +1516,16 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\nb:radix = %1010101\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_encoding_literals_to_url_safe_base64() {
+        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = $+///==\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
         );
     }
 

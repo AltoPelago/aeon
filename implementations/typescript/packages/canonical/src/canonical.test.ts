@@ -229,6 +229,13 @@ test('indents multiline list items consistently', () => {
     ].join('\n'));
 });
 
+test('canonicalizes encoding literals to the URL-safe base64 alphabet', () => {
+    const result = canonicalize('aeon:mode = "transport"\npayload:base64 = $+///==');
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('payload:base64 = $-___'));
+});
+
 test('quotes non-identifier attribute keys in canonical output and preserves round-trip parseability', () => {
     const input = 'a@{"x.y" = 1} = 2\nb = ~a@["x.y"]';
     const result = canonicalize(input);
