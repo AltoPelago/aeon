@@ -834,7 +834,7 @@ fn validate_datatype_shape_light(
 }
 
 fn separator_spec_depth(datatype: &str) -> usize {
-    datatype.matches('[').count().saturating_sub(usize::from(declared_radix_base(datatype).is_some()))
+    datatype_bracket_specs(datatype).len()
 }
 
 fn validate_radix_datatype_shape(datatype: &str) -> Option<Diagnostic> {
@@ -1059,15 +1059,20 @@ fn custom_radix_specs_are_valid(datatype: &str) -> bool {
 
 fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     let mut specs = Vec::new();
-    let mut start = 0usize;
-    while let Some(open) = datatype[start..].find('[') {
-        let open_idx = start + open;
-        if let Some(close_rel) = datatype[open_idx + 1..].find(']') {
-            let close_idx = open_idx + 1 + close_rel;
-            specs.push(&datatype[open_idx + 1..close_idx]);
-            start = close_idx + 1;
-        } else {
-            break;
+    let mut angle_depth = 0usize;
+    let mut bracket_start = None;
+
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = bracket_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
         }
     }
     if datatype_base(datatype) == "radix" && !specs.is_empty() {
@@ -1089,6 +1094,19 @@ fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
         return false;
     }
     spec.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{datatype_bracket_specs, separator_spec_depth};
+
+    #[test]
+    fn bracket_spec_helpers_ignore_brackets_inside_generics() {
+        assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
+        assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
+        assert_eq!(separator_spec_depth("outer<inner[.]>[x]"), 1);
+        assert_eq!(separator_spec_depth("outer<inner[.]>[22]"), 1);
+    }
 }
 
 fn has_valid_literal_underscores(raw: &str) -> bool {
