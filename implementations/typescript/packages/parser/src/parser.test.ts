@@ -761,7 +761,7 @@ describe('Parser', () => {
         });
 
         it('should reject bracket separator chars', () => {
-            const tokens = tokenize('x:t[[] = ^1').tokens;
+            const tokens = tokenize('x:set[[] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -769,7 +769,7 @@ describe('Parser', () => {
         });
 
         it('should reject comma separator chars', () => {
-            const tokens = tokenize('x:t[,] = ^1').tokens;
+            const tokens = tokenize('x:set[,] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -797,11 +797,19 @@ describe('Parser', () => {
         });
 
         it('should reject multi-character separator specs', () => {
-            const tokens = tokenize('x:t[ab] = ^1').tokens;
+            const tokens = tokenize('x:set[ab] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+        });
+
+        it('should accept single-digit separator specs', () => {
+            const tokens = tokenize('x:t[2] = ^a2b').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['2']);
         });
 
         it('should enforce max_separator_depth policy', () => {

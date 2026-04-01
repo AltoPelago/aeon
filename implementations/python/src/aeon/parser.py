@@ -274,7 +274,10 @@ class Parser:
             elif name == "radix":
                 raise SyntaxError("Radix datatype allows exactly one base bracket like 'radix[10]'", self.peek().span)
             else:
-                separators.append(self.parse_separator_char())
+                if name in RESERVED_V1_DATATYPES:
+                    separators.append(self.parse_separator_char())
+                else:
+                    separators.append(self.parse_custom_bracket_spec())
             self.skip_layout()
             self.consume("RBRACKET", "Expected ']' to close radix base spec" if name == "radix" and radix_base is not None else "Expected ']' to close separator spec")
             self.skip_layout()
@@ -352,6 +355,34 @@ class Parser:
         if len(value) != 1 or not (0x21 <= ord(value) <= 0x7E) or value in {",", "[", "]"}:
             raise InvalidSeparatorCharError(value, token.span)
         return value
+
+    def parse_custom_bracket_spec(self) -> str:
+        token = self.peek()
+        if token.kind == "RBRACKET":
+            raise SyntaxError("Expected separator character", token.span)
+        if token.kind in {
+            "IDENT",
+            "NUMBER",
+            "STRING",
+            "SYMBOL",
+            "DOT",
+            "AT",
+            "HASH",
+            "DOLLAR",
+            "PERCENT",
+            "AMPERSAND",
+            "EQUALS",
+            "TILDE",
+            "COLON",
+            "COMMA",
+            "SEMICOLON",
+            "LBRACKET",
+            "RBRACKET",
+        }:
+            value = token.value
+            self.advance()
+            return value
+        raise SyntaxError("Expected separator character", token.span)
 
     def record_legacy_node_followup_error(self) -> None:
         for index in range(self.current + 2, len(self.tokens) - 3):

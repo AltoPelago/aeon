@@ -390,6 +390,14 @@ class Parser {
         // Parse repeated separator specifiers: [x][,][;]
         while (this.check(TokenType.LeftBracket)) {
             this.advance(); // consume [
+            if (RESERVED_V1_DATATYPES.has(name) && !BRACKETED_V1_DATATYPES.has(name)) {
+                throw new SyntaxError(
+                    `Datatype '${name}' does not support bracket specifiers in v1`,
+                    this.peek().span,
+                    null,
+                    name
+                );
+            }
             if (name === 'radix' && radixBase === null) {
                 radixBase = this.parseRadixBaseSpecifier();
                 this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
@@ -403,8 +411,10 @@ class Parser {
                     this.peek().value
                 );
             }
-            const sep = this.parseSeparatorCharacter();
-            separators.push(sep);
+            const spec = RESERVED_V1_DATATYPES.has(name)
+                ? this.parseSeparatorCharacter()
+                : this.parseCustomBracketSpecifier();
+            separators.push(spec);
             this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
             if (separators.length > this.maxSeparatorDepth) {
                 throw new SeparatorDepthExceededError(separators.length, this.maxSeparatorDepth, this.previous().span);
@@ -1300,6 +1310,7 @@ class Parser {
 
         switch (token.type) {
             case TokenType.Identifier:
+            case TokenType.Number:
             case TokenType.String:
             case TokenType.Symbol:
                 char = token.value;
@@ -1366,6 +1377,76 @@ class Parser {
         }
 
         return char;
+    }
+
+    private parseCustomBracketSpecifier(): string {
+        const token = this.peek();
+        let value: string;
+
+        switch (token.type) {
+            case TokenType.Identifier:
+            case TokenType.Number:
+            case TokenType.String:
+            case TokenType.Symbol:
+                value = token.value;
+                break;
+            case TokenType.Comma:
+                value = ',';
+                break;
+            case TokenType.Semicolon:
+                value = ';';
+                break;
+            case TokenType.Colon:
+                value = ':';
+                break;
+            case TokenType.Dot:
+                value = '.';
+                break;
+            case TokenType.At:
+                value = '@';
+                break;
+            case TokenType.Hash:
+                value = '#';
+                break;
+            case TokenType.Dollar:
+                value = '$';
+                break;
+            case TokenType.Percent:
+                value = '%';
+                break;
+            case TokenType.Ampersand:
+                value = '&';
+                break;
+            case TokenType.Caret:
+                value = '^';
+                break;
+            case TokenType.Equals:
+                value = '=';
+                break;
+            case TokenType.Tilde:
+                value = '~';
+                break;
+            case TokenType.LeftBracket:
+                value = '[';
+                break;
+            case TokenType.RightBracket:
+                throw new SyntaxError(
+                    'Expected separator character',
+                    token.span,
+                    'separator or radix bracket spec',
+                    token.value
+                );
+            default:
+                throw new SyntaxError(
+                    'Expected separator character',
+                    token.span,
+                    'separator or radix bracket spec',
+                    token.value
+                );
+        }
+
+        this.advance();
+        return value;
     }
 
     private synchronize(): void {

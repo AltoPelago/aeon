@@ -168,6 +168,17 @@ impl<'a> TokenParser<'a> {
         let mut saw_radix_base = false;
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
+            if is_reserved_v1_datatype(&datatype_name)
+                && !matches!(datatype_name.as_str(), "sep" | "set" | "radix")
+            {
+                return Err(Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(self.peek().span),
+                    phase: None,
+                    message: format!("Datatype `{datatype_name}` does not support bracket specifiers in v1"),
+                });
+            }
             if datatype_name == "radix" && !saw_radix_base {
                 let token = self.peek().clone();
                 if token.kind == TokenKind::RightBracket {
@@ -200,27 +211,60 @@ impl<'a> TokenParser<'a> {
                 self.skip_newlines();
                 continue;
             }
-            match self.peek().kind {
-                TokenKind::Identifier
-                | TokenKind::Number
-                | TokenKind::String
-                | TokenKind::Symbol
-                | TokenKind::Semicolon
-                | TokenKind::Dot
-                | TokenKind::Comma => {
-                    let token = self.advance();
-                    if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
-                        return Err(Diagnostic {
-                            code: String::from("INVALID_SEPARATOR_CHAR"),
-                            path: Some(String::from("$")),
-                            span: Some(token.span),
-                            phase: None,
-                            message: format!("Invalid separator character `{}`", token.text),
-                        });
+            if is_reserved_v1_datatype(&datatype_name) {
+                match self.peek().kind {
+                    TokenKind::Identifier
+                    | TokenKind::Number
+                    | TokenKind::String
+                    | TokenKind::Symbol
+                    | TokenKind::Semicolon
+                    | TokenKind::Dot
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+                    | TokenKind::At
+                    | TokenKind::Hash
+                    | TokenKind::Dollar
+                    | TokenKind::Percent
+                    | TokenKind::Ampersand
+                    | TokenKind::Equals
+                    | TokenKind::Tilde => {
+                        let token = self.advance();
+                        if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
+                            return Err(Diagnostic {
+                                code: String::from("INVALID_SEPARATOR_CHAR"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!("Invalid separator character `{}`", token.text),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(self.error_at_current("Expected separator character"));
                     }
                 }
-                _ => {
-                    return Err(self.error_at_current("Expected separator character"));
+            } else {
+                match self.peek().kind {
+                    TokenKind::Identifier
+                    | TokenKind::Number
+                    | TokenKind::String
+                    | TokenKind::Symbol
+                    | TokenKind::Semicolon
+                    | TokenKind::Dot
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+                    | TokenKind::At
+                    | TokenKind::Hash
+                    | TokenKind::Dollar
+                    | TokenKind::Percent
+                    | TokenKind::Ampersand
+                    | TokenKind::Equals
+                    | TokenKind::Tilde => {
+                        self.advance();
+                    }
+                    _ => {
+                        return Err(self.error_at_current("Expected separator character"));
+                    }
                 }
             }
             self.skip_newlines();
