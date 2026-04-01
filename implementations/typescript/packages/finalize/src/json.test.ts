@@ -216,6 +216,12 @@ describe('Finalization (JSON)', () => {
         assert.strictEqual(result.document.opens, '09:30:00+02:40');
     });
 
+    it('strips underscore separators from finalized radix strings', () => {
+        const events = compileToEvents('mask = %101_0101');
+        const result = finalizeJson(events, { mode: 'strict' });
+        assert.strictEqual(result.document.mask, '1010101');
+    });
+
     it('projects only whitelisted top-level and nested paths', () => {
         const events = compileToEvents('app = { name = "demo", port = 8080 }\nother = "ignore"');
         const result = finalizeJson(events, {

@@ -432,10 +432,10 @@ fn value_to_json(
         Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
         Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
-        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').to_owned()),
+        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').replace('_', "")),
         Value::SeparatorLiteral { raw } => JsonValue::String(raw.trim_start_matches('^').to_owned()),
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
-        Value::RadixLiteral { raw } => JsonValue::String(raw.trim_start_matches('%').to_owned()),
+        Value::RadixLiteral { raw } => JsonValue::String(raw.trim_start_matches('%').replace('_', "")),
         Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => JsonValue::String(raw.clone()),
@@ -1014,6 +1014,14 @@ mod tests {
                 "enc": "QmFzZTY0"
             })
         );
+    }
+
+    #[test]
+    fn strips_underscore_separators_from_finalized_radix_strings() {
+        let source = "mask = %101_0101\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "mask": "1010101" }));
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

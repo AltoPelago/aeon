@@ -669,6 +669,9 @@ fn normalize_raw(raw: &str) -> String {
     if let Some(hex) = raw.strip_prefix('#') {
         return format!("#{}", hex.replace('_', "").to_ascii_lowercase());
     }
+    if let Some(radix) = raw.strip_prefix('%') {
+        return format!("%{}", radix.replace('_', ""));
+    }
 
     let mut value = raw
         .strip_prefix("~>$.")
@@ -1496,6 +1499,16 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\na = #fff\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_radix_literals_without_underscores() {
+        let result = canonicalize("aeon:mode = \"transport\"\nb:radix = %101_0101\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\nb:radix = %1010101\n"
         );
     }
 

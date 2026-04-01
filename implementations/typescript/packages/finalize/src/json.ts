@@ -217,7 +217,9 @@ function valueToJson(value: Value, ctx: JsonContext, path: string, projection: P
         case 'SwitchLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
+            return value.value.replace(/_/g, '').toLowerCase();
         case 'RadixLiteral':
+            return value.value.replace(/_/g, '');
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
         case 'DateLiteral':
