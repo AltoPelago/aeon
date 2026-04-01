@@ -688,6 +688,53 @@ fn is_identifier_literal(raw: &str) -> bool {
     matches!(raw, "true" | "false" | "yes" | "no" | "on" | "off")
 }
 
+fn is_radix_digit(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '&' | '!')
+}
+
+fn looks_like_valid_radix_literal(raw: &str) -> bool {
+    let Some(body) = raw.strip_prefix('%') else {
+        return false;
+    };
+    if body.is_empty() {
+        return false;
+    }
+
+    let chars: Vec<char> = body.chars().collect();
+    let mut index = if matches!(chars.first(), Some('+' | '-')) { 1 } else { 0 };
+    if index >= chars.len() {
+        return false;
+    }
+
+    let mut saw_digit = false;
+    let mut saw_decimal = false;
+    let mut prev_was_digit = false;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if is_radix_digit(ch) {
+            saw_digit = true;
+            prev_was_digit = true;
+        } else if ch == '_' {
+            if !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+                return false;
+            }
+            prev_was_digit = false;
+        } else if ch == '.' {
+            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+                return false;
+            }
+            saw_decimal = true;
+            prev_was_digit = false;
+        } else {
+            return false;
+        }
+        index += 1;
+    }
+
+    saw_digit && prev_was_digit
+}
+
 fn looks_like_hex_literal(raw: &str) -> bool {
     raw.starts_with('#') && raw.len() > 1 && raw[1..].chars().all(|ch| ch.is_ascii_hexdigit())
 }
@@ -882,6 +929,9 @@ impl<'a> Parser<'a> {
                 }
                 if is_rejected_nonfinite_literal(&raw) {
                     return Err(self.syntax_error("Invalid number literal"));
+                }
+                if raw.starts_with('%') && !looks_like_valid_radix_literal(&raw) {
+                    return Err(self.syntax_error_range(start, self.index, &format!("Invalid radix literal `{raw}`")));
                 }
                 if is_identifier(&raw) && !is_identifier_literal(&raw) {
                     return Err(self.syntax_error_range(start, self.index, &format!("Unexpected token '{raw}'")));
@@ -1737,5 +1787,14 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"custom\"\n}\nbundle:object = {\n  meta:object = {\n    alpha:lookup = ~>target\n    \"z.k\":lookup = ~target\n  }\n  refs:list<object> = [\n    {\n      ptr:lookup = ~>target\n      \"z.k\":lookup = ~target\n    },\n    {\n      \"a.b\":lookup = ~>target\n      beta:lookup = ~target\n    }\n  ]\n}\ntarget:number = 1\n"
         );
+    }
+
+    #[test]
+    fn rejects_invalid_radix_literals_during_canonicalization() {
+        let result = canonicalize("a = 3e-3\nb = %3e-3\n");
+        assert_eq!(result.text, "");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert!(result.errors[0].message.contains("Invalid radix literal `%3e-3`"));
     }
 }

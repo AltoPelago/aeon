@@ -132,6 +132,12 @@ impl Diagnostic {
         self.path = Some(path.into());
         self
     }
+
+    #[must_use]
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
+        self
+    }
 }
 
 impl fmt::Display for Diagnostic {
@@ -215,8 +221,8 @@ pub enum Value {
     ListNode { items: Vec<Value> },
     TupleLiteral { items: Vec<Value> },
     ObjectNode { bindings: Vec<Binding> },
-    CloneReference { segments: Vec<ReferenceSegment> },
-    PointerReference { segments: Vec<ReferenceSegment> },
+    CloneReference { segments: Vec<ReferenceSegment>, span: Span },
+    PointerReference { segments: Vec<ReferenceSegment>, span: Span },
 }
 
 impl Value {
@@ -681,6 +687,23 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_rejects_custom_datatypes_with_aligned_message() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nstroke:myColor = #ff00ff\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "CUSTOM_DATATYPE_NOT_ALLOWED");
+        assert_eq!(
+            result.errors[0].message,
+            "Custom datatype not allowed in typed mode at '$.stroke': ':myColor' requires --datatype-policy allow_custom"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.stroke"));
+        assert!(result.errors[0].span.is_some());
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
     fn accepts_reserved_generic_list_datatypes() {
         let result = compile("items:list<int32> = [1, 2]\n", CompileOptions::default());
         assert!(result.errors.is_empty());
@@ -758,20 +781,94 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_temporal_literals_with_temporal_codes() {
+    fn reports_invalid_radix_literal_with_exact_details() {
+        let result = compile("a = 3e-3\nb = %3e-3\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Invalid radix literal `%3e-3`");
+        let span = result.errors[0].span.as_ref().expect("span");
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.start.offset, 13);
+        assert_eq!(span.end.line, 2);
+        assert_eq!(span.end.column, 10);
+        assert_eq!(span.end.offset, 18);
+    }
+
+    #[test]
+    fn reports_unterminated_string_with_aligned_message_and_exact_span_details() {
+        let result = compile("a = 1\nb = \"unterminated", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
+        assert_eq!(
+            result.errors[0].message,
+            "Unterminated string literal (started with \")"
+        );
+        let span = result.errors[0].span.as_ref().expect("span");
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.start.offset, 10);
+        assert_eq!(span.end.line, 2);
+        assert_eq!(span.end.column, 18);
+        assert_eq!(span.end.offset, 23);
+    }
+
+    #[test]
+    fn reports_missing_reference_target_with_path_and_span_details() {
+        let result = compile("a@{ ns = \"alto.v1\" } = 1\nb = ~a@missing\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
+        assert_eq!(result.errors[0].message, "Missing reference target: '$.a@missing'");
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
+        let span = result.errors[0].span.as_ref().expect("span");
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.start.offset, 29);
+        assert_eq!(span.end.line, 2);
+        assert_eq!(span.end.column, 15);
+        assert_eq!(span.end.offset, 39);
+    }
+
+    #[test]
+    fn classifies_missing_attribute_target_on_missing_binding_as_missing_reference_target() {
+        let result = compile("b = ~a@missing\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
+        assert_eq!(result.errors[0].message, "Missing reference target: '$.a@missing'");
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
+    }
+
+    #[test]
+    fn rejects_invalid_temporal_literals_with_aligned_messages_and_spans() {
         let cases = [
-            ("a:date = 2024-13-13\n", "INVALID_DATE"),
-            ("a:time = 24:00\n", "INVALID_TIME"),
-            ("a:datetime = 2024-13-13T09:30:00Z\n", "INVALID_DATETIME"),
+            (
+                "a:date = 2024-13-13\n",
+                "INVALID_DATE",
+                "Invalid date literal: '2024-13-13'",
+            ),
+            (
+                "a:time = 24:00\n",
+                "INVALID_TIME",
+                "Invalid time literal: '24:00'",
+            ),
+            (
+                "a:datetime = 2024-13-13T09:30:00Z\n",
+                "INVALID_DATETIME",
+                "Invalid datetime literal: '2024-13-13T09:30:00Z'",
+            ),
         ];
 
-        for (source, expected_code) in cases {
+        for (source, expected_code, expected_message) in cases {
             let result = compile(source, CompileOptions::default());
-            assert!(
-                result.errors.iter().any(|error| error.code == expected_code),
-                "expected {expected_code} for {source:?}, got {:?}",
-                result.errors
-            );
+            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
+            assert_eq!(result.errors[0].code, expected_code);
+            assert_eq!(result.errors[0].message, expected_message);
+            assert!(result.errors[0].span.is_some(), "expected span for {source:?}");
         }
     }
 
@@ -818,15 +915,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_untyped_switch_literals_in_strict_mode() {
+    fn rejects_untyped_switch_literals_in_strict_mode_with_aligned_message() {
         let result = compile(
             "aeon:mode = \"strict\"\ndebug = yes\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "UNTYPED_SWITCH_LITERAL" && error.path.as_deref() == Some("$.debug")));
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "UNTYPED_SWITCH_LITERAL");
+        assert_eq!(
+            result.errors[0].message,
+            "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.debug"));
+        assert!(result.errors[0].span.is_some());
         assert!(result.events.is_empty());
     }
 
@@ -848,12 +949,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_canonical_paths_fail_closed() {
+    fn rejects_duplicate_canonical_paths_fail_closed_with_duplicate_site_span_details() {
         let result = compile("a = 1\na = 2\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "DUPLICATE_CANONICAL_PATH" && error.path.as_deref() == Some("$.a")));
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DUPLICATE_CANONICAL_PATH");
+        assert_eq!(result.errors[0].message, "Duplicate canonical path: '$.a'");
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.a"));
+        assert_eq!(
+            result.errors[0].span,
+            Some(Span {
+                start: Position {
+                    line: 2,
+                    column: 1,
+                    offset: 6,
+                },
+                end: Position {
+                    line: 2,
+                    column: 6,
+                    offset: 11,
+                },
+            })
+        );
         assert!(result.events.is_empty());
         assert!(result.bindings.is_empty());
     }
@@ -876,15 +992,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_mixed_structured_and_shorthand_headers() {
+    fn rejects_mixed_structured_and_shorthand_headers_with_message_and_span_details() {
         let result = compile(
             "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "HEADER_CONFLICT"));
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "HEADER_CONFLICT");
+        assert_eq!(
+            result.errors[0].message,
+            "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$"));
+        assert_eq!(
+            result.errors[0].span,
+            Some(Span {
+                start: Position {
+                    line: 1,
+                    column: 1,
+                    offset: 0,
+                },
+                end: Position {
+                    line: 2,
+                    column: 21,
+                    offset: 55,
+                },
+            })
+        );
         assert!(result.events.is_empty());
     }
 
@@ -968,12 +1102,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_attribute_datatype_mismatches() {
+    fn rejects_attribute_datatype_mismatches_with_aligned_message() {
         let result = compile("b@{n:string=3}:n = 3\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH" && error.path.as_deref() == Some("$.b@n")));
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert_eq!(
+            result.errors[0].message,
+            "Datatype/literal mismatch at '$.b@n': datatype ':string' expects StringLiteral, got NumberLiteral"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.b@n"));
+    }
+
+    #[test]
+    fn rejects_null_datatype_with_non_literal_kind_wording() {
+        let result = compile("value:null = 0\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert_eq!(
+            result.errors[0].message,
+            "Datatype/literal mismatch at '$.value': datatype ':null' is not supported for literal matching, got NumberLiteral"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.value"));
     }
 
     #[test]
@@ -1001,15 +1150,19 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_rejects_non_node_inline_node_head_datatypes() {
+    fn strict_mode_rejects_non_node_inline_node_head_datatypes_with_aligned_message() {
         let result = compile(
             "aeon:mode = \"strict\"\nwidget:node = <tag:contact(\"x\")>\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "INVALID_NODE_HEAD_DATATYPE" && error.path.as_deref() == Some("$.widget")));
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INVALID_NODE_HEAD_DATATYPE");
+        assert_eq!(
+            result.errors[0].message,
+            "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.widget"));
+        assert!(result.errors[0].span.is_some());
     }
 
     #[test]

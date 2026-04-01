@@ -170,6 +170,10 @@ class CoreCompileTests(unittest.TestCase):
     def test_mixed_structured_and_shorthand_headers_are_rejected(self) -> None:
         result = compile_source('aeon:header = { mode = "strict" }\naeon:mode = "strict"\nvalue:number = 1')
         self.assertEqual(["HEADER_CONFLICT"], [error.code for error in result.errors])
+        self.assertEqual(
+            "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
+            result.errors[0].message,
+        )
 
     def test_shebang_allows_second_line_host_directive(self) -> None:
         result = compile_source('#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1')
@@ -193,6 +197,19 @@ class CoreCompileTests(unittest.TestCase):
     def test_non_leading_bom_is_rejected(self) -> None:
         result = compile_source('value = "\ufeffx"\nnext = \ufeff1')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_unterminated_string_uses_dedicated_code_and_aligned_message(self) -> None:
+        result = compile_source('a = 1\nb = "unterminated')
+        self.assertEqual(["UNTERMINATED_STRING"], [error.code for error in result.errors])
+        self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
+
+    def test_strict_mode_untyped_switch_uses_aligned_message(self) -> None:
+        result = compile_source('aeon:mode = "strict"\ndebug = yes')
+        self.assertEqual(["UNTYPED_SWITCH_LITERAL"], [error.code for error in result.errors])
+        self.assertEqual(
+            "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation",
+            result.errors[0].message,
+        )
 
     def test_nested_binding_attribute_reference(self) -> None:
         result = compile_source("a = [{x@{b=0}=1}]\nv = ~a[0].x@b")

@@ -321,6 +321,7 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_reference(&mut self) -> Result<Value, Diagnostic> {
+        let start = self.peek().span.start;
         let is_pointer = if self.match_kind(TokenKind::TildeArrow) {
             true
         } else {
@@ -396,10 +397,13 @@ impl<'a> TokenParser<'a> {
             break;
         }
 
+        let end = self.previous().span.end;
+        let span = Span { start, end };
+
         Ok(if is_pointer {
-            Value::PointerReference { segments }
+            Value::PointerReference { segments, span }
         } else {
-            Value::CloneReference { segments }
+            Value::CloneReference { segments, span }
         })
     }
 

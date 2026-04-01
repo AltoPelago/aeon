@@ -10,6 +10,7 @@ from .errors import (
     InvalidNumberError,
     InvalidTimeError,
     SyntaxError,
+    UnterminatedStringError,
     UnterminatedBlockCommentError,
 )
 from .spans import Position, Span
@@ -204,7 +205,7 @@ class Lexer:
                 self.add_token("STRING", "".join(value_parts), start, quote=delimiter)
                 return
             if char == "\n" and not is_raw:
-                self.errors.append(SyntaxError("Unterminated string literal", self.make_span(start)))
+                self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
                 return
             if char == "\\":
                 self.advance()
@@ -245,7 +246,7 @@ class Lexer:
                 self.errors.append(SyntaxError("Invalid escape sequence", self.make_span(start)))
                 return
             value_parts.append(self.advance())
-        self.errors.append(SyntaxError("Unterminated string literal", self.make_span(start)))
+        self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
 
     def scan_block_comment(self, start: Position) -> None:
         while not self.is_at_end():

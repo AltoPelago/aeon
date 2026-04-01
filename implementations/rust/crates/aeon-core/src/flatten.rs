@@ -25,6 +25,7 @@ pub(crate) struct ValidationEvent {
     pub(crate) datatype: Option<String>,
     pub(crate) annotations: BTreeMap<String, AttributeValue>,
     pub(crate) value: Value,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +152,7 @@ fn flatten_validation_bindings(
                 datatype: binding.datatype.clone(),
                 annotations: binding.attributes.clone(),
                 value: clone_validation_value(&binding.value, shallow_event_values),
+                span: binding.span,
             });
         }
 
@@ -166,11 +168,13 @@ fn flatten_validation_bindings(
                             datatype: None,
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(item, shallow_event_values),
+                            span: binding.span,
                         });
                     }
                     flatten_validation_value(
                         item,
                         &item_path,
+                        binding.span,
                         shallow_event_values,
                         events,
                         reference_targets,
@@ -189,11 +193,13 @@ fn flatten_validation_bindings(
                             datatype: None,
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(item, shallow_event_values),
+                            span: binding.span,
                         });
                     }
                     flatten_validation_value(
                         item,
                         &item_path,
+                        binding.span,
                         shallow_event_values,
                         events,
                         reference_targets,
@@ -219,6 +225,7 @@ fn flatten_validation_bindings(
 fn flatten_validation_value(
     value: &Value,
     parent: &CanonicalPath,
+    owner_span: Span,
     shallow_event_values: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
@@ -246,11 +253,13 @@ fn flatten_validation_value(
                         datatype: None,
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(item, shallow_event_values),
+                        span: owner_span,
                     });
                 }
                 flatten_validation_value(
                     item,
                     &item_path,
+                    owner_span,
                     shallow_event_values,
                     events,
                     reference_targets,
@@ -269,11 +278,13 @@ fn flatten_validation_value(
                         datatype: None,
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(item, shallow_event_values),
+                        span: owner_span,
                     });
                 }
                 flatten_validation_value(
                     item,
                     &item_path,
+                    owner_span,
                     shallow_event_values,
                     events,
                     reference_targets,
@@ -567,11 +578,13 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::ListNode { .. } => Value::ListNode { items: Vec::new() },
         Value::TupleLiteral { .. } => Value::TupleLiteral { items: Vec::new() },
         Value::ObjectNode { .. } => Value::ObjectNode { bindings: Vec::new() },
-        Value::CloneReference { segments } => Value::CloneReference {
+        Value::CloneReference { segments, span } => Value::CloneReference {
             segments: segments.clone(),
+            span: *span,
         },
-        Value::PointerReference { segments } => Value::PointerReference {
+        Value::PointerReference { segments, span } => Value::PointerReference {
             segments: segments.clone(),
+            span: *span,
         },
     }
 }

@@ -5,7 +5,7 @@ use crate::pathing::{format_reference_base, format_reference_target};
 use crate::temporal::invalid_temporal_literal;
 use crate::{
     format_path, AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath,
-    DatatypePolicy, Diagnostic, ReferenceSegment, Value,
+    DatatypePolicy, Diagnostic, ReferenceSegment, Span, Value,
 };
 
 #[derive(Debug, Clone)]
@@ -29,20 +29,22 @@ pub(crate) fn build_validation_event_lookup(
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
     let mut seen = HashSet::new();
-    let mut duplicates = HashSet::new();
+    let mut duplicate_indexes = Vec::new();
     for (index, event) in events.iter().enumerate() {
         let _ = event_lookup.insert(event.path.clone(), index);
         if !seen.insert(event.path.clone()) {
-            let _ = duplicates.insert(event.path.clone());
+            duplicate_indexes.push(index);
         }
     }
-    for path in &duplicates {
+    for index in duplicate_indexes {
+        let path = &events[index].path;
         errors.push(
             Diagnostic::new(
                 "DUPLICATE_CANONICAL_PATH",
-                format!("Canonical path `{path}` is assigned more than once"),
+                format!("Duplicate canonical path: '{path}'"),
             )
-            .at_path(path.clone()),
+            .at_path(path.clone())
+            .with_span(events[index].span),
         );
     }
     event_lookup
@@ -54,22 +56,24 @@ pub(crate) fn validate_duplicate_canonical_paths(
     errors: &mut Vec<Diagnostic>,
 ) {
     let mut seen = HashSet::new();
-    let mut duplicates = HashSet::new();
-    for path in &flattened.rendered_event_paths {
+    let mut duplicate_indexes = Vec::new();
+    for (index, path) in flattened.rendered_event_paths.iter().enumerate() {
         if !seen.insert(path.clone()) {
-            let _ = duplicates.insert(path.clone());
+            duplicate_indexes.push(index);
         }
     }
-    if duplicates.is_empty() {
+    if duplicate_indexes.is_empty() {
         return;
     }
-    for path in &duplicates {
+    for index in &duplicate_indexes {
+        let path = &flattened.rendered_event_paths[*index];
         errors.push(
             Diagnostic::new(
                 "DUPLICATE_CANONICAL_PATH",
-                format!("Canonical path `{path}` is assigned more than once"),
+                format!("Duplicate canonical path: '{path}'"),
             )
-            .at_path(path.clone()),
+            .at_path(path.clone())
+            .with_span(flattened.events[*index].span),
         );
     }
     if recovery {
@@ -127,7 +131,8 @@ fn validate_value_reference(
     errors: &mut Vec<Diagnostic>,
 ) {
     match value {
-        Value::CloneReference { segments } | Value::PointerReference { segments } => {
+        Value::CloneReference { segments, span } | Value::PointerReference { segments, span } => {
+            let reference_span = *span;
             let attr_depth = segments
                 .iter()
                 .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
@@ -138,7 +143,8 @@ fn validate_value_reference(
                         "ATTRIBUTE_DEPTH_EXCEEDED",
                         format!("Reference at {current_path} exceeds max attribute depth"),
                     )
-                    .at_path("$"),
+                    .at_path(current_path.to_owned())
+                    .with_span(reference_span),
                 );
                 return;
             }
@@ -147,30 +153,30 @@ fn validate_value_reference(
                 errors.push(
                     Diagnostic::new(
                         "SELF_REFERENCE",
-                        format!("Reference at {current_path} references itself"),
+                        format!("Self reference: '{current_path}' references itself"),
                     )
-                    .at_path("$"),
+                    .at_path(current_path.to_owned())
+                    .with_span(reference_span),
                 );
                 return;
             }
             if !all_targets.contains(&target) {
-                let base = format_reference_base(segments);
-                let code = if all_targets.contains(&base) {
-                    "MISSING_REFERENCE_TARGET"
-                } else {
-                    "FORWARD_REFERENCE"
-                };
                 errors.push(
-                    Diagnostic::new(code, format!("Reference target `{target}` is not visible"))
-                        .at_path("$"),
+                    Diagnostic::new("MISSING_REFERENCE_TARGET", format!("Missing reference target: '{target}'"))
+                        .at_path(current_path.to_owned())
+                        .with_span(reference_span),
                 );
                 return;
             }
             let base = format_reference_base(segments);
             if !seen_base.contains(&base) {
                 errors.push(
-                    Diagnostic::new("FORWARD_REFERENCE", format!("Reference target `{target}` is forward"))
-                        .at_path("$"),
+                    Diagnostic::new(
+                        "FORWARD_REFERENCE",
+                        format!("Forward reference: '{current_path}' references '{target}' defined later"),
+                    )
+                    .at_path(current_path.to_owned())
+                    .with_span(reference_span),
                 );
             }
         }
@@ -276,7 +282,7 @@ pub(crate) fn validate_datatypes(
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => path.as_str(),
                 };
-                errors.push(error.at_path(path_override));
+                errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
@@ -284,9 +290,13 @@ pub(crate) fn validate_datatypes(
                     errors.push(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
-                            format!("Custom datatype `{datatype}` requires allow_custom"),
+                            format!(
+                                "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                                path
+                            ),
                         )
-                        .at_path(path.clone()),
+                        .at_path(path.clone())
+                        .with_span(event.span),
                     );
                 }
                 continue;
@@ -294,15 +304,11 @@ pub(crate) fn validate_datatypes(
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
             if !datatype_matches_value(datatype, resolved_value) {
+                let message = datatype_mismatch_message(path, datatype, resolved_value.value_kind());
                 errors.push(
-                    Diagnostic::new(
-                        "DATATYPE_LITERAL_MISMATCH",
-                        format!(
-                            "Datatype `{datatype}` does not match {}",
-                            resolved_value.value_kind()
-                        ),
-                    )
-                    .at_path(path.clone()),
+                    Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
+                        .at_path(path.clone())
+                        .with_span(event.span),
                 );
             }
         }
@@ -343,7 +349,7 @@ pub(crate) fn validate_datatypes_light(
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => event.path.as_str(),
                 };
-                errors.push(error.at_path(path_override));
+                errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
@@ -351,9 +357,13 @@ pub(crate) fn validate_datatypes_light(
                     errors.push(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
-                            format!("Custom datatype `{datatype}` requires allow_custom"),
+                            format!(
+                                "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                                event.path
+                            ),
                         )
-                        .at_path(event.path.clone()),
+                        .at_path(event.path.clone())
+                        .with_span(event.span),
                     );
                 }
                 continue;
@@ -361,15 +371,12 @@ pub(crate) fn validate_datatypes_light(
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
             if !datatype_matches_value(datatype, resolved_value) {
+                let message =
+                    datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
                 errors.push(
-                    Diagnostic::new(
-                        "DATATYPE_LITERAL_MISMATCH",
-                        format!(
-                            "Datatype `{datatype}` does not match {}",
-                            resolved_value.value_kind()
-                        ),
-                    )
-                    .at_path(event.path.clone()),
+                    Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
+                        .at_path(event.path.clone())
+                        .with_span(event.span),
                 );
             }
         }
@@ -467,7 +474,7 @@ fn resolve_reference_value_inner<'a>(
     seen: &mut HashSet<String>,
 ) -> Option<&'a Value> {
     let segments = match value {
-        Value::CloneReference { segments } | Value::PointerReference { segments } => segments,
+        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => segments,
         _ => return Some(value),
     };
     let target = format_reference_target(segments);
@@ -485,7 +492,7 @@ fn resolve_reference_value_light_inner<'a>(
     seen: &mut HashSet<String>,
 ) -> Option<&'a Value> {
     let segments = match value {
-        Value::CloneReference { segments } | Value::PointerReference { segments } => segments,
+        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => segments,
         _ => return Some(value),
     };
     let target = format_reference_target(segments);
@@ -619,26 +626,32 @@ fn validate_typed_mode_rules_in_scope(
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
-        if !binding.key.starts_with("aeon:") && binding.datatype.is_none() {
+        let should_emit_untyped_value_error = !binding.key.starts_with("aeon:")
+            && binding.datatype.is_none()
+            && !(matches!(mode, BehaviorMode::Strict)
+                && matches!(binding.value, Value::SwitchLiteral { .. }));
+        if should_emit_untyped_value_error {
             errors.push(
                 Diagnostic::new(
                     "UNTYPED_VALUE_IN_STRICT_MODE",
                     format!(
-                        "Value at {} requires an explicit datatype annotation in typed mode",
+                        "Untyped value in typed mode: '{}' requires explicit type annotation",
                         format_path(&path)
                     ),
                 )
-                .at_path(format_path(&path)),
+                .at_path(format_path(&path))
+                .with_span(binding.span),
             );
         }
         validate_switch_literal_in_value(
             &binding.value,
             &path,
+            binding.span,
             binding.datatype.as_deref(),
             mode,
             errors,
         );
-        validate_node_head_datatypes_in_value(&binding.value, &path, mode, errors);
+        validate_node_head_datatypes_in_value(&binding.value, &path, binding.span, mode, errors);
         if let Value::ObjectNode { bindings: nested } = &binding.value {
             validate_typed_mode_rules_in_scope(nested, &path, mode, errors);
         }
@@ -648,6 +661,7 @@ fn validate_typed_mode_rules_in_scope(
 fn validate_node_head_datatypes_in_value(
     value: &Value,
     path: &CanonicalPath,
+    owner_span: Span,
     mode: BehaviorMode,
     errors: &mut Vec<Diagnostic>,
 ) {
@@ -664,18 +678,19 @@ fn validate_node_head_datatypes_in_value(
                             Diagnostic::new(
                                 "INVALID_NODE_HEAD_DATATYPE",
                                 format!(
-                                    "Node head datatype at {} must be `:node` in strict mode, got `:{}`",
+                                    "Invalid node head datatype in strict mode at '{}': node heads must use ':node', got ':{}'",
                                     format_path(path),
                                     datatype
                                 ),
                             )
-                            .at_path(format_path(path)),
+                            .at_path(format_path(path))
+                            .with_span(owner_span),
                         );
                     }
                 }
             }
             for (index, child) in children.iter().enumerate() {
-                validate_node_head_datatypes_in_value(child, &path.index(index), mode, errors);
+                validate_node_head_datatypes_in_value(child, &path.index(index), owner_span, mode, errors);
             }
         }
         Value::ObjectNode { bindings } => {
@@ -683,6 +698,7 @@ fn validate_node_head_datatypes_in_value(
                 validate_node_head_datatypes_in_value(
                     &binding.value,
                     &path.member(binding.key.clone()),
+                    binding.span,
                     mode,
                     errors,
                 );
@@ -690,7 +706,7 @@ fn validate_node_head_datatypes_in_value(
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
-                validate_node_head_datatypes_in_value(item, &path.index(index), mode, errors);
+                validate_node_head_datatypes_in_value(item, &path.index(index), owner_span, mode, errors);
             }
         }
         _ => {}
@@ -700,6 +716,7 @@ fn validate_node_head_datatypes_in_value(
 fn validate_switch_literal_in_value(
     value: &Value,
     path: &CanonicalPath,
+    owner_span: Span,
     datatype: Option<&str>,
     mode: BehaviorMode,
     errors: &mut Vec<Diagnostic>,
@@ -711,11 +728,12 @@ fn validate_switch_literal_in_value(
                     Diagnostic::new(
                         "UNTYPED_SWITCH_LITERAL",
                         format!(
-                            "Switch literal at {} must be typed as `:switch` in strict mode",
+                            "Untyped switch literal in typed mode: '{}' requires ':switch' type annotation",
                             format_path(path)
                         ),
                     )
-                    .at_path(format_path(path)),
+                    .at_path(format_path(path))
+                    .with_span(owner_span),
                 );
             }
         }
@@ -726,6 +744,7 @@ fn validate_switch_literal_in_value(
                 validate_switch_literal_in_value(
                     item,
                     &path.index(index),
+                    owner_span,
                     nested_datatype,
                     mode,
                     errors,
@@ -869,6 +888,46 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "o"
             | "node"
             | "null"
+    )
+}
+
+fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static str>> {
+    match datatype_base(datatype) {
+        "number" | "n" | "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8"
+        | "uint16" | "uint32" | "uint64" | "float" | "float32" | "float64" => {
+            Some(vec!["NumberLiteral"])
+        }
+        "infinity" => Some(vec!["InfinityLiteral"]),
+        "string" => Some(vec!["StringLiteral"]),
+        "trimtick" => Some(vec!["TrimtickStringLiteral"]),
+        "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
+        "switch" => Some(vec!["SwitchLiteral"]),
+        "hex" => Some(vec!["HexLiteral"]),
+        "radix" | "radix2" | "radix6" | "radix8" | "radix12" => Some(vec!["RadixLiteral"]),
+        "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
+        "date" => Some(vec!["DateLiteral"]),
+        "time" => Some(vec!["TimeLiteral"]),
+        "datetime" | "zrut" => Some(vec!["DateTimeLiteral"]),
+        "sep" | "set" => Some(vec!["SeparatorLiteral"]),
+        "tuple" => Some(vec!["TupleLiteral"]),
+        "list" => Some(vec!["ListNode"]),
+        "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
+        "node" => Some(vec!["NodeLiteral"]),
+        _ => None,
+    }
+}
+
+fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> String {
+    if let Some(expected) = expected_kinds_for_reserved_datatype(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
+            path,
+            expected.join(" or ")
+        );
+    }
+    format!(
+        "Datatype/literal mismatch at '{}': datatype ':{datatype}' is not supported for literal matching, got {actual_kind}",
+        path
     )
 }
 
@@ -1099,7 +1158,10 @@ fn validate_attribute_datatype_map(
                         errors.push(
                             Diagnostic::new(
                                 "CUSTOM_DATATYPE_NOT_ALLOWED",
-                                format!("Custom datatype `{datatype}` requires allow_custom"),
+                                format!(
+                                    "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                                    attr_path
+                                ),
                             )
                             .at_path(attr_path.clone()),
                         );
@@ -1109,10 +1171,7 @@ fn validate_attribute_datatype_map(
                         errors.push(
                             Diagnostic::new(
                                 "DATATYPE_LITERAL_MISMATCH",
-                                format!(
-                                    "Datatype `{datatype}` does not match {}",
-                                    value.value_kind()
-                                ),
+                                datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
                             )
                             .at_path(attr_path.clone()),
                         );
