@@ -90,6 +90,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix12", result.events[0]["datatype"])
 
+    def test_reserved_radix_brackets_allowed_in_strict_mode(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nr:radix[2] = %0101')
+        self.assertEqual([], result.errors)
+        self.assertEqual("radix[2]", result.events[0]["datatype"])
+
     def test_reserved_object_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("object", "obj", "envelope", "o"):
             with self.subTest(datatype=datatype):
@@ -128,6 +133,16 @@ class CoreCompileTests(unittest.TestCase):
                 source = f'aeon:mode = "strict"\nvalue:{datatype} = {literal}'
                 result = compile_source(source)
                 self.assertEqual(["CUSTOM_DATATYPE_NOT_ALLOWED"], [error.code for error in result.errors])
+
+    def test_invalid_lowercase_t_temporals_are_rejected(self) -> None:
+        cases = (
+            "dt:datetime = 2007-01-02t10:10:25",
+            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(f'aeon:mode = "strict"\n{source}')
+                self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')

@@ -715,7 +715,7 @@ function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<strin
 }
 
 function expectedKindsForReservedDatatype(datatype: string): readonly string[] | null {
-    const base = datatypeBase(datatype).toLowerCase();
+    const base = datatypeBase(datatype);
 
     // Reserved scalar and container names validated by strict mode.
     // Custom datatypes intentionally remain unconstrained.
@@ -802,7 +802,7 @@ function bracketSpecs(datatype: string): string[] {
         }
     }
 
-    if (datatypeBase(datatype).toLowerCase() === 'radix' && specs.length > 0) {
+    if (datatypeBase(datatype) === 'radix' && specs.length > 0) {
         return specs.slice(1);
     }
     return specs;

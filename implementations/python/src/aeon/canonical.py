@@ -267,6 +267,8 @@ def render_type(datatype: TypeAnnotation | None) -> str:
     text = datatype.name
     if datatype.generic_args:
         text += "<" + ", ".join(datatype.generic_args) + ">"
+    if datatype.radix_base is not None:
+        text += f"[{datatype.radix_base}]"
     for separator in datatype.separators:
         text += f"[{separator}]"
     return f":{text}"

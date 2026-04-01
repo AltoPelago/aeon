@@ -34,3 +34,15 @@ a:list = [1,,2]
 a:string = 343
 ---
 a: = 344
+---
+s:custom[1] = %111 
+---
+s:custom[111] = %111 
+---
+s:custom[65] = %111 
+---
+s:custom[11] = ^111 
+---
+s:custom[.] = %111 
+---
+s:custom[1][2] = %111 

@@ -656,6 +656,14 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should treat uppercase reserved-looking names as custom datatypes in strict mode', () => {
+            const result = compile('aeon:mode = "strict"\na:N = 3\nb:Radix[10] = %1A', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
         it('should allow custom datatypes in transport mode by default', () => {
             const result = compile('aeon:mode = "transport"\nstroke:myColor = #ff00ff');
             assert.strictEqual(result.errors.length, 0);

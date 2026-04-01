@@ -224,3 +224,84 @@ n
 ,
 3
 ]
+---
+i:infinity = Infinity
+---
+a:string = ""
+---
+a:number = 0
+---
+a:int = 0
+---
+a:int8 = 0
+---
+a:int16 = 0
+---
+a:int32 = 0
+---
+a:int64 = 0
+---
+a:uint = 0
+---
+a:uint8 = 0
+---
+a:uint16 = 0
+---
+a:uint32 = 0
+---
+a:uint64 = 0
+---
+a:float = 0.1
+---
+a:float32 = 0.1
+---
+a:float64 = 0.1
+---
+b:boolean = true
+---
+b:bool = false
+---
+s:switch = yes
+---
+h:hex = #fff
+---
+r:radix[2] = %0101
+---
+r:radix2 = %10101
+---
+r:radix6 = %10101
+---
+r:radix8 = %10101
+---
+r:radix12 = %10101
+---
+e:encoding = $fff
+---
+b:base64 = $fff
+---
+i:inline = $inline
+---
+e:embed = $embed
+---
+d:date = 2007-01-02
+---
+t:time = 10:10:35
+z:zrut = 2007-01-02T10:10:25Z&Australia/Melbourne
+---
+s:sep[x] = ^300x200
+---
+s:set[.][;] = ^00.00;00
+---
+o:o = { n:n = 0 }
+---
+o:object = { n:n = 0 }
+---
+o:obj = { n:n = 0 }
+---
+o:envelope = { n:n = 0 }
+---
+l:list = [ 2, 3, 4 ]
+---
+l:tuple = ( 2, 3, 4 )
+---
+n:node = <a>

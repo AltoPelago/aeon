@@ -227,9 +227,12 @@ class Parser:
         start = self.peek().span.start
         name = self.consume("IDENT", "Expected type name").value
         generic_args: list[str] = []
+        radix_base: int | None = None
         separators: list[str] = []
         self.skip_layout()
         if self.check("LANGLE"):
+            if name == "radix":
+                raise SyntaxError("Radix datatype bases must use bracket syntax like 'radix[10]'", self.peek().span)
             self.advance()
             self.skip_layout()
             generic_args.append(self.parse_generic_argument(generic_depth))
@@ -244,13 +247,24 @@ class Parser:
         while self.check("LBRACKET"):
             self.advance()
             self.skip_layout()
-            separators.append(self.parse_separator_char())
+            if name == "radix" and radix_base is None:
+                token = self.peek()
+                if token.kind == "RBRACKET":
+                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
+                if token.kind != "NUMBER" or not self.is_valid_radix_base_spec(token.value):
+                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
+                radix_base = int(token.value)
+                self.advance()
+            elif name == "radix":
+                raise SyntaxError("Radix datatype allows exactly one base bracket like 'radix[10]'", self.peek().span)
+            else:
+                separators.append(self.parse_separator_char())
             self.skip_layout()
-            self.consume("RBRACKET", "Expected ']' to close separator spec")
+            self.consume("RBRACKET", "Expected ']' to close radix base spec" if name == "radix" and radix_base is not None else "Expected ']' to close separator spec")
             self.skip_layout()
             if len(separators) > self.max_separator_depth:
                 raise SeparatorDepthExceededError(len(separators), self.max_separator_depth, self.previous().span)
-        return TypeAnnotation(name=name, generic_args=generic_args, separators=separators, span=Span(start=start, end=self.previous().span.end))
+        return TypeAnnotation(name=name, generic_args=generic_args, radix_base=radix_base, separators=separators, span=Span(start=start, end=self.previous().span.end))
 
     def parse_generic_argument(self, generic_depth: int) -> str:
         token = self.peek()
@@ -266,13 +280,24 @@ class Parser:
         generic_suffix = ""
         if annotation.generic_args:
             generic_suffix = "<" + ", ".join(annotation.generic_args) + ">"
+        radix_suffix = f"[{annotation.radix_base}]" if annotation.radix_base is not None else ""
         separator_suffix = "".join(f"[{separator}]" for separator in annotation.separators)
+        if annotation.name == "radix":
+            return f"{annotation.name}{generic_suffix}{radix_suffix}"
         return f"{annotation.name}{generic_suffix}{separator_suffix}"
+
+    @staticmethod
+    def is_valid_radix_base_spec(spec: str) -> bool:
+        if not spec.isdigit() or spec.startswith("0"):
+            return False
+        value = int(spec)
+        return 2 <= value <= 64
 
     def parse_separator_char(self) -> str:
         token = self.peek()
         if token.kind in {
             "IDENT",
+            "NUMBER",
             "STRING",
             "SYMBOL",
             "DOT",

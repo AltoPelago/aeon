@@ -828,8 +828,9 @@ def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     generic = ""
     if datatype.generic_args:
         generic = "<" + ", ".join(datatype.generic_args) + ">"
+    radix = f"[{datatype.radix_base}]" if datatype.radix_base is not None else ""
     separators = "".join(f"[{item}]" for item in datatype.separators)
-    return f"{datatype.name}{generic}{separators}"
+    return f"{datatype.name}{generic}{radix}{separators}"
 
 
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
@@ -839,6 +840,7 @@ def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object
         "type": "TypeAnnotation",
         "name": datatype.name,
         "genericArgs": datatype.generic_args,
+        "radixBase": datatype.radix_base,
         "separators": datatype.separators,
         "span": datatype.span.to_json(),
     }

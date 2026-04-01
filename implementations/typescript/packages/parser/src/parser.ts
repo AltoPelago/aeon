@@ -362,14 +362,13 @@ class Parser {
         }
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
-        const normalizedName = name.toLowerCase();
         const genericArgs: string[] = [];
         let radixBase: number | null = null;
         const separators: string[] = [];
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
-            if (normalizedName === 'radix') {
+            if (name === 'radix') {
                 throw new SyntaxError(
                     "Radix datatype bases must use bracket syntax like 'radix[10]'",
                     this.peek().span,
@@ -391,12 +390,12 @@ class Parser {
         // Parse repeated separator specifiers: [x][,][;]
         while (this.check(TokenType.LeftBracket)) {
             this.advance(); // consume [
-            if (normalizedName === 'radix' && radixBase === null) {
+            if (name === 'radix' && radixBase === null) {
                 radixBase = this.parseRadixBaseSpecifier();
                 this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
                 continue;
             }
-            if (normalizedName === 'radix') {
+            if (name === 'radix') {
                 throw new SyntaxError(
                     "Radix datatype allows exactly one base bracket like 'radix[10]'",
                     this.peek().span,

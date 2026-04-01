@@ -860,6 +860,16 @@ mod tests {
                 "INVALID_DATETIME",
                 "Invalid datetime literal: '2024-13-13T09:30:00Z'",
             ),
+            (
+                "a:datetime = 2007-01-02t10:10:25\n",
+                "INVALID_DATETIME",
+                "Invalid datetime literal: '2007-01-02t10:10:25'",
+            ),
+            (
+                "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+                "INVALID_DATETIME",
+                "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
+            ),
         ];
 
         for (source, expected_code, expected_message) in cases {
@@ -1094,6 +1104,15 @@ mod tests {
             .errors
             .iter()
             .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
+    fn rejects_missing_datatype_name_after_binding_colon() {
+        let result = compile("a::n = 0\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Expected datatype annotation");
     }
 
     #[test]

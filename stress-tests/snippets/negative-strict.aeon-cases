@@ -23,6 +23,8 @@ a:infinity = NaN
 ---
 a:infinity = inf
 ---
+a:infinity = infinity
+---
 widget:node = <tag:contact("x")>
 ---
 a:object = { {}
@@ -218,3 +220,102 @@ file2:sep[/] = ^root/main/file.aeon}
 ---
 file2:sep[/] = ^root/main/file.aeon)
 ---
+a:Infinity = infinity
+---
+a:String = ""
+---
+a:Number = 0
+---
+a:N = 0
+---
+a:Int = 0
+---
+a:Int8 = 0
+---
+a:Int16 = 0
+---
+a:Int32 = 0
+---
+a:Int64 = 0
+---
+a:Uint = 0
+---
+a:Uint8 = 0
+---
+a:Uint16 = 0
+---
+a:Uint32 = 0
+---
+a:Uint64 = 0
+---
+a:Float = 0.1
+---
+a:Float32 = 0.1
+---
+a:Float64 = 0.1
+---
+b:Boolean = true
+---
+b:Bool = false
+---
+s:Switch = yes
+---
+h:Hex = #FFF
+---
+r:Radix[2] = %0101
+---
+r:radix[2][1] = %0111
+---
+r:Radix2 = %10101
+---
+r:Radix6 = %10101
+---
+r:Radix8 = %10101
+---
+r:Radix12 = %10101
+---
+e:Encoding = $FFF
+---
+b:Base64 = $FFF
+---
+i:Inline = $Inline
+---
+e:Embed = $Embed
+---
+d:Date = 2007-01-02
+---
+t:Time = 10:10:35
+---
+dt:DateTime = 2007-01-02T10:10:25
+---
+z:ZRut = 2007-01-02T10:10:25Z&Australia/Melbourne
+---
+s:Sep[x] = ^300x200
+---
+s:Set[.][;] = ^00.00;00
+---
+o:O = { n:n = 0 }
+---
+o:Object = { n:n = 0 }
+---
+o:Obj = { n:n = 0 }
+---
+o:Envelope = { n:n = 0 }
+---
+l:List = [ 2, 3, 4 ]
+---
+l:Tuple = ( 2, 3, 4 )
+---
+n:Node = <a>
+---
+z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne
+---
+z:zrut = 2007-01-02T10:10:25z&Australia/Melbourne
+---
+dt:datetime = 2007-01-02t10:10:25
+---
+a::n = 0
+---
+a:n == 0
+---
+a:n = = 0

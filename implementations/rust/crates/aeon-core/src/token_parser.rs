@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::header::apply_trimticks;
-use crate::temporal::classify_temporal_literal;
+use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::{
     tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
     TokenKind, Value,
@@ -60,6 +60,9 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             self.skip_newlines();
+            if self.check(TokenKind::Colon) {
+                return Err(self.error_at_current("Expected datatype annotation"));
+            }
             datatype = Some(self.parse_simple_datatype()?);
         }
         self.skip_newlines();
@@ -248,6 +251,15 @@ impl<'a> TokenParser<'a> {
             }
             TokenKind::Number => {
                 let raw = self.advance().text.clone();
+                if let Some((code, message)) = invalid_temporal_literal(&raw) {
+                    return Err(Diagnostic {
+                        code: String::from(code),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message,
+                    });
+                }
                 Ok(classify_temporal_literal(&raw).unwrap_or(Value::NumberLiteral { raw }))
             }
             TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {

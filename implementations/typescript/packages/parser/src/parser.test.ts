@@ -822,6 +822,16 @@ describe('Parser', () => {
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, []);
         });
 
+        it('should treat uppercase Radix brackets as custom datatype specs', () => {
+            const tokens = tokenize('mask:Radix[10] = %19').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 8 });
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'Radix');
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, null);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['10']);
+        });
+
         it('should reject radix generic parameter syntax', () => {
             const tokens = tokenize('mask:radix<10> = %19').tokens;
             const result = parse(tokens);

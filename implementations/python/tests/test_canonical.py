@@ -54,6 +54,16 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertIn('payload:base64 = $abc-_-_', result.text)
 
+    def test_canonicalizes_radix_datatype_brackets(self) -> None:
+        result = canonicalize('aeon:mode = "strict"\nr:radix[2] = %0101')
+        self.assertEqual([], result.errors)
+        self.assertIn('r:radix[2] = %0101', result.text)
+
+    def test_canonicalizes_numeric_separator_specs(self) -> None:
+        result = canonicalize('aeon:mode = "custom"\ns:set[2] = ^o2o2o')
+        self.assertEqual([], result.errors)
+        self.assertIn('s:set[2] = ^o2o2o', result.text)
+
     def test_canonicalizes_multiline_generic_and_separator_boundaries(self) -> None:
         result = canonicalize(
             'aeon:mode = "strict"\n'
