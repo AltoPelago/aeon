@@ -761,13 +761,16 @@ fn validate_datatype_shape(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
+    if let Some(diag) = validate_radix_datatype_shape(datatype) {
+        return Some(diag);
+    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
             format!("Datatype `{datatype}` uses a reserved separator character"),
         ));
     }
-    if datatype.matches('[').count() > max_separator_depth {
+    if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
             "SEPARATOR_DEPTH_EXCEEDED",
             format!("Datatype `{datatype}` exceeds separator depth limit"),
@@ -797,13 +800,16 @@ fn validate_datatype_shape_light(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
+    if let Some(diag) = validate_radix_datatype_shape(datatype) {
+        return Some(diag);
+    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
             format!("Datatype `{datatype}` uses a reserved separator character"),
         ));
     }
-    if datatype.matches('[').count() > max_separator_depth {
+    if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
             "SEPARATOR_DEPTH_EXCEEDED",
             format!("Datatype `{datatype}` exceeds separator depth limit"),
@@ -825,6 +831,41 @@ fn validate_datatype_shape_light(
         ));
     }
     None
+}
+
+fn separator_spec_depth(datatype: &str) -> usize {
+    datatype.matches('[').count().saturating_sub(usize::from(declared_radix_base(datatype).is_some()))
+}
+
+fn validate_radix_datatype_shape(datatype: &str) -> Option<Diagnostic> {
+    if datatype_base(datatype) != "radix" {
+        return None;
+    }
+    if datatype.contains('<') || datatype.contains('>') {
+        return Some(Diagnostic::new(
+            "SYNTAX_ERROR",
+            format!("Datatype `{datatype}` must use bracket radix base syntax like `radix[10]`"),
+        ));
+    }
+    if datatype == "radix" {
+        return None;
+    }
+    match declared_radix_base(datatype) {
+        Some(_) => None,
+        None => Some(Diagnostic::new(
+            "SYNTAX_ERROR",
+            format!("Datatype `{datatype}` must be `radix` or `radix[2..64]`"),
+        )),
+    }
+}
+
+fn declared_radix_base(datatype: &str) -> Option<usize> {
+    let body = datatype.strip_prefix("radix[")?.strip_suffix(']')?;
+    if body.is_empty() || (body.starts_with('0') && body != "0") || !body.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let base = body.parse::<usize>().ok()?;
+    (2..=64).contains(&base).then_some(base)
 }
 
 fn datatype_base(datatype: &str) -> &str {

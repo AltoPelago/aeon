@@ -363,10 +363,19 @@ class Parser {
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
         const genericArgs: string[] = [];
+        let radixBase: number | null = null;
         const separators: string[] = [];
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
+            if (name === 'radix') {
+                throw new SyntaxError(
+                    "Radix datatype bases must use bracket syntax like 'radix[10]'",
+                    this.peek().span,
+                    'radix[10]',
+                    this.peek().value
+                );
+            }
             this.advance(); // consume <
             genericArgs.push(this.parseGenericArgument(genericDepth));
 
@@ -381,6 +390,11 @@ class Parser {
         // Parse repeated separator specifiers: [x][,][;]
         while (this.check(TokenType.LeftBracket)) {
             this.advance(); // consume [
+            if (name === 'radix' && radixBase === null && this.check(TokenType.Number)) {
+                radixBase = this.parseRadixBaseSpecifier();
+                this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
+                continue;
+            }
             const sep = this.parseSeparatorCharacter();
             separators.push(sep);
             this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
@@ -394,6 +408,7 @@ class Parser {
             type: 'TypeAnnotation',
             name,
             genericArgs,
+            radixBase,
             separators,
             span: createSpan(start, end),
         };
@@ -421,8 +436,33 @@ class Parser {
 
     private formatTypeAnnotation(type: TypeAnnotation): string {
         const generics = type.genericArgs.length > 0 ? `<${type.genericArgs.join(', ')}>` : '';
+        const radixBase = type.radixBase != null ? `[${type.radixBase}]` : '';
         const separators = type.separators.map((separator) => `[${separator}]`).join('');
-        return `${type.name}${generics}${separators}`;
+        return `${type.name}${generics}${radixBase}${separators}`;
+    }
+
+    private parseRadixBaseSpecifier(): number {
+        const token = this.consume(TokenType.Number, 'Expected radix base');
+        const raw = token.value.replace(/_/g, '');
+        if (!/^(0|[1-9]\d*)$/.test(raw) || raw !== token.value) {
+            throw new SyntaxError(
+                'Radix base must be a base-10 integer without leading zeroes',
+                token.span,
+                'integer from 2 to 64',
+                token.value
+            );
+        }
+
+        const base = Number(raw);
+        if (!Number.isInteger(base) || base < 2 || base > 64) {
+            throw new SyntaxError(
+                'Radix base must be an integer from 2 to 64',
+                token.span,
+                'integer from 2 to 64',
+                token.value
+            );
+        }
+        return base;
     }
 
     // ============================================

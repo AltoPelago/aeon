@@ -811,6 +811,32 @@ describe('Parser', () => {
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
+
+        it('should parse radix base brackets', () => {
+            const tokens = tokenize('mask:radix[10] = %19').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 8 });
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'radix');
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, 10);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, []);
+        });
+
+        it('should reject radix generic parameter syntax', () => {
+            const tokens = tokenize('mask:radix<10> = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject radix base values outside 2..64', () => {
+            const tokens = tokenize('mask:radix[65] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
     });
 
     // ============================================

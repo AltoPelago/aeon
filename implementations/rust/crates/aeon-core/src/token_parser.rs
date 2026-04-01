@@ -125,10 +125,19 @@ impl<'a> TokenParser<'a> {
                 message: String::from("Quoted type names are not supported"),
             });
         }
-        self.consume(TokenKind::Identifier, "Expected datatype annotation")?;
+        let datatype_name = self.consume(TokenKind::Identifier, "Expected datatype annotation")?.text.clone();
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
+            if datatype_name == "radix" {
+                return Err(Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(self.previous().span),
+                    phase: None,
+                    message: String::from("Radix datatype bases must use bracket syntax like `radix[10]`"),
+                });
+            }
             self.skip_newlines();
             loop {
                 match self.peek().kind {
@@ -153,8 +162,26 @@ impl<'a> TokenParser<'a> {
             }
         }
 
+        let mut saw_radix_base = false;
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
+            if datatype_name == "radix" && !saw_radix_base && self.peek().kind == TokenKind::Number {
+                let token = self.advance();
+                if !is_valid_radix_base_token(&token.text) {
+                    return Err(Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from("Radix base must be an integer from 2 to 64"),
+                    });
+                }
+                saw_radix_base = true;
+                self.skip_newlines();
+                self.consume(TokenKind::RightBracket, "Expected ']' to close radix base spec")?;
+                self.skip_newlines();
+                continue;
+            }
             match self.peek().kind {
                 TokenKind::Identifier
                 | TokenKind::Number
@@ -698,6 +725,13 @@ impl<'a> TokenParser<'a> {
             .map(|token| token.text.as_str())
             .collect::<String>()
     }
+}
+
+fn is_valid_radix_base_token(raw: &str) -> bool {
+    if raw.is_empty() || (raw.starts_with('0') && raw != "0") || !raw.chars().all(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    raw.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
 }
 
 fn unescape_quoted(text: &str) -> String {

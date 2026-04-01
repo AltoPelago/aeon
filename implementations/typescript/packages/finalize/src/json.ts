@@ -11,6 +11,7 @@ import type {
 import { finalizeMap } from './finalize.js';
 import { formatReferencePath, type ReferencePathPart } from './reference-path.js';
 import { createProjectionState, shouldIncludeProjectedPath } from './projection.js';
+import { formatDatatypeAnnotation } from './datatype.js';
 
 type Value = AssignmentEvent['value'];
 type ObjectValue = Extract<Value, { type: 'ObjectNode'; bindings: readonly unknown[] }>;
@@ -133,7 +134,7 @@ function payloadToJson(
             else ctx.warnings.push(diag);
             if (ctx.strict) continue;
         }
-        document[key] = valueToJson(event.value, ctx, eventPath, projection);
+        document[key] = valueToJson(event.value, ctx, eventPath, projection, event.datatype);
         const attrJson = annotationsToJson(event.annotations, ctx, eventPath, projection);
         if (attrJson) {
             documentAttrs[key] = attrJson;
@@ -179,7 +180,13 @@ function isTopLevel(path: AssignmentEvent['path']): boolean {
     return path.segments.length === 2 && path.segments[0]?.type === 'root';
 }
 
-function valueToJson(value: Value, ctx: JsonContext, path: string, projection: ProjectionState): JsonValue {
+function valueToJson(
+    value: Value,
+    ctx: JsonContext,
+    path: string,
+    projection: ProjectionState,
+    datatype?: string
+): JsonValue {
     switch (value.type) {
         case 'StringLiteral':
             return value.value;
@@ -218,8 +225,21 @@ function valueToJson(value: Value, ctx: JsonContext, path: string, projection: P
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
             return value.value.replace(/_/g, '').toLowerCase();
-        case 'RadixLiteral':
-            return value.value.replace(/_/g, '');
+        case 'RadixLiteral': {
+            const normalized = value.value.replace(/_/g, '');
+            const radixBase = declaredRadixBase(datatype ?? datatypeForPath(path, ctx));
+            if (radixBase != null && exceedsDeclaredRadix(normalized, radixBase)) {
+                const diag = toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `Radix literal exceeds declared radix ${radixBase}: %${value.value}`,
+                    path,
+                    value.span
+                );
+                if (ctx.strict) ctx.errors.push(diag);
+                else ctx.warnings.push(diag);
+            }
+            return normalized;
+        }
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
         case 'DateLiteral':
@@ -253,7 +273,7 @@ function valueToJson(value: Value, ctx: JsonContext, path: string, projection: P
         case 'CloneReference': {
             const resolved = resolveCloneReference(value.path, ctx);
             if (resolved) {
-                return valueToJson(resolved, ctx, path, projection);
+                return valueToJson(resolved, ctx, path, projection, datatype);
             }
             return referenceToJson('~', value.path, ctx, path, value.span);
         }
@@ -450,7 +470,13 @@ function attributesToJson(
     const nestedAttrEntries: JsonObject = {};
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
-            obj[key] = valueToJson(entry.value, ctx, `${path}@${key}`, projection);
+            obj[key] = valueToJson(
+                entry.value,
+                ctx,
+                `${path}@${key}`,
+                projection,
+                entry.datatype ? formatDatatypeAnnotation(entry.datatype) : undefined
+            );
             const nested = attributesToJson(entry.attributes, ctx, `${path}@${key}`, projection);
             if (nested) {
                 nestedAttrEntries[key] = nested;
@@ -461,6 +487,47 @@ function attributesToJson(
         obj['@'] = nestedAttrEntries;
     }
     return Object.keys(obj).length > 0 ? obj : null;
+}
+
+function datatypeForPath(path: string, ctx: JsonContext): string | undefined {
+    const index = ctx.pathToIndex.get(path);
+    return index === undefined ? undefined : ctx.aes[index]?.datatype;
+}
+
+function declaredRadixBase(datatype: string | undefined): number | null {
+    if (!datatype) return null;
+
+    const trimmed = datatype.trim();
+    if (trimmed === 'radix2') return 2;
+    if (trimmed === 'radix6') return 6;
+    if (trimmed === 'radix8') return 8;
+    if (trimmed === 'radix12') return 12;
+
+    const match = /^radix\[(\d+)\]$/.exec(trimmed);
+    if (!match) return null;
+
+    const base = Number(match[1]);
+    return Number.isInteger(base) && base >= 2 && base <= 64 ? base : null;
+}
+
+function exceedsDeclaredRadix(value: string, base: number): boolean {
+    for (const ch of value) {
+        if (ch === '+' || ch === '-' || ch === '.') continue;
+        const digit = radixDigitValue(ch);
+        if (digit == null || digit >= base) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function radixDigitValue(ch: string): number | null {
+    if (ch >= '0' && ch <= '9') return ch.charCodeAt(0) - 48;
+    if (ch >= 'A' && ch <= 'Z') return ch.charCodeAt(0) - 55;
+    if (ch >= 'a' && ch <= 'z') return ch.charCodeAt(0) - 61;
+    if (ch === '&') return 62;
+    if (ch === '!') return 63;
+    return null;
 }
 
 function annotationsToJson(
