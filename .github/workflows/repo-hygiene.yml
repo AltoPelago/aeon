@@ -1,0 +1,23 @@
+name: Repo Hygiene
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-path-hygiene:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for local filesystem paths
+        run: bash ./scripts/pre-commit-check.sh

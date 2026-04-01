@@ -25,6 +25,8 @@ version is:
 - if the change touches canonicalization, diagnostics, CTS, or security
   behavior, include the concrete failing case and expected outcome
 - keep changes narrowly scoped and avoid bundling unrelated cleanup
+- run `bash ./scripts/pre-commit-check.sh` so tracked files do not introduce
+  local filesystem paths into the public repo
 
 ## Development expectations
 
