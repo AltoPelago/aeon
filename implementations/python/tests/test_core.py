@@ -95,6 +95,18 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix[2]", result.events[0]["datatype"])
 
+    def test_reserved_scalar_generics_are_rejected(self) -> None:
+        result = compile_source("a:n<string> = 3")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_reserved_scalar_brackets_are_rejected(self) -> None:
+        result = compile_source('b:string[333] = "hello world"')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_fixed_radix_alias_brackets_are_rejected(self) -> None:
+        result = compile_source("r:radix2[4] = %111")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
     def test_reserved_object_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("object", "obj", "envelope", "o"):
             with self.subTest(datatype=datatype):

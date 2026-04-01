@@ -887,6 +887,121 @@ fn normalize_encoding(raw: &str) -> String {
     raw.replace('+', "-").replace('/', "_").trim_end_matches('=').to_owned()
 }
 
+fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
+    let base = datatype_base(datatype);
+    if !is_reserved_v1_datatype(base) {
+        return Ok(());
+    }
+
+    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+        return Err(format!(
+            "Datatype `{base}` does not support generic arguments in v1"
+        ));
+    }
+
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+        return Err(format!(
+            "Datatype `{base}` does not support bracket specifiers in v1"
+        ));
+    }
+
+    Ok(())
+}
+
+fn datatype_base(datatype: &str) -> &str {
+    datatype
+        .find(['<', '['])
+        .map(|idx| &datatype[..idx])
+        .unwrap_or(datatype)
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut current_start = None;
+
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => current_start = Some(index + 1),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = current_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+
+    specs
+}
+
+fn is_reserved_v1_datatype(base: &str) -> bool {
+    matches!(
+        base,
+        "array"
+            | "base64"
+            | "bin"
+            | "binary"
+            | "blob"
+            | "bool"
+            | "boolean"
+            | "date"
+            | "datetime"
+            | "dt"
+            | "e64"
+            | "enc64"
+            | "encoding64"
+            | "float"
+            | "f"
+            | "h"
+            | "hex"
+            | "i"
+            | "int"
+            | "integer"
+            | "list"
+            | "lookup"
+            | "n"
+            | "node"
+            | "null"
+            | "number"
+            | "object"
+            | "pointer"
+            | "ptr"
+            | "radix"
+            | "radix2"
+            | "radix6"
+            | "radix8"
+            | "radix12"
+            | "rfc3339"
+            | "separated"
+            | "sep"
+            | "set"
+            | "string"
+            | "str"
+            | "text"
+            | "time"
+            | "timestamp"
+            | "trimmed"
+            | "trimtick"
+            | "tuple"
+            | "utc"
+            | "xml"
+            | "yaml"
+            | "ymd"
+            | "zone"
+            | "zoned"
+            | "zoned-datetime"
+            | "zrut"
+            | "zutc"
+    )
+}
+
 fn is_identifier_literal(raw: &str) -> bool {
     matches!(raw, "true" | "false" | "yes" | "no" | "on" | "off")
 }
@@ -1344,6 +1459,9 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
         }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
+        }
         Ok(value)
     }
 
@@ -1364,6 +1482,9 @@ impl<'a> Parser<'a> {
             .to_owned();
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
+        }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
         }
         Ok(value)
     }
@@ -1423,6 +1544,9 @@ impl<'a> Parser<'a> {
             .to_owned();
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
+        }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
         }
         Ok(value)
     }
@@ -2067,6 +2191,21 @@ mod tests {
         ] {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_meaningless_reserved_datatype_adornments_during_canonicalization() {
+        for source in [
+            "a:n<string> = 3\n",
+            "b:boolean<switch> = true\n",
+            "b:string[333] = \"hello world\"\n",
+            "r:radix2[4] = %111\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
     }
 }

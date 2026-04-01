@@ -879,6 +879,38 @@ describe('Parser', () => {
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
+
+        it('should reject meaningless generics on reserved scalar datatypes', () => {
+            const tokens = tokenize('a:n<string> = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject meaningless generics on reserved boolean datatypes', () => {
+            const tokens = tokenize('b:boolean<switch> = true').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject meaningless brackets on reserved scalar datatypes', () => {
+            const tokens = tokenize('b:string[333] = "hello world"').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject brackets on fixed-base radix aliases', () => {
+            const tokens = tokenize('r:radix2[4] = %111').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
     });
 
     // ============================================

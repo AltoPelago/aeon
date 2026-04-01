@@ -419,6 +419,8 @@ class Parser {
             }
         }
 
+        this.validateReservedDatatypeAdornments(name, genericArgs, radixBase, separators);
+
         const end = this.previous().span.end;
         return {
             type: 'TypeAnnotation',
@@ -428,6 +430,33 @@ class Parser {
             separators,
             span: createSpan(start, end),
         };
+    }
+
+    private validateReservedDatatypeAdornments(
+        name: string,
+        genericArgs: readonly string[],
+        radixBase: number | null,
+        separators: readonly string[]
+    ): void {
+        if (!RESERVED_V1_DATATYPES.has(name)) return;
+
+        if (genericArgs.length > 0 && !GENERIC_V1_DATATYPES.has(name)) {
+            throw new SyntaxError(
+                `Datatype '${name}' does not support generic arguments in v1`,
+                this.previous().span,
+                null,
+                name
+            );
+        }
+
+        if ((radixBase !== null || separators.length > 0) && !BRACKETED_V1_DATATYPES.has(name)) {
+            throw new SyntaxError(
+                `Datatype '${name}' does not support bracket specifiers in v1`,
+                this.previous().span,
+                null,
+                name
+            );
+        }
     }
 
     private parseGenericArgument(genericDepth: number): string {
@@ -1372,6 +1401,20 @@ class Parser {
         throw new SyntaxError(message, next.span, "',' or newline", next.value);
     }
 }
+
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
+const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
+const RESERVED_V1_DATATYPES = new Set([
+    'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
+    'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+    'float', 'float32', 'float64',
+    'string', 'trimtick', 'boolean', 'bool', 'switch', 'infinity',
+    'hex', 'date', 'time', 'datetime', 'zrut',
+    'encoding', 'base64', 'embed', 'inline',
+    'radix', 'radix2', 'radix6', 'radix8', 'radix12',
+    'sep', 'set',
+    'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
+]);
 
 /**
  * Parse AEON tokens into an AST

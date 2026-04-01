@@ -37,6 +37,20 @@ from .errors import GenericDepthExceededError, HeaderConflictError, InvalidSepar
 from .lexer import Token
 from .spans import Span
 
+GENERIC_V1_DATATYPES = {"list", "tuple"}
+BRACKETED_V1_DATATYPES = {"sep", "set", "radix"}
+RESERVED_V1_DATATYPES = {
+    "n", "number", "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64",
+    "float", "float32", "float64",
+    "string", "trimtick", "boolean", "bool", "switch", "infinity",
+    "hex", "date", "time", "datetime", "zrut",
+    "encoding", "base64", "embed", "inline",
+    "radix", "radix2", "radix6", "radix8", "radix12",
+    "sep", "set",
+    "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
+}
+
 
 @dataclass(slots=True)
 class ParseResult:
@@ -247,6 +261,8 @@ class Parser:
         while self.check("LBRACKET"):
             self.advance()
             self.skip_layout()
+            if name in RESERVED_V1_DATATYPES and name not in BRACKETED_V1_DATATYPES:
+                raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.peek().span)
             if name == "radix" and radix_base is None:
                 token = self.peek()
                 if token.kind == "RBRACKET":
@@ -264,6 +280,7 @@ class Parser:
             self.skip_layout()
             if len(separators) > self.max_separator_depth:
                 raise SeparatorDepthExceededError(len(separators), self.max_separator_depth, self.previous().span)
+        self.validate_reserved_datatype_adornments(name, generic_args, radix_base, separators)
         return TypeAnnotation(name=name, generic_args=generic_args, radix_base=radix_base, separators=separators, span=Span(start=start, end=self.previous().span.end))
 
     def parse_generic_argument(self, generic_depth: int) -> str:
@@ -292,6 +309,20 @@ class Parser:
             return False
         value = int(spec)
         return 2 <= value <= 64
+
+    def validate_reserved_datatype_adornments(
+        self,
+        name: str,
+        generic_args: list[str],
+        radix_base: int | None,
+        separators: list[str],
+    ) -> None:
+        if name not in RESERVED_V1_DATATYPES:
+            return
+        if generic_args and name not in GENERIC_V1_DATATYPES:
+            raise SyntaxError(f"Datatype '{name}' does not support generic arguments in v1", self.previous().span)
+        if (radix_base is not None or separators) and name not in BRACKETED_V1_DATATYPES:
+            raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.previous().span)
 
     def parse_separator_char(self) -> str:
         token = self.peek()

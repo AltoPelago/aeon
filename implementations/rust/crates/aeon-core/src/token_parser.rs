@@ -230,13 +230,15 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
         }
 
-        Ok(self.tokens[start..self.current]
+        let datatype = self.tokens[start..self.current]
             .iter()
             .map(|token| token.text.as_str())
             .collect::<String>()
             .chars()
             .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
-            .collect())
+            .collect::<String>();
+        validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
+        Ok(datatype)
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -761,6 +763,76 @@ fn is_valid_radix_base_token(raw: &str) -> bool {
         return false;
     }
     raw.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+}
+
+fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(), Diagnostic> {
+    let base = datatype_base(datatype);
+    if !is_reserved_v1_datatype(base) {
+        return Ok(());
+    }
+    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+        return Err(Diagnostic {
+            code: String::from("SYNTAX_ERROR"),
+            path: Some(String::from("$")),
+            span: Some(span),
+            phase: None,
+            message: format!("Datatype `{base}` does not support generic arguments in v1"),
+        });
+    }
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+        return Err(Diagnostic {
+            code: String::from("SYNTAX_ERROR"),
+            path: Some(String::from("$")),
+            span: Some(span),
+            phase: None,
+            message: format!("Datatype `{base}` does not support bracket specifiers in v1"),
+        });
+    }
+    Ok(())
+}
+
+fn datatype_base(datatype: &str) -> &str {
+    let generic_idx = datatype.find('<').unwrap_or(datatype.len());
+    let bracket_idx = datatype.find('[').unwrap_or(datatype.len());
+    &datatype[..generic_idx.min(bracket_idx)]
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_start = None;
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = bracket_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+    specs
+}
+
+fn is_reserved_v1_datatype(base: &str) -> bool {
+    matches!(
+        base,
+        "n" | "number" | "int" | "int8" | "int16" | "int32" | "int64"
+            | "uint" | "uint8" | "uint16" | "uint32" | "uint64"
+            | "float" | "float32" | "float64"
+            | "string" | "trimtick" | "boolean" | "bool" | "switch" | "infinity"
+            | "hex" | "date" | "time" | "datetime" | "zrut"
+            | "encoding" | "base64" | "embed" | "inline"
+            | "radix" | "radix2" | "radix6" | "radix8" | "radix12"
+            | "sep" | "set"
+            | "tuple" | "list" | "object" | "obj" | "envelope" | "o" | "node" | "null"
+    )
 }
 
 fn unescape_quoted(text: &str) -> String {

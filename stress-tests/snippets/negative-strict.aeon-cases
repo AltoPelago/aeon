@@ -319,3 +319,13 @@ a::n = 0
 a:n == 0
 ---
 a:n = = 0
+---
+a:m<n>[2] = 2
+---
+a:set<set>[.] = ^0,0
+---
+a:radix<radix>[16] = %ff
+---
+a:radix2[16] = %ff
+---
+a:string<string> = "2"

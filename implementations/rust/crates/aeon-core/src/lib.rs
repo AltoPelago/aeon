@@ -1247,6 +1247,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_meaningless_reserved_datatype_adornments() {
+        for source in [
+            "a:n<string> = 3\n",
+            "b:boolean<switch> = true\n",
+            "b:string[333] = \"hello world\"\n",
+            "r:radix2[4] = %111\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(!result.errors.is_empty(), "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        }
+    }
+
+    #[test]
     fn rejects_empty_separator_literals() {
         let result = compile("blue:sep = ^\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
