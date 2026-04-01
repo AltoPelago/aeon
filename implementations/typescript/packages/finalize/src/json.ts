@@ -490,8 +490,18 @@ function attributesToJson(
 }
 
 function datatypeForPath(path: string, ctx: JsonContext): string | undefined {
-    const index = ctx.pathToIndex.get(path);
+    const canonicalPath = canonicalFinalizePath(path);
+    const index = ctx.pathToIndex.get(canonicalPath);
     return index === undefined ? undefined : ctx.aes[index]?.datatype;
+}
+
+function canonicalFinalizePath(path: string): string {
+    if (path === '$.payload' || path === '$.header') return '$';
+    if (path.startsWith('$.payload.')) return `$.${path.slice('$.payload.'.length)}`;
+    if (path.startsWith('$.payload@')) return `$.${path.slice('$.payload'.length)}`;
+    if (path.startsWith('$.header.')) return `$.${path.slice('$.header.'.length)}`;
+    if (path.startsWith('$.header@')) return `$.${path.slice('$.header'.length)}`;
+    return path;
 }
 
 function declaredRadixBase(datatype: string | undefined): number | null {

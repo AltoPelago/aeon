@@ -95,7 +95,7 @@ host@{ nested:object = { note:trimtick = >> `
 ---
 s:set[.] = ^0.34.22
 ---
-s:set[.][:] = ^0:0.0
+s:set[:] = ^0:0.0
 ---
 s:set[2] = ^o2o2o
 ---

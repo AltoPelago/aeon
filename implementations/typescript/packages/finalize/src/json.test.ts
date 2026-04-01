@@ -231,6 +231,22 @@ describe('Finalization (JSON)', () => {
         assert.match(result.meta?.errors?.[0]?.message ?? '', /declared radix 10/);
     });
 
+    it('keeps declared radix validation working in full-scope nested payload output', () => {
+        const events = compileToEvents('config = { mask:radix[10] = %1A }');
+        const result = finalizeJson(events, { mode: 'strict', scope: 'full' });
+
+        assert.deepStrictEqual(result.document, {
+            header: {},
+            payload: {
+                config: {
+                    mask: '1A',
+                },
+            },
+        });
+        assert.ok((result.meta?.errors?.length ?? 0) > 0);
+        assert.match(result.meta?.errors?.[0]?.message ?? '', /declared radix 10/);
+    });
+
     it('projects only whitelisted top-level and nested paths', () => {
         const events = compileToEvents('app = { name = "demo", port = 8080 }\nother = "ignore"');
         const result = finalizeJson(events, {

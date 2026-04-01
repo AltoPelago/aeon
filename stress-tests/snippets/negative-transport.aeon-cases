@@ -139,9 +139,6 @@ z:zrut<zrut> = 2007-01-02T10:10:25Z&Australia/Melbourne
 ---
 s:sep<sep>[x] = ^300x200
 ---
-s:set<set>[.][;] = ^00.00;00
----
-
 i:infinity[2] = Infinity
 ---
 a:string[2] = ""
@@ -207,7 +204,7 @@ z:zrut[2] = 2007-01-02T10:10:25Z&Australia/Melbourne
 ---
 s:sep[22] = ^300x200
 ---
-s:set[.][] = ^00.00;00
+s:set[.] = ^00.00;00
 ---
 o:o[2] = { n:n = 0 }
 ---
