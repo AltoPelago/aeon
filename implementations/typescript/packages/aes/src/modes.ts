@@ -775,12 +775,37 @@ function classifyCustomDatatypeShape(datatype: string): 'none' | 'separator' | '
 }
 
 function bracketSpecs(datatype: string): string[] {
-    const body = datatype.replace(/<[^>]*>/g, '');
-    const matches = [...body.matchAll(/\[([^\]]*)\]/g)].map((match) => match[1]!);
-    if (datatypeBase(datatype).toLowerCase() === 'radix' && matches.length > 0) {
-        return matches.slice(1);
+    const specs: string[] = [];
+    let genericDepth = 0;
+    let bracketStart = -1;
+
+    for (let index = 0; index < datatype.length; index += 1) {
+        const char = datatype[index]!;
+        if (char === '<') {
+            genericDepth += 1;
+            continue;
+        }
+        if (char === '>') {
+            genericDepth = Math.max(0, genericDepth - 1);
+            continue;
+        }
+        if (genericDepth > 0) {
+            continue;
+        }
+        if (char === '[') {
+            bracketStart = index + 1;
+            continue;
+        }
+        if (char === ']' && bracketStart >= 0) {
+            specs.push(datatype.slice(bracketStart, index));
+            bracketStart = -1;
+        }
     }
-    return matches;
+
+    if (datatypeBase(datatype).toLowerCase() === 'radix' && specs.length > 0) {
+        return specs.slice(1);
+    }
+    return specs;
 }
 
 function isValidSeparatorSpec(spec: string): boolean {
