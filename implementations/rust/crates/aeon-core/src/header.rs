@@ -1,6 +1,21 @@
 use std::collections::BTreeMap;
 
-use crate::{Binding, Diagnostic, HeaderFields, Value};
+use crate::{Binding, Diagnostic, HeaderFields, Position, Span, Value};
+
+fn combined_span(a: Span, b: Span) -> Span {
+    Span {
+        start: earlier_position(a.start, b.start),
+        end: later_position(a.end, b.end),
+    }
+}
+
+fn earlier_position(a: Position, b: Position) -> Position {
+    if a.offset <= b.offset { a } else { b }
+}
+
+fn later_position(a: Position, b: Position) -> Position {
+    if a.offset >= b.offset { a } else { b }
+}
 
 pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
     let mut fields = BTreeMap::new();
@@ -13,16 +28,17 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
 }
 
 pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagnostic> {
-    let has_structured_header = bindings.iter().any(|binding| binding.key == "aeon:header");
-    let has_shorthand_header = bindings
+    let structured_header = bindings.iter().find(|binding| binding.key == "aeon:header");
+    let shorthand_header = bindings
         .iter()
-        .any(|binding| binding.key.starts_with("aeon:") && binding.key != "aeon:header");
-    if has_structured_header && has_shorthand_header {
+        .find(|binding| binding.key.starts_with("aeon:") && binding.key != "aeon:header");
+    if let (Some(structured_header), Some(shorthand_header)) = (structured_header, shorthand_header) {
         return Err(Diagnostic::new(
             "HEADER_CONFLICT",
-            "Structured and shorthand header bindings cannot be mixed",
+            "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
         )
-        .at_path("$"));
+        .at_path("$")
+        .with_span(combined_span(structured_header.span, shorthand_header.span)));
     }
     let mut lowered = Vec::new();
     let mut seen_body = false;

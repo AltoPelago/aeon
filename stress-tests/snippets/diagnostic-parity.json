@@ -24,5 +24,57 @@
         "end": { "line": 1, "column": 10, "offset": 9 }
       }
     }
+  },
+  {
+    "name": "duplicate canonical path",
+    "source": "a = 1\na = 2",
+    "expected": {
+      "code": "DUPLICATE_CANONICAL_PATH",
+      "message": "Duplicate canonical path: '$.a'",
+      "path": "$.a",
+      "span": {
+        "start": { "line": 2, "column": 1, "offset": 6 },
+        "end": { "line": 2, "column": 6, "offset": 11 }
+      }
+    }
+  },
+  {
+    "name": "header conflict",
+    "source": "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1",
+    "expected": {
+      "code": "HEADER_CONFLICT",
+      "message": "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
+      "path": "$",
+      "span": {
+        "start": { "line": 1, "column": 1, "offset": 0 },
+        "end": { "line": 2, "column": 21, "offset": 55 }
+      }
+    }
+  },
+  {
+    "name": "unterminated string literal",
+    "source": "a = 1\nb = \"unterminated",
+    "expected": {
+      "code": "UNTERMINATED_STRING",
+      "message": "Unterminated string literal (started with \")",
+      "path": "$",
+      "span": {
+        "start": { "line": 2, "column": 5, "offset": 10 },
+        "end": { "line": 2, "column": 18, "offset": 23 }
+      }
+    }
+  },
+  {
+    "name": "strict mode untyped switch literal",
+    "source": "aeon:mode = \"strict\"\ndebug = yes",
+    "expected": {
+      "code": "UNTYPED_SWITCH_LITERAL",
+      "message": "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation",
+      "path": "$.debug",
+      "span": {
+        "start": { "line": 2, "column": 1, "offset": 21 },
+        "end": { "line": 2, "column": 12, "offset": 32 }
+      }
+    }
   }
 ]

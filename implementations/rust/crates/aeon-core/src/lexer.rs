@@ -336,7 +336,7 @@ impl<'a> Lexer<'a> {
         }
         self.errors.push(LexError {
             code: String::from("UNTERMINATED_STRING"),
-            message: String::from("Unterminated string literal"),
+            message: format!("Unterminated string literal (started with {quote})"),
             span: Span {
                 start,
                 end: self.current_position(),

@@ -1755,8 +1755,8 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
-        Value::CloneReference { segments } => format!("\"~{}\"", render_reference_path(segments)),
-        Value::PointerReference { segments } => format!("\"~>{}\"", render_reference_path(segments)),
+        Value::CloneReference { segments, .. } => format!("\"~{}\"", render_reference_path(segments)),
+        Value::PointerReference { segments, .. } => format!("\"~>{}\"", render_reference_path(segments)),
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let rendered = items
                 .iter()
@@ -2215,11 +2215,11 @@ fn render_value_json_string(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        Value::CloneReference { segments } => format!(
+        Value::CloneReference { segments, .. } => format!(
             "{{\"type\":\"CloneReference\",\"path\":{}}}",
             render_reference_segments_json_string(segments)
         ),
-        Value::PointerReference { segments } => format!(
+        Value::PointerReference { segments, .. } => format!(
             "{{\"type\":\"PointerReference\",\"path\":{}}}",
             render_reference_segments_json_string(segments)
         ),
@@ -2270,8 +2270,8 @@ fn render_human_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
-        Value::CloneReference { segments } => format!("~{}", render_reference_path(segments)),
-        Value::PointerReference { segments } => format!("~>{}", render_reference_path(segments)),
+        Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
+        Value::PointerReference { segments, .. } => format!("~>{}", render_reference_path(segments)),
         Value::ListNode { items } => format!(
             "[ {} ]",
             items
@@ -2334,10 +2334,10 @@ fn find_references(events: &[AssignmentEvent]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match &event.value {
-            Value::CloneReference { segments } => {
+            Value::CloneReference { segments, .. } => {
                 Some(format!("{} = ~{}", format_path(&event.path), render_reference_path(segments)))
             }
-            Value::PointerReference { segments } => {
+            Value::PointerReference { segments, .. } => {
                 Some(format!("{} = ~>{}", format_path(&event.path), render_reference_path(segments)))
             }
             _ => None,
@@ -2681,7 +2681,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             elements: Vec::new(),
         },
-        Value::CloneReference { segments } => EventValue {
+        Value::CloneReference { segments, .. } => EventValue {
             value_type: String::from("CloneReference"),
             raw: None,
             value: Some(JsonValue::Array(
@@ -2692,7 +2692,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             )),
             elements: Vec::new(),
         },
-        Value::PointerReference { segments } => EventValue {
+        Value::PointerReference { segments, .. } => EventValue {
             value_type: String::from("PointerReference"),
             raw: None,
             value: Some(JsonValue::Array(

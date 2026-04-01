@@ -441,23 +441,131 @@ describe('Core - compile()', () => {
         });
     });
 
+    describe('diagnostic contracts', () => {
+        it('should report invalid radix literal details consistently', () => {
+            const result = compile('a = 3e-3\nb = %3e-3');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+            assert.strictEqual(result.errors[0]!.message, "Invalid number literal: '%3e-3'");
+            assert.deepStrictEqual(result.errors[0]!.span, {
+                start: { line: 2, column: 5, offset: 13 },
+                end: { line: 2, column: 10, offset: 18 },
+            });
+        });
+
+        it('should report unterminated string spans on the correct line and column', () => {
+            const result = compile('a = 1\nb = "unterminated');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'UNTERMINATED_STRING');
+            assert.strictEqual(result.errors[0]!.message, 'Unterminated string literal (started with ")');
+            assert.deepStrictEqual(result.errors[0]!.span, {
+                start: { line: 2, column: 5, offset: 10 },
+                end: { line: 2, column: 18, offset: 23 },
+            });
+        });
+
+        it('should report missing reference targets with path and span details', () => {
+            const result = compile('a = ~missing');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'MISSING_REFERENCE_TARGET');
+            assert.strictEqual(result.errors[0]!.message, "Missing reference target: '$.missing'");
+            assert.strictEqual((result.errors[0] as { sourcePath?: string }).sourcePath, '$.a');
+            assert.strictEqual((result.errors[0] as { targetPath?: string }).targetPath, '$.missing');
+            assert.deepStrictEqual(result.errors[0]!.span, {
+                start: { line: 1, column: 5, offset: 4 },
+                end: { line: 1, column: 13, offset: 12 },
+            });
+        });
+
+        it('should report duplicate canonical paths with duplicate-site span details', () => {
+            const result = compile('a = 1\na = 2');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_CANONICAL_PATH');
+            assert.strictEqual(result.errors[0]!.message, "Duplicate canonical path: '$.a'");
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.a');
+            assert.deepStrictEqual(result.errors[0]!.span, {
+                start: { line: 2, column: 1, offset: 6 },
+                end: { line: 2, column: 6, offset: 11 },
+            });
+            assert.deepStrictEqual((result.errors[0] as { firstOccurrence?: unknown }).firstOccurrence, {
+                start: { line: 1, column: 1, offset: 0 },
+                end: { line: 1, column: 6, offset: 5 },
+            });
+        });
+
+        it('should report temporal literal diagnostics with aligned messages and spans', () => {
+            const cases = [
+                {
+                    source: 'a:date = 2024-13-13\n',
+                    code: 'INVALID_DATE',
+                    message: "Invalid date literal: '2024-13-13'",
+                },
+                {
+                    source: 'a:time = 24:00\n',
+                    code: 'INVALID_TIME',
+                    message: "Invalid time literal: '24:00'",
+                },
+                {
+                    source: 'a:datetime = 2024-13-13T09:30:00Z\n',
+                    code: 'INVALID_DATETIME',
+                    message: "Invalid datetime literal: '2024-13-13T09:30:00Z'",
+                },
+            ] as const;
+
+            for (const testCase of cases) {
+                const result = compile(testCase.source);
+
+                assert.strictEqual(result.events.length, 0);
+                assert.strictEqual(result.errors.length, 1);
+                assert.strictEqual(result.errors[0]!.code, testCase.code);
+                assert.strictEqual(result.errors[0]!.message, testCase.message);
+                assert.ok(result.errors[0]!.span);
+            }
+        });
+    });
+
     // ============================================
     // PHASE 7 — MODE ENFORCEMENT (end-to-end contract)
     // ============================================
 
     describe('mode enforcement (end-to-end)', () => {
-        it('should fail-closed with HEADER_CONFLICT', () => {
+        it('should fail-closed with HEADER_CONFLICT and structured header span details', () => {
             const result = compile('aeon:header = { profile = "core" }\naeon:mode = "strict"\na:int32 = 1');
 
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'HEADER_CONFLICT'));
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'HEADER_CONFLICT');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                'Header conflict: cannot use both structured header (aeon:header) and shorthand header fields'
+            );
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$');
+            assert.deepStrictEqual(result.errors[0]!.span, {
+                start: { line: 1, column: 1, offset: 0 },
+                end: { line: 2, column: 21, offset: 55 },
+            });
         });
 
         it('should fail-closed with UNTYPED_SWITCH_LITERAL in strict mode', () => {
             const result = compile('aeon:mode = "strict"\ndebug = yes');
 
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'UNTYPED_SWITCH_LITERAL'));
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'UNTYPED_SWITCH_LITERAL');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation"
+            );
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.debug');
+            assert.ok(result.errors[0]!.span);
         });
 
         it('should accept typed tuple literal in strict mode', () => {
@@ -481,7 +589,14 @@ describe('Core - compile()', () => {
         it('should fail-closed with DATATYPE_LITERAL_MISMATCH for reserved datatype mismatch', () => {
             const result = compile('aeon:mode = "strict"\nstroke:number = #ff00ff');
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'DATATYPE_LITERAL_MISMATCH');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                "Datatype/literal mismatch at '$.stroke': datatype ':number' expects NumberLiteral, got HexLiteral"
+            );
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.stroke');
+            assert.ok(result.errors[0]!.span);
         });
 
         it('should fail-closed with DATATYPE_LITERAL_MISMATCH for attribute datatype mismatch', () => {
@@ -523,7 +638,14 @@ describe('Core - compile()', () => {
         it('should fail-closed with CUSTOM_DATATYPE_NOT_ALLOWED by default in strict mode', () => {
             const result = compile('aeon:mode = "strict"\nstroke:myColor = #ff00ff');
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'CUSTOM_DATATYPE_NOT_ALLOWED');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                "Custom datatype not allowed in typed mode at '$.stroke': ':myColor' requires --datatype-policy allow_custom"
+            );
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.stroke');
+            assert.ok(result.errors[0]!.span);
         });
 
         it('should allow custom datatypes in strict mode when datatypePolicy is allow_custom', () => {
@@ -556,6 +678,20 @@ describe('Core - compile()', () => {
             const result = compile('aeon:mode = "strict"\nvalue:duration = "P1D"');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
+        });
+
+        it('should fail-closed with INVALID_NODE_HEAD_DATATYPE and aligned messaging', () => {
+            const result = compile('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_HEAD_DATATYPE');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"
+            );
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.widget');
+            assert.ok(result.errors[0]!.span);
         });
     });
 });

@@ -25,11 +25,12 @@ pub(crate) struct ValidationEvent {
     pub(crate) datatype: Option<String>,
     pub(crate) annotations: BTreeMap<String, AttributeValue>,
     pub(crate) value: Value,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum ValidationReferenceStep {
-    ValidateValue { path: String, value: Value },
+    ValidateValue { path: String, value: Value, span: Span },
     VisibleTarget(String),
 }
 
@@ -97,11 +98,13 @@ fn track_reference_binding(
     path_text: &str,
     attributes: &BTreeMap<String, AttributeValue>,
     value: &Value,
+    span: Span,
     shallow_event_values: bool,
 ) {
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         value: clone_validation_value(value, shallow_event_values),
+        span,
     });
     let _ = reference_targets.insert(render_child_member_path(parent_path, key));
     collect_attribute_targets(path_text, attributes, reference_targets, String::new());
@@ -143,6 +146,7 @@ fn flatten_validation_bindings(
             &path_text,
             &binding.attributes,
             &binding.value,
+            binding.span,
             shallow_event_values,
         );
         if !binding.key.starts_with("aeon:") {
@@ -151,6 +155,7 @@ fn flatten_validation_bindings(
                 datatype: binding.datatype.clone(),
                 annotations: binding.attributes.clone(),
                 value: clone_validation_value(&binding.value, shallow_event_values),
+                span: binding.span,
             });
         }
 
@@ -166,11 +171,13 @@ fn flatten_validation_bindings(
                             datatype: None,
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(item, shallow_event_values),
+                            span: binding.span,
                         });
                     }
                     flatten_validation_value(
                         item,
                         &item_path,
+                        binding.span,
                         shallow_event_values,
                         events,
                         reference_targets,
@@ -189,11 +196,13 @@ fn flatten_validation_bindings(
                             datatype: None,
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(item, shallow_event_values),
+                            span: binding.span,
                         });
                     }
                     flatten_validation_value(
                         item,
                         &item_path,
+                        binding.span,
                         shallow_event_values,
                         events,
                         reference_targets,
@@ -219,6 +228,7 @@ fn flatten_validation_bindings(
 fn flatten_validation_value(
     value: &Value,
     parent: &CanonicalPath,
+    owner_span: Span,
     shallow_event_values: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
@@ -246,11 +256,13 @@ fn flatten_validation_value(
                         datatype: None,
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(item, shallow_event_values),
+                        span: owner_span,
                     });
                 }
                 flatten_validation_value(
                     item,
                     &item_path,
+                    owner_span,
                     shallow_event_values,
                     events,
                     reference_targets,
@@ -269,11 +281,13 @@ fn flatten_validation_value(
                         datatype: None,
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(item, shallow_event_values),
+                        span: owner_span,
                     });
                 }
                 flatten_validation_value(
                     item,
                     &item_path,
+                    owner_span,
                     shallow_event_values,
                     events,
                     reference_targets,
@@ -309,6 +323,7 @@ fn flatten_bindings(
             &path_text,
             &binding.attributes,
             &binding.value,
+            binding.span,
             shallow_event_values,
         );
         let visible = !binding.key.starts_with("aeon:");
@@ -567,11 +582,13 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::ListNode { .. } => Value::ListNode { items: Vec::new() },
         Value::TupleLiteral { .. } => Value::TupleLiteral { items: Vec::new() },
         Value::ObjectNode { .. } => Value::ObjectNode { bindings: Vec::new() },
-        Value::CloneReference { segments } => Value::CloneReference {
+        Value::CloneReference { segments, span } => Value::CloneReference {
             segments: segments.clone(),
+            span: *span,
         },
-        Value::PointerReference { segments } => Value::PointerReference {
+        Value::PointerReference { segments, span } => Value::PointerReference {
             segments: segments.clone(),
+            span: *span,
         },
     }
 }

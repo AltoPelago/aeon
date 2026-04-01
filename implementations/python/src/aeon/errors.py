@@ -59,6 +59,16 @@ class SyntaxError(AeonError):
         super().__init__(message=message, span=span, code="SYNTAX_ERROR", path=path)
 
 
+class UnterminatedStringError(AeonError):
+    def __init__(self, delimiter: str, span: Span, path: str | None = None) -> None:
+        super().__init__(
+            message=f"Unterminated string literal (started with {delimiter})",
+            span=span,
+            code="UNTERMINATED_STRING",
+            path=path,
+        )
+
+
 class InvalidNumberError(AeonError):
     def __init__(self, raw: str, span: Span, path: str | None = None) -> None:
         super().__init__(
@@ -140,7 +150,7 @@ class DuplicateCanonicalPathError(AeonError):
 class HeaderConflictError(AeonError):
     def __init__(self, span: Span) -> None:
         super().__init__(
-            message="Structured and shorthand headers cannot both appear in the same document",
+            message="Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
             span=span,
             code="HEADER_CONFLICT",
         )
@@ -159,7 +169,7 @@ class UntypedValueInStrictModeError(AeonError):
 class UntypedSwitchLiteralError(AeonError):
     def __init__(self, path: str, span: Span) -> None:
         super().__init__(
-            message=f"Untyped switch literal in strict mode: '{path}' requires ':switch' type annotation",
+            message=f"Untyped switch literal in typed mode: '{path}' requires ':switch' type annotation",
             span=span,
             code="UNTYPED_SWITCH_LITERAL",
             path=path,

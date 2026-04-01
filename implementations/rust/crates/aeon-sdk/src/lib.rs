@@ -247,8 +247,8 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             elements: Vec::new(),
         },
-        Value::CloneReference { segments } => reference_value("CloneReference", segments),
-        Value::PointerReference { segments } => reference_value("PointerReference", segments),
+        Value::CloneReference { segments, .. } => reference_value("CloneReference", segments),
+        Value::PointerReference { segments, .. } => reference_value("PointerReference", segments),
     }
 }
 

@@ -333,11 +333,11 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
                 })
             }).collect::<Vec<_>>(),
         }),
-        Value::CloneReference { segments } => json!({
+        Value::CloneReference { segments, .. } => json!({
             "type": "CloneReference",
             "path": reference_segments_json(segments),
         }),
-        Value::PointerReference { segments } => json!({
+        Value::PointerReference { segments, .. } => json!({
             "type": "PointerReference",
             "path": reference_segments_json(segments),
         }),
@@ -517,7 +517,7 @@ fn value_to_json(
             }
             JsonValue::Object(output)
         }
-        Value::CloneReference { segments } => {
+        Value::CloneReference { segments, .. } => {
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
                 value_to_json(resolved, &target, projection, path_values, mode, errors, warnings)
@@ -525,7 +525,7 @@ fn value_to_json(
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
         }
-        Value::PointerReference { segments } => {
+        Value::PointerReference { segments, .. } => {
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
     }
