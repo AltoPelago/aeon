@@ -1102,25 +1102,6 @@ fn specs_repo_root() -> PathBuf {
     repo_root_from_env("AEONITE_SPECS_ROOT", &["aeonite-org", "aeonite-specs"])
 }
 
-fn examples_repo_root() -> PathBuf {
-    if let Some(path) = env::var_os("AEON_EXAMPLES_ROOT").filter(|value| !value.is_empty()) {
-        return PathBuf::from(path);
-    }
-
-    if let Some(path) = env::var_os("AEON_EXAMPLES_PRIVATE_ROOT").filter(|value| !value.is_empty()) {
-        return PathBuf::from(path);
-    }
-
-    let public_root = family_root().join("altopelago").join("aeon-examples");
-    if public_root.exists() {
-        return public_root;
-    }
-
-    family_root()
-        .join("altopelago")
-        .join("aeon-examples-private")
-}
-
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
     vec![
         DoctorCheck {
