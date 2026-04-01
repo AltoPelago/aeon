@@ -173,7 +173,7 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
     if isinstance(value, RadixLiteral):
         return [f"%{value.value.replace('_', '')}"]
     if isinstance(value, EncodingLiteral):
-        return [f"${value.value}"]
+        return [f"${format_encoding_literal(value.value)}"]
     if isinstance(value, SeparatorLiteral):
         return [f"^{format_separator(value.raw or value.value)}"]
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
@@ -294,7 +294,7 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, RadixLiteral):
         return f"%{value.value.replace('_', '')}"
     if isinstance(value, EncodingLiteral):
-        return f"${value.value}"
+        return f"${format_encoding_literal(value.value)}"
     if isinstance(value, SeparatorLiteral):
         return f"^{format_separator(value.raw or value.value)}"
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
@@ -343,6 +343,10 @@ def render_reference_path(path: list[object]) -> str:
         else:
             result += f"[{format_string(member)}]"
     return result
+
+
+def format_encoding_literal(value: str) -> str:
+    return value.replace("+", "-").replace("/", "_").rstrip("=")
 
 
 def format_binding_key(key: str) -> str:

@@ -49,6 +49,11 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('top:infinity = Infinity', result.text)
         self.assertIn('bottom:infinity = -Infinity', result.text)
 
+    def test_canonicalizes_encoding_literals_to_url_safe_base64_without_padding(self) -> None:
+        result = canonicalize('payload:base64 = $abc-_+/==')
+        self.assertEqual([], result.errors)
+        self.assertIn('payload:base64 = $abc-_-_', result.text)
+
     def test_canonicalizes_multiline_generic_and_separator_boundaries(self) -> None:
         result = canonicalize(
             'aeon:mode = "strict"\n'
