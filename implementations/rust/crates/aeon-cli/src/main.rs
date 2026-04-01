@@ -1102,6 +1102,10 @@ fn specs_repo_root() -> PathBuf {
     repo_root_from_env("AEONITE_SPECS_ROOT", &["aeonite-org", "aeonite-specs"])
 }
 
+fn examples_repo_root() -> PathBuf {
+    repo_root_from_env("AEON_EXAMPLES_ROOT", &["altopelago", "aeon-examples-private"])
+}
+
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
     vec![
         DoctorCheck {
