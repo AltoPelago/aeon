@@ -178,6 +178,22 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>')
         self.assertEqual([], result.errors)
 
+    def test_custom_mode_allows_custom_radix_base_between_2_and_64(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[2] = %111')
+        self.assertEqual([], result.errors)
+
+    def test_custom_mode_rejects_custom_radix_base_below_2(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[1] = %111')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_custom_mode_rejects_separator_style_custom_spec_for_radix_literal(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[.] = %111')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_custom_mode_rejects_multi_bracket_custom_spec_for_radix_literal(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[1][2] = %111')
+        self.assertNotEqual([], result.errors)
+
     def test_missing_attribute_reference(self) -> None:
         result = compile_source("a = 1\nv = ~a@ns")
         self.assertEqual(["MISSING_REFERENCE_TARGET"], [error.code for error in result.errors])
