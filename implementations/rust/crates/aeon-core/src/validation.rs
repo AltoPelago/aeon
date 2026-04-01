@@ -298,8 +298,8 @@ pub(crate) fn validate_datatypes(
                         .at_path(path.clone())
                         .with_span(event.span),
                     );
+                    continue;
                 }
-                continue;
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
@@ -365,8 +365,8 @@ pub(crate) fn validate_datatypes_light(
                         .at_path(event.path.clone())
                         .with_span(event.span),
                     );
+                    continue;
                 }
-                continue;
             }
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
@@ -966,10 +966,51 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
             expected.join(" or ")
         );
     }
+    if custom_datatype_shape_is_invalid_for_both(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got {actual_kind}",
+            path
+        );
+    }
+    if let Some(expected) = expected_kinds_for_custom_datatype(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
+            path,
+            expected.join(" or ")
+        );
+    }
     format!(
         "Datatype/literal mismatch at '{}': datatype ':{datatype}' is not supported for literal matching, got {actual_kind}",
         path
     )
+}
+
+fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
+    let specs = datatype_bracket_specs(datatype);
+    if specs.is_empty() {
+        return None;
+    }
+
+    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
+    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
+
+    match (separator_ok, radix_ok) {
+        (true, true) => Some(vec!["SeparatorLiteral", "RadixLiteral"]),
+        (true, false) => Some(vec!["SeparatorLiteral"]),
+        (false, true) => Some(vec!["RadixLiteral"]),
+        (false, false) => None,
+    }
+}
+
+fn custom_datatype_shape_is_invalid_for_both(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    if specs.is_empty() {
+        return false;
+    }
+
+    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
+    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
+    !separator_ok && !radix_ok
 }
 
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
@@ -1000,8 +1041,54 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
         "null" => false,
+        _ if matches!(value, Value::SeparatorLiteral { .. }) => custom_separator_specs_are_valid(datatype),
+        _ if matches!(value, Value::RadixLiteral { .. }) => custom_radix_specs_are_valid(datatype),
         _ => true,
     }
+}
+
+fn custom_separator_specs_are_valid(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    specs.is_empty() || specs.iter().all(|spec| is_valid_separator_spec(spec))
+}
+
+fn custom_radix_specs_are_valid(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    specs.is_empty() || (specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]))
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut start = 0usize;
+    while let Some(open) = datatype[start..].find('[') {
+        let open_idx = start + open;
+        if let Some(close_rel) = datatype[open_idx + 1..].find(']') {
+            let close_idx = open_idx + 1 + close_rel;
+            specs.push(&datatype[open_idx + 1..close_idx]);
+            start = close_idx + 1;
+        } else {
+            break;
+        }
+    }
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+    specs
+}
+
+fn is_valid_separator_spec(spec: &str) -> bool {
+    if spec.chars().count() != 1 {
+        return false;
+    }
+    let ch = spec.chars().next().unwrap_or_default();
+    matches!(ch as u32, 0x21..=0x7e) && ch != ',' && ch != '[' && ch != ']'
+}
+
+fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
+    if spec.is_empty() || (spec.starts_with('0') && spec != "0") || !spec.chars().all(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    spec.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
 }
 
 fn has_valid_literal_underscores(raw: &str) -> bool {

@@ -395,6 +395,14 @@ class Parser {
                 this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
                 continue;
             }
+            if (this.check(TokenType.Number)) {
+                separators.push(this.advance().value);
+                this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
+                if (separators.length > this.maxSeparatorDepth) {
+                    throw new SeparatorDepthExceededError(separators.length, this.maxSeparatorDepth, this.previous().span);
+                }
+                continue;
+            }
             const sep = this.parseSeparatorCharacter();
             separators.push(sep);
             this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");

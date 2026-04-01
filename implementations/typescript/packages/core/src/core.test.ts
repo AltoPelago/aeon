@@ -674,6 +674,58 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should allow single-digit custom bracket specs for both separator and radix literals', () => {
+            const separatorResult = compile('aeon:mode = "strict"\na:custom[2] = ^a2a', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(separatorResult.errors.length, 0);
+            assert.ok(separatorResult.events.length > 0);
+
+            const radixResult = compile('aeon:mode = "strict"\nb:custom[2] = %0101', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(radixResult.errors.length, 0);
+            assert.ok(radixResult.events.length > 0);
+        });
+
+        it('should reject multi-digit custom bracket specs for separator literals while allowing radix literals', () => {
+            const separatorResult = compile('aeon:mode = "strict"\na:test[22] = ^300x200', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.ok(separatorResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+
+            const radixResult = compile('aeon:mode = "strict"\nb:test[22] = %0101', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(radixResult.errors.length, 0);
+            assert.ok(radixResult.events.length > 0);
+        });
+
+        it('should allow separator-style custom bracket specs only for separator literals', () => {
+            const separatorResult = compile('aeon:mode = "strict"\na:custom[.] = ^300x200', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(separatorResult.errors.length, 0);
+            assert.ok(separatorResult.events.length > 0);
+
+            const radixResult = compile('aeon:mode = "strict"\nb:custom[.] = %0101', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.ok(radixResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should report custom bracket specs that are invalid for both separator and radix literals', () => {
+            const result = compile('aeon:mode = "strict"\na:custom[222] = %222', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'DATATYPE_LITERAL_MISMATCH');
+            assert.strictEqual(
+                result.errors[0]!.message,
+                "Datatype/literal mismatch at '$.a': datatype ':custom[222]' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got RadixLiteral"
+            );
+        });
+
         it('should treat removed reserved aliases as custom datatypes in strict mode', () => {
             const result = compile('aeon:mode = "strict"\nvalue:duration = "P1D"');
             assert.strictEqual(result.events.length, 0);

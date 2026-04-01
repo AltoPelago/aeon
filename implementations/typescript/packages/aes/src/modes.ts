@@ -118,6 +118,18 @@ export class DatatypeLiteralMismatchError extends ModeEnforcementError {
     }
 }
 
+export class InvalidCustomDatatypeBracketShapeError extends ModeEnforcementError {
+    constructor(span: Span, path: string, datatype: string, actualKind: string) {
+        super(
+            `Datatype/literal mismatch at '${path}': datatype ':${datatype}' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got ${actualKind}`,
+            span,
+            'DATATYPE_LITERAL_MISMATCH',
+            path
+        );
+        this.name = 'InvalidCustomDatatypeBracketShapeError';
+    }
+}
+
 /**
  * Error: Custom datatype is not permitted by typed-mode datatype policy
  */
@@ -263,6 +275,28 @@ export function enforceMode(
                 actualKind,
                 expectedKinds
             ));
+        }
+        if (!expectedKinds) {
+            const customShape = classifyCustomDatatypeShape(event.datatype);
+            if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
+                errors.push(new InvalidCustomDatatypeBracketShapeError(
+                    event.span,
+                    formatPath(event.path),
+                    event.datatype,
+                    actualKind
+                ));
+            } else {
+                const customExpectedKinds = expectedKindsForCustomDatatypeShape(customShape, actualKind);
+                if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                    errors.push(new DatatypeLiteralMismatchError(
+                        event.span,
+                        formatPath(event.path),
+                        event.datatype,
+                        actualKind,
+                        customExpectedKinds
+                    ));
+                }
+            }
         }
         errors.push(...validateAnnotationEntries(
             event.annotations,
@@ -445,14 +479,37 @@ function validateAnnotationEntries(
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
                 const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
-                if (expectedKinds && !expectedKinds.includes(resolved.type)) {
+                const actualKind = resolvedValueKind(resolved);
+                if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         span,
                         attrPath,
                         entry.datatype,
-                        resolved.type,
+                        actualKind,
                         expectedKinds
                     ));
+                }
+                if (!expectedKinds) {
+                    const customShape = classifyCustomDatatypeShape(entry.datatype);
+                    if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
+                        errors.push(new InvalidCustomDatatypeBracketShapeError(
+                            span,
+                            attrPath,
+                            entry.datatype,
+                            actualKind
+                        ));
+                    } else {
+                        const customExpectedKinds = expectedKindsForCustomDatatypeShape(customShape, actualKind);
+                        if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                            errors.push(new DatatypeLiteralMismatchError(
+                                span,
+                                attrPath,
+                                entry.datatype,
+                                actualKind,
+                                customExpectedKinds
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -691,6 +748,51 @@ function datatypeBase(datatype: string): string {
         .filter((idx) => idx >= 0)
         .reduce((min, idx) => Math.min(min, idx), datatype.length);
     return datatype.slice(0, endIdx);
+}
+
+function expectedKindsForCustomDatatypeShape(
+    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both',
+    actualKind: string
+): readonly string[] | null {
+    if (customShape === 'none' || customShape === 'invalid_both') return null;
+    if (actualKind !== 'SeparatorLiteral' && actualKind !== 'RadixLiteral') return null;
+    if (customShape === 'both') return ['SeparatorLiteral', 'RadixLiteral'];
+    if (customShape === 'separator') return ['SeparatorLiteral'];
+    return ['RadixLiteral'];
+}
+
+function classifyCustomDatatypeShape(datatype: string): 'none' | 'separator' | 'radix' | 'both' | 'invalid_both' {
+    const specs = bracketSpecs(datatype);
+    if (specs.length === 0) return 'none';
+
+    const separatorOk = specs.every(isValidSeparatorSpec);
+    const radixOk = specs.length === 1 && isValidRadixBaseSpec(specs[0]!);
+
+    if (separatorOk && radixOk) return 'both';
+    if (separatorOk) return 'separator';
+    if (radixOk) return 'radix';
+    return 'invalid_both';
+}
+
+function bracketSpecs(datatype: string): string[] {
+    const body = datatype.replace(/<[^>]*>/g, '');
+    const matches = [...body.matchAll(/\[([^\]]*)\]/g)].map((match) => match[1]!);
+    if (datatypeBase(datatype).toLowerCase() === 'radix' && matches.length > 0) {
+        return matches.slice(1);
+    }
+    return matches;
+}
+
+function isValidSeparatorSpec(spec: string): boolean {
+    if (spec.length !== 1) return false;
+    const code = spec.charCodeAt(0);
+    return code >= 0x21 && code <= 0x7e && spec !== ',' && spec !== '[' && spec !== ']';
+}
+
+function isValidRadixBaseSpec(spec: string): boolean {
+    if (!/^[1-9]\d*$/.test(spec)) return false;
+    const value = Number(spec);
+    return Number.isInteger(value) && value >= 2 && value <= 64;
 }
 
 const NUMERIC_TYPES = new Set([
