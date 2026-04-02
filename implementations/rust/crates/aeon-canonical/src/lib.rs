@@ -661,6 +661,199 @@ fn looks_like_number_literal(raw: &str) -> bool {
     saw_digit && !prev_was_underscore
 }
 
+fn invalid_temporal_literal(raw: &str) -> Option<String> {
+    if looks_like_datetime(raw) || looks_like_date(raw) || looks_like_time(raw) {
+        return None;
+    }
+    if looks_like_datetime_candidate(raw) {
+        return Some(format!("Invalid datetime literal: '{raw}'"));
+    }
+    if looks_like_date_candidate(raw) {
+        return Some(format!("Invalid date literal: '{raw}'"));
+    }
+    if looks_like_time_candidate(raw) {
+        return Some(format!("Invalid time literal: '{raw}'"));
+    }
+    None
+}
+
+fn looks_like_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if !(bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit))
+    {
+        return false;
+    }
+
+    match (
+        value[0..4].parse::<u32>().ok(),
+        value[5..7].parse::<u32>().ok(),
+        value[8..10].parse::<u32>().ok(),
+    ) {
+        (Some(year), Some(month), Some(day)) => is_valid_date_parts(year, month, day),
+        _ => false,
+    }
+}
+
+fn looks_like_date_candidate(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+}
+
+fn looks_like_time(value: &str) -> bool {
+    matches_time_core(value, true) || looks_like_zoned_time(value)
+}
+
+fn looks_like_datetime(value: &str) -> bool {
+    if let Some((date, rest)) = value.split_once('T') {
+        if !looks_like_date(date) {
+            return false;
+        }
+        if looks_like_datetime_time(rest) || looks_like_datetime_zoned_time(rest) {
+            return true;
+        }
+        if let Some((base, zone)) = rest.split_once('&') {
+            return (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
+                && is_valid_zrut_zone(zone);
+        }
+    }
+    false
+}
+
+fn looks_like_datetime_candidate(value: &str) -> bool {
+    if let Some((date, rest)) = value.split_once('T').or_else(|| value.split_once('t')) {
+        return looks_like_date_candidate(date)
+            && !rest.is_empty()
+            && rest.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b':' | b'.' | b'+' | b'-' | b'/' | b'_' | b'&')
+            });
+    }
+    false
+}
+
+fn looks_like_time_candidate(value: &str) -> bool {
+    value.contains(':')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'.' | b'+' | b'-'))
+}
+
+fn looks_like_datetime_time(value: &str) -> bool {
+    matches_datetime_core(value) || matches_time_core(value, true)
+}
+
+fn looks_like_datetime_zoned_time(value: &str) -> bool {
+    value
+        .strip_suffix('Z')
+        .is_some_and(looks_like_datetime_time)
+        || value
+            .rsplit_once(['+', '-'])
+            .is_some_and(|(time, offset)| looks_like_datetime_time(time) && matches_offset(offset))
+}
+
+fn looks_like_zoned_time(value: &str) -> bool {
+    matches_time_core(value, true)
+        || value
+            .strip_suffix('Z')
+            .is_some_and(|time| matches_time_core(time, true))
+        || value
+            .rsplit_once(['+', '-'])
+            .is_some_and(|(time, offset)| matches_time_core(time, true) && matches_offset(offset))
+}
+
+fn is_valid_zrut_zone(zone: &str) -> bool {
+    !zone.is_empty()
+        && !zone.starts_with('/')
+        && !zone.ends_with('/')
+        && !zone.contains("//")
+        && !zone.contains("/*")
+        && !zone.contains("/[")
+}
+
+fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() == 3 {
+        return allow_hour_precision_marker
+            && bytes[2] == b':'
+            && bytes[..2].iter().all(u8::is_ascii_digit)
+            && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour);
+    }
+    if bytes.len() == 5 {
+        return bytes[2] == b':'
+            && bytes[..2].iter().all(u8::is_ascii_digit)
+            && bytes[3..5].iter().all(u8::is_ascii_digit)
+            && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second);
+    }
+    matches_hms(value)
+}
+
+fn matches_datetime_core(value: &str) -> bool {
+    if value.len() == 2 {
+        return value.as_bytes().iter().all(u8::is_ascii_digit);
+    }
+    matches_time_core(value, false)
+}
+
+fn matches_hms(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 8
+        && bytes[2] == b':'
+        && bytes[5] == b':'
+        && bytes[..2].iter().all(u8::is_ascii_digit)
+        && bytes[3..5].iter().all(u8::is_ascii_digit)
+        && bytes[6..8].iter().all(u8::is_ascii_digit)
+        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+        && value[6..8].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+}
+
+fn matches_offset(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 5
+        && bytes[2] == b':'
+        && bytes[..2].iter().all(u8::is_ascii_digit)
+        && bytes[3..5].iter().all(u8::is_ascii_digit)
+        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+}
+
+fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
+    if !(1..=12).contains(&month) || day == 0 {
+        return false;
+    }
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => unreachable!(),
+    };
+    day <= days_in_month
+}
+
+fn is_leap_year(year: u32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn is_valid_hour(value: u32) -> bool {
+    value <= 23
+}
+
+fn is_valid_minute_or_second(value: u32) -> bool {
+    value <= 59
+}
+
 fn normalize_datatype(raw: &str) -> String {
     raw.replace(',', ", ")
 }
@@ -668,6 +861,12 @@ fn normalize_datatype(raw: &str) -> String {
 fn normalize_raw(raw: &str) -> String {
     if let Some(hex) = raw.strip_prefix('#') {
         return format!("#{}", hex.replace('_', "").to_ascii_lowercase());
+    }
+    if let Some(radix) = raw.strip_prefix('%') {
+        return format!("%{}", radix.replace('_', ""));
+    }
+    if let Some(encoding) = raw.strip_prefix('$') {
+        return format!("${}", normalize_encoding(encoding));
     }
 
     let mut value = raw
@@ -682,6 +881,125 @@ fn normalize_raw(raw: &str) -> String {
     value = normalize_quoted_reference_segments(&value, ".[\"", ".");
     value = normalize_quoted_reference_segments(&value, "@[\"", "@");
     value
+}
+
+fn normalize_encoding(raw: &str) -> String {
+    raw.replace('+', "-").replace('/', "_").trim_end_matches('=').to_owned()
+}
+
+fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
+    let base = datatype_base(datatype);
+    if !is_reserved_v1_datatype(base) {
+        return Ok(());
+    }
+
+    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+        return Err(format!(
+            "Datatype `{base}` does not support generic arguments in v1"
+        ));
+    }
+
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+        return Err(format!(
+            "Datatype `{base}` does not support bracket specifiers in v1"
+        ));
+    }
+
+    Ok(())
+}
+
+fn datatype_base(datatype: &str) -> &str {
+    datatype
+        .find(['<', '['])
+        .map(|idx| &datatype[..idx])
+        .unwrap_or(datatype)
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut current_start = None;
+
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => current_start = Some(index + 1),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = current_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+
+    specs
+}
+
+fn is_reserved_v1_datatype(base: &str) -> bool {
+    matches!(
+        base,
+        "array"
+            | "base64"
+            | "bin"
+            | "binary"
+            | "blob"
+            | "bool"
+            | "boolean"
+            | "date"
+            | "datetime"
+            | "dt"
+            | "e64"
+            | "enc64"
+            | "encoding64"
+            | "float"
+            | "f"
+            | "h"
+            | "hex"
+            | "i"
+            | "int"
+            | "integer"
+            | "list"
+            | "lookup"
+            | "n"
+            | "node"
+            | "null"
+            | "number"
+            | "object"
+            | "pointer"
+            | "ptr"
+            | "radix"
+            | "radix2"
+            | "radix6"
+            | "radix8"
+            | "radix12"
+            | "rfc3339"
+            | "separated"
+            | "sep"
+            | "set"
+            | "string"
+            | "str"
+            | "text"
+            | "time"
+            | "timestamp"
+            | "trimmed"
+            | "trimtick"
+            | "tuple"
+            | "utc"
+            | "xml"
+            | "yaml"
+            | "ymd"
+            | "zone"
+            | "zoned"
+            | "zoned-datetime"
+            | "zrut"
+            | "zutc"
+    )
 }
 
 fn is_identifier_literal(raw: &str) -> bool {
@@ -824,6 +1142,10 @@ impl<'a> Parser<'a> {
         self.skip_ws(true);
         let datatype = if self.peek() == Some(':') {
             self.index += 1;
+            self.skip_ws(true);
+            if self.peek() == Some(':') {
+                return Err(self.syntax_error("Expected datatype annotation"));
+            }
             Some(self.parse_datatype_like()?)
         } else {
             None
@@ -871,6 +1193,10 @@ impl<'a> Parser<'a> {
             self.skip_ws(true);
             let datatype = if self.peek() == Some(':') {
                 self.index += 1;
+                self.skip_ws(true);
+                if self.peek() == Some(':') {
+                    return Err(self.syntax_error("Expected datatype annotation"));
+                }
                 Some(self.parse_datatype_like()?)
             } else {
                 None
@@ -906,9 +1232,13 @@ impl<'a> Parser<'a> {
             Some('(') => self.parse_tuple(),
             Some('<') => self.parse_node(),
             Some(ch) if ch.is_ascii_digit() || matches!(ch, '-' | '+') => {
+                let start = self.index;
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
+                }
+                if let Some(message) = invalid_temporal_literal(&raw) {
+                    return Err(self.syntax_error_range(start, self.index, &message));
                 }
                 if looks_like_number_literal(&raw) {
                     return Ok(Value::Number(raw));
@@ -923,6 +1253,9 @@ impl<'a> Parser<'a> {
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
+                }
+                if let Some(message) = invalid_temporal_literal(&raw) {
+                    return Err(self.syntax_error_range(start, self.index, &message));
                 }
                 if looks_like_number_literal(&raw) {
                     return Ok(Value::Number(raw));
@@ -1126,6 +1459,9 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
         }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
+        }
         Ok(value)
     }
 
@@ -1146,6 +1482,9 @@ impl<'a> Parser<'a> {
             .to_owned();
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
+        }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
         }
         Ok(value)
     }
@@ -1205,6 +1544,9 @@ impl<'a> Parser<'a> {
             .to_owned();
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
+        }
+        if let Err(message) = validate_reserved_datatype_adornments(&value) {
+            return Err(self.syntax_error(&message));
         }
         Ok(value)
     }
@@ -1496,6 +1838,26 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\na = #fff\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_radix_literals_without_underscores() {
+        let result = canonicalize("aeon:mode = \"transport\"\nb:radix = %101_0101\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\nb:radix = %1010101\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_encoding_literals_to_url_safe_base64() {
+        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = $+///==\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
         );
     }
 
@@ -1796,5 +2158,54 @@ mod tests {
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         assert!(result.errors[0].message.contains("Invalid radix literal `%3e-3`"));
+    }
+
+    #[test]
+    fn rejects_missing_datatype_after_binding_colon_during_canonicalization() {
+        let result = canonicalize("a::n = 0\n");
+        assert_eq!(result.text, "");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Expected datatype annotation");
+    }
+
+    #[test]
+    fn rejects_invalid_lowercase_t_temporal_literals_during_canonicalization() {
+        for source in [
+            "dt:datetime = 2007-01-02t10:10:25\n",
+            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(result.errors[0].message.starts_with("Invalid datetime literal"), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn accepts_hour_precision_datetime_offsets_during_canonicalization() {
+        for source in [
+            "aeon:mode = \"strict\"\ndt5:datetime = 2025-01-01T09:+02:00\n",
+            "aeon:mode = \"strict\"\nzdt7:zrut = 2025-01-01T09:+02:00&Europe/Belgium/Brussels\n",
+        ] {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_meaningless_reserved_datatype_adornments_during_canonicalization() {
+        for source in [
+            "a:n<string> = 3\n",
+            "b:boolean<switch> = true\n",
+            "b:string[333] = \"hello world\"\n",
+            "r:radix2[4] = %111\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        }
     }
 }

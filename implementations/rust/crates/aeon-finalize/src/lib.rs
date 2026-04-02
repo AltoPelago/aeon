@@ -370,7 +370,7 @@ fn header_to_json(
             }
             object.insert(
                 key.clone(),
-                value_to_json(value, &path, projection, path_values, mode, errors, warnings),
+                value_to_json(value, &path, projection, path_values, mode, errors, warnings, None),
             );
         }
     }
@@ -402,7 +402,16 @@ fn payload_to_json(
         }
         document.insert(
             key.clone(),
-            value_to_json(&event.value, &path, projection, path_values, mode, errors, warnings),
+            value_to_json(
+                &event.value,
+                &path,
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                event.datatype.as_deref(),
+            ),
         );
         if !event.annotations.is_empty() {
             attrs.insert(
@@ -425,6 +434,7 @@ fn value_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    datatype: Option<&str>,
 ) -> JsonValue {
     match value {
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
@@ -432,10 +442,27 @@ fn value_to_json(
         Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
         Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
-        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').to_owned()),
+        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').replace('_', "")),
         Value::SeparatorLiteral { raw } => JsonValue::String(raw.trim_start_matches('^').to_owned()),
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
-        Value::RadixLiteral { raw } => JsonValue::String(raw.trim_start_matches('%').to_owned()),
+        Value::RadixLiteral { raw } => {
+            let normalized = raw.trim_start_matches('%').replace('_', "");
+            if let Some(base) = declared_radix_base(datatype) {
+                if exceeds_declared_radix(&normalized, base) {
+                    let diag = Diagnostic::new(
+                        "FINALIZE_INVALID_RADIX_BASE",
+                        format!("Radix literal exceeds declared radix {base}: {raw}"),
+                    )
+                    .at_path(path);
+                    if matches!(mode, FinalizeMode::Strict) {
+                        errors.push(diag);
+                    } else {
+                        warnings.push(diag);
+                    }
+                }
+            }
+            JsonValue::String(normalized)
+        }
         Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => JsonValue::String(raw.clone()),
@@ -459,7 +486,7 @@ fn value_to_json(
                         .enumerate()
                         .map(|(index, child)| {
                             let child_path = format!("{path}<{index}>");
-                            value_to_json(child, &child_path, projection, path_values, mode, errors, warnings)
+                            value_to_json(child, &child_path, projection, path_values, mode, errors, warnings, None)
                         })
                         .collect(),
                 ),
@@ -471,7 +498,16 @@ fn value_to_json(
             for (index, item) in items.iter().enumerate() {
                 let item_path = format!("{path}[{index}]");
                 if projection.includes(&item_path) {
-                    output.push(value_to_json(item, &item_path, projection, path_values, mode, errors, warnings));
+                    output.push(value_to_json(
+                        item,
+                        &item_path,
+                        projection,
+                        path_values,
+                        mode,
+                        errors,
+                        warnings,
+                        None,
+                    ));
                 }
             }
             JsonValue::Array(output)
@@ -502,6 +538,7 @@ fn value_to_json(
                             mode,
                             errors,
                             warnings,
+                            binding.datatype.as_deref(),
                         ),
                     );
                     if !binding.attributes.is_empty() {
@@ -520,7 +557,7 @@ fn value_to_json(
         Value::CloneReference { segments, .. } => {
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
-                value_to_json(resolved, &target, projection, path_values, mode, errors, warnings)
+                value_to_json(resolved, path, projection, path_values, mode, errors, warnings, datatype)
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
@@ -789,9 +826,50 @@ fn attribute_value_to_json(
         return attributes_to_json(&entry.object_members, path_values, mode, errors, warnings);
     }
     if let Some(value) = &entry.value {
-        return value_to_json(value, "$", &Projection::new(Materialization::All, Vec::new()), path_values, mode, errors, warnings);
+        return value_to_json(
+            value,
+            "$",
+            &Projection::new(Materialization::All, Vec::new()),
+            path_values,
+            mode,
+            errors,
+            warnings,
+            entry.datatype.as_deref(),
+        );
     }
     JsonValue::Null
+}
+
+fn declared_radix_base(datatype: Option<&str>) -> Option<usize> {
+    match datatype?.trim() {
+        "radix2" => Some(2),
+        "radix6" => Some(6),
+        "radix8" => Some(8),
+        "radix12" => Some(12),
+        value => {
+            let body = value.strip_prefix("radix[")?.strip_suffix(']')?;
+            let base = body.parse::<usize>().ok()?;
+            (2..=64).contains(&base).then_some(base)
+        }
+    }
+}
+
+fn exceeds_declared_radix(value: &str, base: usize) -> bool {
+    value.chars().any(|ch| match ch {
+        '+' | '-' | '.' => false,
+        _ => radix_digit_value(ch).is_none_or(|digit| digit >= base),
+    })
+}
+
+fn radix_digit_value(ch: char) -> Option<usize> {
+    match ch {
+        '0'..='9' => Some((ch as u8 - b'0') as usize),
+        'A'..='Z' => Some((ch as u8 - b'A') as usize + 10),
+        'a'..='z' => Some((ch as u8 - b'a') as usize + 36),
+        '&' => Some(62),
+        '!' => Some(63),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1014,6 +1092,24 @@ mod tests {
                 "enc": "QmFzZTY0"
             })
         );
+    }
+
+    #[test]
+    fn strips_underscore_separators_from_finalized_radix_strings() {
+        let source = "mask = %101_0101\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "mask": "1010101" }));
+    }
+
+    #[test]
+    fn reports_radix_digits_that_exceed_declared_base_during_finalization() {
+        let source = "mask:radix[10] = %1A\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "mask": "1A" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert!(finalized.meta.errors[0].message.contains("declared radix 10"));
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

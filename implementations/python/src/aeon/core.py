@@ -31,6 +31,7 @@ from .errors import (
     DatatypeLiteralMismatchError,
     DuplicateCanonicalPathError,
     ForwardReferenceError,
+    InvalidCustomDatatypeBracketShapeError,
     InvalidNodeHeadDatatypeError,
     MissingReferenceTargetError,
     SelfReferenceError,
@@ -385,6 +386,21 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
             errors.append(CustomDatatypeNotAllowedError(format_path(binding.path), binding.datatype, binding.span))
             continue
         actual_kind = datatype_check_kind(binding, lookup)
+        if expected is None:
+            custom_shape = classify_custom_datatype_shape(binding.datatype)
+            if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
+                errors.append(
+                    InvalidCustomDatatypeBracketShapeError(
+                        format_path(binding.path),
+                        binding.datatype,
+                        actual_kind,
+                        binding.span,
+                    )
+                )
+            else:
+                custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
+                if custom_expected is not None:
+                    expected = custom_expected
         if expected is not None and actual_kind not in expected:
             errors.append(
                 DatatypeLiteralMismatchError(
@@ -413,7 +429,7 @@ def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode
     errors: list[AeonError] = []
     if isinstance(value, NodeLiteral):
         head_datatype = format_datatype(value.datatype)
-        if mode == "strict" and head_datatype is not None and value.datatype is not None and value.datatype.name.lower() != "node":
+        if mode == "strict" and head_datatype is not None and value.datatype is not None and value.datatype.name != "node":
             errors.append(InvalidNodeHeadDatatypeError(owner_path, head_datatype, span))
         for index, child in enumerate(value.children):
             errors.extend(validate_node_head_datatypes(child, f"{owner_path}[{index}]", span, mode))
@@ -519,6 +535,15 @@ def validate_annotation_entries(
                 value = entry.get("value")
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
+                    if expected is None:
+                        custom_shape = classify_custom_datatype_shape(datatype)
+                        if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
+                            errors.append(InvalidCustomDatatypeBracketShapeError(attr_path, datatype, actual_kind, span))
+                            expected = None
+                        else:
+                            custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
+                            if custom_expected is not None:
+                                expected = custom_expected
                     if expected is not None and actual_kind not in expected:
                         errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
         value = entry.get("value")
@@ -748,13 +773,84 @@ def expected_kinds_for_reserved_datatype(datatype: str) -> tuple[str, ...] | Non
     return RESERVED_KIND_MAP.get(base)
 
 
+def expected_kinds_for_custom_datatype_shape(
+    custom_shape: str,
+    actual_kind: str,
+) -> tuple[str, ...] | None:
+    if custom_shape in {"none", "invalid_both"}:
+        return None
+    if actual_kind not in {"SeparatorLiteral", "RadixLiteral"}:
+        return None
+    if custom_shape == "both":
+        return ("SeparatorLiteral", "RadixLiteral")
+    if custom_shape == "separator":
+        return ("SeparatorLiteral",)
+    return ("RadixLiteral",)
+
+
+def classify_custom_datatype_shape(datatype: str) -> str:
+    specs = datatype_bracket_specs(datatype)
+    if not specs:
+        return "none"
+
+    separator_ok = all(is_valid_separator_spec(spec) for spec in specs)
+    radix_ok = len(specs) == 1 and is_valid_custom_radix_base_spec(specs[0])
+
+    if separator_ok and radix_ok:
+        return "both"
+    if separator_ok:
+        return "separator"
+    if radix_ok:
+        return "radix"
+    return "invalid_both"
+
+
 def datatype_base(datatype: str) -> str:
     end = len(datatype)
     for marker in ("<", "["):
         index = datatype.find(marker)
         if index >= 0:
             end = min(end, index)
-    return datatype[:end].lower()
+    return datatype[:end]
+
+
+def datatype_bracket_specs(datatype: str) -> list[str]:
+    specs: list[str] = []
+    generic_depth = 0
+    bracket_start = -1
+
+    for index, char in enumerate(datatype):
+        if char == "<":
+            generic_depth += 1
+            continue
+        if char == ">":
+            generic_depth = max(0, generic_depth - 1)
+            continue
+        if generic_depth > 0:
+            continue
+        if char == "[":
+            bracket_start = index + 1
+            continue
+        if char == "]" and bracket_start >= 0:
+            specs.append(datatype[bracket_start:index])
+            bracket_start = -1
+
+    if datatype_base(datatype) == "radix" and specs:
+        return specs[1:]
+    return specs
+
+
+def is_valid_separator_spec(spec: str) -> bool:
+    if len(spec) != 1:
+        return False
+    code = ord(spec)
+    return 0x21 <= code <= 0x7E and spec not in {",", "[", "]"}
+
+
+def is_valid_custom_radix_base_spec(spec: str) -> bool:
+    if not spec or not re.fullmatch(r"[1-9]\d*", spec):
+        return False
+    return 2 <= int(spec) <= 64
 
 
 def value_kind(value: Value) -> str:
@@ -828,8 +924,9 @@ def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     generic = ""
     if datatype.generic_args:
         generic = "<" + ", ".join(datatype.generic_args) + ">"
+    radix = f"[{datatype.radix_base}]" if datatype.radix_base is not None else ""
     separators = "".join(f"[{item}]" for item in datatype.separators)
-    return f"{datatype.name}{generic}{separators}"
+    return f"{datatype.name}{generic}{radix}{separators}"
 
 
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
@@ -839,6 +936,7 @@ def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object
         "type": "TypeAnnotation",
         "name": datatype.name,
         "genericArgs": datatype.generic_args,
+        "radixBase": datatype.radix_base,
         "separators": datatype.separators,
         "span": datatype.span.to_json(),
     }

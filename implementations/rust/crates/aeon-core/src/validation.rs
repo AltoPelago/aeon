@@ -298,8 +298,8 @@ pub(crate) fn validate_datatypes(
                         .at_path(path.clone())
                         .with_span(event.span),
                     );
+                    continue;
                 }
-                continue;
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
@@ -365,8 +365,8 @@ pub(crate) fn validate_datatypes_light(
                         .at_path(event.path.clone())
                         .with_span(event.span),
                     );
+                    continue;
                 }
-                continue;
             }
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
@@ -761,13 +761,16 @@ fn validate_datatype_shape(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
+    if let Some(diag) = validate_radix_datatype_shape(datatype) {
+        return Some(diag);
+    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
             format!("Datatype `{datatype}` uses a reserved separator character"),
         ));
     }
-    if datatype.matches('[').count() > max_separator_depth {
+    if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
             "SEPARATOR_DEPTH_EXCEEDED",
             format!("Datatype `{datatype}` exceeds separator depth limit"),
@@ -797,13 +800,16 @@ fn validate_datatype_shape_light(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
+    if let Some(diag) = validate_radix_datatype_shape(datatype) {
+        return Some(diag);
+    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
             format!("Datatype `{datatype}` uses a reserved separator character"),
         ));
     }
-    if datatype.matches('[').count() > max_separator_depth {
+    if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
             "SEPARATOR_DEPTH_EXCEEDED",
             format!("Datatype `{datatype}` exceeds separator depth limit"),
@@ -825,6 +831,41 @@ fn validate_datatype_shape_light(
         ));
     }
     None
+}
+
+fn separator_spec_depth(datatype: &str) -> usize {
+    datatype_bracket_specs(datatype).len()
+}
+
+fn validate_radix_datatype_shape(datatype: &str) -> Option<Diagnostic> {
+    if datatype_base(datatype) != "radix" {
+        return None;
+    }
+    if datatype.contains('<') || datatype.contains('>') {
+        return Some(Diagnostic::new(
+            "SYNTAX_ERROR",
+            format!("Datatype `{datatype}` must use bracket radix base syntax like `radix[10]`"),
+        ));
+    }
+    if datatype == "radix" {
+        return None;
+    }
+    match declared_radix_base(datatype) {
+        Some(_) => None,
+        None => Some(Diagnostic::new(
+            "SYNTAX_ERROR",
+            format!("Datatype `{datatype}` must be `radix` or `radix[2..64]`"),
+        )),
+    }
+}
+
+fn declared_radix_base(datatype: &str) -> Option<usize> {
+    let body = datatype.strip_prefix("radix[")?.strip_suffix(']')?;
+    if body.is_empty() || (body.starts_with('0') && body != "0") || !body.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let base = body.parse::<usize>().ok()?;
+    (2..=64).contains(&base).then_some(base)
 }
 
 fn datatype_base(datatype: &str) -> &str {
@@ -925,10 +966,51 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
             expected.join(" or ")
         );
     }
+    if custom_datatype_shape_is_invalid_for_both(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got {actual_kind}",
+            path
+        );
+    }
+    if let Some(expected) = expected_kinds_for_custom_datatype(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
+            path,
+            expected.join(" or ")
+        );
+    }
     format!(
         "Datatype/literal mismatch at '{}': datatype ':{datatype}' is not supported for literal matching, got {actual_kind}",
         path
     )
+}
+
+fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
+    let specs = datatype_bracket_specs(datatype);
+    if specs.is_empty() {
+        return None;
+    }
+
+    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
+    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
+
+    match (separator_ok, radix_ok) {
+        (true, true) => Some(vec!["SeparatorLiteral", "RadixLiteral"]),
+        (true, false) => Some(vec!["SeparatorLiteral"]),
+        (false, true) => Some(vec!["RadixLiteral"]),
+        (false, false) => None,
+    }
+}
+
+fn custom_datatype_shape_is_invalid_for_both(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    if specs.is_empty() {
+        return false;
+    }
+
+    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
+    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
+    !separator_ok && !radix_ok
 }
 
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
@@ -959,7 +1041,71 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
         "null" => false,
+        _ if matches!(value, Value::SeparatorLiteral { .. }) => custom_separator_specs_are_valid(datatype),
+        _ if matches!(value, Value::RadixLiteral { .. }) => custom_radix_specs_are_valid(datatype),
         _ => true,
+    }
+}
+
+fn custom_separator_specs_are_valid(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    specs.is_empty() || specs.iter().all(|spec| is_valid_separator_spec(spec))
+}
+
+fn custom_radix_specs_are_valid(datatype: &str) -> bool {
+    let specs = datatype_bracket_specs(datatype);
+    specs.is_empty() || (specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]))
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_start = None;
+
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = bracket_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+    specs
+}
+
+fn is_valid_separator_spec(spec: &str) -> bool {
+    if spec.chars().count() != 1 {
+        return false;
+    }
+    let ch = spec.chars().next().unwrap_or_default();
+    matches!(ch as u32, 0x21..=0x7e) && ch != ',' && ch != '[' && ch != ']'
+}
+
+fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
+    if spec.is_empty() || (spec.starts_with('0') && spec != "0") || !spec.chars().all(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    spec.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{datatype_bracket_specs, separator_spec_depth};
+
+    #[test]
+    fn bracket_spec_helpers_ignore_brackets_inside_generics() {
+        assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
+        assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
+        assert_eq!(separator_spec_depth("outer<inner[.]>[x]"), 1);
+        assert_eq!(separator_spec_depth("outer<inner[.]>[22]"), 1);
     }
 }
 

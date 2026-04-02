@@ -15,7 +15,7 @@
  */
 
 import { tokenize, type LexerError } from '@aeon/lexer';
-import { parse, type ParserError, type Document, type Value, type Binding } from '@aeon/parser';
+import { parse, SyntaxError as ParserSyntaxError, type ParserError, type Document, type Value, type Binding } from '@aeon/parser';
 import {
     resolvePaths,
     emitEvents,
@@ -153,7 +153,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
 
     // Phase 1: Lexing
     const lexResult = tokenize(input, { includeComments: false });
-    allErrors.push(...lexResult.errors);
+    allErrors.push(...normalizeLexerErrors(input, lexResult.errors));
     if (lexResult.errors.length > 0 && !recovery) {
         return { events: [], errors: allErrors };
     }
@@ -224,6 +224,27 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     }
 
     return result;
+}
+
+function normalizeLexerErrors(input: string, errors: readonly LexerError[]): readonly AEONError[] {
+    return errors.map((error) => {
+        if (error.code === 'INVALID_NUMBER' && isReservedRadixLeadingZeroBaseError(input, error)) {
+            return new ParserSyntaxError(
+                'Radix base must be a base-10 integer without leading zeroes',
+                error.span,
+                'integer from 2 to 64',
+                input.slice(error.span.start.offset, error.span.end.offset)
+            );
+        }
+        return error;
+    });
+}
+
+function isReservedRadixLeadingZeroBaseError(input: string, error: LexerError): boolean {
+    const raw = input.slice(error.span.start.offset, error.span.end.offset);
+    if (!/^0\d+$/.test(raw)) return false;
+    const before = input.slice(0, error.span.start.offset);
+    return /(?:^|[^A-Za-z0-9_])radix\[\s*$/.test(before);
 }
 
 // =============================================================================

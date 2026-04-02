@@ -189,6 +189,19 @@ class DatatypeLiteralMismatchError(AeonError):
         )
 
 
+class InvalidCustomDatatypeBracketShapeError(AeonError):
+    def __init__(self, path: str, datatype: str, actual_kind: str, span: Span) -> None:
+        super().__init__(
+            message=(
+                f"Datatype/literal mismatch at '{path}': datatype ':{datatype}' "
+                f"has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got {actual_kind}"
+            ),
+            span=span,
+            code="DATATYPE_LITERAL_MISMATCH",
+            path=path,
+        )
+
+
 class CustomDatatypeNotAllowedError(AeonError):
     def __init__(self, path: str, datatype: str, span: Span) -> None:
         super().__init__(

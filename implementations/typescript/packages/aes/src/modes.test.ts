@@ -230,6 +230,12 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should treat uppercase reserved-looking names as custom datatypes in transport mode', () => {
+            const result = enforce('aeon:mode = "transport"\na:N = #ff00ff\nb:Radix[10] = %1A');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should allow custom inline node head datatypes in transport mode', () => {
             const result = enforce('aeon:mode = "transport"\nwidget:node = <tag:pair("x", "y")>');
 

@@ -20,6 +20,9 @@ pub(crate) fn classify_temporal_literal(raw: &str) -> Option<Value> {
 }
 
 pub(crate) fn invalid_temporal_literal(raw: &str) -> Option<(&'static str, String)> {
+    if looks_like_datetime(raw) || looks_like_date(raw) || looks_like_time(raw) {
+        return None;
+    }
     if looks_like_datetime_candidate(raw) && !looks_like_datetime(raw) {
         return Some((
             "INVALID_DATETIME",
@@ -88,7 +91,7 @@ fn looks_like_datetime(value: &str) -> bool {
 }
 
 fn looks_like_datetime_candidate(value: &str) -> bool {
-    if let Some((date, rest)) = value.split_once('T') {
+    if let Some((date, rest)) = value.split_once('T').or_else(|| value.split_once('t')) {
         return looks_like_date_candidate(date)
             && !rest.is_empty()
             && rest

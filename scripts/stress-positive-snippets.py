@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         help="On failure, print only the snippet and omit implementation output.",
     )
     parser.add_argument(
+        "--max-separator-depth",
+        type=int,
+        default=None,
+        help="Pass a separator depth limit through to implementation CLIs.",
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="Disable ANSI color output.",
@@ -117,13 +123,22 @@ def apply_mode(snippet: str, mode: str) -> str:
     return f'aeon:mode = "{mode}"\n{snippet}'
 
 
-def run_case(impl: str, snippet: str, index: int, mode: str) -> tuple[bool, str]:
+def run_case(
+    impl: str,
+    snippet: str,
+    index: int,
+    mode: str,
+    max_separator_depth: int | None,
+) -> tuple[bool, str]:
     command = implementation_command(impl)
+    cli_args = [*command]
+    if max_separator_depth is not None:
+        cli_args.extend(["--max-separator-depth", str(max_separator_depth)])
     with tempfile.TemporaryDirectory(prefix="aeon-positive-snippet-") as tmpdir:
         fixture = Path(tmpdir) / f"snippet-{index}.aeon"
         fixture.write_text(apply_mode(snippet, mode), encoding="utf-8")
         completed = subprocess.run(
-            [*command, str(fixture), "--json"],
+            [*cli_args, str(fixture), "--json"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -167,7 +182,7 @@ def main() -> int:
 
         for index, snippet in enumerate(cases, start=1):
             total += 1
-            ok, output = run_case(impl, snippet, index, args.mode)
+            ok, output = run_case(impl, snippet, index, args.mode, args.max_separator_depth)
             title = snippet_title(snippet, index)
             if ok:
                 print(f"{status_label(color, 'PASS')}  [{impl}] {title}")

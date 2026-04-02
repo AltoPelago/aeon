@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::header::apply_trimticks;
-use crate::temporal::classify_temporal_literal;
+use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::{
     tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
     TokenKind, Value,
@@ -60,6 +60,9 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             self.skip_newlines();
+            if self.check(TokenKind::Colon) {
+                return Err(self.error_at_current("Expected datatype annotation"));
+            }
             datatype = Some(self.parse_simple_datatype()?);
         }
         self.skip_newlines();
@@ -125,10 +128,19 @@ impl<'a> TokenParser<'a> {
                 message: String::from("Quoted type names are not supported"),
             });
         }
-        self.consume(TokenKind::Identifier, "Expected datatype annotation")?;
+        let datatype_name = self.consume(TokenKind::Identifier, "Expected datatype annotation")?.text.clone();
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
+            if datatype_name == "radix" {
+                return Err(Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(self.previous().span),
+                    phase: None,
+                    message: String::from("Radix datatype bases must use bracket syntax like `radix[10]`"),
+                });
+            }
             self.skip_newlines();
             loop {
                 match self.peek().kind {
@@ -153,29 +165,106 @@ impl<'a> TokenParser<'a> {
             }
         }
 
+        let mut saw_radix_base = false;
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
-            match self.peek().kind {
-                TokenKind::Identifier
-                | TokenKind::Number
-                | TokenKind::String
-                | TokenKind::Symbol
-                | TokenKind::Semicolon
-                | TokenKind::Dot
-                | TokenKind::Comma => {
-                    let token = self.advance();
-                    if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
-                        return Err(Diagnostic {
-                            code: String::from("INVALID_SEPARATOR_CHAR"),
-                            path: Some(String::from("$")),
-                            span: Some(token.span),
-                            phase: None,
-                            message: format!("Invalid separator character `{}`", token.text),
-                        });
+            if is_reserved_v1_datatype(&datatype_name)
+                && !matches!(datatype_name.as_str(), "sep" | "set" | "radix")
+            {
+                return Err(Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(self.peek().span),
+                    phase: None,
+                    message: format!("Datatype `{datatype_name}` does not support bracket specifiers in v1"),
+                });
+            }
+            if datatype_name == "radix" && !saw_radix_base {
+                let token = self.peek().clone();
+                if token.kind == TokenKind::RightBracket {
+                    return Err(Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from("Radix base must be an integer from 2 to 64"),
+                    });
+                }
+
+                let token = self.advance();
+                self.skip_newlines();
+                if self.peek().kind != TokenKind::RightBracket
+                    || token.kind != TokenKind::Number
+                    || !is_valid_radix_base_token(&token.text)
+                {
+                    return Err(Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from("Radix base must be an integer from 2 to 64"),
+                    });
+                }
+
+                saw_radix_base = true;
+                self.consume(TokenKind::RightBracket, "Expected ']' to close radix base spec")?;
+                self.skip_newlines();
+                continue;
+            }
+            if is_reserved_v1_datatype(&datatype_name) {
+                match self.peek().kind {
+                    TokenKind::Identifier
+                    | TokenKind::Number
+                    | TokenKind::String
+                    | TokenKind::Symbol
+                    | TokenKind::Semicolon
+                    | TokenKind::Dot
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+                    | TokenKind::At
+                    | TokenKind::Hash
+                    | TokenKind::Dollar
+                    | TokenKind::Percent
+                    | TokenKind::Ampersand
+                    | TokenKind::Equals
+                    | TokenKind::Tilde => {
+                        let token = self.advance();
+                        if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
+                            return Err(Diagnostic {
+                                code: String::from("INVALID_SEPARATOR_CHAR"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!("Invalid separator character `{}`", token.text),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(self.error_at_current("Expected separator character"));
                     }
                 }
-                _ => {
-                    return Err(self.error_at_current("Expected separator character"));
+            } else {
+                match self.peek().kind {
+                    TokenKind::Identifier
+                    | TokenKind::Number
+                    | TokenKind::String
+                    | TokenKind::Symbol
+                    | TokenKind::Semicolon
+                    | TokenKind::Dot
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+                    | TokenKind::At
+                    | TokenKind::Hash
+                    | TokenKind::Dollar
+                    | TokenKind::Percent
+                    | TokenKind::Ampersand
+                    | TokenKind::Equals
+                    | TokenKind::Tilde => {
+                        self.advance();
+                    }
+                    _ => {
+                        return Err(self.error_at_current("Expected separator character"));
+                    }
                 }
             }
             self.skip_newlines();
@@ -183,13 +272,15 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
         }
 
-        Ok(self.tokens[start..self.current]
+        let datatype = self.tokens[start..self.current]
             .iter()
             .map(|token| token.text.as_str())
             .collect::<String>()
             .chars()
             .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
-            .collect())
+            .collect::<String>();
+        validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
+        Ok(datatype)
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -204,6 +295,15 @@ impl<'a> TokenParser<'a> {
             }
             TokenKind::Number => {
                 let raw = self.advance().text.clone();
+                if let Some((code, message)) = invalid_temporal_literal(&raw) {
+                    return Err(Diagnostic {
+                        code: String::from(code),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message,
+                    });
+                }
                 Ok(classify_temporal_literal(&raw).unwrap_or(Value::NumberLiteral { raw }))
             }
             TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {
@@ -698,6 +798,83 @@ impl<'a> TokenParser<'a> {
             .map(|token| token.text.as_str())
             .collect::<String>()
     }
+}
+
+fn is_valid_radix_base_token(raw: &str) -> bool {
+    if raw.is_empty() || (raw.starts_with('0') && raw != "0") || !raw.chars().all(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    raw.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+}
+
+fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(), Diagnostic> {
+    let base = datatype_base(datatype);
+    if !is_reserved_v1_datatype(base) {
+        return Ok(());
+    }
+    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+        return Err(Diagnostic {
+            code: String::from("SYNTAX_ERROR"),
+            path: Some(String::from("$")),
+            span: Some(span),
+            phase: None,
+            message: format!("Datatype `{base}` does not support generic arguments in v1"),
+        });
+    }
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+        return Err(Diagnostic {
+            code: String::from("SYNTAX_ERROR"),
+            path: Some(String::from("$")),
+            span: Some(span),
+            phase: None,
+            message: format!("Datatype `{base}` does not support bracket specifiers in v1"),
+        });
+    }
+    Ok(())
+}
+
+fn datatype_base(datatype: &str) -> &str {
+    let generic_idx = datatype.find('<').unwrap_or(datatype.len());
+    let bracket_idx = datatype.find('[').unwrap_or(datatype.len());
+    &datatype[..generic_idx.min(bracket_idx)]
+}
+
+fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
+    let mut specs = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_start = None;
+    for (index, ch) in datatype.char_indices() {
+        match ch {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
+            ']' if angle_depth == 0 => {
+                if let Some(start) = bracket_start.take() {
+                    specs.push(&datatype[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    if datatype_base(datatype) == "radix" && !specs.is_empty() {
+        specs.remove(0);
+    }
+    specs
+}
+
+fn is_reserved_v1_datatype(base: &str) -> bool {
+    matches!(
+        base,
+        "n" | "number" | "int" | "int8" | "int16" | "int32" | "int64"
+            | "uint" | "uint8" | "uint16" | "uint32" | "uint64"
+            | "float" | "float32" | "float64"
+            | "string" | "trimtick" | "boolean" | "bool" | "switch" | "infinity"
+            | "hex" | "date" | "time" | "datetime" | "zrut"
+            | "encoding" | "base64" | "embed" | "inline"
+            | "radix" | "radix2" | "radix6" | "radix8" | "radix12"
+            | "sep" | "set"
+            | "tuple" | "list" | "object" | "obj" | "envelope" | "o" | "node" | "null"
+    )
 }
 
 fn unescape_quoted(text: &str) -> String {

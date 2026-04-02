@@ -37,6 +37,20 @@ from .errors import GenericDepthExceededError, HeaderConflictError, InvalidSepar
 from .lexer import Token
 from .spans import Span
 
+GENERIC_V1_DATATYPES = {"list", "tuple"}
+BRACKETED_V1_DATATYPES = {"sep", "set", "radix"}
+RESERVED_V1_DATATYPES = {
+    "n", "number", "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64",
+    "float", "float32", "float64",
+    "string", "trimtick", "boolean", "bool", "switch", "infinity",
+    "hex", "date", "time", "datetime", "zrut",
+    "encoding", "base64", "embed", "inline",
+    "radix", "radix2", "radix6", "radix8", "radix12",
+    "sep", "set",
+    "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
+}
+
 
 @dataclass(slots=True)
 class ParseResult:
@@ -227,9 +241,12 @@ class Parser:
         start = self.peek().span.start
         name = self.consume("IDENT", "Expected type name").value
         generic_args: list[str] = []
+        radix_base: int | None = None
         separators: list[str] = []
         self.skip_layout()
         if self.check("LANGLE"):
+            if name == "radix":
+                raise SyntaxError("Radix datatype bases must use bracket syntax like 'radix[10]'", self.peek().span)
             self.advance()
             self.skip_layout()
             generic_args.append(self.parse_generic_argument(generic_depth))
@@ -244,13 +261,30 @@ class Parser:
         while self.check("LBRACKET"):
             self.advance()
             self.skip_layout()
-            separators.append(self.parse_separator_char())
+            if name in RESERVED_V1_DATATYPES and name not in BRACKETED_V1_DATATYPES:
+                raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.peek().span)
+            if name == "radix" and radix_base is None:
+                token = self.peek()
+                if token.kind == "RBRACKET":
+                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
+                if token.kind != "NUMBER" or not self.is_valid_radix_base_spec(token.value):
+                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
+                radix_base = int(token.value)
+                self.advance()
+            elif name == "radix":
+                raise SyntaxError("Radix datatype allows exactly one base bracket like 'radix[10]'", self.peek().span)
+            else:
+                if name in RESERVED_V1_DATATYPES:
+                    separators.append(self.parse_separator_char())
+                else:
+                    separators.append(self.parse_custom_bracket_spec())
             self.skip_layout()
-            self.consume("RBRACKET", "Expected ']' to close separator spec")
+            self.consume("RBRACKET", "Expected ']' to close radix base spec" if name == "radix" and radix_base is not None else "Expected ']' to close separator spec")
             self.skip_layout()
             if len(separators) > self.max_separator_depth:
                 raise SeparatorDepthExceededError(len(separators), self.max_separator_depth, self.previous().span)
-        return TypeAnnotation(name=name, generic_args=generic_args, separators=separators, span=Span(start=start, end=self.previous().span.end))
+        self.validate_reserved_datatype_adornments(name, generic_args, radix_base, separators)
+        return TypeAnnotation(name=name, generic_args=generic_args, radix_base=radix_base, separators=separators, span=Span(start=start, end=self.previous().span.end))
 
     def parse_generic_argument(self, generic_depth: int) -> str:
         token = self.peek()
@@ -266,13 +300,38 @@ class Parser:
         generic_suffix = ""
         if annotation.generic_args:
             generic_suffix = "<" + ", ".join(annotation.generic_args) + ">"
+        radix_suffix = f"[{annotation.radix_base}]" if annotation.radix_base is not None else ""
         separator_suffix = "".join(f"[{separator}]" for separator in annotation.separators)
+        if annotation.name == "radix":
+            return f"{annotation.name}{generic_suffix}{radix_suffix}"
         return f"{annotation.name}{generic_suffix}{separator_suffix}"
+
+    @staticmethod
+    def is_valid_radix_base_spec(spec: str) -> bool:
+        if not spec.isdigit() or spec.startswith("0"):
+            return False
+        value = int(spec)
+        return 2 <= value <= 64
+
+    def validate_reserved_datatype_adornments(
+        self,
+        name: str,
+        generic_args: list[str],
+        radix_base: int | None,
+        separators: list[str],
+    ) -> None:
+        if name not in RESERVED_V1_DATATYPES:
+            return
+        if generic_args and name not in GENERIC_V1_DATATYPES:
+            raise SyntaxError(f"Datatype '{name}' does not support generic arguments in v1", self.previous().span)
+        if (radix_base is not None or separators) and name not in BRACKETED_V1_DATATYPES:
+            raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.previous().span)
 
     def parse_separator_char(self) -> str:
         token = self.peek()
         if token.kind in {
             "IDENT",
+            "NUMBER",
             "STRING",
             "SYMBOL",
             "DOT",
@@ -296,6 +355,34 @@ class Parser:
         if len(value) != 1 or not (0x21 <= ord(value) <= 0x7E) or value in {",", "[", "]"}:
             raise InvalidSeparatorCharError(value, token.span)
         return value
+
+    def parse_custom_bracket_spec(self) -> str:
+        token = self.peek()
+        if token.kind == "RBRACKET":
+            raise SyntaxError("Expected separator character", token.span)
+        if token.kind in {
+            "IDENT",
+            "NUMBER",
+            "STRING",
+            "SYMBOL",
+            "DOT",
+            "AT",
+            "HASH",
+            "DOLLAR",
+            "PERCENT",
+            "AMPERSAND",
+            "EQUALS",
+            "TILDE",
+            "COLON",
+            "COMMA",
+            "SEMICOLON",
+            "LBRACKET",
+            "RBRACKET",
+        }:
+            value = token.value
+            self.advance()
+            return value
+        raise SyntaxError("Expected separator character", token.span)
 
     def record_legacy_node_followup_error(self) -> None:
         for index in range(self.current + 2, len(self.tokens) - 3):

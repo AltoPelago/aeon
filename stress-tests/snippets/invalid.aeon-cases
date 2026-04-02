@@ -51,6 +51,7 @@ c:number = _22_22
 ---
 c:number = 3_e3
 ---
+//1. Numeric literal exceeds JSON safe range: 3e33 at $.c at line 16, column 12
 c:number = 3e3_3
 ---
 c:number = 3e3__3
@@ -69,6 +70,7 @@ c:number = 3._02
 ---
 target:number = 1
 a:string = ~target
+---
 c:number == 0
 ---
 c:number, b:number = 2

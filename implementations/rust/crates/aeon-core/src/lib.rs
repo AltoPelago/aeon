@@ -860,6 +860,16 @@ mod tests {
                 "INVALID_DATETIME",
                 "Invalid datetime literal: '2024-13-13T09:30:00Z'",
             ),
+            (
+                "a:datetime = 2007-01-02t10:10:25\n",
+                "INVALID_DATETIME",
+                "Invalid datetime literal: '2007-01-02t10:10:25'",
+            ),
+            (
+                "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+                "INVALID_DATETIME",
+                "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
+            ),
         ];
 
         for (source, expected_code, expected_message) in cases {
@@ -1081,6 +1091,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_oversized_radix_base_with_specific_radix_base_error() {
+        let result = compile(
+            "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.iter().any(|error| {
+            error.code == "SYNTAX_ERROR"
+                && error.message.contains("Radix base must be an integer from 2 to 64")
+        }));
+        assert!(!result
+            .errors
+            .iter()
+            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
+    fn rejects_missing_datatype_name_after_binding_colon() {
+        let result = compile("a::n = 0\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Expected datatype annotation");
+    }
+
+    #[test]
     fn rejects_quoted_type_names() {
         let result = compile("a:'string' = 'hello world'\n", CompileOptions::default());
         assert!(result
@@ -1123,6 +1158,106 @@ mod tests {
             "Datatype/literal mismatch at '$.value': datatype ':null' is not supported for literal matching, got NumberLiteral"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.value"));
+    }
+
+    #[test]
+    fn custom_bracket_specs_allow_single_digit_for_separator_and_radix_literals() {
+        let separator_result = compile(
+            "aeon:mode = \"strict\"\na:custom[2] = ^a2a\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+
+        let radix_result = compile(
+            "aeon:mode = \"strict\"\nb:custom[2] = %0101\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
+    }
+
+    #[test]
+    fn custom_bracket_specs_reject_multi_digit_separator_case_but_allow_radix_case() {
+        let separator_result = compile(
+            "aeon:mode = \"strict\"\na:test[22] = ^300x200\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(separator_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+
+        let radix_result = compile(
+            "aeon:mode = \"strict\"\nb:test[22] = %0101\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
+    }
+
+    #[test]
+    fn custom_separator_style_specs_only_allow_separator_literals() {
+        let separator_result = compile(
+            "aeon:mode = \"strict\"\na:custom[.] = ^300x200\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+
+        let radix_result = compile(
+            "aeon:mode = \"strict\"\nb:custom[.] = %0101\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(radix_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+    }
+
+    #[test]
+    fn custom_bracket_specs_invalid_for_both_report_specific_message() {
+        let result = compile(
+            "aeon:mode = \"strict\"\na:custom[222] = %222\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert_eq!(
+            result.errors[0].message,
+            "Datatype/literal mismatch at '$.a': datatype ':custom[222]' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got RadixLiteral"
+        );
+    }
+
+    #[test]
+    fn rejects_meaningless_reserved_datatype_adornments() {
+        for source in [
+            "a:n<string> = 3\n",
+            "b:boolean<switch> = true\n",
+            "b:string[333] = \"hello world\"\n",
+            "r:radix2[4] = %111\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(!result.errors.is_empty(), "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        }
     }
 
     #[test]

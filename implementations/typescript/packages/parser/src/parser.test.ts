@@ -761,7 +761,7 @@ describe('Parser', () => {
         });
 
         it('should reject bracket separator chars', () => {
-            const tokens = tokenize('x:t[[] = ^1').tokens;
+            const tokens = tokenize('x:set[[] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -769,7 +769,7 @@ describe('Parser', () => {
         });
 
         it('should reject comma separator chars', () => {
-            const tokens = tokenize('x:t[,] = ^1').tokens;
+            const tokens = tokenize('x:set[,] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -797,11 +797,19 @@ describe('Parser', () => {
         });
 
         it('should reject multi-character separator specs', () => {
-            const tokens = tokenize('x:t[ab] = ^1').tokens;
+            const tokens = tokenize('x:set[ab] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should accept single-digit separator specs', () => {
+            const tokens = tokenize('x:t[2] = ^a2b').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['2']);
         });
 
         it('should enforce max_separator_depth policy', () => {
@@ -810,6 +818,114 @@ describe('Parser', () => {
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
+        });
+
+        it('should reject reserved boundary chars in custom bracket specs before depth checks', () => {
+            const tokens = tokenize('badSepType1:matrix[,][;] = ^1,2,3;4,5,6').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 1 });
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+        });
+
+        it('should parse radix base brackets', () => {
+            const tokens = tokenize('mask:radix[10] = %19').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 8 });
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'radix');
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, 10);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, []);
+        });
+
+        it('should treat uppercase Radix brackets as custom datatype specs', () => {
+            const tokens = tokenize('mask:Radix[10] = %19').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 8 });
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'Radix');
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, null);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['10']);
+        });
+
+        it('should reject radix generic parameter syntax', () => {
+            const tokens = tokenize('mask:radix<10> = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject radix base values outside 2..64', () => {
+            const tokens = tokenize('mask:radix[65] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject empty radix base brackets', () => {
+            const tokens = tokenize('mask:radix[] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject radix base brackets with leading zeroes', () => {
+            const tokens = tokenize('mask:radix[03] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject non-decimal radix base brackets', () => {
+            const tokens = tokenize('mask:radix[a] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject extra radix brackets after the base specifier', () => {
+            const tokens = tokenize('mask:radix[2][2] = %19').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject meaningless generics on reserved scalar datatypes', () => {
+            const tokens = tokenize('a:n<string> = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject meaningless generics on reserved boolean datatypes', () => {
+            const tokens = tokenize('b:boolean<switch> = true').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject meaningless brackets on reserved scalar datatypes', () => {
+            const tokens = tokenize('b:string[333] = "hello world"').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should reject brackets on fixed-base radix aliases', () => {
+            const tokens = tokenize('r:radix2[4] = %111').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
     });
 
@@ -944,30 +1060,20 @@ describe('Parser', () => {
             }
         });
 
-        it('should parse generic inline node head datatypes', () => {
+        it('should reject generic inline node head datatypes', () => {
             const tokens = tokenize('item = <tag:pair<int32,string>("x")>').tokens;
             const result = parse(tokens);
 
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'NodeLiteral');
-            if (value.type === 'NodeLiteral') {
-                assert.strictEqual(value.datatype?.name, 'pair');
-                assert.deepStrictEqual(value.datatype?.genericArgs, ['int32', 'string']);
-            }
+            assert.ok(result.errors.length > 0);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
         });
 
-        it('should parse separator-spec inline node head datatypes', () => {
+        it('should reject separator-spec inline node head datatypes', () => {
             const tokens = tokenize('item = <tag:contact[x]("x")>').tokens;
             const result = parse(tokens);
 
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'NodeLiteral');
-            if (value.type === 'NodeLiteral') {
-                assert.strictEqual(value.datatype?.name, 'contact');
-                assert.deepStrictEqual(value.datatype?.separators, ['x']);
-            }
+            assert.ok(result.errors.length > 0);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
         });
     });
 

@@ -90,6 +90,23 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix12", result.events[0]["datatype"])
 
+    def test_reserved_radix_brackets_allowed_in_strict_mode(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nr:radix[2] = %0101')
+        self.assertEqual([], result.errors)
+        self.assertEqual("radix[2]", result.events[0]["datatype"])
+
+    def test_reserved_scalar_generics_are_rejected(self) -> None:
+        result = compile_source("a:n<string> = 3")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_reserved_scalar_brackets_are_rejected(self) -> None:
+        result = compile_source('b:string[333] = "hello world"')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_fixed_radix_alias_brackets_are_rejected(self) -> None:
+        result = compile_source("r:radix2[4] = %111")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
     def test_reserved_object_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("object", "obj", "envelope", "o"):
             with self.subTest(datatype=datatype):
@@ -129,6 +146,16 @@ class CoreCompileTests(unittest.TestCase):
                 result = compile_source(source)
                 self.assertEqual(["CUSTOM_DATATYPE_NOT_ALLOWED"], [error.code for error in result.errors])
 
+    def test_invalid_lowercase_t_temporals_are_rejected(self) -> None:
+        cases = (
+            "dt:datetime = 2007-01-02t10:10:25",
+            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(f'aeon:mode = "strict"\n{source}')
+                self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')
         self.assertEqual(["INVALID_NODE_HEAD_DATATYPE"], [error.code for error in result.errors])
@@ -150,6 +177,22 @@ class CoreCompileTests(unittest.TestCase):
     def test_custom_mode_allows_custom_inline_node_head_datatype(self) -> None:
         result = compile_source('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>')
         self.assertEqual([], result.errors)
+
+    def test_custom_mode_allows_custom_radix_base_between_2_and_64(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[2] = %111')
+        self.assertEqual([], result.errors)
+
+    def test_custom_mode_rejects_custom_radix_base_below_2(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[1] = %111')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_custom_mode_rejects_separator_style_custom_spec_for_radix_literal(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[.] = %111')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_custom_mode_rejects_multi_bracket_custom_spec_for_radix_literal(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom[1][2] = %111')
+        self.assertNotEqual([], result.errors)
 
     def test_missing_attribute_reference(self) -> None:
         result = compile_source("a = 1\nv = ~a@ns")
