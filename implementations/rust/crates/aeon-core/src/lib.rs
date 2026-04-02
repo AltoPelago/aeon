@@ -1182,6 +1182,75 @@ mod tests {
     }
 
     #[test]
+    fn custom_mode_rejects_scalar_values_for_generic_custom_datatypes() {
+        let result = compile(
+            "aeon:mode = \"custom\"\na:custom<custom> = 0\n",
+            CompileOptions::default(),
+        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+    }
+
+    #[test]
+    fn custom_mode_allows_list_and_tuple_values_for_generic_custom_datatypes() {
+        let list_result = compile(
+            "aeon:mode = \"custom\"\nb:custom<custom> = [2]\n",
+            CompileOptions::default(),
+        );
+        assert!(list_result.errors.is_empty(), "{:?}", list_result.errors);
+
+        let tuple_result = compile(
+            "aeon:mode = \"custom\"\nc:custom<custom> = (2)\n",
+            CompileOptions::default(),
+        );
+        assert!(tuple_result.errors.is_empty(), "{:?}", tuple_result.errors);
+    }
+
+    #[test]
+    fn custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes() {
+        let radix_like_result = compile(
+            "aeon:mode = \"custom\"\nd:custom[3] = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(radix_like_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+
+        let separator_like_result = compile(
+            "aeon:mode = \"custom\"\ne:custom[.] = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(separator_like_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+    }
+
+    #[test]
+    fn custom_mode_keeps_valid_custom_separator_and_radix_bindings() {
+        let radix_result = compile(
+            "aeon:mode = \"custom\"\nf:custom[2] = %10101\n",
+            CompileOptions::default(),
+        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
+
+        let separator_result = compile(
+            "aeon:mode = \"custom\"\ng:custom[.] = ^1.1.1\n",
+            CompileOptions::default(),
+        );
+        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+
+        let ambiguous_result = compile(
+            "aeon:mode = \"custom\"\nh:custom[1] = ^1.1.1\n",
+            CompileOptions::default(),
+        );
+        assert!(ambiguous_result.errors.is_empty(), "{:?}", ambiguous_result.errors);
+    }
+
+    #[test]
     fn custom_bracket_specs_reject_multi_digit_separator_case_but_allow_radix_case() {
         let separator_result = compile(
             "aeon:mode = \"strict\"\na:test[22] = ^300x200\n",

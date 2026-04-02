@@ -268,6 +268,39 @@ describe('Mode Enforcement', () => {
             assert.ok(result.errors.some((e) => e.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
             assert.ok(!result.errors.some((e) => e.code === 'UNTYPED_SWITCH_LITERAL'));
         });
+
+        it('should reject scalar values for generic custom datatypes in custom mode', () => {
+            const result = enforce('aeon:mode = "custom"\na:custom<custom> = 0');
+
+            assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should allow list and tuple values for generic custom datatypes in custom mode', () => {
+            const listResult = enforce('aeon:mode = "custom"\nb:custom<custom> = [2]');
+            assert.strictEqual(listResult.errors.length, 0);
+
+            const tupleResult = enforce('aeon:mode = "custom"\nc:custom<custom> = (2)');
+            assert.strictEqual(tupleResult.errors.length, 0);
+        });
+
+        it('should reject non separator and radix values for custom bracket specs in custom mode', () => {
+            const radixLikeResult = enforce('aeon:mode = "custom"\nd:custom[3] = 3');
+            assert.ok(radixLikeResult.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+
+            const separatorLikeResult = enforce('aeon:mode = "custom"\ne:custom[.] = 3');
+            assert.ok(separatorLikeResult.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should continue to allow valid custom bracket spec bindings in custom mode', () => {
+            const radixResult = enforce('aeon:mode = "custom"\nf:custom[2] = %10101');
+            assert.strictEqual(radixResult.errors.length, 0);
+
+            const separatorResult = enforce('aeon:mode = "custom"\ng:custom[.] = ^1.1.1');
+            assert.strictEqual(separatorResult.errors.length, 0);
+
+            const ambiguousResult = enforce('aeon:mode = "custom"\nh:custom[1] = ^1.1.1');
+            assert.strictEqual(ambiguousResult.errors.length, 0);
+        });
     });
 
     // ============================================

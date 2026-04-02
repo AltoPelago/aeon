@@ -398,7 +398,7 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
                     )
                 )
             else:
-                custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
+                custom_expected = expected_kinds_for_custom_datatype(binding.datatype, custom_shape)
                 if custom_expected is not None:
                     expected = custom_expected
         if expected is not None and actual_kind not in expected:
@@ -541,7 +541,7 @@ def validate_annotation_entries(
                             errors.append(InvalidCustomDatatypeBracketShapeError(attr_path, datatype, actual_kind, span))
                             expected = None
                         else:
-                            custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
+                            custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
                             if custom_expected is not None:
                                 expected = custom_expected
                     if expected is not None and actual_kind not in expected:
@@ -773,13 +773,25 @@ def expected_kinds_for_reserved_datatype(datatype: str) -> tuple[str, ...] | Non
     return RESERVED_KIND_MAP.get(base)
 
 
+def expected_kinds_for_custom_datatype(datatype: str, custom_shape: str) -> tuple[str, ...] | None:
+    expected: tuple[str, ...] | None = None
+    if datatype_has_generic_args(datatype):
+        expected = ("ListNode", "TupleLiteral")
+
+    bracket_expected = expected_kinds_for_custom_datatype_shape(custom_shape)
+    if bracket_expected is None:
+        return expected
+    if expected is None:
+        return bracket_expected
+
+    combined = tuple(kind for kind in expected if kind in bracket_expected)
+    return combined
+
+
 def expected_kinds_for_custom_datatype_shape(
     custom_shape: str,
-    actual_kind: str,
 ) -> tuple[str, ...] | None:
     if custom_shape in {"none", "invalid_both"}:
-        return None
-    if actual_kind not in {"SeparatorLiteral", "RadixLiteral"}:
         return None
     if custom_shape == "both":
         return ("SeparatorLiteral", "RadixLiteral")
@@ -812,6 +824,11 @@ def datatype_base(datatype: str) -> str:
         if index >= 0:
             end = min(end, index)
     return datatype[:end]
+
+
+def datatype_has_generic_args(datatype: str) -> bool:
+    start = datatype.find("<")
+    return start >= 0 and datatype.find(">", start + 1) > start
 
 
 def datatype_bracket_specs(datatype: str) -> list[str]:

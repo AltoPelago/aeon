@@ -341,9 +341,9 @@ class Lexer:
                 saw_non_space = True
                 saw_payload_char = True
                 continue
-            if char == " " and not saw_payload_char:
+            if char in {" ", "\t"} and not saw_payload_char:
                 probe = self.offset
-                while probe < len(self.source) and self.source[probe] == " ":
+                while probe < len(self.source) and self.source[probe] in {" ", "\t"}:
                     probe += 1
                 next_visible = self.source[probe] if probe < len(self.source) else "\0"
                 if next_visible in {"\n", "\0", ",", "]", ")", "}"}:
@@ -351,10 +351,10 @@ class Lexer:
                     saw_payload_char = True
                     continue
                 break
-            if char == " " and saw_non_space:
+            if char in {" ", "\t"} and saw_non_space:
                 break
             chars.append(self.advance())
-            if char != " ":
+            if char not in {" ", "\t"}:
                 saw_non_space = True
                 saw_payload_char = True
         value = "".join(chars)
