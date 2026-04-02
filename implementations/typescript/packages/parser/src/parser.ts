@@ -1369,7 +1369,12 @@ class Parser {
         this.advance();
 
         if (char.length !== 1) {
-            throw new InvalidSeparatorCharError(char, token.span);
+            throw new SyntaxError(
+                'Separator datatype bracket specs must contain exactly one character',
+                token.span,
+                'single separator character',
+                token.value
+            );
         }
         const code = char.charCodeAt(0);
         if (code < 0x21 || code > 0x7e || char === ',' || char === '[' || char === ']') {
@@ -1446,6 +1451,9 @@ class Parser {
         }
 
         this.advance();
+        if (value === ',' || value === '[') {
+            throw new InvalidSeparatorCharError(value, token.span);
+        }
         return value;
     }
 
