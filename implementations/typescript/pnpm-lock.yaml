@@ -127,6 +127,12 @@ importers:
 
   packages/lexer: {}
 
+  packages/oracle:
+    dependencies:
+      '@aeon/lexer':
+        specifier: workspace:^
+        version: link:../lexer
+
   packages/parser:
     dependencies:
       '@aeon/lexer':
