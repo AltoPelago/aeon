@@ -24,6 +24,8 @@ pub use lexer::{
     tokenize, CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
     ReservedCommentSubtype, Token, TokenKind,
 };
+#[cfg(test)]
+use validation::datatype_has_generic_args;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1261,6 +1263,12 @@ mod tests {
         assert!(result.errors[0]
             .message
             .contains("combines incompatible generic and bracket constraints"));
+    }
+
+    #[test]
+    fn custom_mode_ignores_angle_brackets_inside_separator_specs() {
+        assert!(datatype_has_generic_args("custom<custom>"));
+        assert!(!datatype_has_generic_args("custom[\"<\"][\">\"]"));
     }
 
     #[test]

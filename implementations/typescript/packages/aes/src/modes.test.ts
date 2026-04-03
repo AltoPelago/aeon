@@ -4,7 +4,7 @@ import { tokenize } from '@aeon/lexer';
 import { parse } from '@aeon/parser';
 import { resolvePaths, emitEvents } from './index.js';
 import { validateReferences } from './references.js';
-import { enforceMode, type ModeEnforcementResult } from './modes.js';
+import { datatypeHasGenericArgs, enforceMode, type ModeEnforcementResult } from './modes.js';
 
 describe('Mode Enforcement', () => {
     // Helper to compile and enforce mode
@@ -308,6 +308,11 @@ describe('Mode Enforcement', () => {
                 e.code === 'DATATYPE_LITERAL_MISMATCH'
                 && e.message.includes('combines incompatible generic and bracket constraints')
             ));
+        });
+
+        it('should ignore angle brackets that only appear inside custom separator specs', () => {
+            assert.strictEqual(datatypeHasGenericArgs('custom<custom>'), true);
+            assert.strictEqual(datatypeHasGenericArgs('custom["<"][">"]'), false);
         });
     });
 

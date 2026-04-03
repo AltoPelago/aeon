@@ -776,9 +776,33 @@ function datatypeBase(datatype: string): string {
     return datatype.slice(0, endIdx);
 }
 
-function datatypeHasGenericArgs(datatype: string): boolean {
-    const genericIdx = datatype.indexOf('<');
-    return genericIdx >= 0 && datatype.indexOf('>', genericIdx + 1) > genericIdx;
+export function datatypeHasGenericArgs(datatype: string): boolean {
+    let bracketDepth = 0;
+    let genericStart = -1;
+
+    for (let index = 0; index < datatype.length; index += 1) {
+        const char = datatype[index]!;
+        if (char === '[') {
+            bracketDepth += 1;
+            continue;
+        }
+        if (char === ']') {
+            bracketDepth = Math.max(0, bracketDepth - 1);
+            continue;
+        }
+        if (bracketDepth > 0) {
+            continue;
+        }
+        if (char === '<') {
+            genericStart = index;
+            continue;
+        }
+        if (char === '>' && genericStart >= 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function expectedKindsForCustomDatatype(

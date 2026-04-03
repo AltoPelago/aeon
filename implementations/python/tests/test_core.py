@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.core import CompileOptions, compile_source
+from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
 
 
 class CoreCompileTests(unittest.TestCase):
@@ -223,6 +223,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "custom"\na:custom<custom>[.] = [2]')
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
         self.assertIn("combines incompatible generic and bracket constraints", result.errors[0].message)
+
+    def test_custom_mode_ignores_angle_brackets_inside_separator_specs(self) -> None:
+        self.assertTrue(datatype_has_generic_args("custom<custom>"))
+        self.assertFalse(datatype_has_generic_args('custom["<"][">"]'))
 
     def test_separator_literals_terminate_before_tab_followed_comments(self) -> None:
         result = compile_source('g:sep = ^1\t// d')

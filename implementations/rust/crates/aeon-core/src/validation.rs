@@ -1048,8 +1048,22 @@ fn custom_datatype_shape_is_invalid_for_both(datatype: &str) -> bool {
     !separator_ok && !radix_ok
 }
 
-fn datatype_has_generic_args(datatype: &str) -> bool {
-    datatype.find('<').is_some_and(|start| datatype[start + 1..].contains('>'))
+pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
+    let mut bracket_depth = 0usize;
+    let mut generic_start = None;
+
+    for ch in datatype.chars() {
+        match ch {
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            _ if bracket_depth > 0 => {}
+            '<' => generic_start = Some(()),
+            '>' if generic_start.is_some() => return true,
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn custom_datatype_constraints_conflict(datatype: &str) -> bool {

@@ -845,8 +845,23 @@ def datatype_base(datatype: str) -> str:
 
 
 def datatype_has_generic_args(datatype: str) -> bool:
-    start = datatype.find("<")
-    return start >= 0 and datatype.find(">", start + 1) > start
+    bracket_depth = 0
+    generic_start = -1
+    for index, char in enumerate(datatype):
+        if char == "[":
+            bracket_depth += 1
+            continue
+        if char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            continue
+        if bracket_depth > 0:
+            continue
+        if char == "<":
+            generic_start = index
+            continue
+        if char == ">" and generic_start >= 0:
+            return True
+    return False
 
 
 def datatype_bracket_specs(datatype: str) -> list[str]:
