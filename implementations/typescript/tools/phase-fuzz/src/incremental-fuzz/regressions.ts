@@ -10,3 +10,10 @@ export const INCREMENTAL_REGRESSION_CASES: readonly IncrementalSeed[] = [
         hotspots: ['<', '@', '{', '}', '(', '[', ',', ']', ')', '>'],
     },
 ];
+
+export function getIncrementalRegressionCases(group: IncrementalSeed['group'] | 'all'): IncrementalSeed[] {
+    if (group === 'all') {
+        return [...INCREMENTAL_REGRESSION_CASES];
+    }
+    return INCREMENTAL_REGRESSION_CASES.filter((seed) => seed.group === group);
+}

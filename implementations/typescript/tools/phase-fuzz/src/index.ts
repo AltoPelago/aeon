@@ -20,6 +20,10 @@ function main(): void {
     const budgetOverride = getOption(args, '--budget', null);
     const beamWidthOverride = getOption(args, '--beam-width', null);
     const keepTopOverride = getOption(args, '--keep-top', null);
+    const oracleSeedsOverride = getOption(args, '--oracle-seeds', null);
+    const oracleOnly = hasFlag(args, '--oracle-only');
+    const reportNewOnly = hasFlag(args, '--report-new-only');
+    const reportValidOnly = hasFlag(args, '--report-valid-only');
     const reportTopOverride = getOption(args, '--report-top', null);
     const minimizeTopOverride = getOption(args, '--minimize-top', null);
     const reportFormat = (getOption(args, '--report-format', 'human') ?? 'human') as IncrementalReportFormat;
@@ -32,6 +36,7 @@ function main(): void {
     const budget = budgetOverride ? Number(budgetOverride) : defaults.budget;
     const beamWidth = beamWidthOverride ? Number(beamWidthOverride) : defaults.beamWidth;
     const keepTop = keepTopOverride ? Number(keepTopOverride) : defaults.keepTop;
+    const oracleSeeds = oracleSeedsOverride ? Number(oracleSeedsOverride) : defaults.oracleSeeds;
     const reportTop = reportTopOverride ? Number(reportTopOverride) : defaults.reportTop;
     const minimizeTop = minimizeTopOverride ? Number(minimizeTopOverride) : defaults.minimizeTop;
     const seeds = resolveSeeds(profile, seedOption, seedsOption);
@@ -43,11 +48,12 @@ function main(): void {
         || !Number.isFinite(budget)
         || !Number.isFinite(beamWidth)
         || !Number.isFinite(keepTop)
+        || !Number.isFinite(oracleSeeds)
         || !Number.isFinite(reportTop)
         || !Number.isFinite(minimizeTop)
         || seeds.some((seed) => !Number.isFinite(seed))
     ) {
-        throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, report-top, and minimize-top must be finite numbers');
+        throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, oracle-seeds, report-top, and minimize-top must be finite numbers');
     }
     if (reportFormat !== 'human' && reportFormat !== 'json') {
         throw new Error("report-format must be either 'human' or 'json'");
@@ -59,7 +65,7 @@ function main(): void {
     const quietIncrementalReport = lane === 'incremental' && reportFormat === 'json';
 
     if (!quietIncrementalReport) {
-        console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group}`);
+        console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group} oracleSeeds=${oracleSeeds}`);
     }
 
     for (const seed of seeds) {
@@ -78,19 +84,22 @@ function main(): void {
         }
 
         if (lane === 'incremental' || lane === 'all') {
-            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, reportTop, minimizeTop });
+            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, oracleSeeds, oracleOnly, reportTop, reportNewOnly, reportValidOnly, minimizeTop });
             incrementalSummaries.push(summary);
             if (reportFormat === 'human') {
                 console.log(
-                    `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} bestScore=${summary.bestScore}`,
+                    `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} oracleSeeds=${summary.oracleSeedCount} oracleOnly=${summary.oracleOnly} reviewCandidates=${summary.reviewCandidateCount} validOracleSeeds=${summary.validOracleSeedCount} bestScore=${summary.bestScore}`,
+                );
+                console.log(
+                    `origin counts: retained corpus=${summary.retainedByOrigin.corpus} regression=${summary.retainedByOrigin.regression} oracle=${summary.retainedByOrigin.oracle}; top corpus=${summary.topCasesByOrigin.corpus} regression=${summary.topCasesByOrigin.regression} oracle=${summary.topCasesByOrigin.oracle}`,
                 );
                 if (summary.topCases.length > 0) {
-                    console.log('top retained cases:');
+                    console.log(reportValidOnly ? 'top valid oracle seeds:' : reportNewOnly ? 'top review candidates:' : 'top retained cases:');
                     summary.topCases.forEach((entry, index) => {
                         const diagnostics = entry.diagnostics.length > 0 ? entry.diagnostics.join(',') : 'none';
                         const mutations = entry.mutationTrail.length > 0 ? entry.mutationTrail.join('>') : 'seed';
                         console.log(
-                            `  ${index + 1}. ${entry.id} group=${entry.group} score=${entry.score} accepted=${entry.accepted} expectationMatch=${entry.expectationMatch} diagnostics=${diagnostics} mutations=${mutations}`,
+                            `  ${index + 1}. ${entry.id} group=${entry.group} origin=${entry.seedOrigin} score=${entry.score} accepted=${entry.accepted} expectationMatch=${entry.expectationMatch} diagnostics=${diagnostics} mutations=${mutations}`,
                         );
                         console.log(`     reasons=${entry.reasons.join(', ')}`);
                         console.log(`     source=${entry.sourcePreview}`);
@@ -98,6 +107,10 @@ function main(): void {
                             console.log(`     minimized=${entry.minimizedSourcePreview}`);
                         }
                     });
+                } else if (reportNewOnly) {
+                    console.log('top review candidates: none');
+                } else if (reportValidOnly) {
+                    console.log('top valid oracle seeds: none');
                 }
             }
         }
@@ -133,11 +146,15 @@ function getOption(args: readonly string[], name: string, fallback: string | nul
     return args[index + 1] ?? fallback;
 }
 
-function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number; reportTop: number; minimizeTop: number } {
+function hasFlag(args: readonly string[], name: string): boolean {
+    return args.includes(name);
+}
+
+function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number; oracleSeeds: number; reportTop: number; minimizeTop: number } {
     if (profile === 'nightly') {
-        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128, reportTop: 8, minimizeTop: 5 };
+        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128, oracleSeeds: 16, reportTop: 8, minimizeTop: 5 };
     }
-    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48, reportTop: 5, minimizeTop: 3 };
+    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48, oracleSeeds: 4, reportTop: 5, minimizeTop: 3 };
 }
 
 function resolveSeeds(profile: Profile, seedOption: string | null, seedsOption: string | null): number[] {

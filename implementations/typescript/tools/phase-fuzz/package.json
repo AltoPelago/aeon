@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@aeon/lexer": "workspace:*",
+    "@aeon/oracle": "workspace:*",
     "@aeon/parser": "workspace:*"
   },
   "devDependencies": {

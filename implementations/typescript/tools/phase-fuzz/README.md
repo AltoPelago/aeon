@@ -10,6 +10,10 @@ pnpm --filter @aeon/phase-fuzz fuzz:lexer
 pnpm --filter @aeon/phase-fuzz fuzz:parser
 pnpm --filter @aeon/phase-fuzz fuzz:incremental
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group nodes --report-top 10
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --oracle-seeds 12 --report-top 10
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --oracle-only --oracle-seeds 24 --report-top 10
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-format json
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-file /tmp/incremental-report.json
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --minimize-top 3
@@ -34,6 +38,19 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --report-file 
   - run a single reproducible seed
 - `--seeds <a,b,c>`
   - run a fixed explicit seed set
+- `--oracle-seeds <n>`
+  - add `n` deterministic oracle-generated valid seeds into the incremental lane before mutation
+  - defaults:
+    - `ci`: `4`
+    - `nightly`: `16`
+- `--oracle-only`
+  - run the incremental lane with regressions plus oracle-generated seeds, but without the curated corpus seed pack
+- `--report-new-only`
+  - report only oracle-derived rejected cases with new lexer/parser/diagnostic signatures
+  - useful when reviewing candidate discoveries instead of overall leaderboard winners
+- `--report-valid-only`
+  - report only accepted oracle seed cases
+  - useful for playground checks and for seeing the valid inputs the failing descendants came from
 - nightly default seeds
   - `1337,7331,9001,424242`
 
@@ -85,6 +102,8 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --report-file 
 ### Incremental
 - parser-focused corpus-guided structural growth
 - seed groups for attributes, nodes, separators, numbers, and interactions
+- optional oracle-guided valid seed generation via `@aeon/oracle` before hostile mutation begins
+- retained-case reports include seed provenance so you can see whether corpus, regression, or oracle inputs produced the strongest findings
 - weighted incremental mutations around structural hotspots
 - rewards for new lexer/parser signatures, diagnostics, and syntax-group interactions
 - extra progress credit for longer valid prefixes, deeper token progress, richer node shapes, and deeper ASTs

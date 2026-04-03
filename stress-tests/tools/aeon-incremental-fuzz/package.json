@@ -6,6 +6,10 @@
     "build": "pnpm -C ../../../implementations/typescript/tools/phase-fuzz build",
     "incremental": "node ./run-incremental-fuzz.js",
     "incremental:interactions": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3",
+    "incremental:oracle": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-seeds 12 --report-top 3",
+    "incremental:oracle-only": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-top 3",
+    "incremental:review": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
+    "incremental:valid": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
     "incremental:json": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3 --report-format json",
     "minimize": "node ./run-minimize.js"
   }

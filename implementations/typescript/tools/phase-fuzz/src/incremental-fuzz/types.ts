@@ -7,12 +7,15 @@ export type SyntaxGroup =
     | 'numbers'
     | 'interactions';
 
+export type SeedOrigin = 'corpus' | 'regression' | 'oracle';
+
 export type Expectation = 'valid' | 'invalid' | 'either';
 
 export interface IncrementalSeed {
     readonly id: string;
     readonly group: SyntaxGroup;
     readonly source: string;
+    readonly origin?: SeedOrigin;
     readonly expected?: Expectation;
     readonly tags?: readonly string[];
     readonly hotspots?: readonly string[];
@@ -25,7 +28,11 @@ export interface IncrementalFuzzRunOptions {
     readonly beamWidth: number;
     readonly keepTop: number;
     readonly group: SyntaxGroup | 'all';
+    readonly oracleSeeds: number;
+    readonly oracleOnly: boolean;
     readonly reportTop: number;
+    readonly reportNewOnly: boolean;
+    readonly reportValidOnly: boolean;
     readonly minimizeTop: number;
 }
 
@@ -65,18 +72,25 @@ export interface IncrementalFuzzRunSummary {
     readonly lane: 'incremental';
     readonly seed: number;
     readonly budget: number;
+    readonly oracleSeedCount: number;
+    readonly oracleOnly: boolean;
     readonly explored: number;
     readonly retained: number;
     readonly groups: readonly SyntaxGroup[];
     readonly accepted: number;
     readonly rejected: number;
     readonly bestScore: number;
+    readonly retainedByOrigin: Readonly<Record<SeedOrigin, number>>;
+    readonly topCasesByOrigin: Readonly<Record<SeedOrigin, number>>;
+    readonly reviewCandidateCount: number;
+    readonly validOracleSeedCount: number;
     readonly topCases: readonly RetainedCaseSummary[];
 }
 
 export interface RetainedCaseSummary {
     readonly id: string;
     readonly group: SyntaxGroup;
+    readonly seedOrigin: SeedOrigin;
     readonly score: number;
     readonly accepted: boolean;
     readonly reasons: readonly string[];
