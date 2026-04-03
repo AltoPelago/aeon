@@ -770,8 +770,9 @@ export class Lexer {
                 break;
             }
 
-            // Unescaped spaces inside raw payload are only allowed as trailing padding
-            // immediately before the next grammar boundary. Interior spaces must be escaped.
+            // Unescaped horizontal whitespace inside raw payload is only allowed as
+            // trailing padding immediately before the next grammar boundary.
+            // Interior spaces/tabs must be escaped.
             if (inQuote === null && isHorizontalWhitespace(c) && !this.onlyWhitespaceUntilSeparatorBoundary()) {
                 break;
             }

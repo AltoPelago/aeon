@@ -202,6 +202,19 @@ class InvalidCustomDatatypeBracketShapeError(AeonError):
         )
 
 
+class IncompatibleCustomDatatypeAdornmentsError(AeonError):
+    def __init__(self, path: str, datatype: str, actual_kind: str, span: Span) -> None:
+        super().__init__(
+            message=(
+                f"Datatype/literal mismatch at '{path}': datatype ':{datatype}' "
+                f"combines incompatible generic and bracket constraints, got {actual_kind}"
+            ),
+            span=span,
+            code="DATATYPE_LITERAL_MISMATCH",
+            path=path,
+        )
+
+
 class CustomDatatypeNotAllowedError(AeonError):
     def __init__(self, path: str, datatype: str, span: Span) -> None:
         super().__init__(

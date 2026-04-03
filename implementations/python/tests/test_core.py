@@ -219,6 +219,11 @@ class CoreCompileTests(unittest.TestCase):
         ambiguous_result = compile_source('aeon:mode = "custom"\nh:custom[1] = ^1.1.1')
         self.assertEqual([], ambiguous_result.errors)
 
+    def test_custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly(self) -> None:
+        result = compile_source('aeon:mode = "custom"\na:custom<custom>[.] = [2]')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertIn("combines incompatible generic and bracket constraints", result.errors[0].message)
+
     def test_separator_literals_terminate_before_tab_followed_comments(self) -> None:
         result = compile_source('g:sep = ^1\t// d')
         self.assertEqual([], result.errors)

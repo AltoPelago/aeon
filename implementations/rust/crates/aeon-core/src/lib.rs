@@ -1251,6 +1251,19 @@ mod tests {
     }
 
     #[test]
+    fn custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly() {
+        let result = compile(
+            "aeon:mode = \"custom\"\na:custom<custom>[.] = [2]\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert!(result.errors[0]
+            .message
+            .contains("combines incompatible generic and bracket constraints"));
+    }
+
+    #[test]
     fn custom_bracket_specs_reject_multi_digit_separator_case_but_allow_radix_case() {
         let separator_result = compile(
             "aeon:mode = \"strict\"\na:test[22] = ^300x200\n",

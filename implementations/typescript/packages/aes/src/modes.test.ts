@@ -301,6 +301,14 @@ describe('Mode Enforcement', () => {
             const ambiguousResult = enforce('aeon:mode = "custom"\nh:custom[1] = ^1.1.1');
             assert.strictEqual(ambiguousResult.errors.length, 0);
         });
+
+        it('should report incompatible generic and bracket custom constraints clearly', () => {
+            const result = enforce('aeon:mode = "custom"\na:custom<custom>[.] = [2]');
+            assert.ok(result.errors.some((e) =>
+                e.code === 'DATATYPE_LITERAL_MISMATCH'
+                && e.message.includes('combines incompatible generic and bracket constraints')
+            ));
+        });
     });
 
     // ============================================

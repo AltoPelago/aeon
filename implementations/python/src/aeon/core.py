@@ -32,6 +32,7 @@ from .errors import (
     DuplicateCanonicalPathError,
     ForwardReferenceError,
     InvalidCustomDatatypeBracketShapeError,
+    IncompatibleCustomDatatypeAdornmentsError,
     InvalidNodeHeadDatatypeError,
     MissingReferenceTargetError,
     SelfReferenceError,
@@ -399,7 +400,17 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
                 )
             else:
                 custom_expected = expected_kinds_for_custom_datatype(binding.datatype, custom_shape)
-                if custom_expected is not None:
+                if custom_expected == ():
+                    errors.append(
+                        IncompatibleCustomDatatypeAdornmentsError(
+                            format_path(binding.path),
+                            binding.datatype,
+                            actual_kind,
+                            binding.span,
+                        )
+                    )
+                    expected = None
+                elif custom_expected is not None:
                     expected = custom_expected
         if expected is not None and actual_kind not in expected:
             errors.append(
@@ -542,7 +553,10 @@ def validate_annotation_entries(
                             expected = None
                         else:
                             custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
-                            if custom_expected is not None:
+                            if custom_expected == ():
+                                errors.append(IncompatibleCustomDatatypeAdornmentsError(attr_path, datatype, actual_kind, span))
+                                expected = None
+                            elif custom_expected is not None:
                                 expected = custom_expected
                     if expected is not None and actual_kind not in expected:
                         errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
@@ -785,6 +799,10 @@ def expected_kinds_for_custom_datatype(datatype: str, custom_shape: str) -> tupl
         return bracket_expected
 
     combined = tuple(kind for kind in expected if kind in bracket_expected)
+    if not combined:
+        # Preserve an explicit "impossible constraints" signal for callers so
+        # they can emit a dedicated diagnostic instead of an empty expected list.
+        return ()
     return combined
 
 

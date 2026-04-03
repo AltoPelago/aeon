@@ -130,6 +130,18 @@ export class InvalidCustomDatatypeBracketShapeError extends ModeEnforcementError
     }
 }
 
+export class IncompatibleCustomDatatypeAdornmentsError extends ModeEnforcementError {
+    constructor(span: Span, path: string, datatype: string, actualKind: string) {
+        super(
+            `Datatype/literal mismatch at '${path}': datatype ':${datatype}' combines incompatible generic and bracket constraints, got ${actualKind}`,
+            span,
+            'DATATYPE_LITERAL_MISMATCH',
+            path
+        );
+        this.name = 'IncompatibleCustomDatatypeAdornmentsError';
+    }
+}
+
 /**
  * Error: Custom datatype is not permitted by typed-mode datatype policy
  */
@@ -287,7 +299,14 @@ export function enforceMode(
                 ));
             } else {
                 const customExpectedKinds = expectedKindsForCustomDatatype(event.datatype, customShape);
-                if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                if (customExpectedKinds && customExpectedKinds.length === 0) {
+                    errors.push(new IncompatibleCustomDatatypeAdornmentsError(
+                        event.span,
+                        formatPath(event.path),
+                        event.datatype,
+                        actualKind
+                    ));
+                } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         event.span,
                         formatPath(event.path),
@@ -500,7 +519,14 @@ function validateAnnotationEntries(
                         ));
                     } else {
                         const customExpectedKinds = expectedKindsForCustomDatatype(entry.datatype, customShape);
-                        if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                        if (customExpectedKinds && customExpectedKinds.length === 0) {
+                            errors.push(new IncompatibleCustomDatatypeAdornmentsError(
+                                span,
+                                attrPath,
+                                entry.datatype,
+                                actualKind
+                            ));
+                        } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
                             errors.push(new DatatypeLiteralMismatchError(
                                 span,
                                 attrPath,
