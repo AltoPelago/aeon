@@ -5,6 +5,7 @@ import { CandidateQueue } from './queue.js';
 import { INCREMENTAL_REGRESSION_CASES } from './regressions.js';
 import { commitSnapshot, createScoreState, scoreSnapshot } from './scoring.js';
 import { createDedupKey, evaluateSource } from './signatures.js';
+import { minimizeIncrementalCase } from './minimizer.js';
 import type { EvaluationResult, IncrementalFuzzRunOptions, IncrementalFuzzRunSummary, IncrementalSeed } from './types.js';
 
 export function runIncrementalFuzz(options: IncrementalFuzzRunOptions): IncrementalFuzzRunSummary {
@@ -90,18 +91,32 @@ export function runIncrementalFuzz(options: IncrementalFuzzRunOptions): Incremen
         accepted,
         rejected,
         bestScore: retained.length > 0 ? retained[0]?.score ?? 0 : 0,
-        topCases: retained.slice(0, Math.max(0, options.reportTop)).map((entry) => ({
-            id: entry.id,
-            group: entry.seed.group,
-            score: entry.score,
-            accepted: entry.signature.accepted,
-            reasons: entry.reasons,
-            diagnostics: entry.signature.diagnostics,
-            mutationTrail: entry.mutationTrail,
-            expectationMatch: entry.signature.expectationMatch,
-            source: entry.source,
-            sourcePreview: previewSource(entry.source),
-        })),
+        topCases: retained.slice(0, Math.max(0, options.reportTop)).map((entry, index) => {
+            const minimized = index < options.minimizeTop && !entry.signature.accepted
+                ? minimizeIncrementalCase(entry.source, entry.seed)
+                : null;
+            const base = {
+                id: entry.id,
+                group: entry.seed.group,
+                score: entry.score,
+                accepted: entry.signature.accepted,
+                reasons: entry.reasons,
+                diagnostics: entry.signature.diagnostics,
+                mutationTrail: entry.mutationTrail,
+                expectationMatch: entry.signature.expectationMatch,
+                source: entry.source,
+                sourcePreview: previewSource(entry.source),
+            };
+            if (minimized) {
+                return {
+                    ...base,
+                    minimizedSource: minimized.source,
+                    minimizedSourcePreview: previewSource(minimized.source),
+                    minimizedChanged: minimized.changed,
+                };
+            }
+            return base;
+        }),
     };
 }
 

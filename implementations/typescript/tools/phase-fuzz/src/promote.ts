@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync } from 'node:fs';
+import { minimizeIncrementalCase } from './incremental-fuzz/minimizer.js';
 
 type Lane = 'lexer' | 'parser' | 'incremental';
 type IncrementalGroup = 'attributes' | 'nodes' | 'separators' | 'numbers' | 'interactions';
@@ -14,6 +15,7 @@ interface IncrementalReportCase {
     readonly mutationTrail: readonly string[];
     readonly source?: string;
     readonly sourcePreview?: string;
+    readonly minimizedSource?: string;
 }
 
 interface IncrementalReportRun {
@@ -53,10 +55,21 @@ function main(): void {
     const expected = getOption(args, '--expected', inferIncrementalExpectation(reportSource));
     const tags = getOption(args, '--tags', null);
     const note = lane === 'incremental' ? null : getRequiredOption(args, '--note');
+    const useMinimized = getOption(args, '--use-minimized', 'true') !== 'false';
+    const finalSource = lane === 'incremental' && useMinimized && source !== null && group !== null
+        ? minimizeIncrementalCase(source, {
+            id,
+            group,
+            source,
+            expected: expected as IncrementalExpectation,
+            tags: [],
+            hotspots: [],
+        }).source
+        : source;
 
     const entry = lane === 'incremental'
-        ? renderIncrementalEntry(id, source, group, expected, tags)
-        : renderRegressionEntry(id, source, note ?? '');
+        ? renderIncrementalEntry(id, finalSource, group, expected, tags)
+        : renderRegressionEntry(id, finalSource, note ?? '');
 
     console.log(`Target: ${lane === 'lexer' ? 'LEXER_REGRESSION_CASES' : lane === 'parser' ? 'PARSER_REGRESSION_CASES' : 'INCREMENTAL_REGRESSION_CASES'}`);
     console.log('');

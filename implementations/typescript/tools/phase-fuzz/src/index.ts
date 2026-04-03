@@ -21,6 +21,7 @@ function main(): void {
     const beamWidthOverride = getOption(args, '--beam-width', null);
     const keepTopOverride = getOption(args, '--keep-top', null);
     const reportTopOverride = getOption(args, '--report-top', null);
+    const minimizeTopOverride = getOption(args, '--minimize-top', null);
     const reportFormat = (getOption(args, '--report-format', 'human') ?? 'human') as IncrementalReportFormat;
     const reportFile = getOption(args, '--report-file', null);
     const group = (getOption(args, '--group', 'all') ?? 'all') as SyntaxGroup | 'all';
@@ -32,6 +33,7 @@ function main(): void {
     const beamWidth = beamWidthOverride ? Number(beamWidthOverride) : defaults.beamWidth;
     const keepTop = keepTopOverride ? Number(keepTopOverride) : defaults.keepTop;
     const reportTop = reportTopOverride ? Number(reportTopOverride) : defaults.reportTop;
+    const minimizeTop = minimizeTopOverride ? Number(minimizeTopOverride) : defaults.minimizeTop;
     const seeds = resolveSeeds(profile, seedOption, seedsOption);
     const incrementalSummaries: IncrementalFuzzRunSummary[] = [];
 
@@ -42,9 +44,10 @@ function main(): void {
         || !Number.isFinite(beamWidth)
         || !Number.isFinite(keepTop)
         || !Number.isFinite(reportTop)
+        || !Number.isFinite(minimizeTop)
         || seeds.some((seed) => !Number.isFinite(seed))
     ) {
-        throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, and report-top must be finite numbers');
+        throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, report-top, and minimize-top must be finite numbers');
     }
     if (reportFormat !== 'human' && reportFormat !== 'json') {
         throw new Error("report-format must be either 'human' or 'json'");
@@ -75,7 +78,7 @@ function main(): void {
         }
 
         if (lane === 'incremental' || lane === 'all') {
-            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, reportTop });
+            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, reportTop, minimizeTop });
             incrementalSummaries.push(summary);
             if (reportFormat === 'human') {
                 console.log(
@@ -91,6 +94,9 @@ function main(): void {
                         );
                         console.log(`     reasons=${entry.reasons.join(', ')}`);
                         console.log(`     source=${entry.sourcePreview}`);
+                        if (entry.minimizedChanged && entry.minimizedSourcePreview) {
+                            console.log(`     minimized=${entry.minimizedSourcePreview}`);
+                        }
                     });
                 }
             }
@@ -127,11 +133,11 @@ function getOption(args: readonly string[], name: string, fallback: string | nul
     return args[index + 1] ?? fallback;
 }
 
-function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number; reportTop: number } {
+function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number; reportTop: number; minimizeTop: number } {
     if (profile === 'nightly') {
-        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128, reportTop: 8 };
+        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128, reportTop: 8, minimizeTop: 5 };
     }
-    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48, reportTop: 5 };
+    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48, reportTop: 5, minimizeTop: 3 };
 }
 
 function resolveSeeds(profile: Profile, seedOption: string | null, seedsOption: string | null): number[] {

@@ -26,6 +26,7 @@ export interface IncrementalFuzzRunOptions {
     readonly keepTop: number;
     readonly group: SyntaxGroup | 'all';
     readonly reportTop: number;
+    readonly minimizeTop: number;
 }
 
 export type IncrementalReportFormat = 'human' | 'json';
@@ -84,4 +85,7 @@ export interface RetainedCaseSummary {
     readonly expectationMatch: boolean;
     readonly source: string;
     readonly sourcePreview: string;
+    readonly minimizedSource?: string;
+    readonly minimizedSourcePreview?: string;
+    readonly minimizedChanged?: boolean;
 }

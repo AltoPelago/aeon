@@ -12,6 +12,7 @@ pnpm --filter @aeon/phase-fuzz fuzz:incremental
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group nodes --report-top 10
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-format json
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-file /tmp/incremental-report.json
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --minimize-top 3
 pnpm --filter @aeon/phase-fuzz fuzz:nightly
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group interactions --id inc-example --source-file /tmp/case.aeon
@@ -87,5 +88,6 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --report-file 
 - rewards for new lexer/parser signatures, diagnostics, and syntax-group interactions
 - extra progress credit for longer valid prefixes, deeper token progress, richer node shapes, and deeper ASTs
 - compact top-case reporting prints the strongest retained cases with score reasons and source previews
+- top failing cases can be minimized with `--minimize-top <n>` before reporting/promotion
 - `--report-format json` emits a machine-readable incremental report
 - `--report-file /path/report.json` writes the same incremental report to disk
