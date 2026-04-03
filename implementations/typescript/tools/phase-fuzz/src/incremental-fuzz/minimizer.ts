@@ -26,7 +26,7 @@ export function minimizeIncrementalCase(source: string, seed: IncrementalSeed): 
         passes += 1;
     }
 
-    current = preferReadableSkeleton(current, source, seed, baseline);
+    current = rehydrateReadableSkeleton(current, source, seed, baseline);
 
     return {
         source: current,
@@ -152,18 +152,18 @@ function normalizeCandidate(source: string): string {
         .trim();
 }
 
-function preferReadableSkeleton(current: string, original: string, seed: IncrementalSeed, baseline: SignatureSnapshot): string {
-    const candidates = buildReadableSkeletons(original, seed.group);
+function rehydrateReadableSkeleton(current: string, original: string, seed: IncrementalSeed, baseline: SignatureSnapshot): string {
+    const candidates = buildReadableSkeletons(original, current, seed.group);
     let best = current;
 
     for (const candidate of candidates) {
-        if (candidate.length > best.length + 4) {
+        if (candidate.length > Math.max(best.length + 8, 20)) {
             continue;
         }
         if (!preservesFailureClass(candidate, seed, baseline)) {
             continue;
         }
-        if (candidate.length < best.length || readabilityScore(candidate) > readabilityScore(best)) {
+        if (readabilityScore(candidate) > readabilityScore(best)) {
             best = candidate;
         }
     }
@@ -171,25 +171,34 @@ function preferReadableSkeleton(current: string, original: string, seed: Increme
     return best;
 }
 
-function buildReadableSkeletons(source: string, group: IncrementalSeed['group']): string[] {
-    const identifier = firstMatch(source, /[A-Za-z_][A-Za-z0-9_-]*/g) ?? 'x';
+function buildReadableSkeletons(source: string, minimized: string, group: IncrementalSeed['group']): string[] {
+    const identifiers = allMatches(source, /[A-Za-z_][A-Za-z0-9_-]*/g);
+    const identifier = identifiers[0] ?? 'x';
+    const attrKey = identifiers.find((value) => value !== identifier && value !== 'aeon') ?? 'a';
     const number = firstMatch(source, /\d+(?:\.\d+)?/g) ?? '2';
+    const keepNode = minimized.includes('<') || minimized.includes('>');
+    const keepAttr = minimized.includes('@{');
+    const keepSep = minimized.includes(',') || minimized.includes('\n');
+    const keepEq = minimized.includes('=');
 
     switch (group) {
         case 'attributes':
             return [
+                `${identifier}@{${attrKey}=${number}}`,
+                `${identifier}@{${attrKey}=${number},}`,
                 `${identifier}@{${number}}`,
-                `${identifier}@{a=${number}}`,
             ];
         case 'nodes':
             return [
                 `<${identifier}>`,
                 `<${identifier}()>`,
+                `<${identifier}(`,
             ];
         case 'separators':
             return [
                 `${identifier},${number}`,
                 `${identifier}\n${number}`,
+                `${identifier},`,
             ];
         case 'numbers':
             return [
@@ -198,10 +207,11 @@ function buildReadableSkeletons(source: string, group: IncrementalSeed['group'])
             ];
         case 'interactions':
             return [
+                `${keepNode ? '<' : ''}${identifier}${keepAttr ? `@{${keepEq ? `${attrKey}=${number}` : number}` : ''}${keepSep ? ',' : ''}${keepNode ? '>' : ''}`,
+                `<${identifier}@{${attrKey}=${number},>`,
+                `<${identifier}@{${attrKey}=${number}}>`,
+                `${identifier}@{${attrKey}=${number},>`,
                 `<${identifier}@{${number},>`,
-                `<${identifier}@{a=${number},>`,
-                `${identifier}@{${number},>`,
-                `<${identifier}@{${number}}>`,
             ];
         default:
             return [];
@@ -211,6 +221,10 @@ function buildReadableSkeletons(source: string, group: IncrementalSeed['group'])
 function firstMatch(source: string, pattern: RegExp): string | null {
     const match = source.match(pattern);
     return match?.[0] ?? null;
+}
+
+function allMatches(source: string, pattern: RegExp): string[] {
+    return Array.from(source.matchAll(pattern), (match) => match[0]).filter((value) => value.length > 0);
 }
 
 function readabilityScore(source: string): number {
