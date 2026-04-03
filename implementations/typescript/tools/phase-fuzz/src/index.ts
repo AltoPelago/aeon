@@ -2,8 +2,10 @@
 
 import { runLexerFuzz } from './lexer-fuzz.js';
 import { runParserFuzz } from './parser-fuzz.js';
+import { runIncrementalFuzz } from './incremental-fuzz/index.js';
+import type { SyntaxGroup } from './incremental-fuzz/types.js';
 
-type Lane = 'lexer' | 'parser' | 'all';
+type Lane = 'lexer' | 'parser' | 'incremental' | 'all';
 type Profile = 'ci' | 'nightly';
 
 function main(): void {
@@ -14,17 +16,31 @@ function main(): void {
     const seedsOption = getOption(args, '--seeds', null);
     const casesOverride = getOption(args, '--cases', null);
     const maxLengthOverride = getOption(args, '--max-length', null);
+    const budgetOverride = getOption(args, '--budget', null);
+    const beamWidthOverride = getOption(args, '--beam-width', null);
+    const keepTopOverride = getOption(args, '--keep-top', null);
+    const group = (getOption(args, '--group', 'all') ?? 'all') as SyntaxGroup | 'all';
 
     const defaults = profileDefaults(profile);
     const cases = casesOverride ? Number(casesOverride) : defaults.cases;
     const maxLength = maxLengthOverride ? Number(maxLengthOverride) : defaults.maxLength;
+    const budget = budgetOverride ? Number(budgetOverride) : defaults.budget;
+    const beamWidth = beamWidthOverride ? Number(beamWidthOverride) : defaults.beamWidth;
+    const keepTop = keepTopOverride ? Number(keepTopOverride) : defaults.keepTop;
     const seeds = resolveSeeds(profile, seedOption, seedsOption);
 
-    if (!Number.isFinite(cases) || !Number.isFinite(maxLength) || seeds.some((seed) => !Number.isFinite(seed))) {
-        throw new Error('seed, seeds, cases, and max-length must be finite numbers');
+    if (
+        !Number.isFinite(cases)
+        || !Number.isFinite(maxLength)
+        || !Number.isFinite(budget)
+        || !Number.isFinite(beamWidth)
+        || !Number.isFinite(keepTop)
+        || seeds.some((seed) => !Number.isFinite(seed))
+    ) {
+        throw new Error('seed, seeds, cases, max-length, budget, beam-width, and keep-top must be finite numbers');
     }
 
-    console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength}`);
+    console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group}`);
 
     for (const seed of seeds) {
         console.log(`\nseed ${seed}`);
@@ -38,6 +54,13 @@ function main(): void {
             const summary = runParserFuzz({ seed, cases, maxLength });
             console.log(`parser fuzz passed: ${summary.cases} cases (${summary.regressionCases} regressions)`);
         }
+
+        if (lane === 'incremental' || lane === 'all') {
+            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group });
+            console.log(
+                `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} bestScore=${summary.bestScore}`,
+            );
+        }
     }
 }
 
@@ -49,11 +72,11 @@ function getOption(args: readonly string[], name: string, fallback: string | nul
     return args[index + 1] ?? fallback;
 }
 
-function profileDefaults(profile: Profile): { cases: number; maxLength: number } {
+function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number } {
     if (profile === 'nightly') {
-        return { cases: 600, maxLength: 512 };
+        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128 };
     }
-    return { cases: 120, maxLength: 256 };
+    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48 };
 }
 
 function resolveSeeds(profile: Profile, seedOption: string | null, seedsOption: string | null): number[] {

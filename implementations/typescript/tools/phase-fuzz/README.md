@@ -8,8 +8,10 @@ Deterministic hostile-input fuzz lanes for `@aeon/lexer` and `@aeon/parser`.
 pnpm --filter @aeon/phase-fuzz test
 pnpm --filter @aeon/phase-fuzz fuzz:lexer
 pnpm --filter @aeon/phase-fuzz fuzz:parser
+pnpm --filter @aeon/phase-fuzz fuzz:incremental
 pnpm --filter @aeon/phase-fuzz fuzz:nightly
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
+pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group interactions --id inc-example --source-file /tmp/case.aeon
 ```
 
 ## Profiles
@@ -39,12 +41,18 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example -
 
 - `fuzz:promote` prints a ready-to-paste regression entry
 - required:
-  - `--lane lexer|parser`
+  - `--lane lexer|parser|incremental`
   - `--id <stable-id>`
+- lexer/parser also require:
   - `--note <short-note>`
+- incremental also requires:
+  - `--group <attributes|nodes|separators|numbers|interactions>`
 - source input:
   - `--source-file <path>`
   - or `--source <inline-text>`
+- optional incremental metadata:
+  - `--expected valid|invalid|either`
+  - `--tags comma,separated,list`
 - output:
   - target array name
   - formatted object entry for `src/regressions.ts`
@@ -62,3 +70,10 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example -
 - deterministic parse results
 - sane parse diagnostics
 - valid AST shape and span nesting
+
+### Incremental
+- parser-focused corpus-guided structural growth
+- seed groups for attributes, nodes, separators, numbers, and interactions
+- weighted incremental mutations around structural hotspots
+- rewards for new lexer/parser signatures, diagnostics, and syntax-group interactions
+- extra progress credit for longer valid prefixes, deeper token progress, richer node shapes, and deeper ASTs
