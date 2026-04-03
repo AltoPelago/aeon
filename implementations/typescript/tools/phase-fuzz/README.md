@@ -10,9 +10,12 @@ pnpm --filter @aeon/phase-fuzz fuzz:lexer
 pnpm --filter @aeon/phase-fuzz fuzz:parser
 pnpm --filter @aeon/phase-fuzz fuzz:incremental
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group nodes --report-top 10
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-format json
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-file /tmp/incremental-report.json
 pnpm --filter @aeon/phase-fuzz fuzz:nightly
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group interactions --id inc-example --source-file /tmp/case.aeon
+pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --report-file /tmp/incremental-report.json --run-index 0 --case-index 0
 ```
 
 ## Profiles
@@ -54,6 +57,11 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group intera
 - optional incremental metadata:
   - `--expected valid|invalid|either`
   - `--tags comma,separated,list`
+- incremental report promotion:
+  - `--report-file <path>` reads a previously emitted incremental JSON report
+  - `--run-index <n>` selects the run within the report (default `0`)
+  - `--case-index <n>` selects the retained top-case entry within that run (default `0`)
+  - `--id`, `--group`, and `--expected` may still be provided to override the report-derived defaults
 - output:
   - target array name
   - formatted object entry for `src/regressions.ts`
@@ -79,3 +87,5 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group intera
 - rewards for new lexer/parser signatures, diagnostics, and syntax-group interactions
 - extra progress credit for longer valid prefixes, deeper token progress, richer node shapes, and deeper ASTs
 - compact top-case reporting prints the strongest retained cases with score reasons and source previews
+- `--report-format json` emits a machine-readable incremental report
+- `--report-file /path/report.json` writes the same incremental report to disk

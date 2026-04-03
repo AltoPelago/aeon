@@ -4,11 +4,31 @@ import { readFileSync } from 'node:fs';
 
 type Lane = 'lexer' | 'parser' | 'incremental';
 type IncrementalGroup = 'attributes' | 'nodes' | 'separators' | 'numbers' | 'interactions';
+type IncrementalExpectation = 'valid' | 'invalid' | 'either';
+
+interface IncrementalReportCase {
+    readonly id: string;
+    readonly group: IncrementalGroup;
+    readonly accepted: boolean;
+    readonly expectationMatch: boolean;
+    readonly mutationTrail: readonly string[];
+    readonly source?: string;
+    readonly sourcePreview?: string;
+}
+
+interface IncrementalReportRun {
+    readonly topCases: readonly IncrementalReportCase[];
+}
+
+interface IncrementalReportFile {
+    readonly runs: readonly IncrementalReportRun[];
+}
 
 function main(): void {
     const args = process.argv.slice(2);
     const lane = getRequiredOption(args, '--lane') as Lane;
-    const id = getRequiredOption(args, '--id');
+    const reportSource = lane === 'incremental' ? loadIncrementalReportCase(args) : null;
+    const id = getOption(args, '--id', reportSource?.id ?? null);
     const sourceFile = getOption(args, '--source-file', null);
     const sourceInline = getOption(args, '--source', null);
 
@@ -16,13 +36,21 @@ function main(): void {
         throw new Error(`Unsupported lane '${lane}'. Use 'lexer', 'parser', or 'incremental'.`);
     }
 
-    const source = sourceInline ?? (sourceFile ? readFileSync(sourceFile, 'utf8') : null);
-    if (source === null) {
-        throw new Error('Provide either --source-file <path> or --source <text>.');
+    if (id === null || id.length === 0) {
+        throw new Error('Missing required option --id');
     }
 
-    const group = getOption(args, '--group', null) as IncrementalGroup | null;
-    const expected = getOption(args, '--expected', 'either');
+    const source = sourceInline
+        ?? (sourceFile ? readFileSync(sourceFile, 'utf8') : null)
+        ?? reportSource?.source
+        ?? reportSource?.sourcePreview
+        ?? null;
+    if (source === null) {
+        throw new Error('Provide either --source-file <path>, --source <text>, or --report-file <path> with case selectors.');
+    }
+
+    const group = (getOption(args, '--group', reportSource?.group ?? null) as IncrementalGroup | null);
+    const expected = getOption(args, '--expected', inferIncrementalExpectation(reportSource));
     const tags = getOption(args, '--tags', null);
     const note = lane === 'incremental' ? null : getRequiredOption(args, '--note');
 
@@ -61,6 +89,44 @@ function renderIncrementalEntry(id: string, source: string, group: IncrementalGr
         `    tags: ${JSON.stringify(renderedTags)},`,
         '}',
     ].join('\n');
+}
+
+function loadIncrementalReportCase(args: readonly string[]): IncrementalReportCase | null {
+    const reportFile = getOption(args, '--report-file', null);
+    if (reportFile === null) {
+        return null;
+    }
+
+    const runIndex = parseIndex(getOption(args, '--run-index', '0'), '--run-index');
+    const caseIndex = parseIndex(getOption(args, '--case-index', '0'), '--case-index');
+    const report = JSON.parse(readFileSync(reportFile, 'utf8')) as IncrementalReportFile;
+    const run = report.runs[runIndex];
+    if (!run) {
+        throw new Error(`No run at index ${runIndex} in report file ${reportFile}`);
+    }
+    const entry = run.topCases[caseIndex];
+    if (!entry) {
+        throw new Error(`No top case at index ${caseIndex} in run ${runIndex} of ${reportFile}`);
+    }
+    return entry;
+}
+
+function parseIndex(value: string | null, label: string): number {
+    const parsed = Number(value ?? '0');
+    if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`${label} must be a non-negative integer`);
+    }
+    return parsed;
+}
+
+function inferIncrementalExpectation(entry: IncrementalReportCase | null): IncrementalExpectation {
+    if (entry === null) {
+        return 'either';
+    }
+    if (!entry.expectationMatch) {
+        return 'either';
+    }
+    return entry.accepted ? 'valid' : 'invalid';
 }
 
 function getOption(args: readonly string[], name: string, fallback: string | null): string | null {

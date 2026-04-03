@@ -47,6 +47,7 @@ Rule of thumb:
 | Stress CLI advanced | `npm run stress-advanced` | `15/15` pass |
 | Stress CLI phase timing | `npm run phase-timing` | `8/8` pass |
 | 52-Cards summary | `npm run cards-summary` | `4367/4367` pass |
+| Incremental fuzz | `npm run incremental:interactions` | parser-focused retained-case discovery around attributes, nodes, separators, and numbers |
 
 Notes:
 - `aeon-stress-cli` asserts targeted runtime and policy behavior.
@@ -69,6 +70,8 @@ Notes:
   - Node CLI harness for strict-mode stress and phase timing.
 - `tools/aeon-52-cards/`
   - Combinatorial interaction testing harness (52-Cards problem).
+- `tools/aeon-incremental-fuzz/`
+  - Stress-surface wrapper for the TypeScript incremental hostile-input discovery lane.
 
 ## Fixture Index
 
@@ -256,6 +259,31 @@ npm i --cache .npm-cache --no-audit
 npm run cards            # standard run
 npm run cards-summary    # summary-only output
 npm run cards-verbose    # per-document details
+```
+
+## Incremental Fuzz Wrapper
+
+Stress-surface entrypoint for the corpus-guided `incremental-fuzz` lane housed in
+the TypeScript `phase-fuzz` tool.
+
+```bash
+cd stress-tests/tools/aeon-incremental-fuzz
+npm run incremental
+npm run incremental:interactions
+npm run incremental:json
+```
+
+The wrapper rebuilds the underlying TypeScript fuzz tool, then runs:
+- `--lane incremental`
+- `--profile ci`
+- `--seed 1337`
+
+Pass through additional flags directly:
+
+```bash
+cd stress-tests/tools/aeon-incremental-fuzz
+node ./run-incremental-fuzz.js --group all --budget 80 --report-top 5
+node ./run-incremental-fuzz.js --group interactions --report-file /tmp/incremental-fuzz-report.json
 ```
 
 See [`tools/aeon-52-cards/README.md`](tools/aeon-52-cards/README.md) for design details and feature categories.

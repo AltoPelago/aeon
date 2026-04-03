@@ -28,6 +28,8 @@ export interface IncrementalFuzzRunOptions {
     readonly reportTop: number;
 }
 
+export type IncrementalReportFormat = 'human' | 'json';
+
 export interface IncrementalMutation {
     readonly type: string;
     readonly detail: string;
@@ -80,5 +82,6 @@ export interface RetainedCaseSummary {
     readonly diagnostics: readonly string[];
     readonly mutationTrail: readonly string[];
     readonly expectationMatch: boolean;
+    readonly source: string;
     readonly sourcePreview: string;
 }

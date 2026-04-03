@@ -11,6 +11,7 @@
 		"test:fuzz": "pnpm --filter @aeon/phase-fuzz test",
 		"test:fuzz:lexer": "pnpm --filter @aeon/phase-fuzz fuzz:lexer",
 		"test:fuzz:parser": "pnpm --filter @aeon/phase-fuzz fuzz:parser",
+		"test:fuzz:incremental": "pnpm --filter @aeon/phase-fuzz fuzz:incremental",
 		"lint": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"depcheck": "node ./tools/depcheck.mjs",
 		"test:cts": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/cts-runner/dist/index.js --sut ./packages/aeos/dist/bin/aeos-validator.js --cts ../../cts/aeos/v1/aeos-validator-cts.v1.json",

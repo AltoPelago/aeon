@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
+import { writeFileSync } from 'node:fs';
 import { runLexerFuzz } from './lexer-fuzz.js';
 import { runParserFuzz } from './parser-fuzz.js';
 import { runIncrementalFuzz } from './incremental-fuzz/index.js';
-import type { SyntaxGroup } from './incremental-fuzz/types.js';
+import type { IncrementalFuzzRunSummary, IncrementalReportFormat, SyntaxGroup } from './incremental-fuzz/types.js';
 
 type Lane = 'lexer' | 'parser' | 'incremental' | 'all';
 type Profile = 'ci' | 'nightly';
@@ -20,6 +21,8 @@ function main(): void {
     const beamWidthOverride = getOption(args, '--beam-width', null);
     const keepTopOverride = getOption(args, '--keep-top', null);
     const reportTopOverride = getOption(args, '--report-top', null);
+    const reportFormat = (getOption(args, '--report-format', 'human') ?? 'human') as IncrementalReportFormat;
+    const reportFile = getOption(args, '--report-file', null);
     const group = (getOption(args, '--group', 'all') ?? 'all') as SyntaxGroup | 'all';
 
     const defaults = profileDefaults(profile);
@@ -30,6 +33,7 @@ function main(): void {
     const keepTop = keepTopOverride ? Number(keepTopOverride) : defaults.keepTop;
     const reportTop = reportTopOverride ? Number(reportTopOverride) : defaults.reportTop;
     const seeds = resolveSeeds(profile, seedOption, seedsOption);
+    const incrementalSummaries: IncrementalFuzzRunSummary[] = [];
 
     if (
         !Number.isFinite(cases)
@@ -42,11 +46,23 @@ function main(): void {
     ) {
         throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, and report-top must be finite numbers');
     }
+    if (reportFormat !== 'human' && reportFormat !== 'json') {
+        throw new Error("report-format must be either 'human' or 'json'");
+    }
+    if ((reportFormat === 'json' || reportFile !== null) && lane !== 'incremental' && lane !== 'all') {
+        throw new Error('report-format json and report-file are currently supported for incremental fuzz runs only');
+    }
 
-    console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group}`);
+    const quietIncrementalReport = lane === 'incremental' && reportFormat === 'json';
+
+    if (!quietIncrementalReport) {
+        console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group}`);
+    }
 
     for (const seed of seeds) {
-        console.log(`\nseed ${seed}`);
+        if (!quietIncrementalReport) {
+            console.log(`\nseed ${seed}`);
+        }
 
         if (lane === 'lexer' || lane === 'all') {
             const summary = runLexerFuzz({ seed, cases, maxLength });
@@ -60,21 +76,45 @@ function main(): void {
 
         if (lane === 'incremental' || lane === 'all') {
             const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, reportTop });
-            console.log(
-                `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} bestScore=${summary.bestScore}`,
-            );
-            if (summary.topCases.length > 0) {
-                console.log('top retained cases:');
-                summary.topCases.forEach((entry, index) => {
-                    const diagnostics = entry.diagnostics.length > 0 ? entry.diagnostics.join(',') : 'none';
-                    const mutations = entry.mutationTrail.length > 0 ? entry.mutationTrail.join('>') : 'seed';
-                    console.log(
-                        `  ${index + 1}. ${entry.id} group=${entry.group} score=${entry.score} accepted=${entry.accepted} expectationMatch=${entry.expectationMatch} diagnostics=${diagnostics} mutations=${mutations}`,
-                    );
-                    console.log(`     reasons=${entry.reasons.join(', ')}`);
-                    console.log(`     source=${entry.sourcePreview}`);
-                });
+            incrementalSummaries.push(summary);
+            if (reportFormat === 'human') {
+                console.log(
+                    `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} bestScore=${summary.bestScore}`,
+                );
+                if (summary.topCases.length > 0) {
+                    console.log('top retained cases:');
+                    summary.topCases.forEach((entry, index) => {
+                        const diagnostics = entry.diagnostics.length > 0 ? entry.diagnostics.join(',') : 'none';
+                        const mutations = entry.mutationTrail.length > 0 ? entry.mutationTrail.join('>') : 'seed';
+                        console.log(
+                            `  ${index + 1}. ${entry.id} group=${entry.group} score=${entry.score} accepted=${entry.accepted} expectationMatch=${entry.expectationMatch} diagnostics=${diagnostics} mutations=${mutations}`,
+                        );
+                        console.log(`     reasons=${entry.reasons.join(', ')}`);
+                        console.log(`     source=${entry.sourcePreview}`);
+                    });
+                }
             }
+        }
+    }
+
+    if (incrementalSummaries.length > 0 && (reportFormat === 'json' || reportFile !== null)) {
+        const report = JSON.stringify(
+            {
+                lane: 'incremental',
+                profile,
+                group,
+                generatedAt: new Date().toISOString(),
+                runs: incrementalSummaries,
+            },
+            null,
+            2,
+        );
+        if (reportFile !== null) {
+            writeFileSync(reportFile, report, 'utf8');
+            console.log(`incremental fuzz report written: ${reportFile}`);
+        }
+        if (reportFormat === 'json') {
+            console.log(report);
         }
     }
 }

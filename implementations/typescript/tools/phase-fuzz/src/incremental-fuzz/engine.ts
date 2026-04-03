@@ -99,6 +99,7 @@ export function runIncrementalFuzz(options: IncrementalFuzzRunOptions): Incremen
             diagnostics: entry.signature.diagnostics,
             mutationTrail: entry.mutationTrail,
             expectationMatch: entry.signature.expectationMatch,
+            source: entry.source,
             sourcePreview: previewSource(entry.source),
         })),
     };
