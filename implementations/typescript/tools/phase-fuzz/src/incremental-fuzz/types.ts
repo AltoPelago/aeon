@@ -25,6 +25,7 @@ export interface IncrementalFuzzRunOptions {
     readonly beamWidth: number;
     readonly keepTop: number;
     readonly group: SyntaxGroup | 'all';
+    readonly reportTop: number;
 }
 
 export interface IncrementalMutation {
@@ -67,4 +68,17 @@ export interface IncrementalFuzzRunSummary {
     readonly accepted: number;
     readonly rejected: number;
     readonly bestScore: number;
+    readonly topCases: readonly RetainedCaseSummary[];
+}
+
+export interface RetainedCaseSummary {
+    readonly id: string;
+    readonly group: SyntaxGroup;
+    readonly score: number;
+    readonly accepted: boolean;
+    readonly reasons: readonly string[];
+    readonly diagnostics: readonly string[];
+    readonly mutationTrail: readonly string[];
+    readonly expectationMatch: boolean;
+    readonly sourcePreview: string;
 }

@@ -90,6 +90,17 @@ export function runIncrementalFuzz(options: IncrementalFuzzRunOptions): Incremen
         accepted,
         rejected,
         bestScore: retained.length > 0 ? retained[0]?.score ?? 0 : 0,
+        topCases: retained.slice(0, Math.max(0, options.reportTop)).map((entry) => ({
+            id: entry.id,
+            group: entry.seed.group,
+            score: entry.score,
+            accepted: entry.signature.accepted,
+            reasons: entry.reasons,
+            diagnostics: entry.signature.diagnostics,
+            mutationTrail: entry.mutationTrail,
+            expectationMatch: entry.signature.expectationMatch,
+            sourcePreview: previewSource(entry.source),
+        })),
     };
 }
 
@@ -112,3 +123,7 @@ function retain(
     queue.push(result);
 }
 
+function previewSource(source: string): string {
+    const singleLine = source.replace(/\s+/g, ' ').trim();
+    return singleLine.length <= 120 ? singleLine : `${singleLine.slice(0, 117)}...`;
+}

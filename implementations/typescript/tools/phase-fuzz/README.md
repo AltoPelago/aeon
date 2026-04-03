@@ -9,6 +9,7 @@ pnpm --filter @aeon/phase-fuzz test
 pnpm --filter @aeon/phase-fuzz fuzz:lexer
 pnpm --filter @aeon/phase-fuzz fuzz:parser
 pnpm --filter @aeon/phase-fuzz fuzz:incremental
+pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group nodes --report-top 10
 pnpm --filter @aeon/phase-fuzz fuzz:nightly
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group interactions --id inc-example --source-file /tmp/case.aeon
@@ -77,3 +78,4 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group intera
 - weighted incremental mutations around structural hotspots
 - rewards for new lexer/parser signatures, diagnostics, and syntax-group interactions
 - extra progress credit for longer valid prefixes, deeper token progress, richer node shapes, and deeper ASTs
+- compact top-case reporting prints the strongest retained cases with score reasons and source previews

@@ -19,6 +19,7 @@ function main(): void {
     const budgetOverride = getOption(args, '--budget', null);
     const beamWidthOverride = getOption(args, '--beam-width', null);
     const keepTopOverride = getOption(args, '--keep-top', null);
+    const reportTopOverride = getOption(args, '--report-top', null);
     const group = (getOption(args, '--group', 'all') ?? 'all') as SyntaxGroup | 'all';
 
     const defaults = profileDefaults(profile);
@@ -27,6 +28,7 @@ function main(): void {
     const budget = budgetOverride ? Number(budgetOverride) : defaults.budget;
     const beamWidth = beamWidthOverride ? Number(beamWidthOverride) : defaults.beamWidth;
     const keepTop = keepTopOverride ? Number(keepTopOverride) : defaults.keepTop;
+    const reportTop = reportTopOverride ? Number(reportTopOverride) : defaults.reportTop;
     const seeds = resolveSeeds(profile, seedOption, seedsOption);
 
     if (
@@ -35,9 +37,10 @@ function main(): void {
         || !Number.isFinite(budget)
         || !Number.isFinite(beamWidth)
         || !Number.isFinite(keepTop)
+        || !Number.isFinite(reportTop)
         || seeds.some((seed) => !Number.isFinite(seed))
     ) {
-        throw new Error('seed, seeds, cases, max-length, budget, beam-width, and keep-top must be finite numbers');
+        throw new Error('seed, seeds, cases, max-length, budget, beam-width, keep-top, and report-top must be finite numbers');
     }
 
     console.log(`AEON phase fuzz: lane=${lane} profile=${profile} seeds=${seeds.join(',')} cases=${cases} maxLength=${maxLength} budget=${budget} group=${group}`);
@@ -56,10 +59,22 @@ function main(): void {
         }
 
         if (lane === 'incremental' || lane === 'all') {
-            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group });
+            const summary = runIncrementalFuzz({ seed, budget, maxLength, beamWidth, keepTop, group, reportTop });
             console.log(
                 `incremental fuzz passed: explored=${summary.explored} retained=${summary.retained} accepted=${summary.accepted} rejected=${summary.rejected} groups=${summary.groups.join(',')} bestScore=${summary.bestScore}`,
             );
+            if (summary.topCases.length > 0) {
+                console.log('top retained cases:');
+                summary.topCases.forEach((entry, index) => {
+                    const diagnostics = entry.diagnostics.length > 0 ? entry.diagnostics.join(',') : 'none';
+                    const mutations = entry.mutationTrail.length > 0 ? entry.mutationTrail.join('>') : 'seed';
+                    console.log(
+                        `  ${index + 1}. ${entry.id} group=${entry.group} score=${entry.score} accepted=${entry.accepted} expectationMatch=${entry.expectationMatch} diagnostics=${diagnostics} mutations=${mutations}`,
+                    );
+                    console.log(`     reasons=${entry.reasons.join(', ')}`);
+                    console.log(`     source=${entry.sourcePreview}`);
+                });
+            }
         }
     }
 }
@@ -72,11 +87,11 @@ function getOption(args: readonly string[], name: string, fallback: string | nul
     return args[index + 1] ?? fallback;
 }
 
-function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number } {
+function profileDefaults(profile: Profile): { cases: number; maxLength: number; budget: number; beamWidth: number; keepTop: number; reportTop: number } {
     if (profile === 'nightly') {
-        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128 };
+        return { cases: 600, maxLength: 512, budget: 1500, beamWidth: 64, keepTop: 128, reportTop: 8 };
     }
-    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48 };
+    return { cases: 120, maxLength: 256, budget: 320, beamWidth: 24, keepTop: 48, reportTop: 5 };
 }
 
 function resolveSeeds(profile: Profile, seedOption: string | null, seedsOption: string | null): number[] {
