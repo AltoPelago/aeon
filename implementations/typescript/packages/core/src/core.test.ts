@@ -690,6 +690,43 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should reject scalar values for generic custom datatypes in custom mode', () => {
+            const result = compile('aeon:mode = "custom"\na:custom<custom> = 0');
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should allow list and tuple values for generic custom datatypes in custom mode', () => {
+            const listResult = compile('aeon:mode = "custom"\nb:custom<custom> = [2]');
+            assert.strictEqual(listResult.errors.length, 0);
+            assert.ok(listResult.events.length > 0);
+
+            const tupleResult = compile('aeon:mode = "custom"\nc:custom<custom> = (2)');
+            assert.strictEqual(tupleResult.errors.length, 0);
+            assert.ok(tupleResult.events.length > 0);
+        });
+
+        it('should reject scalar values for custom bracket specs in custom mode', () => {
+            const radixLikeResult = compile('aeon:mode = "custom"\nd:custom[3] = 3');
+            assert.ok(radixLikeResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+
+            const separatorLikeResult = compile('aeon:mode = "custom"\ne:custom[.] = 3');
+            assert.ok(separatorLikeResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should allow valid custom separator and radix bindings in custom mode', () => {
+            const radixResult = compile('aeon:mode = "custom"\nf:custom[2] = %10101');
+            assert.strictEqual(radixResult.errors.length, 0);
+            assert.ok(radixResult.events.length > 0);
+
+            const separatorResult = compile('aeon:mode = "custom"\ng:custom[.] = ^1.1.1');
+            assert.strictEqual(separatorResult.errors.length, 0);
+            assert.ok(separatorResult.events.length > 0);
+
+            const ambiguousResult = compile('aeon:mode = "custom"\nh:custom[1] = ^1.1.1');
+            assert.strictEqual(ambiguousResult.errors.length, 0);
+            assert.ok(ambiguousResult.events.length > 0);
+        });
+
         it('should allow single-digit custom bracket specs for both separator and radix literals', () => {
             const separatorResult = compile('aeon:mode = "strict"\na:custom[2] = ^a2a', {
                 datatypePolicy: 'allow_custom',

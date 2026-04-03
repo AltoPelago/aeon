@@ -744,6 +744,15 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[1]!.type, TokenType.RightParen);
         });
 
+        it('should terminate raw separator literal before a tab-followed comment', () => {
+            const result = tokenize('^1\t// hello', { includeComments: true });
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
+            assert.strictEqual(result.tokens[0]!.value, '^1');
+            assert.strictEqual(result.tokens[1]!.type, TokenType.LineComment);
+            assert.strictEqual(result.tokens[1]!.value, '// hello');
+        });
+
         it('should terminate raw separator literal at the first unescaped interior space', () => {
             const result = tokenize('^a\\ b c)');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);

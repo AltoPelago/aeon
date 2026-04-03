@@ -349,7 +349,7 @@ impl<'a> Lexer<'a> {
         while !self.is_at_end() {
             match self.peek() {
                 '\n' | '\r' | ',' | ']' | ')' | '}' => break,
-                ' ' if !saw_payload_char => {
+                ' ' | '\t' if !saw_payload_char => {
                     self.errors.push(LexError {
                         code: String::from("SYNTAX_ERROR"),
                         message: String::from(
@@ -369,12 +369,13 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     saw_payload_char = true;
                 }
+                ' ' | '\t' if saw_payload_char => break,
                 '\\' => {
                     saw_payload_char = true;
                     self.advance();
                 }
                 _ => {
-                    if self.peek() != ' ' {
+                    if !matches!(self.peek(), ' ' | '\t') {
                         saw_payload_char = true;
                     }
                     self.advance();
@@ -903,6 +904,22 @@ mod tests {
             .find(|token| token.kind == TokenKind::SeparatorLiteral)
             .expect("separator token");
         assert_eq!(token.text, "^http://www.aeonite.org/*hello*/file.aeon");
+    }
+
+    #[test]
+    fn separator_literals_terminate_before_tab_followed_comments() {
+        let result = tokenize(
+            "^1\t// hello",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^1");
+        assert_eq!(result.tokens[1].kind, TokenKind::LineComment);
+        assert_eq!(result.tokens[1].text, "// hello");
     }
 
     #[test]

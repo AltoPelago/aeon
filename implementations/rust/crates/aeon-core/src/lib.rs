@@ -24,6 +24,8 @@ pub use lexer::{
     tokenize, CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
     ReservedCommentSubtype, Token, TokenKind,
 };
+#[cfg(test)]
+use validation::datatype_has_generic_args;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1179,6 +1181,94 @@ mod tests {
             },
         );
         assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
+    }
+
+    #[test]
+    fn custom_mode_rejects_scalar_values_for_generic_custom_datatypes() {
+        let result = compile(
+            "aeon:mode = \"custom\"\na:custom<custom> = 0\n",
+            CompileOptions::default(),
+        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+    }
+
+    #[test]
+    fn custom_mode_allows_list_and_tuple_values_for_generic_custom_datatypes() {
+        let list_result = compile(
+            "aeon:mode = \"custom\"\nb:custom<custom> = [2]\n",
+            CompileOptions::default(),
+        );
+        assert!(list_result.errors.is_empty(), "{:?}", list_result.errors);
+
+        let tuple_result = compile(
+            "aeon:mode = \"custom\"\nc:custom<custom> = (2)\n",
+            CompileOptions::default(),
+        );
+        assert!(tuple_result.errors.is_empty(), "{:?}", tuple_result.errors);
+    }
+
+    #[test]
+    fn custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes() {
+        let radix_like_result = compile(
+            "aeon:mode = \"custom\"\nd:custom[3] = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(radix_like_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+
+        let separator_like_result = compile(
+            "aeon:mode = \"custom\"\ne:custom[.] = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(separator_like_result
+            .errors
+            .iter()
+            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+    }
+
+    #[test]
+    fn custom_mode_keeps_valid_custom_separator_and_radix_bindings() {
+        let radix_result = compile(
+            "aeon:mode = \"custom\"\nf:custom[2] = %10101\n",
+            CompileOptions::default(),
+        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
+
+        let separator_result = compile(
+            "aeon:mode = \"custom\"\ng:custom[.] = ^1.1.1\n",
+            CompileOptions::default(),
+        );
+        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+
+        let ambiguous_result = compile(
+            "aeon:mode = \"custom\"\nh:custom[1] = ^1.1.1\n",
+            CompileOptions::default(),
+        );
+        assert!(ambiguous_result.errors.is_empty(), "{:?}", ambiguous_result.errors);
+    }
+
+    #[test]
+    fn custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly() {
+        let result = compile(
+            "aeon:mode = \"custom\"\na:custom<custom>[.] = [2]\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert!(result.errors[0]
+            .message
+            .contains("combines incompatible generic and bracket constraints"));
+    }
+
+    #[test]
+    fn custom_mode_ignores_angle_brackets_inside_separator_specs() {
+        assert!(datatype_has_generic_args("custom<custom>"));
+        assert!(!datatype_has_generic_args("custom[\"<\"][\">\"]"));
     }
 
     #[test]

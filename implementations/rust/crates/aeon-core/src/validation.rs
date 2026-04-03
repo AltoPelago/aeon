@@ -972,6 +972,12 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
             path
         );
     }
+    if custom_datatype_constraints_conflict(datatype) {
+        return format!(
+            "Datatype/literal mismatch at '{}': datatype ':{datatype}' combines incompatible generic and bracket constraints, got {actual_kind}",
+            path
+        );
+    }
     if let Some(expected) = expected_kinds_for_custom_datatype(datatype) {
         return format!(
             "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
@@ -986,6 +992,35 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
 }
 
 fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
+    let mut expected = if datatype_has_generic_args(datatype) {
+        Some(vec!["ListNode", "TupleLiteral"])
+    } else {
+        None
+    };
+
+    let Some(bracket_expected) = expected_kinds_for_custom_datatype_shape(datatype) else {
+        return expected;
+    };
+
+    match expected.as_mut() {
+        Some(existing) => {
+            let combined: Vec<&'static str> = existing
+                .iter()
+                .copied()
+                .filter(|kind| bracket_expected.contains(kind))
+                .collect();
+            if combined.is_empty() {
+                // Preserve an explicit "impossible constraints" signal for callers so
+                // they can emit a dedicated diagnostic instead of an empty expected list.
+                return Some(Vec::new());
+            }
+            Some(combined)
+        }
+        None => Some(bracket_expected),
+    }
+}
+
+fn expected_kinds_for_custom_datatype_shape(datatype: &str) -> Option<Vec<&'static str>> {
     let specs = datatype_bracket_specs(datatype);
     if specs.is_empty() {
         return None;
@@ -1013,7 +1048,30 @@ fn custom_datatype_shape_is_invalid_for_both(datatype: &str) -> bool {
     !separator_ok && !radix_ok
 }
 
+pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
+    let mut bracket_depth = 0usize;
+    let mut generic_start = None;
+
+    for ch in datatype.chars() {
+        match ch {
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            _ if bracket_depth > 0 => {}
+            '<' => generic_start = Some(()),
+            '>' if generic_start.is_some() => return true,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn custom_datatype_constraints_conflict(datatype: &str) -> bool {
+    expected_kinds_for_custom_datatype(datatype).is_some_and(|expected| expected.is_empty())
+}
+
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
+    let custom_expected = expected_kinds_for_custom_datatype(datatype);
     match datatype_base(datatype) {
         "number" | "n" | "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8"
         | "uint16" | "uint32" | "uint64" | "float" | "float32" | "float64" => {
@@ -1041,6 +1099,10 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
         "null" => false,
+        _ if custom_expected.is_some() => {
+            let expected = custom_expected.as_ref().expect("checked is_some");
+            expected.contains(&value.value_kind())
+        }
         _ if matches!(value, Value::SeparatorLiteral { .. }) => custom_separator_specs_are_valid(datatype),
         _ if matches!(value, Value::RadixLiteral { .. }) => custom_radix_specs_are_valid(datatype),
         _ => true,

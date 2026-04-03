@@ -32,6 +32,7 @@ from .errors import (
     DuplicateCanonicalPathError,
     ForwardReferenceError,
     InvalidCustomDatatypeBracketShapeError,
+    IncompatibleCustomDatatypeAdornmentsError,
     InvalidNodeHeadDatatypeError,
     MissingReferenceTargetError,
     SelfReferenceError,
@@ -398,8 +399,18 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
                     )
                 )
             else:
-                custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
-                if custom_expected is not None:
+                custom_expected = expected_kinds_for_custom_datatype(binding.datatype, custom_shape)
+                if custom_expected == ():
+                    errors.append(
+                        IncompatibleCustomDatatypeAdornmentsError(
+                            format_path(binding.path),
+                            binding.datatype,
+                            actual_kind,
+                            binding.span,
+                        )
+                    )
+                    expected = None
+                elif custom_expected is not None:
                     expected = custom_expected
         if expected is not None and actual_kind not in expected:
             errors.append(
@@ -541,8 +552,11 @@ def validate_annotation_entries(
                             errors.append(InvalidCustomDatatypeBracketShapeError(attr_path, datatype, actual_kind, span))
                             expected = None
                         else:
-                            custom_expected = expected_kinds_for_custom_datatype_shape(custom_shape, actual_kind)
-                            if custom_expected is not None:
+                            custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
+                            if custom_expected == ():
+                                errors.append(IncompatibleCustomDatatypeAdornmentsError(attr_path, datatype, actual_kind, span))
+                                expected = None
+                            elif custom_expected is not None:
                                 expected = custom_expected
                     if expected is not None and actual_kind not in expected:
                         errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
@@ -773,13 +787,29 @@ def expected_kinds_for_reserved_datatype(datatype: str) -> tuple[str, ...] | Non
     return RESERVED_KIND_MAP.get(base)
 
 
+def expected_kinds_for_custom_datatype(datatype: str, custom_shape: str) -> tuple[str, ...] | None:
+    expected: tuple[str, ...] | None = None
+    if datatype_has_generic_args(datatype):
+        expected = ("ListNode", "TupleLiteral")
+
+    bracket_expected = expected_kinds_for_custom_datatype_shape(custom_shape)
+    if bracket_expected is None:
+        return expected
+    if expected is None:
+        return bracket_expected
+
+    combined = tuple(kind for kind in expected if kind in bracket_expected)
+    if not combined:
+        # Preserve an explicit "impossible constraints" signal for callers so
+        # they can emit a dedicated diagnostic instead of an empty expected list.
+        return ()
+    return combined
+
+
 def expected_kinds_for_custom_datatype_shape(
     custom_shape: str,
-    actual_kind: str,
 ) -> tuple[str, ...] | None:
     if custom_shape in {"none", "invalid_both"}:
-        return None
-    if actual_kind not in {"SeparatorLiteral", "RadixLiteral"}:
         return None
     if custom_shape == "both":
         return ("SeparatorLiteral", "RadixLiteral")
@@ -812,6 +842,26 @@ def datatype_base(datatype: str) -> str:
         if index >= 0:
             end = min(end, index)
     return datatype[:end]
+
+
+def datatype_has_generic_args(datatype: str) -> bool:
+    bracket_depth = 0
+    generic_start = -1
+    for index, char in enumerate(datatype):
+        if char == "[":
+            bracket_depth += 1
+            continue
+        if char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            continue
+        if bracket_depth > 0:
+            continue
+        if char == "<":
+            generic_start = index
+            continue
+        if char == ">" and generic_start >= 0:
+            return True
+    return False
 
 
 def datatype_bracket_specs(datatype: str) -> list[str]:

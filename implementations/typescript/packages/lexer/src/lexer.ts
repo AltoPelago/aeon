@@ -129,6 +129,10 @@ function isSeparatorBoundary(c: string): boolean {
     return c === '\n' || c === ',' || c === ']' || c === ')' || c === '}';
 }
 
+function isHorizontalWhitespace(c: string): boolean {
+    return c === ' ' || c === '\t';
+}
+
 
 /**
  * AEON Lexer
@@ -766,9 +770,10 @@ export class Lexer {
                 break;
             }
 
-            // Unescaped spaces inside raw payload are only allowed as trailing padding
-            // immediately before the next grammar boundary. Interior spaces must be escaped.
-            if (inQuote === null && c === ' ' && !this.onlySpacesUntilSeparatorBoundary()) {
+            // Unescaped horizontal whitespace inside raw payload is only allowed as
+            // trailing padding immediately before the next grammar boundary.
+            // Interior spaces/tabs must be escaped.
+            if (inQuote === null && isHorizontalWhitespace(c) && !this.onlyWhitespaceUntilSeparatorBoundary()) {
                 break;
             }
 
@@ -816,11 +821,11 @@ export class Lexer {
         this.addToken(TokenType.SeparatorLiteral, value, start);
     }
 
-    private onlySpacesUntilSeparatorBoundary(): boolean {
+    private onlyWhitespaceUntilSeparatorBoundary(): boolean {
         let index = this.offset;
         while (index < this.input.length) {
             const c = this.input[index]!;
-            if (c === ' ') {
+            if (isHorizontalWhitespace(c)) {
                 index += 1;
                 continue;
             }

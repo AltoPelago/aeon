@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.core import CompileOptions, compile_source
+from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
 
 
 class CoreCompileTests(unittest.TestCase):
@@ -178,6 +178,24 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>')
         self.assertEqual([], result.errors)
 
+    def test_custom_mode_rejects_scalar_values_for_generic_custom_datatypes(self) -> None:
+        result = compile_source('aeon:mode = "custom"\na:custom<custom> = 0')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_custom_mode_allows_list_and_tuple_values_for_generic_custom_datatypes(self) -> None:
+        list_result = compile_source('aeon:mode = "custom"\nb:custom<custom> = [2]')
+        self.assertEqual([], list_result.errors)
+
+        tuple_result = compile_source('aeon:mode = "custom"\nc:custom<custom> = (2)')
+        self.assertEqual([], tuple_result.errors)
+
+    def test_custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes(self) -> None:
+        radix_like_result = compile_source('aeon:mode = "custom"\nd:custom[3] = 3')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in radix_like_result.errors])
+
+        separator_like_result = compile_source('aeon:mode = "custom"\ne:custom[.] = 3')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in separator_like_result.errors])
+
     def test_custom_mode_allows_custom_radix_base_between_2_and_64(self) -> None:
         result = compile_source('aeon:mode = "custom"\ns:custom[2] = %111')
         self.assertEqual([], result.errors)
@@ -193,6 +211,28 @@ class CoreCompileTests(unittest.TestCase):
     def test_custom_mode_rejects_multi_bracket_custom_spec_for_radix_literal(self) -> None:
         result = compile_source('aeon:mode = "custom"\ns:custom[1][2] = %111')
         self.assertNotEqual([], result.errors)
+
+    def test_custom_mode_allows_valid_custom_separator_bindings(self) -> None:
+        separator_result = compile_source('aeon:mode = "custom"\ng:custom[.] = ^1.1.1')
+        self.assertEqual([], separator_result.errors)
+
+        ambiguous_result = compile_source('aeon:mode = "custom"\nh:custom[1] = ^1.1.1')
+        self.assertEqual([], ambiguous_result.errors)
+
+    def test_custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly(self) -> None:
+        result = compile_source('aeon:mode = "custom"\na:custom<custom>[.] = [2]')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertIn("combines incompatible generic and bracket constraints", result.errors[0].message)
+
+    def test_custom_mode_ignores_angle_brackets_inside_separator_specs(self) -> None:
+        self.assertTrue(datatype_has_generic_args("custom<custom>"))
+        self.assertFalse(datatype_has_generic_args('custom["<"][">"]'))
+
+    def test_separator_literals_terminate_before_tab_followed_comments(self) -> None:
+        result = compile_source('g:sep = ^1\t// d')
+        self.assertEqual([], result.errors)
+        self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
+        self.assertEqual("^1", result.events[0]["value"]["raw"])
 
     def test_missing_attribute_reference(self) -> None:
         result = compile_source("a = 1\nv = ~a@ns")

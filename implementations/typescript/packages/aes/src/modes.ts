@@ -130,6 +130,18 @@ export class InvalidCustomDatatypeBracketShapeError extends ModeEnforcementError
     }
 }
 
+export class IncompatibleCustomDatatypeAdornmentsError extends ModeEnforcementError {
+    constructor(span: Span, path: string, datatype: string, actualKind: string) {
+        super(
+            `Datatype/literal mismatch at '${path}': datatype ':${datatype}' combines incompatible generic and bracket constraints, got ${actualKind}`,
+            span,
+            'DATATYPE_LITERAL_MISMATCH',
+            path
+        );
+        this.name = 'IncompatibleCustomDatatypeAdornmentsError';
+    }
+}
+
 /**
  * Error: Custom datatype is not permitted by typed-mode datatype policy
  */
@@ -286,8 +298,15 @@ export function enforceMode(
                     actualKind
                 ));
             } else {
-                const customExpectedKinds = expectedKindsForCustomDatatypeShape(customShape, actualKind);
-                if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                const customExpectedKinds = expectedKindsForCustomDatatype(event.datatype, customShape);
+                if (customExpectedKinds && customExpectedKinds.length === 0) {
+                    errors.push(new IncompatibleCustomDatatypeAdornmentsError(
+                        event.span,
+                        formatPath(event.path),
+                        event.datatype,
+                        actualKind
+                    ));
+                } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         event.span,
                         formatPath(event.path),
@@ -499,8 +518,15 @@ function validateAnnotationEntries(
                             actualKind
                         ));
                     } else {
-                        const customExpectedKinds = expectedKindsForCustomDatatypeShape(customShape, actualKind);
-                        if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                        const customExpectedKinds = expectedKindsForCustomDatatype(entry.datatype, customShape);
+                        if (customExpectedKinds && customExpectedKinds.length === 0) {
+                            errors.push(new IncompatibleCustomDatatypeAdornmentsError(
+                                span,
+                                attrPath,
+                                entry.datatype,
+                                actualKind
+                            ));
+                        } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
                             errors.push(new DatatypeLiteralMismatchError(
                                 span,
                                 attrPath,
@@ -750,12 +776,61 @@ function datatypeBase(datatype: string): string {
     return datatype.slice(0, endIdx);
 }
 
+export function datatypeHasGenericArgs(datatype: string): boolean {
+    let bracketDepth = 0;
+    let genericStart = -1;
+
+    for (let index = 0; index < datatype.length; index += 1) {
+        const char = datatype[index]!;
+        if (char === '[') {
+            bracketDepth += 1;
+            continue;
+        }
+        if (char === ']') {
+            bracketDepth = Math.max(0, bracketDepth - 1);
+            continue;
+        }
+        if (bracketDepth > 0) {
+            continue;
+        }
+        if (char === '<') {
+            genericStart = index;
+            continue;
+        }
+        if (char === '>' && genericStart >= 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function expectedKindsForCustomDatatype(
+    datatype: string,
+    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both'
+): readonly string[] | null {
+    let expectedKinds: readonly string[] | null = null;
+
+    if (datatypeHasGenericArgs(datatype)) {
+        expectedKinds = ['ListNode', 'TupleLiteral'];
+    }
+
+    const bracketKinds = expectedKindsForCustomDatatypeShape(customShape);
+    if (bracketKinds === null) {
+        return expectedKinds;
+    }
+    if (expectedKinds === null) {
+        return bracketKinds;
+    }
+
+    const combined = expectedKinds.filter((kind) => bracketKinds.includes(kind));
+    return combined;
+}
+
 function expectedKindsForCustomDatatypeShape(
-    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both',
-    actualKind: string
+    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both'
 ): readonly string[] | null {
     if (customShape === 'none' || customShape === 'invalid_both') return null;
-    if (actualKind !== 'SeparatorLiteral' && actualKind !== 'RadixLiteral') return null;
     if (customShape === 'both') return ['SeparatorLiteral', 'RadixLiteral'];
     if (customShape === 'separator') return ['SeparatorLiteral'];
     return ['RadixLiteral'];
