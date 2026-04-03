@@ -271,6 +271,7 @@ cd stress-tests/tools/aeon-incremental-fuzz
 npm run incremental
 npm run incremental:interactions
 npm run incremental:json
+npm run minimize -- --group interactions --source 'a = <x@{class = "hero"}(1, [2, 3)>'
 ```
 
 The wrapper rebuilds the underlying TypeScript fuzz tool, then runs:
@@ -284,6 +285,7 @@ Pass through additional flags directly:
 cd stress-tests/tools/aeon-incremental-fuzz
 node ./run-incremental-fuzz.js --group all --budget 80 --report-top 5
 node ./run-incremental-fuzz.js --group interactions --report-file /tmp/incremental-fuzz-report.json
+node ./run-minimize.js --group numbers --source 'a = 1..2'
 ```
 
 See [`tools/aeon-52-cards/README.md`](tools/aeon-52-cards/README.md) for design details and feature categories.

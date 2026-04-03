@@ -61,13 +61,30 @@ function preservesFailureClass(candidate: string, seed: IncrementalSeed, baselin
     if (next.accepted) {
         return false;
     }
-    return diagnosticsKey(next) === diagnosticsKey(baseline)
+    return equivalentDiagnosticClass(seed.group, next, baseline)
         && preservesSeedGroup(candidate, seed.group)
-        && next.validPrefix >= Math.min(baseline.validPrefix, 1);
+        && next.validPrefix >= minimumValidPrefix(seed.group, baseline);
 }
 
 function diagnosticsKey(snapshot: SignatureSnapshot): string {
     return JSON.stringify(snapshot.diagnostics);
+}
+
+function equivalentDiagnosticClass(group: IncrementalSeed['group'], next: SignatureSnapshot, baseline: SignatureSnapshot): boolean {
+    if (group === 'nodes') {
+        return next.diagnostics.includes('SYNTAX_ERROR') && baseline.diagnostics.includes('SYNTAX_ERROR');
+    }
+    if (group === 'numbers') {
+        return next.diagnostics.includes('SYNTAX_ERROR') && baseline.diagnostics.includes('SYNTAX_ERROR');
+    }
+    return diagnosticsKey(next) === diagnosticsKey(baseline);
+}
+
+function minimumValidPrefix(group: IncrementalSeed['group'], baseline: SignatureSnapshot): number {
+    if (group === 'nodes') {
+        return 0;
+    }
+    return Math.min(baseline.validPrefix, 1);
 }
 
 function buildChunkCandidates(source: string): string[] {
@@ -163,7 +180,9 @@ function rehydrateReadableSkeleton(current: string, original: string, seed: Incr
         if (!preservesFailureClass(candidate, seed, baseline)) {
             continue;
         }
-        if (readabilityScore(candidate) > readabilityScore(best)) {
+        const candidateScore = readabilityScore(candidate) + groupPreferenceScore(candidate, seed.group);
+        const bestScore = readabilityScore(best) + groupPreferenceScore(best, seed.group);
+        if (candidateScore > bestScore || (candidateScore === bestScore && candidate.length < best.length)) {
             best = candidate;
         }
     }
@@ -180,6 +199,10 @@ function buildReadableSkeletons(source: string, minimized: string, group: Increm
     const keepAttr = minimized.includes('@{');
     const keepSep = minimized.includes(',') || minimized.includes('\n');
     const keepEq = minimized.includes('=');
+    const nodeLead = keepNode ? '<' : '';
+    const nodeTail = keepNode ? '>' : '';
+    const sep = keepSep ? ',' : '';
+    const attrPayload = keepEq ? `${attrKey}=${number}` : number;
 
     switch (group) {
         case 'attributes':
@@ -187,31 +210,41 @@ function buildReadableSkeletons(source: string, minimized: string, group: Increm
                 `${identifier}@{${attrKey}=${number}}`,
                 `${identifier}@{${attrKey}=${number},}`,
                 `${identifier}@{${number}}`,
+                `${identifier}@{${attrKey}=${number}}`,
+                `${attrKey}@{${number}}`,
             ];
         case 'nodes':
             return [
+                `<${identifier}`,
                 `<${identifier}>`,
                 `<${identifier}()>`,
-                `<${identifier}(`,
+                `<${identifier}@{}>`,
+                `<${identifier}@{a=1}>`,
             ];
         case 'separators':
             return [
                 `${identifier},${number}`,
+                `${identifier},${identifier}`,
                 `${identifier}\n${number}`,
                 `${identifier},`,
+                `${identifier}\n${identifier}`,
             ];
         case 'numbers':
             return [
-                `${identifier}=${number}`,
-                `${identifier}${number}`,
+                `${identifier}=${number}.`,
+                `${identifier}=${number}..`,
+                `${identifier}=${number}.0`,
+                `${identifier}:${number}.`,
+                `${identifier}${number}.`,
             ];
         case 'interactions':
             return [
-                `${keepNode ? '<' : ''}${identifier}${keepAttr ? `@{${keepEq ? `${attrKey}=${number}` : number}` : ''}${keepSep ? ',' : ''}${keepNode ? '>' : ''}`,
-                `<${identifier}@{${attrKey}=${number},>`,
-                `<${identifier}@{${attrKey}=${number}}>`,
+                `${nodeLead}${identifier}${keepAttr ? `@{${attrPayload}${sep}` : ''}${nodeTail}`,
+                `${nodeLead}${identifier}@{${attrKey}=${number}${sep}${nodeTail}`,
+                `${identifier}@{${attrKey}=${number}${sep}${nodeTail}`,
+                `${nodeLead}${identifier}@{${number}${sep}${nodeTail}`,
                 `${identifier}@{${attrKey}=${number},>`,
-                `<${identifier}@{${number},>`,
+                `${nodeLead}${identifier}@{${attrKey}=${number}${nodeTail}`,
             ];
         default:
             return [];
@@ -250,12 +283,36 @@ function readabilityScore(source: string): number {
     return score;
 }
 
+function groupPreferenceScore(source: string, group: IncrementalSeed['group']): number {
+    switch (group) {
+        case 'nodes':
+            return (source.startsWith('<') ? 3 : 0)
+                + (source.includes('(') ? 1 : 0)
+                + (source.includes('@{') ? 1 : 0);
+        case 'numbers':
+            return (source.includes('=') ? 2 : 0)
+                + (source.includes('.') ? 3 : 0)
+                + (/^\w[:=]/.test(source) ? 1 : 0);
+        case 'attributes':
+            return source.includes('@{') ? 2 : 0;
+        case 'separators':
+            return (source.includes(',') || source.includes('\n')) ? 2 : 0;
+        case 'interactions':
+            return (source.includes('@{') ? 2 : 0)
+                + ((source.includes('<') || source.includes('>')) ? 2 : 0)
+                + ((source.includes(',') || source.includes('\n')) ? 1 : 0)
+                + (source.includes('=') ? 1 : 0);
+        default:
+            return 0;
+    }
+}
+
 function preservesSeedGroup(source: string, group: IncrementalSeed['group']): boolean {
     switch (group) {
         case 'attributes':
             return source.includes('@{') && /[A-Za-z]/.test(source);
         case 'nodes':
-            return (source.includes('<') || source.includes('>')) && /[A-Za-z]/.test(source);
+            return source.includes('<') && /[A-Za-z]/.test(source);
         case 'separators':
             return (source.includes(',') || source.includes('\n')) && /[A-Za-z0-9]/.test(source);
         case 'numbers':

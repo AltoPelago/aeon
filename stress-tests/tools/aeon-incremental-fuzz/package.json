@@ -6,7 +6,7 @@
     "build": "pnpm -C ../../../implementations/typescript/tools/phase-fuzz build",
     "incremental": "node ./run-incremental-fuzz.js",
     "incremental:interactions": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3",
-    "incremental:json": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3 --report-format json"
+    "incremental:json": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3 --report-format json",
+    "minimize": "node ./run-minimize.js"
   }
 }
-

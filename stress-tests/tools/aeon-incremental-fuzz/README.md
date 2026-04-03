@@ -13,6 +13,7 @@ cd stress-tests/tools/aeon-incremental-fuzz
 npm run incremental
 npm run incremental:interactions
 npm run incremental:json
+npm run minimize -- --group interactions --source 'a = <x@{class = "hero"}(1, [2, 3)>'
 ```
 
 Pass through additional flags to the underlying lane:
@@ -21,11 +22,12 @@ Pass through additional flags to the underlying lane:
 cd stress-tests/tools/aeon-incremental-fuzz
 node ./run-incremental-fuzz.js --group nodes --budget 80 --report-top 5
 node ./run-incremental-fuzz.js --group interactions --report-file /tmp/incremental-fuzz-report.json
+node ./run-minimize.js --group numbers --source 'a = 1..2'
 ```
 
 ## Notes
 
 - the wrapper rebuilds `implementations/typescript/tools/phase-fuzz` before each run
 - the actual corpus, scoring, reporting, and promotion logic remain in the TypeScript `phase-fuzz` tool
+- the standalone minimizer is also delegated to the TypeScript `phase-fuzz` tool
 - use `node ../../../implementations/typescript/tools/phase-fuzz/dist/promote.js ...` or the `phase-fuzz` package directly to promote retained cases
-

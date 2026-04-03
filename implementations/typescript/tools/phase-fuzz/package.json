@@ -21,6 +21,7 @@
     "fuzz:incremental": "node ./dist/index.js --lane incremental --profile ci --seed 1337",
     "fuzz:nightly": "node ./dist/index.js --lane all --profile nightly",
     "fuzz:promote": "node ./dist/promote.js",
+    "fuzz:minimize": "node ./dist/minimize.js",
     "prepack": "pnpm build"
   },
   "dependencies": {

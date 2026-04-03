@@ -13,6 +13,7 @@ pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group nodes --report-top 10
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-format json
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --report-file /tmp/incremental-report.json
 pnpm --filter @aeon/phase-fuzz fuzz:incremental -- --group interactions --minimize-top 3
+pnpm --filter @aeon/phase-fuzz fuzz:minimize -- --group interactions --source 'a = <x@{class = "hero"}(1, [2, 3)>'
 pnpm --filter @aeon/phase-fuzz fuzz:nightly
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
 pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --group interactions --id inc-example --source-file /tmp/case.aeon
@@ -91,3 +92,13 @@ pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane incremental --report-file 
 - top failing cases can be minimized with `--minimize-top <n>` before reporting/promotion
 - `--report-format json` emits a machine-readable incremental report
 - `--report-file /path/report.json` writes the same incremental report to disk
+
+### Standalone Minimizer
+
+Minimize a single invalid case directly:
+
+```bash
+pnpm --filter @aeon/phase-fuzz fuzz:minimize -- --group nodes --source 'a = <x@{class = }()>'
+pnpm --filter @aeon/phase-fuzz fuzz:minimize -- --group numbers --source 'a = 1..2'
+pnpm --filter @aeon/phase-fuzz fuzz:minimize -- --group interactions --source-file /tmp/case.aeon
+```
