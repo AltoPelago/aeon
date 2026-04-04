@@ -65,6 +65,19 @@ test('inspectHeader parses spaced assignment fields without regex backtracking',
     assert.equal(result.header.profile, 'core');
 });
 
+test('inspectHeader ignores braces inside quoted structured header values', () => {
+    const input = `aeon:header = {
+  profile = "core}"
+  mode = "strict"
+  schema = '{demo}'
+}
+value = 1`;
+    const result = inspectHeader(input);
+    assert.equal(result.header.profile, 'core}');
+    assert.equal(result.header.mode, 'strict');
+    assert.equal(result.header.schema, '{demo}');
+});
+
 test('frame encoder/decoder streams roundtrip', async () => {
     const encoder = createFrameEncoderStream();
     const decoder = createFrameDecoderStream();

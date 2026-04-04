@@ -34,6 +34,7 @@ from .ast import (
     Value,
 )
 from .errors import (
+    AeonError,
     AttributeDepthExceededError,
     GenericDepthExceededError,
     HeaderConflictError,
@@ -41,6 +42,7 @@ from .errors import (
     NestingDepthExceededError,
     SeparatorDepthExceededError,
     SyntaxError,
+    UnsafeMaxNestingDepthError,
 )
 from .lexer import Token
 from .spans import Span
@@ -58,6 +60,8 @@ RESERVED_V1_DATATYPES = {
     "sep", "set",
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
+
+PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
 
 @dataclass(slots=True)
@@ -95,7 +99,7 @@ class Parser:
         try:
             document = self.parse_document()
             return ParseResult(document=document, errors=self.errors)
-        except Exception as error:
+        except AeonError as error:
             self.errors.append(error)
             return ParseResult(document=None, errors=self.errors)
 
@@ -124,7 +128,7 @@ class Parser:
                 bindings.append(binding)
                 if not self.check("EOF") and not self.check("NEWLINE") and not self.check("COMMA"):
                     raise SyntaxError("Expected top-level binding delimiter", self.peek().span)
-            except Exception as error:
+            except AeonError as error:
                 self.errors.append(error)
                 if self.deferred_errors:
                     self.errors.extend(self.deferred_errors)
@@ -771,6 +775,16 @@ def parse_tokens(
     max_attribute_depth: int = 1,
     max_nesting_depth: int = 256,
 ) -> ParseResult:
+    if max_nesting_depth > PARSER_STACK_SAFE_MAX_NESTING_DEPTH:
+        return ParseResult(
+            document=None,
+            errors=[
+                UnsafeMaxNestingDepthError(
+                    max_nesting_depth,
+                    PARSER_STACK_SAFE_MAX_NESTING_DEPTH,
+                )
+            ],
+        )
     return Parser(
         source,
         tokens,

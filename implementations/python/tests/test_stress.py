@@ -28,6 +28,13 @@ class TestAlgorithmicStress(unittest.TestCase):
         result = compile_source(source)
         self.assertEqual([], result.events)
         self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
+
+    def test_parse_rejects_unsafe_requested_max_nesting_depth(self):
+        depth = 1200
+        source = f"k = {'[' * depth}0{']' * depth}"
+        tokens = tokenize(source).tokens
+        result = parse_tokens(source, tokens, max_nesting_depth=2000)
+        self.assertEqual(["UNSAFE_MAX_NESTING_DEPTH"], [error.code for error in result.errors])
         
     def test_algorithmic_dos_large_integer(self):
         digits = 500000
