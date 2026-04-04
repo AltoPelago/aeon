@@ -168,6 +168,11 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '#FF00AA');
         });
 
+        it('should reject hex literals with double underscore', () => {
+            const result = tokenize('#F__f');
+            assert.strictEqual(result.errors.length, 1);
+        });
+
         it('should tokenize radix literals', () => {
             const result = tokenize('%1011');
             assert.strictEqual(result.tokens[0]!.type, TokenType.RadixLiteral);
@@ -216,10 +221,9 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '$abc-_+/==');
         });
 
-        it('should tokenize encoding literals with the shared lexical-envelope characters', () => {
-            const result = tokenize('$abc-._==');
-            assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$abc-._==');
+        it('should reject dotted encoding literals', () => {
+            const result = tokenize('$QmF.zZTY0IQ==');
+            assert.strictEqual(result.errors.length, 1);
         });
 
         it('should terminate encoding literals at non-encoding boundary characters', () => {

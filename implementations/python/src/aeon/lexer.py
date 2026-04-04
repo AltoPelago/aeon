@@ -326,7 +326,7 @@ class Lexer:
         while self.is_hex_digit(self.peek()) or self.peek() == "_":
             chars.append(self.advance())
         value = "".join(chars)
-        if len(value) == 1 or value.endswith("_"):
+        if len(value) == 1 or not self.has_valid_literal_underscores(value):
             self.errors.append(SyntaxError(f"Invalid hex literal: '{value}'", self.make_span(start)))
             return
         self.add_token("HEX", value, start)
@@ -738,10 +738,15 @@ class Lexer:
     def is_valid_encoding_payload(payload: str) -> bool:
         if not payload:
             return False
-        if not re.fullmatch(r"[A-Za-z0-9+/._-]+={0,2}", payload):
+        if not re.fullmatch(r"[A-Za-z0-9+/_-]+={0,2}", payload):
             return False
         padding_index = payload.find("=")
         return padding_index == -1 or all(char == "=" for char in payload[padding_index:])
+
+    @staticmethod
+    def has_valid_literal_underscores(raw: str) -> bool:
+        body = raw[1:] if raw else ""
+        return bool(body) and not body.startswith("_") and not body.endswith("_") and "__" not in body
 
 
 def tokenize(source: str) -> LexResult:

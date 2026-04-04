@@ -1374,6 +1374,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_untyped_hex_literals_with_double_underscore() {
+        let result = compile("blue = #F__f\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
     fn supports_backtick_strings_and_multiline_node_introducers() {
         let result = compile(
             "text:string = `hello`\ncontent:node = <div(\n  <span@{id=\"text\"}:node(\n    `world`\n  )>\n)>\n",

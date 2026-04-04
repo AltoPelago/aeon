@@ -413,7 +413,7 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let text = self.slice_from(start.offset);
-        if text.len() == 1 || text.ends_with('_') {
+        if text.len() == 1 || !has_valid_literal_underscores(&text) {
             self.errors.push(LexError {
                 code: String::from("SYNTAX_ERROR"),
                 message: format!("Invalid hex literal `{text}`"),
@@ -682,6 +682,11 @@ fn is_valid_encoding_payload(payload: &str) -> bool {
     }
 }
 
+fn has_valid_literal_underscores(raw: &str) -> bool {
+    let body = raw.strip_prefix('#').unwrap_or(raw);
+    !body.is_empty() && !body.starts_with('_') && !body.ends_with('_') && !body.contains("__")
+}
+
 fn is_printable_ascii(ch: char) -> bool {
     matches!(ch as u32, 0x21..=0x7e)
 }
@@ -815,6 +820,13 @@ mod tests {
             .find(|token| token.kind == TokenKind::HexLiteral)
             .expect("hex token");
         assert_eq!(token.text, "#00_00_00");
+    }
+
+    #[test]
+    fn rejects_hex_literals_with_double_underscore() {
+        let result = tokenize("hex = #F__f", LexerOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert!(result.errors[0].message.contains("Invalid hex literal"));
     }
 
     #[test]

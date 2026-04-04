@@ -429,6 +429,14 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue = #FF_FF_FF_")
         self.assertNotEqual([], result.errors)
 
+    def test_untyped_hex_literal_with_double_underscore_is_rejected(self) -> None:
+        result = compile_source("blue = #F__f")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_untyped_dotted_encoding_literal_is_rejected(self) -> None:
+        result = compile_source("payload = $QmF.zZTY0IQ==")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
 
 if __name__ == "__main__":
     unittest.main()
