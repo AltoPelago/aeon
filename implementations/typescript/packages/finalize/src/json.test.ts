@@ -262,6 +262,65 @@ describe('Finalization (JSON)', () => {
         });
     });
 
+    it('projects exact top-level attribute paths without leaking siblings', () => {
+        const events = compileToEvents('title@{lang="en", tone="warm"} = "Hello"');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.title@lang'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            title: 'Hello',
+            '@': {
+                title: {
+                    lang: 'en',
+                },
+            },
+        });
+    });
+
+    it('projects attribute descendants without leaking sibling attributes', () => {
+        const events = compileToEvents('card = { title@{meta={ keep=2, "x.y"=1 }, tone="warm"} = "Hello" }');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.card.title@meta.keep'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            card: {
+                title: 'Hello',
+                '@': {
+                    title: {
+                        meta: {
+                            keep: 2,
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    it('projects exact node-head attribute paths without leaking siblings', () => {
+        const events = compileToEvents('badge = <pill@{id="main", class="hero"}("new")>');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.badge@@["id"]'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            badge: {
+                $node: 'pill',
+                '@': {
+                    id: 'main',
+                },
+                $children: ['new'],
+            },
+        });
+    });
+
     it('preserves indexed unresolved reference token format in core v1', () => {
         const events = compileToEvents('items = [10, 20]\nsecond = ~>items[1]', true);
         const result = finalizeJson(events, { mode: 'strict' });

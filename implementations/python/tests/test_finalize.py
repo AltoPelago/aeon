@@ -164,6 +164,74 @@ class FinalizeJsonTests(unittest.TestCase):
         )
         self.assertEqual({"app": {"name": "demo"}}, result["document"])
 
+    def test_projects_exact_top_level_attribute_path_without_siblings(self) -> None:
+        result = finalize_json(
+            compile_result('title@{lang="en", tone="warm"} = "Hello"'),
+            FinalizeOptions(
+                mode="strict",
+                materialization="projected",
+                include_paths=["$.title@lang"],
+            ),
+        )
+        self.assertEqual(
+            {
+                "title": "Hello",
+                "@": {
+                    "title": {
+                        "lang": "en",
+                    }
+                },
+            },
+            result["document"],
+        )
+
+    def test_projects_attribute_descendant_without_leaking_siblings(self) -> None:
+        result = finalize_json(
+            compile_result('card = { title@{meta={ keep=2, "x.y"=1 }, tone="warm"} = "Hello" }'),
+            FinalizeOptions(
+                mode="strict",
+                materialization="projected",
+                include_paths=['$.card.title@meta.keep'],
+            ),
+        )
+        self.assertEqual(
+            {
+                "card": {
+                    "title": "Hello",
+                    "@": {
+                        "title": {
+                            "meta": {
+                                "keep": 2,
+                            }
+                        }
+                    },
+                }
+            },
+            result["document"],
+        )
+
+    def test_projects_exact_node_head_attribute_path_without_siblings(self) -> None:
+        result = finalize_json(
+            compile_events('badge = <pill@{id="main", class="hero"}("new")>'),
+            FinalizeOptions(
+                mode="strict",
+                materialization="projected",
+                include_paths=['$.badge@@["id"]'],
+            ),
+        )
+        self.assertEqual(
+            {
+                "badge": {
+                    "$node": "pill",
+                    "@": {
+                        "id": "main",
+                    },
+                    "$children": ["new"],
+                }
+            },
+            result["document"],
+        )
+
     def test_supports_header_only_and_full_scopes(self) -> None:
         source = 'aeon:mode = "strict"\naeon:profile = "aeon.gp.profile.v1"\nname:string = "AEON"'
         events = compile_source(source).internal_events

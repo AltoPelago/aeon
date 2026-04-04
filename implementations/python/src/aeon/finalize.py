@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+import re
 from typing import Iterable
 
 from ._compat import dataclass
@@ -49,12 +50,14 @@ class Projection:
     def includes(self, path: str) -> bool:
         if self.materialization != "projected" or not self.include_paths:
             return True
+        canonical_path = normalize_projection_path(path)
         for include_path in self.include_paths:
-            if path == include_path:
+            canonical_include = normalize_projection_path(include_path)
+            if canonical_path == canonical_include:
                 return True
-            if path.startswith(include_path + ".") or path.startswith(include_path + "["):
+            if is_descendant_path(canonical_path, canonical_include):
                 return True
-            if include_path.startswith(path + ".") or include_path.startswith(path + "["):
+            if is_descendant_path(canonical_include, canonical_path):
                 return True
         return False
 
@@ -399,6 +402,31 @@ def normalize_aes_input(aes: object) -> list[dict[str, object]]:
     if isinstance(events, list):
         return events
     raise TypeError("finalize_json expected AES events or a compile result")
+
+
+def is_descendant_path(path: str, ancestor: str) -> bool:
+    suffix = path[len(ancestor):] if path.startswith(ancestor) else None
+    if suffix is None:
+        return False
+    return suffix.startswith((".", "[", "@", "<"))
+
+
+def normalize_projection_path(path: str) -> str:
+    normalized = path
+
+    def replace_segment(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        key = match.group(2)
+        if is_identifier_safe(key):
+            return f"{prefix}{key}"
+        return match.group(0)
+
+    normalized = re.sub(r'(\.)\["([^"\\]+)"\]', replace_segment, normalized)
+    normalized = re.sub(r'(@)\["([^"\\]+)"\]', replace_segment, normalized)
+    root_match = re.fullmatch(r'\$\["([^"\\]+)"\](.*)', normalized)
+    if root_match and is_identifier_safe(root_match.group(1)):
+        normalized = f"$.{root_match.group(1)}{root_match.group(2)}"
+    return normalized
 
 
 def declared_radix_base(datatype: object) -> int | None:

@@ -470,14 +470,18 @@ function attributesToJson(
     const nestedAttrEntries: JsonObject = {};
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
+            const entryPath = formatAttributePath(path, key);
+            if (!shouldIncludeProjectedPath(entryPath, projection)) {
+                continue;
+            }
             obj[key] = valueToJson(
                 entry.value,
                 ctx,
-                `${path}@${key}`,
+                entryPath,
                 projection,
                 entry.datatype ? formatDatatypeAnnotation(entry.datatype) : undefined
             );
-            const nested = attributesToJson(entry.attributes, ctx, `${path}@${key}`, projection);
+            const nested = attributesToJson(entry.attributes, ctx, entryPath, projection);
             if (nested) {
                 nestedAttrEntries[key] = nested;
             }
@@ -550,8 +554,12 @@ function annotationsToJson(
     const obj: JsonObject = {};
     const nestedAttrEntries: JsonObject = {};
     for (const [key, entry] of annotations.entries() as IterableIterator<[string, AttributeEntry]>) {
-        obj[key] = valueToJson(entry.value, ctx, `${path}@${key}`, projection);
-        const nested = annotationsToJson(entry.annotations, ctx, `${path}@${key}`, projection);
+        const entryPath = formatAttributePath(path, key);
+        if (!shouldIncludeProjectedPath(entryPath, projection)) {
+            continue;
+        }
+        obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
+        const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {
             nestedAttrEntries[key] = nested;
         }
@@ -565,6 +573,12 @@ function annotationsToJson(
 function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {
     if (scope === 'full') return `$.${branch}.${key}`;
     return `$.${key}`;
+}
+
+function formatAttributePath(basePath: string, key: string): string {
+    return /^[A-Za-z_][A-Za-z0-9_:-]*$/.test(key)
+        ? `${basePath}@${key}`
+        : `${basePath}@[${JSON.stringify(key)}]`;
 }
 
 function isHeaderEventKey(key: string, header: FinalizeHeader | undefined): boolean {

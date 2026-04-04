@@ -69,4 +69,26 @@ describe('Finalization (Map)', () => {
         });
         assert.deepStrictEqual(Array.from(full.document.entries.keys()), ['$.header.mode', '$.payload.name']);
     });
+
+    it('preserves assignment-entry chains for projected attribute paths', () => {
+        const events = compileToEvents('title@{lang="en", meta={ keep=2 }} = "Hello"\ncard = { label@{meta={ keep=3, "x.y"=4 }} = "Hi" }\nrich = <pill@{id="main", meta={ keep=5 }}("new")>');
+
+        const topLevel = finalizeMap(events, {
+            materialization: 'projected',
+            includePaths: ['$.title@lang', '$.title@meta.keep'],
+        });
+        assert.deepStrictEqual(Array.from(topLevel.document.entries.keys()), ['$.title']);
+
+        const nested = finalizeMap(events, {
+            materialization: 'projected',
+            includePaths: ['$.card.label@meta.keep', '$.card.label@meta.["x.y"]'],
+        });
+        assert.deepStrictEqual(Array.from(nested.document.entries.keys()), ['$.card', '$.card.label']);
+
+        const node = finalizeMap(events, {
+            materialization: 'projected',
+            includePaths: ['$.rich@@id', '$.rich@@meta.keep'],
+        });
+        assert.deepStrictEqual(Array.from(node.document.entries.keys()), ['$.rich']);
+    });
 });

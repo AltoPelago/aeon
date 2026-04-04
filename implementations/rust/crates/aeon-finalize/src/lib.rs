@@ -416,7 +416,7 @@ fn payload_to_json(
         if !event.annotations.is_empty() {
             attrs.insert(
                 key.clone(),
-                attributes_to_json(&event.annotations, path_values, mode, errors, warnings),
+                attributes_to_json(&event.annotations, &path, projection, path_values, mode, errors, warnings),
             );
         }
     }
@@ -474,7 +474,7 @@ fn value_to_json(
         } => {
             let mut output = Map::new();
             output.insert(String::from("$node"), JsonValue::String(tag.clone()));
-            let attr_json = node_attributes_to_json(attributes, path_values, mode, errors, warnings);
+            let attr_json = node_attributes_to_json(attributes, &format!("{path}@"), projection, path_values, mode, errors, warnings);
             if matches!(&attr_json, JsonValue::Object(map) if !map.is_empty()) {
                 output.insert(String::from("@"), attr_json);
             }
@@ -544,7 +544,7 @@ fn value_to_json(
                     if !binding.attributes.is_empty() {
                         attrs.insert(
                             binding.key.clone(),
-                            attributes_to_json(&binding.attributes, path_values, mode, errors, warnings),
+                            attributes_to_json(&binding.attributes, &child_path, projection, path_values, mode, errors, warnings),
                         );
                     }
                 }
@@ -719,6 +719,10 @@ fn render_member_segment(key: &str) -> String {
     }
 }
 
+fn render_attribute_segment(key: &str) -> String {
+    render_member_segment(key)
+}
+
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     match chars.next() {
@@ -775,6 +779,8 @@ fn push_map_entry(
 
 fn attributes_to_json(
     attributes: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
@@ -783,12 +789,16 @@ fn attributes_to_json(
     let mut object = Map::new();
     let mut nested = Map::new();
     for (key, entry) in attributes {
-        let value = attribute_value_to_json(entry, path_values, mode, errors, warnings);
+        let entry_path = format!("{path}@{}", render_attribute_segment(key));
+        if !projection.includes(&entry_path) {
+            continue;
+        }
+        let value = attribute_value_to_json(entry, &entry_path, projection, path_values, mode, errors, warnings);
         object.insert(key.clone(), value);
         if !entry.nested_attrs.is_empty() {
             nested.insert(
                 key.clone(),
-                attributes_to_json(&entry.nested_attrs, path_values, mode, errors, warnings),
+                attributes_to_json(&entry.nested_attrs, &entry_path, projection, path_values, mode, errors, warnings),
             );
         }
     }
@@ -800,6 +810,8 @@ fn attributes_to_json(
 
 fn node_attributes_to_json(
     attributes: &[BTreeMap<String, AttributeValue>],
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
@@ -807,7 +819,7 @@ fn node_attributes_to_json(
 ) -> JsonValue {
     let mut merged = Map::new();
     for block in attributes {
-        let JsonValue::Object(current) = attributes_to_json(block, path_values, mode, errors, warnings) else {
+        let JsonValue::Object(current) = attributes_to_json(block, path, projection, path_values, mode, errors, warnings) else {
             continue;
         };
         merge_json_object(&mut merged, current);
@@ -830,19 +842,21 @@ fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, Js
 
 fn attribute_value_to_json(
     entry: &AttributeValue,
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
 ) -> JsonValue {
     if !entry.object_members.is_empty() {
-        return attributes_to_json(&entry.object_members, path_values, mode, errors, warnings);
+        return object_attribute_members_to_json(&entry.object_members, path, projection, path_values, mode, errors, warnings);
     }
     if let Some(value) = &entry.value {
         return value_to_json(
             value,
-            "$",
-            &Projection::new(Materialization::All, Vec::new()),
+            path,
+            projection,
             path_values,
             mode,
             errors,
@@ -851,6 +865,39 @@ fn attribute_value_to_json(
         );
     }
     JsonValue::Null
+}
+
+fn object_attribute_members_to_json(
+    members: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+) -> JsonValue {
+    let mut object = Map::new();
+    let mut attrs = Map::new();
+    for (key, entry) in members {
+        let child_path = format!("{path}.{}", render_member_segment(key));
+        if !projection.includes(&child_path) {
+            continue;
+        }
+        object.insert(
+            key.clone(),
+            attribute_value_to_json(entry, &child_path, projection, path_values, mode, errors, warnings),
+        );
+        if !entry.nested_attrs.is_empty() {
+            attrs.insert(
+                key.clone(),
+                attributes_to_json(&entry.nested_attrs, &child_path, projection, path_values, mode, errors, warnings),
+            );
+        }
+    }
+    if !attrs.is_empty() {
+        object.insert(String::from("@"), JsonValue::Object(attrs));
+    }
+    JsonValue::Object(object)
 }
 
 fn declared_radix_base(datatype: Option<&str>) -> Option<usize> {
@@ -903,19 +950,73 @@ impl Projection {
         if matches!(self.materialization, Materialization::All) {
             return true;
         }
+        let normalized_candidate = normalize_projection_path(candidate);
 
         self.include_paths.iter().any(|include| {
-            candidate == include
-                || has_path_prefix(candidate, include)
-                || has_path_prefix(include, candidate)
+            let normalized_include = normalize_projection_path(include);
+            normalized_candidate == normalized_include
+                || has_path_prefix(&normalized_candidate, &normalized_include)
+                || has_path_prefix(&normalized_include, &normalized_candidate)
         })
     }
 }
 
 fn has_path_prefix(path: &str, prefix: &str) -> bool {
     path.strip_prefix(prefix)
-        .map(|rest| rest.starts_with('.') || rest.starts_with('['))
+        .map(|rest| rest.starts_with('.') || rest.starts_with('[') || rest.starts_with('@') || rest.starts_with('<'))
         .unwrap_or(false)
+}
+
+fn normalize_projection_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = String::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let current = bytes[index] as char;
+        if matches!(current, '.' | '@' | '$')
+            && index + 3 < bytes.len()
+            && bytes[index + 1] == b'['
+            && bytes[index + 2] == b'"'
+        {
+            let mut key = String::new();
+            let mut cursor = index + 3;
+            let mut escaped = false;
+            while cursor < bytes.len() {
+                let ch = bytes[cursor] as char;
+                if escaped {
+                    key.push(ch);
+                    escaped = false;
+                    cursor += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    cursor += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    break;
+                }
+                key.push(ch);
+                cursor += 1;
+            }
+            if cursor + 1 < bytes.len() && bytes[cursor] == b'"' && bytes[cursor + 1] == b']' && is_identifier(&key) {
+                if current == '$' {
+                    out.push_str("$.");
+                } else {
+                    out.push(current);
+                }
+                out.push_str(&key);
+                index = cursor + 2;
+                continue;
+            }
+        }
+        out.push(current);
+        index += 1;
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -957,6 +1058,131 @@ mod tests {
             },
         );
         assert_eq!(finalized.document, json!({ "config": { "host": "localhost" } }));
+    }
+
+    #[test]
+    fn projected_json_keeps_exact_top_level_attribute_selection_without_siblings() {
+        let source = "title@{lang = \"en\", tone = \"warm\"} = \"Hello\"\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.title@lang")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "title": "Hello",
+                "@": {
+                    "title": {
+                        "lang": "en"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_json_keeps_attribute_descendants_without_leaking_siblings() {
+        let source = "card = { title@{meta = { keep = 2, \"x.y\" = 1 }, tone = \"warm\"} = \"Hello\" }\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.card.title@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "card": {
+                    "title": "Hello",
+                    "@": {
+                        "title": {
+                            "meta": {
+                                "keep": 2
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_json_keeps_exact_node_head_attribute_selection_without_siblings() {
+        let source = "badge = <pill@{id = \"main\", class = \"hero\"}(\"new\")>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.badge@@[\"id\"]")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "badge": {
+                    "$node": "pill",
+                    "@": {
+                        "id": "main"
+                    },
+                    "$children": ["new"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_map_preserves_assignment_chain_for_attribute_paths() {
+        let source = "title@{lang = \"en\", meta = { keep = 2 }} = \"Hello\"\ncard = { label@{meta = { keep = 3, \"x.y\" = 4 }} = \"Hi\" }\nrich = <pill@{id = \"main\", meta = { keep = 5 }}(\"new\")>\n";
+        let result = compile(source, CompileOptions::default());
+
+        let top_level = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.title@lang"), String::from("$.title@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            top_level.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.title"]
+        );
+
+        let nested = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.card.label@meta.keep"), String::from("$.card.label@meta.[\"x.y\"]")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            nested.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.card", "$.card.label"]
+        );
+
+        let node = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.rich@@id"), String::from("$.rich@@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            node.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.rich"]
+        );
     }
 
     #[test]
