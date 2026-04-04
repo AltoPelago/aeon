@@ -266,7 +266,9 @@ pub struct AttributeValue {
     pub datatype: Option<String>,
     pub value: Option<Value>,
     pub nested_attrs: BTreeMap<String, AttributeValue>,
+    pub nested_attr_order: Vec<String>,
     pub object_members: BTreeMap<String, AttributeValue>,
+    pub object_member_order: Vec<String>,
 }
 
 impl AttributeValue {
@@ -276,27 +278,39 @@ impl AttributeValue {
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
+            nested_attr_order: Vec::new(),
             object_members: BTreeMap::new(),
+            object_member_order: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn with_nested_attrs(nested_attrs: BTreeMap<String, AttributeValue>) -> Self {
+    pub fn with_nested_attrs(
+        nested_attrs: BTreeMap<String, AttributeValue>,
+        nested_attr_order: Vec<String>,
+    ) -> Self {
         Self {
             datatype: None,
             value: None,
             nested_attrs,
+            nested_attr_order,
             object_members: BTreeMap::new(),
+            object_member_order: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn with_object_members(object_members: BTreeMap<String, AttributeValue>) -> Self {
+    pub fn with_object_members(
+        object_members: BTreeMap<String, AttributeValue>,
+        object_member_order: Vec<String>,
+    ) -> Self {
         Self {
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
+            nested_attr_order: Vec::new(),
             object_members,
+            object_member_order,
         }
     }
 
@@ -305,13 +319,17 @@ impl AttributeValue {
         datatype: Option<String>,
         value: Option<Value>,
         nested_attrs: BTreeMap<String, AttributeValue>,
+        nested_attr_order: Vec<String>,
         object_members: BTreeMap<String, AttributeValue>,
+        object_member_order: Vec<String>,
     ) -> Self {
         Self {
             datatype,
             value,
             nested_attrs,
+            nested_attr_order,
             object_members,
+            object_member_order,
         }
     }
 }
@@ -321,6 +339,7 @@ pub struct Binding {
     pub key: String,
     pub datatype: Option<String>,
     pub attributes: BTreeMap<String, AttributeValue>,
+    pub attribute_order: Vec<String>,
     pub value: Value,
     pub span: Span,
 }
@@ -763,6 +782,27 @@ mod tests {
 
         let missing = compile("a@{x = ~a@missing} = 1\n", CompileOptions::default());
         assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn attribute_payload_sibling_order_is_source_ordered() {
+        let backward = compile("a@{y = 1, x = ~a@y} = 1\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let quoted_backward = compile(
+            "a@{\"z.y\" = 1, \"x.y\" = ~a@[\"z.y\"]} = 1\n",
+            CompileOptions::default(),
+        );
+        assert!(quoted_backward.errors.is_empty(), "{:?}", quoted_backward.errors);
+
+        let forward = compile("a@{x = ~a@y, y = 1} = 1\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let quoted_forward = compile(
+            "a@{\"x.y\" = ~a@[\"z.y\"], \"z.y\" = 1} = 1\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(quoted_forward.errors[0].code, "FORWARD_REFERENCE");
     }
 
     #[test]

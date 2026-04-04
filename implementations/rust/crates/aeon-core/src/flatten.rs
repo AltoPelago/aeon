@@ -97,11 +97,12 @@ fn track_reference_binding(
     key: &str,
     path_text: &str,
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     value: &Value,
     shallow_event_values: bool,
 ) {
     let _ = reference_targets.insert(render_child_member_path(parent_path, key));
-    collect_attribute_targets(path_text, attributes, reference_targets, String::new());
+    collect_attribute_targets(path_text, attributes, attribute_order, reference_targets, String::new());
     reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
@@ -110,6 +111,7 @@ fn track_reference_binding(
     collect_attribute_reference_steps(
         path_text,
         attributes,
+        attribute_order,
         reference_steps,
         shallow_event_values,
         String::new(),
@@ -152,6 +154,7 @@ fn flatten_validation_bindings(
             &binding.key,
             &path_text,
             &binding.attributes,
+            &binding.attribute_order,
             &binding.value,
             shallow_event_values,
         );
@@ -356,6 +359,7 @@ fn flatten_bindings(
             &binding.key,
             &path_text,
             &binding.attributes,
+            &binding.attribute_order,
             &binding.value,
             shallow_event_values,
         );
@@ -646,45 +650,81 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
 fn collect_attribute_targets(
     base: &str,
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     targets: &mut HashSet<String>,
     prefix: String,
 ) {
-    for (key, value) in attributes {
+    for key in attribute_order {
+        let Some(value) = attributes.get(key) else {
+            continue;
+        };
         let next_prefix = if prefix.is_empty() {
             format!("@{key}")
         } else {
             format!("{prefix}@{key}")
         };
         let _ = targets.insert(format!("{base}{next_prefix}"));
-        collect_attribute_targets(base, &value.nested_attrs, targets, next_prefix.clone());
-        collect_attribute_object_targets(base, &value.object_members, targets, next_prefix);
+        collect_attribute_targets(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            targets,
+            next_prefix.clone(),
+        );
+        collect_attribute_object_targets(
+            base,
+            &value.object_members,
+            &value.object_member_order,
+            targets,
+            next_prefix,
+        );
     }
 }
 
 fn collect_attribute_object_targets(
     base: &str,
     members: &BTreeMap<String, AttributeValue>,
+    member_order: &[String],
     targets: &mut HashSet<String>,
     prefix: String,
 ) {
-    for (key, value) in members {
+    for key in member_order {
+        let Some(value) = members.get(key) else {
+            continue;
+        };
         let member_segment = render_member_segment(key);
         let next_prefix = format!("{prefix}{member_segment}");
         let member_path = format!("{base}{next_prefix}");
         let _ = targets.insert(member_path.clone());
-        collect_attribute_object_targets(base, &value.object_members, targets, next_prefix.clone());
-        collect_attribute_targets(base, &value.nested_attrs, targets, next_prefix);
+        collect_attribute_object_targets(
+            base,
+            &value.object_members,
+            &value.object_member_order,
+            targets,
+            next_prefix.clone(),
+        );
+        collect_attribute_targets(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            targets,
+            next_prefix,
+        );
     }
 }
 
 fn collect_attribute_reference_steps(
     base: &str,
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     steps: &mut Vec<ValidationReferenceStep>,
     shallow_event_values: bool,
     prefix: String,
 ) {
-    for (key, value) in attributes {
+    for key in attribute_order {
+        let Some(value) = attributes.get(key) else {
+            continue;
+        };
         let next_prefix = if prefix.is_empty() {
             format!("@{key}")
         } else {
@@ -700,6 +740,7 @@ fn collect_attribute_reference_steps(
         collect_attribute_object_reference_steps(
             base,
             &value.object_members,
+            &value.object_member_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -707,6 +748,7 @@ fn collect_attribute_reference_steps(
         collect_attribute_reference_steps(
             base,
             &value.nested_attrs,
+            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -718,11 +760,15 @@ fn collect_attribute_reference_steps(
 fn collect_attribute_object_reference_steps(
     base: &str,
     members: &BTreeMap<String, AttributeValue>,
+    member_order: &[String],
     steps: &mut Vec<ValidationReferenceStep>,
     shallow_event_values: bool,
     prefix: String,
 ) {
-    for (key, value) in members {
+    for key in member_order {
+        let Some(value) = members.get(key) else {
+            continue;
+        };
         let next_prefix = format!("{prefix}{}", render_member_segment(key));
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {
@@ -734,6 +780,7 @@ fn collect_attribute_object_reference_steps(
         collect_attribute_object_reference_steps(
             base,
             &value.object_members,
+            &value.object_member_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -741,6 +788,7 @@ fn collect_attribute_object_reference_steps(
         collect_attribute_reference_steps(
             base,
             &value.nested_attrs,
+            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),

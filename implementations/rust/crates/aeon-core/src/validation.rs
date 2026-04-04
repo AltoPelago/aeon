@@ -168,8 +168,16 @@ fn validate_value_reference(
                 );
                 return;
             }
-            let base = format_reference_base(segments);
-            if !seen_base.contains(&base) {
+            let requires_exact_attr_visibility =
+                target.contains('@') && !(current_path == format_reference_base(segments)
+                    && target.starts_with(&format!("{current_path}@")));
+            let is_visible = if requires_exact_attr_visibility {
+                seen_base.contains(&target)
+            } else {
+                let base = format_reference_base(segments);
+                seen_base.contains(&base)
+            };
+            if !is_visible {
                 errors.push(
                     Diagnostic::new(
                         "FORWARD_REFERENCE",
@@ -184,6 +192,7 @@ fn validate_value_reference(
             for binding in bindings {
                 validate_attribute_reference_map(
                     &binding.attributes,
+                    &binding.attribute_order,
                     current_path,
                     all_targets,
                     seen_base,
@@ -199,8 +208,10 @@ fn validate_value_reference(
             ..
         } => {
             for attribute in attributes {
+                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
                 validate_attribute_reference_map(
                     attribute,
+                    &attribute_order,
                     current_path,
                     all_targets,
                     seen_base,
@@ -231,23 +242,35 @@ fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bo
 
 fn validate_attribute_reference_map(
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     current_path: &str,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    for entry in attributes.values() {
-        for nested in [&entry.nested_attrs, &entry.object_members] {
-            validate_attribute_reference_map(
-                nested,
-                current_path,
-                all_targets,
-                seen_base,
-                max_attribute_depth,
-                errors,
-            );
-        }
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
+        validate_attribute_reference_map(
+            &entry.object_members,
+            &entry.object_member_order,
+            current_path,
+            all_targets,
+            seen_base,
+            max_attribute_depth,
+            errors,
+        );
+        validate_attribute_reference_map(
+            &entry.nested_attrs,
+            &entry.nested_attr_order,
+            current_path,
+            all_targets,
+            seen_base,
+            max_attribute_depth,
+            errors,
+        );
         if let Some(value) = &entry.value {
             validate_value_reference(
                 value,
@@ -1266,6 +1289,7 @@ fn validate_attribute_datatypes_in_scope(
         let path = parent.member(binding.key.clone());
         validate_attribute_datatype_map(
             &binding.attributes,
+            &binding.attribute_order,
             &path,
             datatype_policy,
             max_separator_depth,
@@ -1318,8 +1342,10 @@ fn validate_value_attribute_datatypes(
             ..
         } => {
             for attribute in attributes {
+                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
                 validate_attribute_datatype_map(
                     attribute,
+                    &attribute_order,
                     path,
                     datatype_policy,
                     max_separator_depth,
@@ -1344,13 +1370,17 @@ fn validate_value_attribute_datatypes(
 
 fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     owner_path: &CanonicalPath,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    for (key, entry) in attributes {
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
         let attr_path = format!("{}@{}", format_path(owner_path), key);
         if let Some(datatype) = &entry.datatype {
             if let Some(value) = &entry.value {
@@ -1395,6 +1425,7 @@ fn validate_attribute_datatype_map(
         }
         validate_attribute_datatype_map(
             &entry.nested_attrs,
+            &entry.nested_attr_order,
             owner_path,
             datatype_policy,
             max_separator_depth,
@@ -1403,6 +1434,7 @@ fn validate_attribute_datatype_map(
         );
         validate_attribute_datatype_map(
             &entry.object_members,
+            &entry.object_member_order,
             owner_path,
             datatype_policy,
             max_separator_depth,

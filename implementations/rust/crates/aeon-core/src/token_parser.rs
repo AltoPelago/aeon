@@ -66,8 +66,15 @@ impl<'a> TokenParser<'a> {
         let key = self.parse_key()?;
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
+        let mut attribute_order = Vec::new();
         while self.check(TokenKind::At) {
-            attributes.extend(self.parse_attribute_block(1)?);
+            let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
+            for key in parsed_order {
+                if !attributes.contains_key(&key) {
+                    attribute_order.push(key.clone());
+                }
+            }
+            attributes.extend(parsed_attrs);
             self.skip_newlines();
         }
         let mut datatype = None;
@@ -88,6 +95,7 @@ impl<'a> TokenParser<'a> {
             key,
             datatype,
             attributes,
+            attribute_order,
             value,
             span: Span { start, end },
         })
@@ -628,7 +636,8 @@ impl<'a> TokenParser<'a> {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while self.check(TokenKind::At) {
-            attributes.push(self.parse_attribute_block(1)?);
+            let (attribute_map, _) = self.parse_attribute_block(1)?;
+            attributes.push(attribute_map);
             self.skip_newlines();
         }
 
@@ -672,7 +681,7 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_attribute_block(&mut self, depth: usize) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    fn parse_attribute_block(&mut self, depth: usize) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         if depth > self.max_attribute_depth {
             return Err(
                 Diagnostic::new(
@@ -698,19 +707,28 @@ impl<'a> TokenParser<'a> {
 
     fn parse_attribute_value_shape(&mut self) -> Result<AttributeValue, Diagnostic> {
         if self.check(TokenKind::LeftBrace) {
-            let members = self.parse_attribute_object_members()?;
-            return Ok(AttributeValue::with_parts(None, None, BTreeMap::new(), members));
+            let (members, member_order) = self.parse_attribute_object_members()?;
+            return Ok(AttributeValue::with_parts(
+                None,
+                None,
+                BTreeMap::new(),
+                Vec::new(),
+                members,
+                member_order,
+            ));
         }
         let value = self.parse_value()?;
         Ok(AttributeValue::with_parts(
             None,
             Some(value),
             BTreeMap::new(),
+            Vec::new(),
             BTreeMap::new(),
+            Vec::new(),
         ))
     }
 
-    fn parse_attribute_object_members(&mut self) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    fn parse_attribute_object_members(&mut self) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         self.consume(TokenKind::LeftBrace, "Expected `{` in attribute object")?;
         let members = self.parse_attribute_members(
             TokenKind::RightBrace,
@@ -756,16 +774,24 @@ impl<'a> TokenParser<'a> {
         delimiter_message: &str,
         equals_message: &str,
         depth: usize,
-    ) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    ) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         let mut members = BTreeMap::new();
+        let mut member_order = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
             let key = self.parse_key()?;
             self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
+            let mut nested_attr_order = Vec::new();
             while self.check(TokenKind::At) {
-                nested_attrs.extend(self.parse_attribute_block(depth + 1)?);
+                let (parsed_attrs, parsed_order) = self.parse_attribute_block(depth + 1)?;
+                for nested_key in parsed_order {
+                    if !nested_attrs.contains_key(&nested_key) {
+                        nested_attr_order.push(nested_key.clone());
+                    }
+                }
+                nested_attrs.extend(parsed_attrs);
                 self.skip_newlines();
             }
             self.skip_newlines();
@@ -778,17 +804,22 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
             members.insert(
-                key,
+                key.clone(),
                 AttributeValue::with_parts(
                     datatype,
                     value.value,
                     nested_attrs,
+                    nested_attr_order,
                     value.object_members,
+                    value.object_member_order,
                 ),
             );
+            if !member_order.contains(&key) {
+                member_order.push(key);
+            }
             self.consume_member_delimiter(terminator, delimiter_message)?;
         }
-        Ok(members)
+        Ok((members, member_order))
     }
 
     fn consume_member_delimiter(
