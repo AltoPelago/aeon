@@ -10,7 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from aeon.core import compile_source
-from aeon.finalize import FinalizeOptions, finalize_json
+from aeon.finalize import FinalizeOptions, finalize_json, finalize_map
 from aeon.lexer import tokenize
 from aeon.parser import parse_tokens
 
@@ -258,6 +258,43 @@ class FinalizeJsonTests(unittest.TestCase):
             },
             full["document"],
         )
+
+    def test_projected_map_preserves_assignment_chain_for_attribute_paths(self) -> None:
+        result = compile_result(
+            'title@{lang = "en", meta = { keep = 2 }} = "Hello"\n'
+            'card = { label@{meta = { keep = 3, "x.y" = 4 }} = "Hi" }\n'
+            'rich = <pill@{id = "main", meta = { keep = 5 }}("new")>\n'
+        )
+
+        top_level = finalize_map(
+            result,
+            FinalizeOptions(
+                materialization="projected",
+                include_paths=["$.title@lang", "$.title@meta.keep"],
+            ),
+        )
+        self.assertEqual(["$.title"], [entry["path"] for entry in top_level["document"]["entries"]])
+
+        nested = finalize_map(
+            result,
+            FinalizeOptions(
+                materialization="projected",
+                include_paths=['$.card.label@meta.keep', '$.card.label@meta.["x.y"]'],
+            ),
+        )
+        self.assertEqual(
+            ["$.card", "$.card.label"],
+            [entry["path"] for entry in nested["document"]["entries"]],
+        )
+
+        node = finalize_map(
+            result,
+            FinalizeOptions(
+                materialization="projected",
+                include_paths=["$.rich@@id", "$.rich@@meta.keep"],
+            ),
+        )
+        self.assertEqual(["$.rich"], [entry["path"] for entry in node["document"]["entries"]])
 
     def test_preserves_legal_quoted_top_level_keys_in_json_finalization(self) -> None:
         result = finalize_json(compile_result('"a.b" = 2\n"two words" = 3'))
