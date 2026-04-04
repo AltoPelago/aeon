@@ -7,7 +7,7 @@ use crate::{
     TokenKind, Value,
 };
 
-pub(crate) fn parse_document_from_tokens(input: &str) -> Result<Vec<Binding>, Diagnostic> {
+pub(crate) fn parse_document_from_tokens(input: &str, max_nesting_depth: usize) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
         LexerOptions {
@@ -24,17 +24,24 @@ pub(crate) fn parse_document_from_tokens(input: &str) -> Result<Vec<Binding>, Di
             message: error.message.clone(),
         });
     }
-    TokenParser::new(&lexed.tokens).parse_document()
+    TokenParser::new(&lexed.tokens, max_nesting_depth).parse_document()
 }
 
 struct TokenParser<'a> {
     tokens: &'a [Token],
     current: usize,
+    max_nesting_depth: usize,
+    current_nesting_depth: usize,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens, current: 0 }
+    fn new(tokens: &'a [Token], max_nesting_depth: usize) -> Self {
+        Self {
+            tokens,
+            current: 0,
+            max_nesting_depth,
+            current_nesting_depth: 0,
+        }
     }
 
     fn parse_document(&mut self) -> Result<Vec<Binding>, Diagnostic> {
@@ -284,6 +291,28 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
+        self.current_nesting_depth += 1;
+        if self.current_nesting_depth > self.max_nesting_depth {
+            let span = self.peek().span;
+            self.current_nesting_depth -= 1;
+            return Err(Diagnostic {
+                code: String::from("NESTING_DEPTH_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Value nesting depth {} exceeds max_nesting_depth {}",
+                    self.max_nesting_depth + 1,
+                    self.max_nesting_depth
+                ),
+            });
+        }
+        let result = self.do_parse_value();
+        self.current_nesting_depth -= 1;
+        result
+    }
+
+    fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {
         let token = self.peek();
         match token.kind {
             TokenKind::String => {
@@ -432,7 +461,17 @@ impl<'a> TokenParser<'a> {
         let mut segments = Vec::new();
         if self.match_kind(TokenKind::Dollar) {
             self.consume(TokenKind::Dot, "Expected `.` after `$`")?;
-            segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+            if self.match_kind(TokenKind::LeftBracket) {
+                let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
+                let key = unescape_quoted(&key_token.text);
+                if key.is_empty() {
+                    return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                }
+                self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
+                segments.push(ReferenceSegment::Key(key));
+            } else {
+                segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+            }
         } else if self.match_kind(TokenKind::LeftBracket) {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
             let key = unescape_quoted(&key_token.text);
@@ -903,9 +942,13 @@ mod tests {
     use super::parse_document_from_tokens;
     use crate::Value;
 
+    fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        parse_document_from_tokens(input, 256)
+    }
+
     #[test]
     fn parses_simple_top_level_bindings_from_tokens() {
-        let bindings = parse_document_from_tokens("name = \"Pat\"\nage = 49").expect("token parse");
+        let bindings = parse("name = \"Pat\"\nage = 49").expect("token parse");
         assert_eq!(bindings.len(), 2);
         assert_eq!(bindings[0].key, "name");
         assert!(matches!(bindings[0].value, Value::StringLiteral { .. }));
@@ -915,19 +958,19 @@ mod tests {
 
     #[test]
     fn parses_shorthand_header_key_from_tokens() {
-        let bindings = parse_document_from_tokens("aeon:mode = \"strict\"").expect("token parse");
+        let bindings = parse("aeon:mode = \"strict\"").expect("token parse");
         assert_eq!(bindings[0].key, "aeon:mode");
     }
 
     #[test]
     fn rejects_unsupported_complex_value_in_token_seam() {
-        let bindings = parse_document_from_tokens("items = [1, 2]").expect("token parse");
+        let bindings = parse("items = [1, 2]").expect("token parse");
         assert!(matches!(bindings[0].value, Value::ListNode { .. }));
     }
 
     #[test]
     fn parses_objects_tuples_and_references_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "obj = { a = 1, pair = (2, 3) }\nref = ~obj.pair[1]\nptr = ~>$.obj.a",
         )
         .expect("token parse");
@@ -938,7 +981,7 @@ mod tests {
 
     #[test]
     fn parses_binding_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens("user@{ role = \"admin\"\n level = 5 } = 1")
+        let bindings = parse("user@{ role = \"admin\"\n level = 5 } = 1")
             .expect("token parse");
         assert!(bindings[0].attributes.contains_key("role"));
         assert!(bindings[0].attributes.contains_key("level"));
@@ -946,7 +989,7 @@ mod tests {
 
     #[test]
     fn parses_node_literals_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>",
         )
         .expect("token parse");
@@ -955,14 +998,14 @@ mod tests {
 
     #[test]
     fn rejects_node_literals_without_trailing_right_angle_after_children() {
-        let err = parse_document_from_tokens("content:node = <span(\"hello\")\n")
+        let err = parse("content:node = <span(\"hello\")\n")
             .expect_err("missing closing angle should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_datatype() {
-        let bindings = parse_document_from_tokens("v:node = <glyph:node>\n").expect("token parse");
+        let bindings = parse("v:node = <glyph:node>\n").expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral { tag, datatype, children, .. } => {
                 assert_eq!(tag, "glyph");
@@ -975,7 +1018,7 @@ mod tests {
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_attributes_and_datatype() {
-        let bindings = parse_document_from_tokens("v:node = <glyph@{id=\"x\"}:node>\n")
+        let bindings = parse("v:node = <glyph@{id=\"x\"}:node>\n")
             .expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral { tag, datatype, children, attributes, .. } => {
@@ -990,21 +1033,21 @@ mod tests {
 
     #[test]
     fn rejects_generic_inline_node_head_datatypes() {
-        let err = parse_document_from_tokens("v:node = <tag:pair<int32,string>(\"x\")>\n")
+        let err = parse("v:node = <tag:pair<int32,string>(\"x\")>\n")
             .expect_err("generic node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn rejects_separator_inline_node_head_datatypes() {
-        let err = parse_document_from_tokens("v:node = <tag:contact[x](\"x\")>\n")
+        let err = parse("v:node = <tag:contact[x](\"x\")>\n")
             .expect_err("separator node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn parses_multiline_separator_specs_and_generic_boundaries_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "size:sep\n[\nx\n]\n= ^300x250\nitems:list\n<\nn\n>\n=\n[\n2,\n3\n]\n",
         )
         .expect("token parse");
@@ -1017,7 +1060,7 @@ mod tests {
     #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings =
-            parse_document_from_tokens("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
+            parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
             bindings[0].value,
             Value::StringLiteral {
@@ -1036,7 +1079,7 @@ mod tests {
 
     #[test]
     fn parses_trimticks_from_tokens() {
-        let bindings = parse_document_from_tokens("note:trimtick = >`\n  one\n  two\n`\n")
+        let bindings = parse("note:trimtick = >`\n  one\n  two\n`\n")
             .expect("token parse");
         assert_eq!(
             bindings[0].value,
@@ -1049,7 +1092,7 @@ mod tests {
 
     #[test]
     fn parses_multiline_node_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "s:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n",
         )
         .expect("token parse");
@@ -1058,7 +1101,7 @@ mod tests {
 
     #[test]
     fn parses_multiline_binding_layout_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "name\n:\nstring =\n\"playground\"\n",
         )
         .expect("token parse");
@@ -1074,7 +1117,7 @@ mod tests {
             "a = 1\nv = ~a@[\"\"]\n",
             "a = 1\nv = ~a[\"\"]\n",
         ] {
-            let error = parse_document_from_tokens(source).expect_err("expected syntax error");
+            let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR");
             assert!(error.message.contains("Empty quoted path segments are not valid"));
         }
@@ -1082,7 +1125,7 @@ mod tests {
 
     #[test]
     fn reports_missing_equals_after_key_with_key_name() {
-        let error = parse_document_from_tokens("a hello\n").expect_err("expected syntax error");
+        let error = parse("a hello\n").expect_err("expected syntax error");
         assert_eq!(error.code, "SYNTAX_ERROR");
         assert_eq!(error.message, "Expected '=' after key 'a'");
         let span = error.span.expect("span");
@@ -1094,7 +1137,7 @@ mod tests {
 
     #[test]
     fn reports_unexpected_identifier_token_in_value_position() {
-        let error = parse_document_from_tokens("a = hello\n").expect_err("expected syntax error");
+        let error = parse("a = hello\n").expect_err("expected syntax error");
         assert_eq!(error.code, "SYNTAX_ERROR");
         assert_eq!(error.message, "Unexpected token 'hello'");
         let span = error.span.expect("span");
@@ -1106,7 +1149,7 @@ mod tests {
 
     #[test]
     fn parses_extremely_multiline_binding_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "a\n@ \n{\nn\n:\nn \n=\n1\n}\n:\nn \n= \n2\n",
         )
         .expect("token parse");
@@ -1115,5 +1158,26 @@ mod tests {
         assert_eq!(bindings[0].datatype.as_deref(), Some("n"));
         assert!(bindings[0].attributes.contains_key("n"));
         assert!(matches!(bindings[0].value, Value::NumberLiteral { .. }));
+    }
+
+    #[test]
+    fn parses_root_quoted_member_reference_after_dollar_dot() {
+        let bindings = parse("\"a.b\" = 1\nv = ~$. [\"a.b\"]\n").expect("token parse");
+        assert!(matches!(bindings[1].value, Value::CloneReference { .. }));
+    }
+
+    #[test]
+    fn rejects_root_bracket_reference_without_dot_after_dollar() {
+        let error = parse("a = 1\nv = ~$[\"a\"]\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected `.` after `$`");
+    }
+
+    #[test]
+    fn rejects_deep_valid_nesting_with_structured_diagnostic() {
+        let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
+        let error = parse_document_from_tokens(&source, 256).expect_err("expected nesting error");
+        assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
+        assert!(error.message.contains("max_nesting_depth 256"));
     }
 }

@@ -168,6 +168,7 @@ pub struct CompileOptions {
     pub max_attribute_depth: usize,
     pub max_separator_depth: usize,
     pub max_generic_depth: usize,
+    pub max_nesting_depth: usize,
     pub datatype_policy: Option<DatatypePolicy>,
     pub shallow_event_values: bool,
     pub emit_binding_projections: bool,
@@ -183,6 +184,7 @@ impl Default for CompileOptions {
             max_attribute_depth: 1,
             max_separator_depth: 1,
             max_generic_depth: 1,
+            max_nesting_depth: 256,
             datatype_policy: None,
             shallow_event_values: false,
             emit_binding_projections: true,
@@ -392,7 +394,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    match parse_document_tokens(&source) {
+    match parse_document_tokens(&source, options.max_nesting_depth) {
         Ok(bindings) => {
             trace_compile(format!("compile:parsed bindings={}", bindings.len()));
             finalize_compile(source, bindings, options)
@@ -414,7 +416,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
 pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(&source)?;
+    let parsed = parse_document_tokens(&source, options.max_nesting_depth)?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
     let lower_header_start = std::time::Instant::now();
@@ -467,11 +469,11 @@ pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Resu
 
 pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
-    token_parser::parse_document_from_tokens(&source).map(|_| ())
+    token_parser::parse_document_from_tokens(&source, CompileOptions::default().max_nesting_depth).map(|_| ())
 }
 
-fn parse_document_tokens(source: &str) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(source)
+fn parse_document_tokens(source: &str, max_nesting_depth: usize) -> Result<Vec<Binding>, Diagnostic> {
+    token_parser::parse_document_from_tokens(source, max_nesting_depth)
 }
 
 fn finalize_compile(source: String, bindings: Vec<Binding>, options: CompileOptions) -> CompileResult {
@@ -1485,6 +1487,21 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
+    }
+
+    #[test]
+    fn accepts_root_quoted_member_reference_after_dollar_dot() {
+        let result = compile("\"a.b\" = 1\nv = ~$. [\"a.b\"]\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn fails_closed_on_deep_valid_nesting() {
+        let source = format!("v = {}0{}\n", "[".repeat(300), "]".repeat(300));
+        let result = compile(&source, CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "NESTING_DEPTH_EXCEEDED");
     }
 
     #[test]

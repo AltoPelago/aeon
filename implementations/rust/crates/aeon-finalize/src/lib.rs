@@ -685,6 +685,19 @@ fn parse_number(
     }
     if let Ok(value) = normalized.parse::<f64>() {
         if value.is_finite() {
+            if value.abs() > 9_007_199_254_740_991.0 {
+                let diag = Diagnostic::new(
+                    "FINALIZE_UNSAFE_NUMBER",
+                    format!("Numeric literal exceeds JSON safe range: {raw}"),
+                )
+                .at_path(path);
+                if matches!(mode, FinalizeMode::Strict) {
+                    errors.push(diag);
+                } else {
+                    warnings.push(diag);
+                }
+                return JsonValue::String(raw.to_owned());
+            }
             return json!(value);
         }
     }
@@ -1110,6 +1123,16 @@ mod tests {
         assert_eq!(finalized.document, json!({ "mask": "1A" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert!(finalized.meta.errors[0].message.contains("declared radix 10"));
+    }
+
+    #[test]
+    fn reports_unsafe_floating_numbers_during_finalization() {
+        let source = "n = 9007199254740993.0\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "n": "9007199254740993.0" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_UNSAFE_NUMBER");
     }
 
     #[derive(Debug, Deserialize, PartialEq)]
