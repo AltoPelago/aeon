@@ -34,6 +34,7 @@ from .ast import (
     Value,
 )
 from .errors import (
+    AeonError,
     AttributeDepthExceededError,
     GenericDepthExceededError,
     HeaderConflictError,
@@ -95,7 +96,7 @@ class Parser:
         try:
             document = self.parse_document()
             return ParseResult(document=document, errors=self.errors)
-        except Exception as error:
+        except AeonError as error:
             self.errors.append(error)
             return ParseResult(document=None, errors=self.errors)
 
@@ -124,7 +125,7 @@ class Parser:
                 bindings.append(binding)
                 if not self.check("EOF") and not self.check("NEWLINE") and not self.check("COMMA"):
                     raise SyntaxError("Expected top-level binding delimiter", self.peek().span)
-            except Exception as error:
+            except AeonError as error:
                 self.errors.append(error)
                 if self.deferred_errors:
                     self.errors.extend(self.deferred_errors)

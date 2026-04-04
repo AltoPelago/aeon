@@ -65,10 +65,8 @@ export function validate(
     // Phase 0 guardrail: inputs are readonly, we never mutate
     // TypeScript enforces this at compile time via readonly types
 
-    // TODO: Phase 7 - String form constraints
     // Phase 8a: schema-side datatype label allowlist during rule indexing
     // Phase 8b: datatype-wide semantic rules via schema.datatype_rules
-    // TODO: Phase 9 - Guarantees
 
     // Phase 1: Envelope plumbing
     const ctx = createDiagContext();
