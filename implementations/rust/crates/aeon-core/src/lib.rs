@@ -205,7 +205,12 @@ pub enum ReferenceSegment {
 pub enum Value {
     NumberLiteral { raw: String },
     InfinityLiteral { raw: String },
-    StringLiteral { value: String, is_trimtick: bool },
+    StringLiteral {
+        value: String,
+        raw: String,
+        delimiter: char,
+        trimticks: Option<TrimtickMetadata>,
+    },
     SwitchLiteral { raw: String },
     BooleanLiteral { raw: String },
     HexLiteral { raw: String },
@@ -229,14 +234,20 @@ pub enum Value {
     PointerReference { segments: Vec<ReferenceSegment>, span: Span },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrimtickMetadata {
+    pub marker_width: usize,
+    pub raw_value: String,
+}
+
 impl Value {
     #[must_use]
     pub fn value_kind(&self) -> &'static str {
         match self {
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
-            Self::StringLiteral { is_trimtick, .. } => {
-                if *is_trimtick {
+            Self::StringLiteral { trimticks, .. } => {
+                if trimticks.is_some() {
                     "TrimtickStringLiteral"
                 } else {
                     "StringLiteral"
@@ -1222,7 +1233,9 @@ mod tests {
             result.events[0].annotations["ns"].value,
             Some(Value::StringLiteral {
                 value: String::from("alto.v1"),
-                is_trimtick: false,
+                raw: String::from("alto.v1"),
+                delimiter: '"',
+                trimticks: None,
             })
         );
     }
@@ -1605,14 +1618,18 @@ mod tests {
             result.events[0].value,
             Value::StringLiteral {
                 value: String::from("`"),
-                is_trimtick: false,
+                raw: String::from("\\`"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
         assert_eq!(
             result.events[4].value,
             Value::StringLiteral {
                 value: String::from("\"'"),
-                is_trimtick: false,
+                raw: String::from("\"'"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
     }
@@ -1628,14 +1645,24 @@ mod tests {
             result.events[0].value,
             Value::StringLiteral {
                 value: String::from("one\ntwo"),
-                is_trimtick: true,
+                raw: String::from("\n  one\n  two\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 1,
+                    raw_value: String::from("\n  one\n  two\n"),
+                }),
             }
         );
         assert_eq!(
             result.events[1].value,
             Value::StringLiteral {
                 value: String::from("alpha\nbeta"),
-                is_trimtick: true,
+                raw: String::from("\n\talpha\n  beta\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 2,
+                    raw_value: String::from("\n\talpha\n  beta\n"),
+                }),
             }
         );
     }

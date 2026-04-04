@@ -1107,8 +1107,8 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             matches!(value, Value::NumberLiteral { .. })
         }
         "infinity" => matches!(value, Value::InfinityLiteral { .. }),
-        "string" => matches!(value, Value::StringLiteral { is_trimtick: false, .. }),
-        "trimtick" => matches!(value, Value::StringLiteral { is_trimtick: true, .. }),
+        "string" => matches!(value, Value::StringLiteral { trimticks: None, .. }),
+        "trimtick" => matches!(value, Value::StringLiteral { trimticks: Some(_), .. }),
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
         "switch" => matches!(value, Value::SwitchLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),

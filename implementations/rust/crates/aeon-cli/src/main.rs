@@ -2134,11 +2134,22 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw),
             escape_json(raw)
         ),
-        Value::StringLiteral { value, .. } => format!(
-            "{{\"type\":\"StringLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
-            escape_json(value),
-            escape_json(value)
-        ),
+        Value::StringLiteral { value, raw, delimiter, trimticks } => {
+            let trimticks_json = trimticks.as_ref().map(|metadata| {
+                format!(
+                    ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
+                    metadata.marker_width,
+                    escape_json(&metadata.raw_value)
+                )
+            }).unwrap_or_default();
+            format!(
+                "{{\"type\":\"StringLiteral\",\"raw\":\"{}\",\"value\":\"{}\",\"delimiter\":\"{}\"{}}}",
+                escape_json(raw),
+                escape_json(value),
+                escape_json(&delimiter.to_string()),
+                trimticks_json
+            )
+        }
         Value::SwitchLiteral { raw } => format!(
             "{{\"type\":\"SwitchLiteral\",\"value\":\"{}\"}}",
             escape_json(raw)
@@ -2595,9 +2606,9 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             elements: Vec::new(),
         },
-        Value::StringLiteral { value, .. } => EventValue {
+        Value::StringLiteral { value, raw, .. } => EventValue {
             value_type: String::from("StringLiteral"),
-            raw: Some(value.clone()),
+            raw: Some(raw.clone()),
             value: Some(JsonValue::String(value.clone())),
             elements: Vec::new(),
         },
@@ -3718,7 +3729,7 @@ mod tests {
     #[test]
     fn render_events_emits_richer_json_values() {
         let result = compile(
-            "a:int32 = 1\nb = [2]\nc = { d = \"x\" }\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
+            "a:int32 = 1\nb = [2]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
             CompileOptions::default(),
         );
         let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
@@ -3733,6 +3744,14 @@ mod tests {
         assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "2");
         assert_eq!(by_key["c"]["value"]["type"], "ObjectNode");
         assert_eq!(by_key["c"]["value"]["bindings"][0]["key"], "d");
+        assert_eq!(by_key["single"]["value"]["delimiter"], "'");
+        assert_eq!(by_key["single"]["value"]["raw"], "alpha");
+        assert_eq!(by_key["raw"]["value"]["delimiter"], "`");
+        assert_eq!(by_key["raw"]["value"]["raw"], "beta");
+        assert_eq!(by_key["trim"]["value"]["delimiter"], "`");
+        assert_eq!(by_key["trim"]["value"]["raw"], "\n  one\n  two\n");
+        assert_eq!(by_key["trim"]["value"]["trimticks"]["markerWidth"], 1);
+        assert_eq!(by_key["trim"]["value"]["trimticks"]["rawValue"], "\n  one\n  two\n");
         assert_eq!(by_key["enc"]["value"]["type"], "EncodingLiteral");
         assert_eq!(by_key["enc"]["value"]["raw"], "$QmFzZTY0IQ==");
         assert_eq!(by_key["enc"]["value"]["value"], "QmFzZTY0IQ==");
@@ -4052,6 +4071,7 @@ mod tests {
         assert_eq!(entries[0]["path"], "$.name");
         assert_eq!(entries[0]["value"]["type"], "StringLiteral");
         assert_eq!(entries[0]["value"]["value"], "AEON");
+        assert_eq!(entries[0]["value"]["delimiter"], "\"");
         assert_eq!(entries[1]["path"], "$.count");
         assert_eq!(entries[1]["value"]["type"], "NumberLiteral");
         assert_eq!(entries[2]["path"], "$.config");

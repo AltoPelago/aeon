@@ -251,11 +251,23 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "raw": raw,
             "value": raw,
         }),
-        Value::StringLiteral { value, .. } => json!({
-            "type": "StringLiteral",
-            "raw": value,
-            "value": value,
-        }),
+        Value::StringLiteral { value, raw, delimiter, trimticks } => {
+            let mut object = Map::new();
+            object.insert(String::from("type"), JsonValue::String(String::from("StringLiteral")));
+            object.insert(String::from("raw"), JsonValue::String(raw.clone()));
+            object.insert(String::from("value"), JsonValue::String(value.clone()));
+            object.insert(String::from("delimiter"), JsonValue::String(delimiter.to_string()));
+            if let Some(metadata) = trimticks {
+                object.insert(
+                    String::from("trimticks"),
+                    json!({
+                        "markerWidth": metadata.marker_width,
+                        "rawValue": metadata.raw_value,
+                    }),
+                );
+            }
+            JsonValue::Object(object)
+        }
         Value::SwitchLiteral { raw } => json!({
             "type": "SwitchLiteral",
             "value": raw,
@@ -621,13 +633,7 @@ fn attribute_entry_to_ast_json(entry: &AttributeValue) -> JsonValue {
             .unwrap_or(JsonValue::Null),
     );
     if let Some(value) = &entry.value {
-        let mut rendered = value_to_ast_json(value);
-        if let JsonValue::Object(ref mut value_obj) = rendered {
-            if matches!(value, Value::StringLiteral { .. }) {
-                value_obj.insert(String::from("delimiter"), JsonValue::String(String::from("\"")));
-            }
-        }
-        object.insert(String::from("value"), rendered);
+        object.insert(String::from("value"), value_to_ast_json(value));
     }
     if !entry.nested_attrs.is_empty() {
         object.insert(
@@ -1183,6 +1189,30 @@ mod tests {
             node.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
             vec!["$.rich"]
         );
+    }
+
+    #[test]
+    fn surfaced_string_ast_preserves_delimiters_and_trimtick_metadata() {
+        let result = compile(
+            "single = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), value_to_ast_json(&event.value)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(by_path["$.single"]["delimiter"], "'");
+        assert_eq!(by_path["$.single"]["raw"], "alpha");
+        assert_eq!(by_path["$.raw"]["delimiter"], "`");
+        assert_eq!(by_path["$.raw"]["raw"], "beta");
+        assert_eq!(by_path["$.trim"]["delimiter"], "`");
+        assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
+        assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
+        assert_eq!(by_path["$.trim"]["trimticks"]["rawValue"], "\n  one\n  two\n");
     }
 
     #[test]

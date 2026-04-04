@@ -4,7 +4,7 @@ use crate::header::apply_trimticks;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::{
     tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
-    TokenKind, Value,
+    TokenKind, TrimtickMetadata, Value,
 };
 
 pub(crate) fn parse_document_from_tokens(
@@ -338,7 +338,9 @@ impl<'a> TokenParser<'a> {
                 let token = self.advance();
                 Ok(Value::StringLiteral {
                     value: decode_quoted_token(token)?,
-                    is_trimtick: false,
+                    raw: token.text[1..token.text.len() - 1].to_string(),
+                    delimiter: token.quote.unwrap_or('"'),
+                    trimticks: None,
                 })
             }
             TokenKind::Number => {
@@ -421,7 +423,12 @@ impl<'a> TokenParser<'a> {
         let value = apply_trimticks(&raw, marker_width);
         Ok(Value::StringLiteral {
             value,
-            is_trimtick: true,
+            raw: raw.clone(),
+            delimiter: '`',
+            trimticks: Some(TrimtickMetadata {
+                marker_width,
+                raw_value: raw,
+            }),
         })
     }
 
@@ -1078,7 +1085,7 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::parse_document_from_tokens;
-    use crate::Value;
+    use crate::{TrimtickMetadata, Value};
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
         parse_document_from_tokens(input, 256, 1)
@@ -1203,14 +1210,18 @@ mod tests {
             bindings[0].value,
             Value::StringLiteral {
                 value: String::from("`"),
-                is_trimtick: false,
+                raw: String::from("\\`"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
         assert_eq!(
             bindings[1].value,
             Value::StringLiteral {
                 value: String::from("a\"b"),
-                is_trimtick: false,
+                raw: String::from("a\\\"b"),
+                delimiter: '"',
+                trimticks: None,
             }
         );
     }
@@ -1226,7 +1237,9 @@ mod tests {
             bindings[1].value,
             Value::StringLiteral {
                 value: String::from("xA"),
-                is_trimtick: false,
+                raw: String::from("x\\u0041"),
+                delimiter: '"',
+                trimticks: None,
             }
         );
         match &bindings[2].value {
@@ -1256,7 +1269,12 @@ mod tests {
             bindings[0].value,
             Value::StringLiteral {
                 value: String::from("one\ntwo"),
-                is_trimtick: true,
+                raw: String::from("\n  one\n  two\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 1,
+                    raw_value: String::from("\n  one\n  two\n"),
+                }),
             }
         );
     }

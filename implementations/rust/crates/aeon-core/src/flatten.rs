@@ -603,9 +603,11 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
     match value {
         Value::NumberLiteral { raw } => Value::NumberLiteral { raw: raw.clone() },
         Value::InfinityLiteral { raw } => Value::InfinityLiteral { raw: raw.clone() },
-        Value::StringLiteral { is_trimtick, .. } => Value::StringLiteral {
+        Value::StringLiteral { delimiter, trimticks, .. } => Value::StringLiteral {
             value: String::new(),
-            is_trimtick: *is_trimtick,
+            raw: String::new(),
+            delimiter: *delimiter,
+            trimticks: trimticks.clone(),
         },
         Value::SwitchLiteral { .. } => Value::SwitchLiteral {
             raw: String::new(),
