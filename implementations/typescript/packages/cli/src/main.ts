@@ -2706,6 +2706,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
             return 'Reference Validation';
         case 'UNTYPED_SWITCH_LITERAL':
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
+        case 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
         case 'INVALID_NODE_HEAD_DATATYPE':
             return 'Mode Enforcement';

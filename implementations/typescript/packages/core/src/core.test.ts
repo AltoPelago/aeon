@@ -483,8 +483,24 @@ describe('Core - compile()', () => {
             });
         });
 
-        it('should surface leading-zero reserved radix base brackets as syntax errors', () => {
+        it('should keep leading-zero reserved radix base brackets in the invalid-number bucket', () => {
             const result = compile('mask:radix[03] = %19');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should normalize invalid typed hex literals to syntax errors', () => {
+            const result = compile('a:hex = #F__F');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should normalize invalid untyped encoding literals to syntax errors', () => {
+            const result = compile('e = $QmF.zZTY0IQ==');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);

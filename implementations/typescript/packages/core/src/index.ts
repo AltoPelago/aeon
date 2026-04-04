@@ -228,23 +228,19 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
 
 function normalizeLexerErrors(input: string, errors: readonly LexerError[]): readonly AEONError[] {
     return errors.map((error) => {
-        if (error.code === 'INVALID_NUMBER' && isReservedRadixLeadingZeroBaseError(input, error)) {
-            return new ParserSyntaxError(
-                'Radix base must be a base-10 integer without leading zeroes',
-                error.span,
-                'integer from 2 to 64',
-                input.slice(error.span.start.offset, error.span.end.offset)
-            );
+        if (error.code === 'INVALID_NUMBER') {
+            const raw = input.slice(error.span.start.offset, error.span.end.offset);
+            if (raw.startsWith('#') || raw.startsWith('$')) {
+                return new ParserSyntaxError(
+                    `Invalid literal spelling: '${raw}'`,
+                    error.span,
+                    null,
+                    raw
+                );
+            }
         }
         return error;
     });
-}
-
-function isReservedRadixLeadingZeroBaseError(input: string, error: LexerError): boolean {
-    const raw = input.slice(error.span.start.offset, error.span.end.offset);
-    if (!/^0\d+$/.test(raw)) return false;
-    const before = input.slice(0, error.span.start.offset);
-    return /(?:^|[^A-Za-z0-9_])radix\[\s*$/.test(before);
 }
 
 // =============================================================================

@@ -1322,15 +1322,27 @@ class Parser {
 
     private parseSeparatorCharacter(): string {
         const token = this.peek();
+        if (
+            token.type === TokenType.Identifier
+            || token.type === TokenType.Number
+            || token.type === TokenType.String
+            || token.type === TokenType.Symbol
+        ) {
+            this.advance();
+            if (token.value.length !== 1) {
+                throw new InvalidSeparatorCharError(token.value, token.span);
+            }
+            const char = token.value;
+            const code = char.charCodeAt(0);
+            if (code < 0x21 || code > 0x7e || char === ',' || char === '[' || char === ']') {
+                throw new InvalidSeparatorCharError(char, token.span);
+            }
+            return char;
+        }
+
         let char: string;
 
         switch (token.type) {
-            case TokenType.Identifier:
-            case TokenType.Number:
-            case TokenType.String:
-            case TokenType.Symbol:
-                char = token.value;
-                break;
             case TokenType.Comma:
                 char = ',';
                 break;
@@ -1467,7 +1479,7 @@ class Parser {
         }
 
         this.advance();
-        if (value === ',' || value === '[') {
+        if (value === '[') {
             throw new InvalidSeparatorCharError(value, token.span);
         }
         return value;

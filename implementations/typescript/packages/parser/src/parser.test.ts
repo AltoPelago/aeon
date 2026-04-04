@@ -854,12 +854,12 @@ describe('Parser', () => {
             assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
 
-        it('should reject reserved boundary chars in custom bracket specs before depth checks', () => {
+        it('should enforce separator depth before rejecting custom bracket punctuation in repeated specs', () => {
             const tokens = tokenize('badSepType1:matrix[,][;] = ^1,2,3;4,5,6').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 1 });
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
 
         it('should parse radix base brackets', () => {
