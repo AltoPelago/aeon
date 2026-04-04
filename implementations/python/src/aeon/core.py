@@ -155,6 +155,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         lex_result.tokens,
         max_separator_depth=opts.max_separator_depth,
         max_generic_depth=opts.max_generic_depth,
+        max_attribute_depth=opts.max_attribute_depth,
         max_nesting_depth=opts.max_nesting_depth,
     )
     parse_errors = [coerce_error(error) for error in parse_result.errors]

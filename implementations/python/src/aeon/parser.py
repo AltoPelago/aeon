@@ -34,6 +34,7 @@ from .ast import (
     Value,
 )
 from .errors import (
+    AttributeDepthExceededError,
     GenericDepthExceededError,
     HeaderConflictError,
     InvalidSeparatorCharError,
@@ -72,6 +73,7 @@ class Parser:
         tokens: list[Token],
         max_separator_depth: int = 1,
         max_generic_depth: int = 1,
+        max_attribute_depth: int = 1,
         max_nesting_depth: int = 256,
     ) -> None:
         self.source = source
@@ -79,6 +81,7 @@ class Parser:
         self.current = 0
         self.max_separator_depth = max_separator_depth
         self.max_generic_depth = max_generic_depth
+        self.max_attribute_depth = max_attribute_depth
         self.max_nesting_depth = max_nesting_depth
         self.current_nesting_depth = 0
         self.errors: list[Exception] = []
@@ -208,7 +211,7 @@ class Parser:
         self.skip_layout()
         attributes: list[Attribute] = []
         while self.check("AT"):
-            attributes.append(self.parse_attribute())
+            attributes.append(self.parse_attribute(1))
             self.skip_layout()
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
@@ -224,7 +227,9 @@ class Parser:
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
         return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end))
 
-    def parse_attribute(self) -> Attribute:
+    def parse_attribute(self, depth: int) -> Attribute:
+        if depth > self.max_attribute_depth:
+            raise AttributeDepthExceededError("$", depth, self.max_attribute_depth, self.peek().span)
         start = self.peek().span.start
         self.consume("AT", "Expected '@'")
         self.skip_layout()
@@ -237,7 +242,7 @@ class Parser:
             self.skip_layout()
             attributes: list[Attribute] = []
             while self.check("AT"):
-                attributes.append(self.parse_attribute())
+                attributes.append(self.parse_attribute(depth + 1))
                 self.skip_layout()
             datatype: TypeAnnotation | None = None
             if self.check("COLON"):
@@ -453,7 +458,7 @@ class Parser:
         self.skip_layout()
         attributes: list[Attribute] = []
         while self.check("AT"):
-            attributes.append(self.parse_attribute())
+            attributes.append(self.parse_attribute(1))
             self.skip_layout()
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
@@ -748,6 +753,7 @@ def parse_tokens(
     tokens: list[Token],
     max_separator_depth: int = 1,
     max_generic_depth: int = 1,
+    max_attribute_depth: int = 1,
     max_nesting_depth: int = 256,
 ) -> ParseResult:
     return Parser(
@@ -755,6 +761,7 @@ def parse_tokens(
         tokens,
         max_separator_depth=max_separator_depth,
         max_generic_depth=max_generic_depth,
+        max_attribute_depth=max_attribute_depth,
         max_nesting_depth=max_nesting_depth,
     ).parse()
 

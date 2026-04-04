@@ -394,7 +394,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    match parse_document_tokens(&source, options.max_nesting_depth) {
+    match parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth) {
         Ok(bindings) => {
             trace_compile(format!("compile:parsed bindings={}", bindings.len()));
             finalize_compile(source, bindings, options)
@@ -416,7 +416,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
 pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(&source, options.max_nesting_depth)?;
+    let parsed = parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth)?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
     let lower_header_start = std::time::Instant::now();
@@ -469,11 +469,20 @@ pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Resu
 
 pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
-    token_parser::parse_document_from_tokens(&source, CompileOptions::default().max_nesting_depth).map(|_| ())
+    token_parser::parse_document_from_tokens(
+        &source,
+        CompileOptions::default().max_nesting_depth,
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map(|_| ())
 }
 
-fn parse_document_tokens(source: &str, max_nesting_depth: usize) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(source, max_nesting_depth)
+fn parse_document_tokens(
+    source: &str,
+    max_nesting_depth: usize,
+    max_attribute_depth: usize,
+) -> Result<Vec<Binding>, Diagnostic> {
+    token_parser::parse_document_from_tokens(source, max_nesting_depth, max_attribute_depth)
 }
 
 fn finalize_compile(source: String, bindings: Vec<Binding>, options: CompileOptions) -> CompileResult {
@@ -1487,6 +1496,21 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
+    }
+
+    #[test]
+    fn rejects_empty_quoted_keys_in_binding_positions() {
+        let result = compile("\"\" = 1\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Keys must not be empty");
+    }
+
+    #[test]
+    fn rejects_nested_attribute_heads_at_default_depth() {
+        let result = compile("a@{b@{c=3}=2} = 1\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "ATTRIBUTE_DEPTH_EXCEEDED");
     }
 
     #[test]

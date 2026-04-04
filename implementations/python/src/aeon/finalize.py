@@ -312,17 +312,27 @@ def extract_header_keys(header: dict[str, object] | None) -> list[str]:
 
 
 def is_top_level_path(path: str) -> bool:
-    return path.startswith("$.") and path.count(".") == 1 and "[" not in path
+    if path.startswith('$.["') and path.endswith('"]'):
+        return True
+    if not path.startswith("$."):
+        return False
+    suffix = path[2:]
+    return all(ch not in suffix for ch in ".[@")
 
 
 def scoped_top_level_path(scope: str, branch: str, key: str) -> str:
-    if scope == "full":
-        return f"$.{branch}.{key}"
-    return f"$.{key}"
+    base = f"$.{branch}" if scope == "full" else "$"
+    return append_member_path(base, key)
 
 
 def format_child_path(base_path: str, key: str) -> str:
-    return f"{base_path}.{key}" if is_identifier_safe(key) else f'{base_path}["{escape_string(key)}"]'
+    return append_member_path(base_path, key)
+
+
+def append_member_path(base_path: str, key: str) -> str:
+    if is_identifier_safe(key):
+        return f"{base_path}.{key}"
+    return f'{base_path}.["{escape_string(key)}"]'
 
 
 def format_annotation_key(key: str) -> str:

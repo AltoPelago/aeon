@@ -165,6 +165,27 @@ class FinalizeJsonTests(unittest.TestCase):
             full["document"],
         )
 
+    def test_preserves_legal_quoted_top_level_keys_in_json_finalization(self) -> None:
+        result = finalize_json(compile_result('"a.b" = 2\n"two words" = 3'))
+        self.assertEqual(
+            {
+                "a.b": 2,
+                "two words": 3,
+            },
+            result["document"],
+        )
+
+    def test_projects_quoted_top_level_keys_by_canonical_include_path(self) -> None:
+        result = finalize_json(
+            compile_events('"a.b" = 2\nplain = 1'),
+            FinalizeOptions(
+                mode="strict",
+                materialization="projected",
+                include_paths=['$.["a.b"]'],
+            ),
+        )
+        self.assertEqual({"a.b": 2}, result["document"])
+
 
 if __name__ == "__main__":
     unittest.main()

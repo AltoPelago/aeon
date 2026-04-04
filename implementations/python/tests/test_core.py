@@ -252,6 +252,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a@b@c", CompileOptions(max_attribute_depth=8))
         self.assertEqual([], result.errors)
 
+    def test_nested_attribute_heads_fail_at_default_depth(self) -> None:
+        result = compile_source("a@{b@{c=3}=2} = 1")
+        self.assertEqual(["ATTRIBUTE_DEPTH_EXCEEDED"], [error.code for error in result.errors])
+
     def test_forward_reference(self) -> None:
         result = compile_source('v = ~a@ns\na@{ns="alto.v1"} = 1')
         self.assertEqual(["FORWARD_REFERENCE"], [error.code for error in result.errors])

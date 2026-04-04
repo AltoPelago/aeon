@@ -7,7 +7,11 @@ use crate::{
     TokenKind, Value,
 };
 
-pub(crate) fn parse_document_from_tokens(input: &str, max_nesting_depth: usize) -> Result<Vec<Binding>, Diagnostic> {
+pub(crate) fn parse_document_from_tokens(
+    input: &str,
+    max_nesting_depth: usize,
+    max_attribute_depth: usize,
+) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
         LexerOptions {
@@ -24,7 +28,7 @@ pub(crate) fn parse_document_from_tokens(input: &str, max_nesting_depth: usize) 
             message: error.message.clone(),
         });
     }
-    TokenParser::new(&lexed.tokens, max_nesting_depth).parse_document()
+    TokenParser::new(&lexed.tokens, max_nesting_depth, max_attribute_depth).parse_document()
 }
 
 struct TokenParser<'a> {
@@ -32,15 +36,17 @@ struct TokenParser<'a> {
     current: usize,
     max_nesting_depth: usize,
     current_nesting_depth: usize,
+    max_attribute_depth: usize,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: &'a [Token], max_nesting_depth: usize) -> Self {
+    fn new(tokens: &'a [Token], max_nesting_depth: usize, max_attribute_depth: usize) -> Self {
         Self {
             tokens,
             current: 0,
             max_nesting_depth,
             current_nesting_depth: 0,
+            max_attribute_depth,
         }
     }
 
@@ -61,7 +67,7 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
         while self.check(TokenKind::At) {
-            attributes.extend(self.parse_attribute_block()?);
+            attributes.extend(self.parse_attribute_block(1)?);
             self.skip_newlines();
         }
         let mut datatype = None;
@@ -104,7 +110,11 @@ impl<'a> TokenParser<'a> {
                 if token.quote == Some('`') {
                     return Err(self.error_at_current("Backtick strings are not valid keys"));
                 }
-                Ok(unescape_quoted(&self.advance().text))
+                let key = unescape_quoted(&self.advance().text);
+                if key.is_empty() {
+                    return Err(self.error_at_current("Keys must not be empty"));
+                }
+                Ok(key)
             }
             _ => Err(self.error_at_current("Expected key")),
         }
@@ -589,7 +599,7 @@ impl<'a> TokenParser<'a> {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while self.check(TokenKind::At) {
-            attributes.push(self.parse_attribute_block()?);
+            attributes.push(self.parse_attribute_block(1)?);
             self.skip_newlines();
         }
 
@@ -633,11 +643,26 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    fn parse_attribute_block(&mut self, depth: usize) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+        if depth > self.max_attribute_depth {
+            return Err(
+                Diagnostic::new(
+                    "ATTRIBUTE_DEPTH_EXCEEDED",
+                    format!("Attribute depth {depth} exceeds max_attribute_depth {}", self.max_attribute_depth),
+                )
+                .at_path("$")
+                .with_span(self.peek().span),
+            );
+        }
         self.consume(TokenKind::At, "Expected `@` before attribute block")?;
         self.skip_newlines();
         self.consume(TokenKind::LeftBrace, "Expected `{` after `@`")?;
-        let map = self.parse_attribute_members(TokenKind::RightBrace, "Expected attribute delimiter", "Expected `=` after attribute key")?;
+        let map = self.parse_attribute_members(
+            TokenKind::RightBrace,
+            "Expected attribute delimiter",
+            "Expected `=` after attribute key",
+            depth,
+        )?;
         self.consume(TokenKind::RightBrace, "Expected `}` after attribute block")?;
         Ok(map)
     }
@@ -662,6 +687,7 @@ impl<'a> TokenParser<'a> {
             TokenKind::RightBrace,
             "Expected object member delimiter",
             "Expected `=` after object member key",
+            0,
         )?;
         self.consume(TokenKind::RightBrace, "Expected `}` after attribute object")?;
         Ok(members)
@@ -700,6 +726,7 @@ impl<'a> TokenParser<'a> {
         terminator: TokenKind,
         delimiter_message: &str,
         equals_message: &str,
+        depth: usize,
     ) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
         let mut members = BTreeMap::new();
         self.skip_newlines();
@@ -709,7 +736,7 @@ impl<'a> TokenParser<'a> {
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
             while self.check(TokenKind::At) {
-                nested_attrs.extend(self.parse_attribute_block()?);
+                nested_attrs.extend(self.parse_attribute_block(depth + 1)?);
                 self.skip_newlines();
             }
             self.skip_newlines();
@@ -943,7 +970,7 @@ mod tests {
     use crate::Value;
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
-        parse_document_from_tokens(input, 256)
+        parse_document_from_tokens(input, 256, 1)
     }
 
     #[test]
@@ -1112,8 +1139,11 @@ mod tests {
 
     #[test]
     fn rejects_empty_quoted_reference_segments() {
+        let object_key_error = parse("a = { \"\" = 1 }\nv = ~a.[\"\"]\n").expect_err("expected syntax error");
+        assert_eq!(object_key_error.code, "SYNTAX_ERROR");
+        assert_eq!(object_key_error.message, "Keys must not be empty");
+
         for source in [
-            "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
             "a = 1\nv = ~a@[\"\"]\n",
             "a = 1\nv = ~a[\"\"]\n",
         ] {
@@ -1176,8 +1206,21 @@ mod tests {
     #[test]
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
-        let error = parse_document_from_tokens(&source, 256).expect_err("expected nesting error");
+        let error = parse_document_from_tokens(&source, 256, 1).expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
         assert!(error.message.contains("max_nesting_depth 256"));
+    }
+
+    #[test]
+    fn rejects_empty_quoted_keys_in_binding_positions() {
+        let error = parse("\"\" = 1\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Keys must not be empty");
+    }
+
+    #[test]
+    fn rejects_nested_attribute_heads_at_default_depth() {
+        let error = parse("a@{b@{c=3}=2} = 1\n").expect_err("expected attribute depth error");
+        assert_eq!(error.code, "ATTRIBUTE_DEPTH_EXCEEDED");
     }
 }
