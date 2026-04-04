@@ -31,6 +31,7 @@ export type DatatypePolicy = 'reserved_only' | 'allow_custom';
 export type ModeEnforcementErrorCode =
     | 'UNTYPED_VALUE_IN_STRICT_MODE'
     | 'UNTYPED_SWITCH_LITERAL'
+    | 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'
     | 'DATATYPE_LITERAL_MISMATCH'
     | 'CUSTOM_DATATYPE_NOT_ALLOWED'
     | 'INVALID_NODE_HEAD_DATATYPE'
@@ -85,6 +86,18 @@ export class UntypedSwitchLiteralError extends ModeEnforcementError {
             path
         );
         this.name = 'UntypedSwitchLiteralError';
+    }
+}
+
+export class CustomSwitchAliasNotAllowedError extends ModeEnforcementError {
+    constructor(span: Span, path: string, datatype: string) {
+        super(
+            `Custom switch alias not allowed in strict mode at '${path}': use ':switch' instead of ':${datatype}'`,
+            span,
+            'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED',
+            path
+        );
+        this.name = 'CustomSwitchAliasNotAllowedError';
     }
 }
 
@@ -279,6 +292,10 @@ export function enforceMode(
             continue;
         }
         const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex) ?? event.value.type;
+        if (mode === 'strict' && !expectedKinds && actualKind === 'SwitchLiteral') {
+            errors.push(new CustomSwitchAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
+            continue;
+        }
         if (expectedKinds && !expectedKinds.includes(actualKind)) {
             errors.push(new DatatypeLiteralMismatchError(
                 event.span,

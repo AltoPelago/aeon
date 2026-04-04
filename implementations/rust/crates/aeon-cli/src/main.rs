@@ -2453,7 +2453,8 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "MISSING_REFERENCE_TARGET" | "FORWARD_REFERENCE" | "SELF_REFERENCE"
         | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
         "UNTYPED_SWITCH_LITERAL" | "UNTYPED_VALUE_IN_STRICT_MODE"
-        | "CUSTOM_DATATYPE_NOT_ALLOWED" | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+        | "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED" | "CUSTOM_DATATYPE_NOT_ALLOWED"
+        | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
         "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
         "TYPE_GUARD_FAILED" => Some("Finalization"),
         _ if code.starts_with("FINALIZE_") => Some("Finalization"),

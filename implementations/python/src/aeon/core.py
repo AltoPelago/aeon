@@ -27,6 +27,7 @@ from .ast import (
 from .errors import (
     AeonError,
     AttributeDepthExceededError,
+    CustomSwitchAliasNotAllowedError,
     CustomDatatypeNotAllowedError,
     DatatypeLiteralMismatchError,
     DuplicateCanonicalPathError,
@@ -397,6 +398,15 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
             errors.append(CustomDatatypeNotAllowedError(format_path(binding.path), binding.datatype, binding.span))
             continue
         actual_kind = datatype_check_kind(binding, lookup)
+        if mode == "strict" and expected is None and actual_kind == "SwitchLiteral":
+            errors.append(
+                CustomSwitchAliasNotAllowedError(
+                    format_path(binding.path),
+                    binding.datatype,
+                    binding.span,
+                )
+            )
+            continue
         if expected is None:
             custom_shape = classify_custom_datatype_shape(binding.datatype)
             if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:

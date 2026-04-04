@@ -82,6 +82,11 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
         self.assertEqual([], result.errors)
 
+    def test_strict_mode_rejects_custom_switch_alias_even_with_allow_custom(self) -> None:
+        source = 'aeon:mode = "strict"\ns:toggle = on'
+        result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
+        self.assertEqual(["CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
+
     def test_custom_datatype_allowed_in_transport_mode_by_default(self) -> None:
         source = 'aeon:mode = "transport"\ncolor:stroke = #ff00ff'
         result = compile_source(source)
@@ -94,6 +99,11 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_custom_mode_allows_custom_datatypes_by_default(self) -> None:
         source = 'aeon:mode = "custom"\ncolor:stroke = #ff00ff'
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+
+    def test_custom_mode_allows_custom_switch_aliases(self) -> None:
+        source = 'aeon:mode = "custom"\ns:toggle = on'
         result = compile_source(source)
         self.assertEqual([], result.errors)
 

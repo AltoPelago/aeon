@@ -922,6 +922,32 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_rejects_custom_switch_alias_even_with_allow_custom() {
+        let result = compile(
+            "aeon:mode = \"strict\"\ns:toggle = on\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED");
+        assert_eq!(
+            result.errors[0].message,
+            "Custom switch alias not allowed in strict mode at '$.s': use ':switch' instead of ':toggle'"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.s"));
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
+    fn custom_mode_allows_custom_switch_aliases() {
+        let result = compile("aeon:mode = \"custom\"\ns:toggle = on\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
     fn typed_clone_reference_uses_target_value_kind_for_datatype_checking() {
         let result = compile("source:number = 99\ncopy:number = ~source", CompileOptions::default());
         assert!(result.errors.is_empty());

@@ -346,6 +346,23 @@ pub(crate) fn validate_datatypes(
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "SwitchLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            path
+                        ),
+                    )
+                    .at_path(path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
             if !datatype_matches_value(datatype, resolved_value) {
                 let message = datatype_mismatch_message(path, datatype, resolved_value.value_kind());
                 errors.push(
@@ -413,6 +430,23 @@ pub(crate) fn validate_datatypes_light(
             }
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "SwitchLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            event.path
+                        ),
+                    )
+                    .at_path(event.path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
             if !datatype_matches_value(datatype, resolved_value) {
                 let message =
                     datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
@@ -766,7 +800,7 @@ fn validate_switch_literal_in_value(
 ) {
     match value {
         Value::SwitchLiteral { .. } => {
-            if matches!(mode, BehaviorMode::Strict) && datatype != Some("switch") {
+            if matches!(mode, BehaviorMode::Strict) && datatype.is_none() {
                 errors.push(
                     Diagnostic::new(
                         "UNTYPED_SWITCH_LITERAL",

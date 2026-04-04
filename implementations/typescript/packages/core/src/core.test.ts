@@ -671,6 +671,14 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should reject custom switch aliases in strict mode even when datatypePolicy is allow_custom', () => {
+            const result = compile('aeon:mode = "strict"\ns:toggle = on', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'));
+        });
+
         it('should treat uppercase reserved-looking names as custom datatypes in strict mode', () => {
             const result = compile('aeon:mode = "strict"\na:N = 3\nb:Radix[10] = %1A', {
                 datatypePolicy: 'allow_custom',
@@ -693,6 +701,12 @@ describe('Core - compile()', () => {
 
         it('should allow custom datatypes in custom mode by default', () => {
             const result = compile('aeon:mode = "custom"\nstroke:myColor = #ff00ff');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
+        it('should allow custom switch aliases in custom mode', () => {
+            const result = compile('aeon:mode = "custom"\ns:toggle = on');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

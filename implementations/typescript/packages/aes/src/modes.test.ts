@@ -256,6 +256,12 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should allow custom switch aliases in custom mode', () => {
+            const result = enforce('aeon:mode = "custom"\ns:toggle = on');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should allow custom inline node head datatypes in custom mode', () => {
             const result = enforce('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>');
 
@@ -332,6 +338,14 @@ describe('Mode Enforcement', () => {
             const result = enforce('aeon:mode = "strict"\ndebug:switch = yes');
 
             assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should reject custom switch aliases in strict mode even when datatypePolicy is allow_custom', () => {
+            const result = enforce('aeon:mode = "strict"\ns:toggle = on', {
+                datatypePolicy: 'allow_custom',
+            });
+
+            assert.ok(result.errors.some(e => e.code === 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'));
         });
 
         it('should error if switch literal is typed as a non-switch', () => {
