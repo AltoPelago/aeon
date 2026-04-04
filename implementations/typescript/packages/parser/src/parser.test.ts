@@ -565,6 +565,19 @@ describe('Parser', () => {
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
+        it('should parse quoted member traversal without an explicit root marker', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const ref = result.document!.bindings[1]!.value;
+            if (ref.type === 'CloneReference') {
+                assert.deepStrictEqual(ref.path, ['a.b']);
+            } else {
+                assert.fail(`Expected CloneReference, got ${ref.type}`);
+            }
+        });
+
         it('should parse quoted root-member traversal with an explicit dot after $', () => {
             const tokens = tokenize('"a.b" = 2\nv = ~$.["a.b"]').tokens;
             const result = parse(tokens);

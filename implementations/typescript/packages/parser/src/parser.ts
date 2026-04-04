@@ -836,16 +836,18 @@ class Parser {
     private parsePath(): ReferencePathSegment[] {
         const path: ReferencePathSegment[] = [];
         let sawRootDot = false;
+        let sawExplicitRoot = false;
 
         if (this.check(TokenType.Dollar)) {
             this.advance(); // consume $
+            sawExplicitRoot = true;
             if (this.check(TokenType.Dot)) {
                 this.advance(); // consume explicit dot after $
                 sawRootDot = true;
             }
         }
 
-        this.parsePathInitialSegment(path, sawRootDot);
+        this.parsePathInitialSegment(path, sawRootDot, sawExplicitRoot);
 
         while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket) || this.check(TokenType.At)) {
             if (this.check(TokenType.Dot)) {
@@ -1195,14 +1197,18 @@ class Parser {
         return key;
     }
 
-    private parsePathInitialSegment(path: ReferencePathSegment[], sawRootDot: boolean = false): void {
+    private parsePathInitialSegment(
+        path: ReferencePathSegment[],
+        sawRootDot: boolean = false,
+        sawExplicitRoot: boolean = false
+    ): void {
         if (this.check(TokenType.Identifier) || this.check(TokenType.String)) {
             path.push(this.parseMemberSegment('Expected path segment'));
             return;
         }
 
         if (this.check(TokenType.LeftBracket)) {
-            if (!sawRootDot && this.peekNext()?.type === TokenType.String) {
+            if (sawExplicitRoot && !sawRootDot && this.peekNext()?.type === TokenType.String) {
                 throw new SyntaxError(
                     "Expected '.' after '$' before quoted root-member segment",
                     this.peek().span,

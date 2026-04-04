@@ -232,9 +232,6 @@ function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
 
         case 'ListNode':
         case 'TupleLiteral':
-            for (const element of value.elements) {
-                yield* findReferences(element);
-            }
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
@@ -302,6 +299,12 @@ function validateOneReference(
     }
 
     if (targetPath === sourcePath) {
+        errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
+        return;
+    }
+
+    const indexedOwnerPath = sourcePath.replace(/(?:\[\d+\])+$/, '');
+    if (indexedOwnerPath !== sourcePath && targetPath === indexedOwnerPath) {
         errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
         return;
     }

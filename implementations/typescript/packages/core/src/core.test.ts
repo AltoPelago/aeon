@@ -329,6 +329,13 @@ describe('Core - compile()', () => {
             assert.deepStrictEqual(result.events.map(e => formatPath(e.path)), ['$.b', '$.a']);
         });
 
+        it('should allow quoted member traversal without an explicit root marker', () => {
+            const result = compile('"a.b":string = "x"\nb:string = ~["a.b"]');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.b'));
+        });
+
         it('should allow typed clone references when the referenced value matches', () => {
             const result = compile([
                 'aeon:mode = "strict"',
@@ -352,6 +359,20 @@ describe('Core - compile()', () => {
 
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SELF_REFERENCE'));
+        });
+
+        it('should allow backward references to earlier list items', () => {
+            const result = compile('c:list = [1, 1, ~c[0]]');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.c[2]'));
+        });
+
+        it('should allow backward references to earlier tuple items', () => {
+            const result = compile('c:tuple = (1, 1, ~c[0])');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.c[2]'));
         });
 
         it('should validate pointer references with same rules', () => {

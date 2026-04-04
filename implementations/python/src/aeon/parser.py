@@ -538,12 +538,18 @@ class Parser:
     def parse_path(self) -> list[ReferencePathSegment]:
         path: list[ReferencePathSegment] = []
         saw_root_dot = False
+        saw_explicit_root = False
         if self.check("DOLLAR"):
             self.advance()
+            saw_explicit_root = True
             if self.check("DOT"):
                 self.advance()
                 saw_root_dot = True
-        self.parse_path_initial_segment(path, saw_root_dot=saw_root_dot)
+        self.parse_path_initial_segment(
+            path,
+            saw_root_dot=saw_root_dot,
+            saw_explicit_root=saw_explicit_root,
+        )
         while self.check("DOT") or self.check("LBRACKET") or self.check("AT"):
             if self.check("DOT"):
                 self.advance()
@@ -559,12 +565,17 @@ class Parser:
             path.append(self.parse_bracket_path_segment())
         return path
 
-    def parse_path_initial_segment(self, path: list[ReferencePathSegment], saw_root_dot: bool = False) -> None:
+    def parse_path_initial_segment(
+        self,
+        path: list[ReferencePathSegment],
+        saw_root_dot: bool = False,
+        saw_explicit_root: bool = False,
+    ) -> None:
         if self.check("IDENT") or self.check("STRING"):
             path.append(self.parse_member_segment("Expected path segment"))
             return
         if self.check("LBRACKET"):
-            if not saw_root_dot and self.check_next("STRING"):
+            if saw_explicit_root and not saw_root_dot and self.check_next("STRING"):
                 raise SyntaxError("Expected '.' after '$' before quoted root-member segment", self.peek().span)
             path.append(self.parse_bracket_path_segment())
             return

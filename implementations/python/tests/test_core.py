@@ -40,6 +40,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('"a.b" = 1\nv = ~$.["a.b"]')
         self.assertEqual([], result.errors)
 
+    def test_quoted_member_reference_without_explicit_root_marker_is_legal(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~["a.b"]')
+        self.assertEqual([], result.errors)
+
     def test_escaped_backtick_inside_backtick_string(self) -> None:
         result = compile_source("string006:string = `\\``")
         self.assertEqual([], result.errors)

@@ -137,6 +137,18 @@ describe('Reference Validation', () => {
 
             assert.strictEqual(result.errors.length, 0);
         });
+
+        it('should allow intra-sequence backward references in lists', () => {
+            const result = validate('c:list = [1, 1, ~c[0]]', true);
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should allow intra-sequence backward references in tuples', () => {
+            const result = validate('c:tuple = (1, 1, ~c[0])', true);
+
+            assert.strictEqual(result.errors.length, 0);
+        });
     });
 
     // ============================================
