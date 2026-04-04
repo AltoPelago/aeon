@@ -195,6 +195,27 @@ class CliTests(unittest.TestCase):
         self.assertEqual({"n": "9007199254740993.0"}, payload["document"])
         self.assertEqual("FINALIZE_UNSAFE_NUMBER", payload["meta"]["errors"][0]["code"])
 
+    def test_finalize_defaults_to_envelope_output_without_json_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "simple.aeon"
+            fixture.write_text('name = "AEON"\n', encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"name": "AEON"}, payload["document"])
+        self.assertFalse(payload.get("meta"))
+
     def test_finalize_json_reports_infinity_as_strict_json_profile_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "infinity.aeon"

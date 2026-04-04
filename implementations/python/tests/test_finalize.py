@@ -118,6 +118,7 @@ class FinalizeJsonTests(unittest.TestCase):
         result = finalize_json(events, FinalizeOptions(mode="strict"))
         self.assertEqual("~>a", result["document"]["b"])
         self.assertTrue(result["meta"]["errors"])
+        self.assertEqual("FINALIZE_UNMATERIALIZED_REFERENCE", result["meta"]["errors"][0]["code"])
 
     def test_materializes_switch_and_time_literals(self) -> None:
         switch = finalize_json(compile_events("debug = yes"), FinalizeOptions(mode="loose"))

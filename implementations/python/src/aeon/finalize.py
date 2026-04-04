@@ -345,7 +345,7 @@ def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, p
     token = prefix + format_reference_path(value.get("path"))
     ctx.emit(
         "error" if ctx.strict else "warning",
-        "FINALIZE_REFERENCE_CYCLE",
+        "FINALIZE_UNMATERIALIZED_REFERENCE",
         f"Reference cannot be materialized in JSON output: {token}",
         path,
         value.get("span"),

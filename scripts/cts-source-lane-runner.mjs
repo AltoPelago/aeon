@@ -218,14 +218,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
   if (Number.isInteger(maxGenericDepth)) args.push('--max-generic-depth', String(maxGenericDepth));
 
-  const { stdout, stderr, code } = await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out = [];
-    const err = [];
-    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
-    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
-    child.on('close', (c) => resolve({ code: c, stdout: Buffer.concat(out).toString('utf8').trim(), stderr: Buffer.concat(err).toString('utf8') }));
-  });
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -258,14 +251,7 @@ async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, mater
     }
   }
 
-  const { stdout, stderr, code } = await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out = [];
-    const err = [];
-    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
-    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
-    child.on('close', (c) => resolve({ code: c, stdout: Buffer.concat(out).toString('utf8').trim(), stderr: Buffer.concat(err).toString('utf8') }));
-  });
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -288,14 +274,7 @@ async function runFmt({ sutPath, source }) {
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'fmt', file] : ['fmt', file];
 
-  const { stdout, stderr, code } = await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out = [];
-    const err = [];
-    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
-    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
-    child.on('close', (c) => resolve({ code: c, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') }));
-  });
+  const { stdout, stderr, code } = await spawnCaptured(command, args);
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -316,6 +295,38 @@ async function runFmt({ sutPath, source }) {
         });
 
   return { ok: true, stdout, stderr, errors };
+}
+
+async function spawnCaptured(command, args, options = {}) {
+  const { trimStdout = false } = options;
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const out = [];
+    const err = [];
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
+    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
+    child.on('error', (error) => {
+      finish({
+        code: -1,
+        stdout: '',
+        stderr: `Failed to spawn SUT: ${error.message}`,
+      });
+    });
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(out).toString('utf8');
+      finish({
+        code,
+        stdout: trimStdout ? stdout.trim() : stdout,
+        stderr: Buffer.concat(err).toString('utf8'),
+      });
+    });
+  });
 }
 
 function normalizeGenericDiagnostics(stderr) {

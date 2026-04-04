@@ -142,7 +142,6 @@ def fmt(args: list[str]) -> int:
 
 
 def finalize(args: list[str]) -> int:
-    json_output = "--json" in args or "--map" in args or "--map" not in args
     recovery = "--recovery" in args
     datatype_policy = resolve_datatype_policy(args)
     if datatype_policy is None and "--datatype-policy" in args:
@@ -186,10 +185,7 @@ def finalize(args: list[str]) -> int:
         scope=scope,
     )
     finalized = finalize_map(result, finalize_options) if map_output else finalize_json(result, finalize_options)
-    if json_output:
-        print(json.dumps(finalized, indent=2))
-    else:
-        print(json.dumps(finalized["document"], indent=2))
+    print(json.dumps(finalized, indent=2))
 
     meta = finalized.get("meta", {})
     finalize_errors = meta.get("errors", []) if isinstance(meta, dict) else []

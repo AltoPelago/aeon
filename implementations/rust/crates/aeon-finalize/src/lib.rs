@@ -481,7 +481,33 @@ fn value_to_json(
     datatype: Option<&str>,
     active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
-    let inserted = active_paths.insert(String::from(path));
+    value_to_json_with_active_key(
+        value,
+        path,
+        path,
+        projection,
+        path_values,
+        mode,
+        errors,
+        warnings,
+        datatype,
+        active_paths,
+    )
+}
+
+fn value_to_json_with_active_key(
+    value: &Value,
+    path: &str,
+    active_key: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    datatype: Option<&str>,
+    active_paths: &mut BTreeSet<String>,
+) -> JsonValue {
+    let inserted = active_paths.insert(String::from(active_key));
     if !inserted {
         let diag = Diagnostic::new(
             "FINALIZE_REFERENCE_CYCLE",
@@ -672,8 +698,9 @@ fn value_to_json(
                     }
                     JsonValue::Null
                 } else {
-                    value_to_json(
+                    value_to_json_with_active_key(
                         resolved,
+                        path,
                         &target,
                         projection,
                         path_values,
@@ -692,7 +719,7 @@ fn value_to_json(
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
     };
-    active_paths.remove(path);
+    active_paths.remove(active_key);
     result
 }
 
@@ -1421,6 +1448,21 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "ptr": "~>target", "target": 99 }));
+    }
+
+    #[test]
+    fn projected_clone_references_preserve_the_clone_path() {
+        let source = "a = { x = 1 }\nb = ~a\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.b.x")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(finalized.document, json!({ "b": { "x": 1 } }));
     }
 
     #[test]
