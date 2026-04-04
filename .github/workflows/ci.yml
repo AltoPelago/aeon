@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: aeonite-org/aeonite-cts
+          ref: update/aeon-hardening
           path: aeonite-cts
 
       - name: CTS conformance (all lanes)
