@@ -38,6 +38,7 @@ type JsonContext = {
     referenceStrategy: JsonReferenceStrategy;
     aes: readonly AssignmentEvent[];
     pathToIndex: ReadonlyMap<string, number>;
+    activeCloneTargets: Set<string>;
 };
 
 const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor']);
@@ -74,7 +75,15 @@ function finalizeJsonInternal(
     if (mapResult.meta?.errors) errors.push(...mapResult.meta.errors);
     if (mapResult.meta?.warnings) warnings.push(...mapResult.meta.warnings);
 
-    const ctx: JsonContext = { strict, errors, warnings, referenceStrategy, aes, pathToIndex };
+    const ctx: JsonContext = {
+        strict,
+        errors,
+        warnings,
+        referenceStrategy,
+        aes,
+        pathToIndex,
+        activeCloneTargets: new Set<string>(),
+    };
     const projection = createProjectionState(options.includePaths, options.materialization);
     const payload = payloadToJson(aes, ctx, projection, scope, options.header);
     const header = headerToJson(options.header, ctx, projection, scope);
@@ -271,9 +280,25 @@ function valueToJson(
             };
         }
         case 'CloneReference': {
-            const resolved = resolveCloneReference(value.path, ctx);
-            if (resolved) {
-                return valueToJson(resolved, ctx, path, projection, datatype);
+            const resolution = resolveCloneReference(value.path, ctx);
+            if (resolution) {
+                if (ctx.activeCloneTargets.has(resolution.targetPath)) {
+                    const diag = toDiagnostic(
+                        ctx.strict ? 'error' : 'warning',
+                        `Reference cycle during JSON finalization: ${formatReferencePath(value.path)}`,
+                        path,
+                        value.span
+                    );
+                    if (ctx.strict) ctx.errors.push(diag);
+                    else ctx.warnings.push(diag);
+                    return null;
+                }
+                ctx.activeCloneTargets.add(resolution.targetPath);
+                try {
+                    return valueToJson(resolution.value, ctx, path, projection, datatype);
+                } finally {
+                    ctx.activeCloneTargets.delete(resolution.targetPath);
+                }
             }
             return referenceToJson('~', value.path, ctx, path, value.span);
         }
@@ -355,7 +380,7 @@ function referenceToJson(
 function resolveCloneReference(
     pathParts: readonly ReferencePathPart[],
     ctx: JsonContext
-): Value | null {
+): { readonly targetPath: string; readonly value: Value } | null {
     for (let split = pathParts.length; split >= 1; split--) {
         const prefix = pathParts.slice(0, split);
         if (prefix.some((part) => typeof part === 'object' && part !== null && 'type' in part && part.type === 'attr')) {
@@ -371,12 +396,12 @@ function resolveCloneReference(
 
         const remainder = pathParts.slice(split);
         if (remainder.length === 0) {
-            return target.value;
+            return { targetPath: prefixPath, value: target.value };
         }
 
         const resolved = resolveReferenceSubpath(target, remainder);
         if (resolved) {
-            return resolved;
+            return { targetPath: prefixPath, value: resolved };
         }
     }
 

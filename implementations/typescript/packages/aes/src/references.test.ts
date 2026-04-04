@@ -158,6 +158,14 @@ describe('Reference Validation', () => {
             assert.strictEqual(result.errors[0]!.code, 'SELF_REFERENCE');
         });
 
+        it('should error when a list element references its own owning binding', () => {
+            const result = validate('a:list = [~a]', true);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SELF_REFERENCE');
+            assert.strictEqual(result.errors[0]!.targetPath, '$.a');
+        });
+
         it('should classify indexed intra-binding reference as missing target in core v1', () => {
             const result = validate('list = ~list[0]\nlist = [1]', true);
 

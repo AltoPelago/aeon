@@ -347,6 +347,13 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SELF_REFERENCE'));
         });
 
+        it('should report self reference for list elements that point at their owning binding', () => {
+            const result = compile('a:list = [~a]');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SELF_REFERENCE'));
+        });
+
         it('should validate pointer references with same rules', () => {
             const result = compile('a = ~>b');
 
