@@ -798,7 +798,7 @@ mod tests {
         let result = compile("a = 3e-3\nb = %3e-3\n", CompileOptions::default());
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].code, "INVALID_NUMBER");
         assert_eq!(result.errors[0].message, "Invalid radix literal `%3e-3`");
         let span = result.errors[0].span.as_ref().expect("span");
         assert_eq!(span.start.line, 2);
@@ -875,12 +875,12 @@ mod tests {
             ),
             (
                 "a:datetime = 2007-01-02t10:10:25\n",
-                "INVALID_DATETIME",
+                "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25'",
             ),
             (
                 "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
-                "INVALID_DATETIME",
+                "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
             ),
         ];
@@ -892,6 +892,55 @@ mod tests {
             assert_eq!(result.errors[0].code, expected_code);
             assert_eq!(result.errors[0].message, expected_message);
             assert!(result.errors[0].span.is_some(), "expected span for {source:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_lowercase_z_datetime_markers_as_syntax_errors() {
+        for source in [
+            "a:datetime = 2007-01-02T10:10:25z\n",
+            "a:zrut = 2007-01-02T10:10:25z&Australia/Melbourne\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(result.errors[0]
+                .message
+                .starts_with("Invalid datetime literal:"), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_zrut_zone_punctuation() {
+        for source in [
+            "z:zrut = 2025-01-01T09Z&Europe*Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe#Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe[Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe;Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe=Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe'Brussels\n",
+            "z:zrut = 2025-01-01T09Z&*\n",
+            "z:zrut = 2025-01-01T09Z&#\n",
+            "z:zrut = 2025-01-01T09Z&Europe/Brussels&Local\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
+            assert_eq!(result.errors[0].code, "INVALID_DATETIME");
+        }
+    }
+
+    #[test]
+    fn accepts_valid_zrut_zone_characters() {
+        for source in [
+            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince\n",
+            "z:zrut = 2025-01-01T09Z&GB-Eire\n",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT-1\n",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT+1\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
         }
     }
 

@@ -110,9 +110,10 @@ impl<'a> TokenParser<'a> {
                 if token.quote == Some('`') {
                     return Err(self.error_at_current("Backtick strings are not valid keys"));
                 }
-                let key = unescape_quoted(&self.advance().text);
+                let token = self.advance();
+                let key = decode_quoted_token(token)?;
                 if key.is_empty() {
-                    return Err(self.error_at_current("Keys must not be empty"));
+                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty").at_path("$").with_span(token.span));
                 }
                 Ok(key)
             }
@@ -326,9 +327,9 @@ impl<'a> TokenParser<'a> {
         let token = self.peek();
         match token.kind {
             TokenKind::String => {
-                let text = self.advance().text.clone();
+                let token = self.advance();
                 Ok(Value::StringLiteral {
-                    value: unescape_quoted(&text),
+                    value: decode_quoted_token(token)?,
                     is_trimtick: false,
                 })
             }
@@ -407,8 +408,8 @@ impl<'a> TokenParser<'a> {
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
             return Err(self.error_at_current("Trimtick marker must be followed by a backtick string"));
         }
-        let text = self.advance().text.clone();
-        let raw = unescape_quoted(&text);
+        let token = self.advance();
+        let raw = decode_quoted_token(token)?;
         let value = apply_trimticks(&raw, marker_width);
         Ok(Value::StringLiteral {
             value,
@@ -473,9 +474,13 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Dot, "Expected `.` after `$`")?;
             if self.match_kind(TokenKind::LeftBracket) {
                 let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
-                let key = unescape_quoted(&key_token.text);
+                let key = decode_quoted_token(key_token)?;
                 if key.is_empty() {
-                    return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                            .at_path("$")
+                            .with_span(key_token.span),
+                    );
                 }
                 self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
                 segments.push(ReferenceSegment::Key(key));
@@ -484,9 +489,13 @@ impl<'a> TokenParser<'a> {
             }
         } else if self.match_kind(TokenKind::LeftBracket) {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
-            let key = unescape_quoted(&key_token.text);
+            let key = decode_quoted_token(key_token)?;
             if key.is_empty() {
-                return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                return Err(
+                    Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                        .at_path("$")
+                        .with_span(key_token.span),
+                );
             }
             self.consume(TokenKind::RightBracket, "Expected `]` after quoted reference key")?;
             segments.push(ReferenceSegment::Key(key));
@@ -498,9 +507,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::At) {
                 if self.match_kind(TokenKind::LeftBracket) {
                     let key_token = self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted attribute key")?;
                     segments.push(ReferenceSegment::Attr(key));
@@ -512,9 +525,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::Dot) {
                 if self.match_kind(TokenKind::LeftBracket) {
                     let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
                     segments.push(ReferenceSegment::Key(key));
@@ -526,9 +543,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::LeftBracket) {
                 if self.check(TokenKind::String) {
                     let key_token = self.advance();
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
@@ -560,10 +581,14 @@ impl<'a> TokenParser<'a> {
         match self.peek().kind {
             TokenKind::Identifier => Ok(self.advance().text.clone()),
             TokenKind::String => {
-                let text = self.advance().text.clone();
-                let key = unescape_quoted(&text);
+                let token = self.advance();
+                let key = decode_quoted_token(token)?;
                 if key.is_empty() {
-                    return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                            .at_path("$")
+                            .with_span(token.span),
+                    );
                 }
                 Ok(key)
             }
@@ -579,10 +604,14 @@ impl<'a> TokenParser<'a> {
                 if token.quote == Some('`') {
                     return Err(self.error_at_current("Backtick strings are not valid node tags"));
                 }
-                let text = self.advance().text.clone();
-                let tag = unescape_quoted(&text);
+                let token = self.advance();
+                let tag = decode_quoted_token(token)?;
                 if tag.is_empty() {
-                    return Err(self.error_at_current("Empty quoted node tags are not valid"));
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted node tags are not valid")
+                            .at_path("$")
+                            .with_span(token.span),
+                    );
                 }
                 Ok(tag)
             }
@@ -943,25 +972,76 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
     )
 }
 
-fn unescape_quoted(text: &str) -> String {
+fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
+    decode_quoted_text(&token.text).map_err(|message| {
+        Diagnostic::new("SYNTAX_ERROR", message)
+            .at_path("$")
+            .with_span(token.span)
+    })
+}
+
+fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
     if text.len() < 2 {
-        return String::from(text);
+        return Ok(String::from(text));
     }
     let inner = &text[1..text.len() - 1];
     let mut output = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(ch) = chars.next() {
         if ch == '\\' {
-            if let Some(escaped) = chars.next() {
-                output.push(escaped);
-            } else {
-                output.push('\\');
+            let escaped = chars.next().ok_or("Invalid escape sequence")?;
+            match escaped {
+                '\\' => output.push('\\'),
+                '"' => output.push('"'),
+                '\'' => output.push('\''),
+                '`' => output.push('`'),
+                'n' => output.push('\n'),
+                'r' => output.push('\r'),
+                't' => output.push('\t'),
+                'b' => output.push('\u{0008}'),
+                'f' => output.push('\u{000C}'),
+                'u' => {
+                    let next = chars.next().ok_or("Invalid unicode escape")?;
+                    if next == '{' {
+                        let mut hex_digits = String::new();
+                        loop {
+                            let ch = chars.next().ok_or("Invalid unicode escape")?;
+                            if ch == '}' {
+                                break;
+                            }
+                            hex_digits.push(ch);
+                        }
+                        if !(1..=6).contains(&hex_digits.len())
+                            || !hex_digits.chars().all(|digit| digit.is_ascii_hexdigit())
+                        {
+                            return Err("Invalid unicode escape");
+                        }
+                        let codepoint =
+                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                        output.push(decoded);
+                    } else {
+                        let mut hex_digits = String::with_capacity(4);
+                        hex_digits.push(next);
+                        for _ in 0..3 {
+                            hex_digits.push(chars.next().ok_or("Invalid unicode escape")?);
+                        }
+                        if !hex_digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
+                            return Err("Invalid unicode escape");
+                        }
+                        let codepoint =
+                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                        output.push(decoded);
+                    }
+                }
+                _ => return Err("Invalid escape sequence"),
             }
         } else {
             output.push(ch);
         }
     }
-    output
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -1102,6 +1182,39 @@ mod tests {
                 is_trimtick: false,
             }
         );
+    }
+
+    #[test]
+    fn decodes_standard_and_unicode_quoted_escapes() {
+        let bindings = parse(
+            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\ntag:node = <\"a\\u{41}\">\n",
+        )
+        .expect("token parse");
+        assert_eq!(bindings[0].key, "a\n");
+        assert_eq!(
+            bindings[1].value,
+            Value::StringLiteral {
+                value: String::from("xA"),
+                is_trimtick: false,
+            }
+        );
+        match &bindings[2].value {
+            Value::NodeLiteral { tag, .. } => assert_eq!(tag, "aA"),
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_quoted_escapes() {
+        for (source, message) in [
+            ("value = \"x\\q\"\n", "Invalid escape sequence"),
+            ("value = \"x\\u{110000}\"\n", "Invalid unicode escape"),
+            ("tag:node = <\"a\\q\">\n", "Invalid escape sequence"),
+        ] {
+            let error = parse(source).expect_err("expected syntax error");
+            assert_eq!(error.code, "SYNTAX_ERROR");
+            assert_eq!(error.message, message);
+        }
     }
 
     #[test]

@@ -439,8 +439,13 @@ impl<'a> Lexer<'a> {
         }
         let text = self.slice_from(start.offset);
         if !validator(&text[1..]) {
+            let code = if kind == TokenKind::RadixLiteral {
+                "INVALID_NUMBER"
+            } else {
+                "SYNTAX_ERROR"
+            };
             self.errors.push(LexError {
-                code: String::from("SYNTAX_ERROR"),
+                code: String::from(code),
                 message: format!(
                     "Invalid {} `{text}`",
                     match kind {

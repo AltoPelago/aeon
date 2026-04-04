@@ -1937,11 +1937,24 @@ fn next_backup_path(path: &str) -> String {
 }
 
 fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\u{000C}' => escaped.push_str("\\f"),
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04X}", ch as u32);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String {
@@ -2147,12 +2160,12 @@ fn render_value_json_string(value: &Value) -> String {
         ),
         Value::EncodingLiteral { raw } => format!(
             "{{\"type\":\"EncodingLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('$')),
             escape_json(raw)
         ),
         Value::RadixLiteral { raw } => format!(
             "{{\"type\":\"RadixLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('%')),
             escape_json(raw)
         ),
         Value::DateLiteral { raw } => format!(
@@ -2615,13 +2628,13 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
             elements: Vec::new(),
         },
         Value::RadixLiteral { raw } => EventValue {
             value_type: String::from("RadixLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(raw.trim_start_matches('%').to_string())),
             elements: Vec::new(),
         },
         Value::DateLiteral { raw } => EventValue {
@@ -3704,7 +3717,10 @@ mod tests {
 
     #[test]
     fn render_events_emits_richer_json_values() {
-        let result = compile("a:int32 = 1\nb = [2]\nc = { d = \"x\" }\n", CompileOptions::default());
+        let result = compile(
+            "a:int32 = 1\nb = [2]\nc = { d = \"x\" }\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
+            CompileOptions::default(),
+        );
         let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
         let events = parsed.as_array().expect("events array");
         let by_key = events
@@ -3717,6 +3733,12 @@ mod tests {
         assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "2");
         assert_eq!(by_key["c"]["value"]["type"], "ObjectNode");
         assert_eq!(by_key["c"]["value"]["bindings"][0]["key"], "d");
+        assert_eq!(by_key["enc"]["value"]["type"], "EncodingLiteral");
+        assert_eq!(by_key["enc"]["value"]["raw"], "$QmFzZTY0IQ==");
+        assert_eq!(by_key["enc"]["value"]["value"], "QmFzZTY0IQ==");
+        assert_eq!(by_key["rad"]["value"]["type"], "RadixLiteral");
+        assert_eq!(by_key["rad"]["value"]["raw"], "%+A_!_&z");
+        assert_eq!(by_key["rad"]["value"]["value"], "+A_!_&z");
     }
 
     #[test]
@@ -3752,6 +3774,22 @@ mod tests {
         assert_eq!(node["attributes"][0]["entries"]["class"]["datatype"]["name"], "string");
         assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["type"], "StringLiteral");
         assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["value"], "dark");
+    }
+
+    #[test]
+    fn inspect_json_escapes_preserved_control_bytes_in_strings() {
+        let source = "tab = `\t`\nbackspace = `\u{0008}`\nformfeed = `\u{000C}`\n";
+        let result = compile(source, CompileOptions::default());
+        let rendered = render_events(&result.events);
+        let parsed: JsonValue = serde_json::from_str(&rendered).expect("valid events json");
+        let events = parsed.as_array().expect("events array");
+        let by_key = events
+            .iter()
+            .filter_map(|event| Some((event.get("key")?.as_str()?.to_string(), event)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_key["tab"]["value"]["value"], "\t");
+        assert_eq!(by_key["backspace"]["value"]["value"], "\u{0008}");
+        assert_eq!(by_key["formfeed"]["value"]["value"], "\u{000C}");
     }
 
     #[test]
