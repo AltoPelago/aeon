@@ -100,13 +100,20 @@ fn track_reference_binding(
     value: &Value,
     shallow_event_values: bool,
 ) {
+    let _ = reference_targets.insert(render_child_member_path(parent_path, key));
+    collect_attribute_targets(path_text, attributes, reference_targets, String::new());
+    reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         value: clone_validation_value(value, shallow_event_values),
     });
-    let _ = reference_targets.insert(render_child_member_path(parent_path, key));
-    collect_attribute_targets(path_text, attributes, reference_targets, String::new());
-    reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
+    collect_attribute_reference_steps(
+        path_text,
+        attributes,
+        reference_steps,
+        shallow_event_values,
+        String::new(),
+    );
 }
 
 fn track_reference_sequence_item(
@@ -667,5 +674,77 @@ fn collect_attribute_object_targets(
         let _ = targets.insert(member_path.clone());
         collect_attribute_object_targets(base, &value.object_members, targets, next_prefix.clone());
         collect_attribute_targets(base, &value.nested_attrs, targets, next_prefix);
+    }
+}
+
+fn collect_attribute_reference_steps(
+    base: &str,
+    attributes: &BTreeMap<String, AttributeValue>,
+    steps: &mut Vec<ValidationReferenceStep>,
+    shallow_event_values: bool,
+    prefix: String,
+) {
+    for (key, value) in attributes {
+        let next_prefix = if prefix.is_empty() {
+            format!("@{key}")
+        } else {
+            format!("{prefix}@{key}")
+        };
+        let current_path = format!("{base}{next_prefix}");
+        if let Some(entry_value) = &value.value {
+            steps.push(ValidationReferenceStep::ValidateValue {
+                path: current_path.clone(),
+                value: clone_validation_value(entry_value, shallow_event_values),
+            });
+        }
+        collect_attribute_object_reference_steps(
+            base,
+            &value.object_members,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        collect_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        steps.push(ValidationReferenceStep::VisibleTarget(current_path));
+    }
+}
+
+fn collect_attribute_object_reference_steps(
+    base: &str,
+    members: &BTreeMap<String, AttributeValue>,
+    steps: &mut Vec<ValidationReferenceStep>,
+    shallow_event_values: bool,
+    prefix: String,
+) {
+    for (key, value) in members {
+        let next_prefix = format!("{prefix}{}", render_member_segment(key));
+        let current_path = format!("{base}{next_prefix}");
+        if let Some(entry_value) = &value.value {
+            steps.push(ValidationReferenceStep::ValidateValue {
+                path: current_path.clone(),
+                value: clone_validation_value(entry_value, shallow_event_values),
+            });
+        }
+        collect_attribute_object_reference_steps(
+            base,
+            &value.object_members,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        collect_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        steps.push(ValidationReferenceStep::VisibleTarget(current_path));
     }
 }

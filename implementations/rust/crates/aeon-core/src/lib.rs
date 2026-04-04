@@ -727,6 +727,45 @@ mod tests {
     }
 
     #[test]
+    fn payload_can_reference_own_attached_attributes() {
+        for source in [
+            "a@{x = 2} = ~a@x\n",
+            "a@{\"x.y\" = 2} = ~a@[\"x.y\"]\n",
+            "a@{x = { z = 2 }} = ~a@x.z\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn attribute_payload_references_to_payload_follow_self_forward_and_missing_rules() {
+        let backward = compile("b = 1\na@{x = ~b} = 1\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let self_ref = compile("a@{x = ~a} = 1\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let forward = compile("a@{x = ~b} = 1\nb = 1\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let missing = compile("a@{x = ~missing} = 1\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn attribute_payload_self_and_missing_targets_fail_closed() {
+        let self_ref = compile("a@{x = ~a@x} = 1\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let nested_self = compile("a@{x = { z = ~a@x.z }} = 1\n", CompileOptions::default());
+        assert_eq!(nested_self.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("a@{x = ~a@missing} = 1\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
     fn supports_allow_custom_datatypes() {
         let result = compile(
             "color:stroke = #ff00ff",

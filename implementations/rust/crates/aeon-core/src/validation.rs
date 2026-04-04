@@ -149,7 +149,7 @@ fn validate_value_reference(
                 return;
             }
             let target = format_reference_target(segments);
-            if target == current_path {
+            if target == current_path || is_attribute_to_own_payload_reference(current_path, &target) {
                 errors.push(
                     Diagnostic::new(
                         "SELF_REFERENCE",
@@ -221,6 +221,12 @@ fn validate_value_reference(
         }
         _ => {}
     }
+}
+
+fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bool {
+    current_path
+        .split_once('@')
+        .is_some_and(|(binding_path, _)| target == binding_path)
 }
 
 fn validate_attribute_reference_map(
