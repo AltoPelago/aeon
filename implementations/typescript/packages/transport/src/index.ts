@@ -279,10 +279,30 @@ function collectBraceBlock(lines: string[], startIndex: number): { body: string;
     const startPos = startLine.indexOf('{');
     if (startPos === -1) return null;
     let depth = 0;
+    let quote: '"' | "'" | null = null;
+    let escaped = false;
     const collected: string[] = [];
     for (let i = startIndex; i < lines.length; i++) {
         const line = lines[i] ?? '';
         for (const ch of line) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (quote) {
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === quote) {
+                    quote = null;
+                }
+                continue;
+            }
+            if (ch === '"' || ch === "'") {
+                quote = ch;
+                continue;
+            }
             if (ch === '{') depth += 1;
             if (ch === '}') depth -= 1;
         }
