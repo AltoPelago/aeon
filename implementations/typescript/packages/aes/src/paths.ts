@@ -56,7 +56,7 @@ export function formatPath(path: CanonicalPath): string {
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                     result += `.${segment.key}`;
                 } else {
-                    result += `.["${segment.key.replace(/"/g, '\\"')}"]`;
+                    result += `.[${JSON.stringify(segment.key)}]`;
                 }
                 break;
             case 'index':
@@ -82,8 +82,8 @@ export function formatNormalizedPath(path: CanonicalPath): string {
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                     result += result === '' ? segment.key : `.${segment.key}`;
                 } else {
-                    const escaped = segment.key.replace(/"/g, '\\"');
-                    result += result === '' ? `["${escaped}"]` : `.["${escaped}"]`;
+                    const quoted = `[${JSON.stringify(segment.key)}]`;
+                    result += result === '' ? quoted : `.${quoted}`;
                 }
                 break;
             case 'index':

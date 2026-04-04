@@ -1104,7 +1104,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
         if (typeof segment === 'object' && segment.type === 'attr') {
             result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
                 ? `@${segment.key}`
-                : `@["${segment.key.replace(/"/g, '\\"')}"]`;
+                : `@[${JSON.stringify(segment.key)}]`;
             continue;
         }
         if (i > 0) {
@@ -1113,7 +1113,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
         const member = String(segment);
         result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)
             ? member
-            : `["${member.replace(/"/g, '\\"')}"]`;
+            : `[${JSON.stringify(member)}]`;
     }
     return result;
 }

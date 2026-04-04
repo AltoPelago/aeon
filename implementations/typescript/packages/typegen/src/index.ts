@@ -35,7 +35,7 @@ function createNode(): TreeNode {
 
 function pathSegmentToCanonical(segment: string): string {
     if (IDENTIFIER_RE.test(segment)) return `.${segment}`;
-    return `["${segment.replace(/"/g, '\\"')}"]`;
+    return `[${JSON.stringify(segment)}]`;
 }
 
 function formatPropertyName(segment: string): string {

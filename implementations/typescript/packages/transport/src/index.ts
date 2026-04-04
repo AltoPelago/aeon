@@ -229,10 +229,13 @@ export function inspectHeader(input: string | Uint8Array, options: HeaderInspect
 }
 
 function parseHeaderLine(line: string): { key: string; value: string } | null {
-    const match = line.match(/^aeon:([a-zA-Z0-9:_-]+)\s*=\s*(.+)$/);
-    if (!match) return null;
-    const key = match[1] ?? '';
-    const rawValue = (match[2] ?? '').trim();
+    if (!line.startsWith('aeon:')) return null;
+    const equals = findAssignmentEquals(line, 'aeon:'.length);
+    if (equals === -1) return null;
+    const key = line.slice('aeon:'.length, equals).trim();
+    if (!isHeaderFieldName(key)) return null;
+    const rawValue = line.slice(equals + 1).trim();
+    if (rawValue.length === 0) return null;
     const value = stripQuotes(rawValue);
     return { key, value };
 }
@@ -242,12 +245,33 @@ function parseStructuredHeader(body: string, header: HeaderInfo): void {
     for (const raw of lines) {
         const line = raw.trim();
         if (!line || line.startsWith('//')) continue;
-        const match = line.match(/^([a-zA-Z0-9:_-]+)\s*=\s*(.+)$/);
-        if (!match) continue;
-        const key = match[1] ?? '';
-        const value = stripQuotes((match[2] ?? '').trim());
+        const equals = findAssignmentEquals(line, 0);
+        if (equals === -1) continue;
+        const key = line.slice(0, equals).trim();
+        if (!isHeaderFieldName(key)) continue;
+        const rawValue = line.slice(equals + 1).trim();
+        if (!rawValue) continue;
+        const value = stripQuotes(rawValue);
         applyHeaderField(header, key, value);
     }
+}
+
+function findAssignmentEquals(line: string, start: number): number {
+    for (let i = start; i < line.length; i += 1) {
+        if (line[i] === '=') return i;
+    }
+    return -1;
+}
+
+function isHeaderFieldName(value: string): boolean {
+    if (value.length === 0) return false;
+    for (let i = 0; i < value.length; i += 1) {
+        const ch = value[i]!;
+        const isAlphaNum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+        if (isAlphaNum || ch === ':' || ch === '_' || ch === '-') continue;
+        return false;
+    }
+    return true;
 }
 
 function collectBraceBlock(lines: string[], startIndex: number): { body: string; endIndex: number } | null {

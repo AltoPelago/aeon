@@ -42,7 +42,7 @@ export function formatReferenceTargetPath(segments: readonly ReferencePathSegmen
         if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
             out += `@${key}`;
         } else {
-            out += `@["${key.replace(/"/g, '\\"')}"]`;
+            out += `@[${JSON.stringify(key)}]`;
         }
     }
 

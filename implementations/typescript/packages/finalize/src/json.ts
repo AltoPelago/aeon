@@ -48,7 +48,7 @@ type JsonContext = {
     activeCloneTargets: Set<string>;
 };
 
-const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor']);
+const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor', 'prototype']);
 export function finalizeJson(
     aes: readonly AssignmentEvent[],
     options: FinalizeOptions = {}
@@ -798,6 +798,9 @@ function readContainerValue(container: JsonContainer, key: string | number): Jso
 function writeContainerValue(container: JsonContainer, key: string | number, value: JsonValue): void {
     if (typeof key === 'number') {
         (container as JsonValue[])[key] = value;
+        return;
+    }
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
         return;
     }
     (container as JsonObject)[key] = value;

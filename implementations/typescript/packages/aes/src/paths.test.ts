@@ -90,6 +90,12 @@ describe('Canonical Path Resolution', () => {
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '["a.b"]');
         });
+
+        it('should escape backslashes in quoted normalized members', () => {
+            const result = resolve('"a\\\\b" = 2');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '["a\\\\b"]');
+        });
     });
 
     describe('nested objects', () => {

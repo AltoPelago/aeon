@@ -58,6 +58,13 @@ value = 1`;
     assert.equal(result.header.profile, 'core');
 });
 
+test('inspectHeader parses spaced assignment fields without regex backtracking', () => {
+    const input = `aeon:encoding   =   "utf-16"\naeon:profile = "core"\na = 1`;
+    const result = inspectHeader(input);
+    assert.equal(result.header.encoding, 'utf-16');
+    assert.equal(result.header.profile, 'core');
+});
+
 test('frame encoder/decoder streams roundtrip', async () => {
     const encoder = createFrameEncoderStream();
     const decoder = createFrameDecoderStream();

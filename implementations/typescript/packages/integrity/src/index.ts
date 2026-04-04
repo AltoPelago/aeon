@@ -643,7 +643,7 @@ function normalizeNumber(raw: string): string {
 
     let [intPart, fracPart] = mantissa.split('.');
     intPart = (intPart ?? '0').replace(/^0+/, '') || '0';
-    fracPart = (fracPart ?? '').replace(/0+$/, '');
+    fracPart = trimTrailingZeros(fracPart ?? '');
 
     const digits = `${intPart}${fracPart}`;
     let decimalIndex = intPart.length + exponent;
@@ -654,7 +654,7 @@ function normalizeNumber(raw: string): string {
 
     if (decimalIndex <= 0) {
         const zeros = '0'.repeat(Math.abs(decimalIndex));
-        return `${negative ? '-' : ''}0.${zeros}${digits}`.replace(/\.?0+$/, '');
+        return trimTrailingDotAndZeros(`${negative ? '-' : ''}0.${zeros}${digits}`);
     }
     if (decimalIndex >= digits.length) {
         const zeros = '0'.repeat(decimalIndex - digits.length);
@@ -662,7 +662,26 @@ function normalizeNumber(raw: string): string {
     }
 
     const left = digits.slice(0, decimalIndex);
-    const right = digits.slice(decimalIndex).replace(/0+$/, '');
+    const right = trimTrailingZeros(digits.slice(decimalIndex));
     const normalized = right.length > 0 ? `${left}.${right}` : left;
     return `${negative ? '-' : ''}${normalized}`;
+}
+
+function trimTrailingZeros(value: string): string {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '0') {
+        end -= 1;
+    }
+    return value.slice(0, end);
+}
+
+function trimTrailingDotAndZeros(value: string): string {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '0') {
+        end -= 1;
+    }
+    if (end > 0 && value[end - 1] === '.') {
+        end -= 1;
+    }
+    return value.slice(0, end);
 }
