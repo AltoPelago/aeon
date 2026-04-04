@@ -835,7 +835,7 @@ describe('Parser', () => {
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
         });
 
         it('should accept single-digit separator specs', () => {
