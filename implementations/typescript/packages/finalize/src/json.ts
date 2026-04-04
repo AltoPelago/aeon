@@ -803,5 +803,10 @@ function writeContainerValue(container: JsonContainer, key: string | number, val
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
         return;
     }
-    (container as JsonObject)[key] = value;
+    Object.defineProperty(container, key, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+    });
 }
