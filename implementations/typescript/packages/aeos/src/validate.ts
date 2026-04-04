@@ -88,7 +88,7 @@ export function validate(
                     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                         result += `.${segment.key}`;
                     } else {
-                        result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
+                        result += `.[${JSON.stringify(String(segment.key))}]`;
                     }
                     break;
                 case 'index':
@@ -488,7 +488,7 @@ function formatCanonicalPathLocal(path: any): string {
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                     result += `.${segment.key}`;
                 } else {
-                    result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
+                    result += `.[${JSON.stringify(String(segment.key))}]`;
                 }
                 break;
             case 'index':

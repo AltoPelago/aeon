@@ -11,7 +11,7 @@ export function formatReferencePath(pathParts: readonly ReferencePathPart[]): st
             if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                 out += `@${segment.key}`;
             } else {
-                out += `@["${segment.key.replace(/"/g, '\\"')}"]`;
+                out += `@[${JSON.stringify(segment.key)}]`;
             }
         } else {
             const member = segment as string;
@@ -21,7 +21,7 @@ export function formatReferencePath(pathParts: readonly ReferencePathPart[]): st
                 out += member;
             } else {
                 if (i > 0) out += '.';
-                out += `["${member.replace(/"/g, '\\"')}"]`;
+                out += `[${JSON.stringify(member)}]`;
             }
         }
     }

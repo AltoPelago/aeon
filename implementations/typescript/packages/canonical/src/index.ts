@@ -733,7 +733,7 @@ function formatNumber(raw: string): string {
 
     if (mantissa.includes('.')) {
         const [intPart, fracPartRaw] = mantissa.split('.');
-        let fracPart = (fracPartRaw ?? '').replace(/0+$/, '');
+        let fracPart = trimTrailingZeros(fracPartRaw ?? '');
         if (fracPart.length === 0) {
             fracPart = '0';
         }
@@ -752,6 +752,14 @@ function formatNumber(raw: string): string {
         value = mantissa;
     }
     return value;
+}
+
+function trimTrailingZeros(value: string): string {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '0') {
+        end -= 1;
+    }
+    return value.slice(0, end);
 }
 
 function formatSeparator(raw: string): string {
