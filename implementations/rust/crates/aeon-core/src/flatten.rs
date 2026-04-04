@@ -30,7 +30,7 @@ pub(crate) struct ValidationEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ValidationReferenceStep {
-    ValidateValue { path: String, value: Value },
+    ValidateValue { path: String, owner_path: String, value: Value },
     VisibleTarget(String),
 }
 
@@ -106,6 +106,7 @@ fn track_reference_binding(
     reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
+        owner_path: String::from(path_text),
         value: clone_validation_value(value, shallow_event_values),
     });
     collect_attribute_reference_steps(
@@ -129,6 +130,7 @@ fn track_reference_sequence_item(
     let item_target = render_child_index_path(parent_path, index);
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: item_target.clone(),
+        owner_path: String::from(parent_path),
         value: clone_validation_value(value, shallow_event_values),
     });
     let _ = reference_targets.insert(item_target.clone());
@@ -736,6 +738,7 @@ fn collect_attribute_reference_steps(
         if let Some(entry_value) = &value.value {
             steps.push(ValidationReferenceStep::ValidateValue {
                 path: current_path.clone(),
+                owner_path: current_path.clone(),
                 value: clone_validation_value(entry_value, shallow_event_values),
             });
         }
@@ -776,6 +779,7 @@ fn collect_attribute_object_reference_steps(
         if let Some(entry_value) = &value.value {
             steps.push(ValidationReferenceStep::ValidateValue {
                 path: current_path.clone(),
+                owner_path: current_path.clone(),
                 value: clone_validation_value(entry_value, shallow_event_values),
             });
         }

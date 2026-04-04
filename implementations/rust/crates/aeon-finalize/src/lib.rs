@@ -133,11 +133,20 @@ pub fn from_aeon_str<T: DeserializeOwned>(
 pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> FinalizeJsonResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    let mut active_paths = BTreeSet::new();
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
     let payload = if matches!(options.scope, FinalizeScope::Payload | FinalizeScope::Full) {
-        payload_to_json(events, &projection, &path_values, options.mode, &mut errors, &mut warnings)
+        payload_to_json(
+            events,
+            &projection,
+            &path_values,
+            options.mode,
+            &mut errors,
+            &mut warnings,
+            &mut active_paths,
+        )
     } else {
         JsonValue::Object(Map::new())
     };
@@ -151,6 +160,7 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
             options.mode,
             &mut errors,
             &mut warnings,
+            &mut active_paths,
         )
     } else {
         JsonValue::Object(Map::new())
@@ -364,6 +374,7 @@ fn header_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut object = Map::new();
     if let Some(header) = header {
@@ -382,7 +393,17 @@ fn header_to_json(
             }
             object.insert(
                 key.clone(),
-                value_to_json(value, &path, projection, path_values, mode, errors, warnings, None),
+                value_to_json(
+                    value,
+                    &path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    None,
+                    active_paths,
+                ),
             );
         }
     }
@@ -396,6 +417,7 @@ fn payload_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut document = Map::new();
     let mut attrs = Map::new();
@@ -423,12 +445,22 @@ fn payload_to_json(
                 errors,
                 warnings,
                 event.datatype.as_deref(),
+                active_paths,
             ),
         );
         if !event.annotations.is_empty() {
             attrs.insert(
                 key.clone(),
-                attributes_to_json(&event.annotations, &path, projection, path_values, mode, errors, warnings),
+                attributes_to_json(
+                    &event.annotations,
+                    &path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
             );
         }
     }
@@ -447,8 +479,24 @@ fn value_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
-    match value {
+    let inserted = active_paths.insert(String::from(path));
+    if !inserted {
+        let diag = Diagnostic::new(
+            "FINALIZE_REFERENCE_CYCLE",
+            format!("Reference cycle during finalization at '{path}'"),
+        )
+        .at_path(path);
+        if matches!(mode, FinalizeMode::Strict) {
+            errors.push(diag);
+        } else {
+            warnings.push(diag);
+        }
+        return JsonValue::Null;
+    }
+
+    let result = match value {
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
         Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
@@ -486,7 +534,16 @@ fn value_to_json(
         } => {
             let mut output = Map::new();
             output.insert(String::from("$node"), JsonValue::String(tag.clone()));
-            let attr_json = node_attributes_to_json(attributes, &format!("{path}@"), projection, path_values, mode, errors, warnings);
+            let attr_json = node_attributes_to_json(
+                attributes,
+                &format!("{path}@"),
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+            );
             if matches!(&attr_json, JsonValue::Object(map) if !map.is_empty()) {
                 output.insert(String::from("@"), attr_json);
             }
@@ -498,7 +555,17 @@ fn value_to_json(
                         .enumerate()
                         .map(|(index, child)| {
                             let child_path = format!("{path}<{index}>");
-                            value_to_json(child, &child_path, projection, path_values, mode, errors, warnings, None)
+                            value_to_json(
+                                child,
+                                &child_path,
+                                projection,
+                                path_values,
+                                mode,
+                                errors,
+                                warnings,
+                                None,
+                                active_paths,
+                            )
                         })
                         .collect(),
                 ),
@@ -519,6 +586,7 @@ fn value_to_json(
                         errors,
                         warnings,
                         None,
+                        active_paths,
                     ));
                 }
             }
@@ -551,12 +619,22 @@ fn value_to_json(
                             errors,
                             warnings,
                             binding.datatype.as_deref(),
+                            active_paths,
                         ),
                     );
                     if !binding.attributes.is_empty() {
                         attrs.insert(
                             binding.key.clone(),
-                            attributes_to_json(&binding.attributes, &child_path, projection, path_values, mode, errors, warnings),
+                            attributes_to_json(
+                                &binding.attributes,
+                                &child_path,
+                                projection,
+                                path_values,
+                                mode,
+                                errors,
+                                warnings,
+                                active_paths,
+                            ),
                         );
                     }
                 }
@@ -569,7 +647,31 @@ fn value_to_json(
         Value::CloneReference { segments, .. } => {
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
-                value_to_json(resolved, path, projection, path_values, mode, errors, warnings, datatype)
+                if active_paths.contains(&target) {
+                    let diag = Diagnostic::new(
+                        "FINALIZE_REFERENCE_CYCLE",
+                        format!("Reference cycle during finalization: '{path}' resolves through '{target}'"),
+                    )
+                    .at_path(path);
+                    if matches!(mode, FinalizeMode::Strict) {
+                        errors.push(diag);
+                    } else {
+                        warnings.push(diag);
+                    }
+                    JsonValue::Null
+                } else {
+                    value_to_json(
+                        resolved,
+                        &target,
+                        projection,
+                        path_values,
+                        mode,
+                        errors,
+                        warnings,
+                        datatype,
+                        active_paths,
+                    )
+                }
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
@@ -577,7 +679,9 @@ fn value_to_json(
         Value::PointerReference { segments, .. } => {
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
-    }
+    };
+    active_paths.remove(path);
+    result
 }
 
 fn render_reference_segments(segments: &[ReferenceSegment]) -> String {
@@ -791,6 +895,7 @@ fn attributes_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut object = Map::new();
     let mut nested = Map::new();
@@ -799,12 +904,30 @@ fn attributes_to_json(
         if !projection.includes(&entry_path) {
             continue;
         }
-        let value = attribute_value_to_json(entry, &entry_path, projection, path_values, mode, errors, warnings);
+        let value = attribute_value_to_json(
+            entry,
+            &entry_path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        );
         object.insert(key.clone(), value);
         if !entry.nested_attrs.is_empty() {
             nested.insert(
                 key.clone(),
-                attributes_to_json(&entry.nested_attrs, &entry_path, projection, path_values, mode, errors, warnings),
+                attributes_to_json(
+                    &entry.nested_attrs,
+                    &entry_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
             );
         }
     }
@@ -822,10 +945,20 @@ fn node_attributes_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut merged = Map::new();
     for block in attributes {
-        let JsonValue::Object(current) = attributes_to_json(block, path, projection, path_values, mode, errors, warnings) else {
+        let JsonValue::Object(current) = attributes_to_json(
+            block,
+            path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        ) else {
             continue;
         };
         merge_json_object(&mut merged, current);
@@ -854,9 +987,19 @@ fn attribute_value_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     if !entry.object_members.is_empty() {
-        return object_attribute_members_to_json(&entry.object_members, path, projection, path_values, mode, errors, warnings);
+        return object_attribute_members_to_json(
+            &entry.object_members,
+            path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        );
     }
     if let Some(value) = &entry.value {
         return value_to_json(
@@ -868,6 +1011,7 @@ fn attribute_value_to_json(
             errors,
             warnings,
             entry.datatype.as_deref(),
+            active_paths,
         );
     }
     JsonValue::Null
@@ -881,6 +1025,7 @@ fn object_attribute_members_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut object = Map::new();
     let mut attrs = Map::new();
@@ -891,12 +1036,30 @@ fn object_attribute_members_to_json(
         }
         object.insert(
             key.clone(),
-            attribute_value_to_json(entry, &child_path, projection, path_values, mode, errors, warnings),
+            attribute_value_to_json(
+                entry,
+                &child_path,
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+            ),
         );
         if !entry.nested_attrs.is_empty() {
             attrs.insert(
                 key.clone(),
-                attributes_to_json(&entry.nested_attrs, &child_path, projection, path_values, mode, errors, warnings),
+                attributes_to_json(
+                    &entry.nested_attrs,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
             );
         }
     }
@@ -1229,6 +1392,40 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "ptr": "~>target", "target": 99 }));
+    }
+
+    #[test]
+    fn finalize_json_reports_reference_cycles_instead_of_recursing() {
+        let events = vec![AssignmentEvent {
+            path: aeon_core::CanonicalPath::root().member("a"),
+            key: String::from("a"),
+            datatype: Some(String::from("list")),
+            annotations: BTreeMap::new(),
+            value: Value::ListNode {
+                items: vec![Value::CloneReference {
+                    segments: vec![ReferenceSegment::Key(String::from("a"))],
+                    span: Span::zero(),
+                }],
+            },
+            span: Span::zero(),
+        }];
+        let finalized = finalize_json(
+            &events,
+            FinalizeOptions {
+                mode: FinalizeMode::Strict,
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(finalized.document, json!({ "a": [null] }));
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_CYCLE"),
+            "{:?}",
+            finalized.meta.errors
+        );
     }
 
     #[test]

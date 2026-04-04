@@ -722,6 +722,9 @@ mod tests {
         let backward = compile("items = [1, ~items[0]]\n", CompileOptions::default());
         assert!(backward.errors.is_empty(), "{:?}", backward.errors);
 
+        let binding_self_ref = compile("a:list = [~a]\n", CompileOptions::default());
+        assert_eq!(binding_self_ref.errors[0].code, "SELF_REFERENCE");
+
         let backward_member = compile(
             "items = [{ email = \"a@example.com\" }, ~items[0].email]\n",
             CompileOptions::default(),

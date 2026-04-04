@@ -112,8 +112,16 @@ pub(crate) fn validate_reference_steps(
     let mut seen_base = HashSet::new();
     for step in steps {
         match step {
-            ValidationReferenceStep::ValidateValue { path, value } => {
-                validate_value_reference(value, path, all_targets, &seen_base, max_attribute_depth, errors);
+            ValidationReferenceStep::ValidateValue { path, owner_path, value } => {
+                validate_value_reference(
+                    value,
+                    path,
+                    owner_path,
+                    all_targets,
+                    &seen_base,
+                    max_attribute_depth,
+                    errors,
+                );
             }
             ValidationReferenceStep::VisibleTarget(path) => {
                 let _ = seen_base.insert(path.clone());
@@ -125,6 +133,7 @@ pub(crate) fn validate_reference_steps(
 fn validate_value_reference(
     value: &Value,
     current_path: &str,
+    owner_path: &str,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
@@ -149,7 +158,10 @@ fn validate_value_reference(
                 return;
             }
             let target = format_reference_target(segments);
-            if target == current_path || is_attribute_to_own_payload_reference(current_path, &target) {
+            if target == current_path
+                || target == owner_path
+                || is_attribute_to_own_payload_reference(current_path, &target)
+            {
                 errors.push(
                     Diagnostic::new(
                         "SELF_REFERENCE",
@@ -223,6 +235,7 @@ fn validate_value_reference(
                 validate_value_reference(
                     child,
                     current_path,
+                    owner_path,
                     all_targets,
                     seen_base,
                     max_attribute_depth,
@@ -274,6 +287,7 @@ fn validate_attribute_reference_map(
         if let Some(value) = &entry.value {
             validate_value_reference(
                 value,
+                current_path,
                 current_path,
                 all_targets,
                 seen_base,
