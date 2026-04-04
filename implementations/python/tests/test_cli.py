@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -171,6 +172,129 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(2, result.returncode)
         self.assertIn("No file specified", result.stderr)
+
+    def test_finalize_json_emits_document_and_finalize_error_meta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "unsafe-number.aeon"
+            fixture.write_text("n = 9007199254740993.0\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"n": "9007199254740993.0"}, payload["document"])
+        self.assertEqual("FINALIZE_UNSAFE_NUMBER", payload["meta"]["errors"][0]["code"])
+
+    def test_finalize_defaults_to_envelope_output_without_json_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "simple.aeon"
+            fixture.write_text('name = "AEON"\n', encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"name": "AEON"}, payload["document"])
+        self.assertFalse(payload.get("meta"))
+
+    def test_finalize_json_reports_infinity_as_strict_json_profile_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "infinity.aeon"
+            fixture.write_text("limit:infinity = Infinity\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"limit": "Infinity"}, payload["document"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_INFINITY", payload["meta"]["errors"][0]["code"])
+
+    def test_finalize_json_supports_projected_payload_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "projection.aeon"
+            fixture.write_text('"a.b" = 1\nplain = 2\n', encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                    "--projected",
+                    "--include-path",
+                    '$.["a.b"]',
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"a.b": 1}, payload["document"])
+
+    def test_finalize_map_supports_projected_attribute_path_chains(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "map-projection.aeon"
+            fixture.write_text(
+                'title@{lang = "en", meta = { keep = 2 }} = "Hello"\n'
+                'card = { label@{meta = { keep = 3, "x.y" = 4 }} = "Hi" }\n'
+                'rich = <pill@{id = "main", meta = { keep = 5 }}("new")>\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--map",
+                    "--projected",
+                    "--include-path",
+                    "$.card.label@meta.keep",
+                    "--include-path",
+                    '$.card.label@meta.["x.y"]',
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            ["$.card", "$.card.label"],
+            [entry["path"] for entry in payload["document"]["entries"]],
+        )
 
 
 if __name__ == "__main__":

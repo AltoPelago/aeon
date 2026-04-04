@@ -4,10 +4,14 @@ use crate::header::apply_trimticks;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::{
     tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
-    TokenKind, Value,
+    TokenKind, TrimtickMetadata, Value,
 };
 
-pub(crate) fn parse_document_from_tokens(input: &str) -> Result<Vec<Binding>, Diagnostic> {
+pub(crate) fn parse_document_from_tokens(
+    input: &str,
+    max_nesting_depth: usize,
+    max_attribute_depth: usize,
+) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
         LexerOptions {
@@ -24,17 +28,26 @@ pub(crate) fn parse_document_from_tokens(input: &str) -> Result<Vec<Binding>, Di
             message: error.message.clone(),
         });
     }
-    TokenParser::new(&lexed.tokens).parse_document()
+    TokenParser::new(&lexed.tokens, max_nesting_depth, max_attribute_depth).parse_document()
 }
 
 struct TokenParser<'a> {
     tokens: &'a [Token],
     current: usize,
+    max_nesting_depth: usize,
+    current_nesting_depth: usize,
+    max_attribute_depth: usize,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens, current: 0 }
+    fn new(tokens: &'a [Token], max_nesting_depth: usize, max_attribute_depth: usize) -> Self {
+        Self {
+            tokens,
+            current: 0,
+            max_nesting_depth,
+            current_nesting_depth: 0,
+            max_attribute_depth,
+        }
     }
 
     fn parse_document(&mut self) -> Result<Vec<Binding>, Diagnostic> {
@@ -53,8 +66,15 @@ impl<'a> TokenParser<'a> {
         let key = self.parse_key()?;
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
+        let mut attribute_order = Vec::new();
         while self.check(TokenKind::At) {
-            attributes.extend(self.parse_attribute_block()?);
+            let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
+            for key in parsed_order {
+                if !attributes.contains_key(&key) {
+                    attribute_order.push(key.clone());
+                }
+            }
+            attributes.extend(parsed_attrs);
             self.skip_newlines();
         }
         let mut datatype = None;
@@ -75,6 +95,7 @@ impl<'a> TokenParser<'a> {
             key,
             datatype,
             attributes,
+            attribute_order,
             value,
             span: Span { start, end },
         })
@@ -97,7 +118,12 @@ impl<'a> TokenParser<'a> {
                 if token.quote == Some('`') {
                     return Err(self.error_at_current("Backtick strings are not valid keys"));
                 }
-                Ok(unescape_quoted(&self.advance().text))
+                let token = self.advance();
+                let key = decode_quoted_token(token)?;
+                if key.is_empty() {
+                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty").at_path("$").with_span(token.span));
+                }
+                Ok(key)
             }
             _ => Err(self.error_at_current("Expected key")),
         }
@@ -284,13 +310,37 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
+        self.current_nesting_depth += 1;
+        if self.current_nesting_depth > self.max_nesting_depth {
+            let span = self.peek().span;
+            self.current_nesting_depth -= 1;
+            return Err(Diagnostic {
+                code: String::from("NESTING_DEPTH_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Value nesting depth {} exceeds max_nesting_depth {}",
+                    self.max_nesting_depth + 1,
+                    self.max_nesting_depth
+                ),
+            });
+        }
+        let result = self.do_parse_value();
+        self.current_nesting_depth -= 1;
+        result
+    }
+
+    fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {
         let token = self.peek();
         match token.kind {
             TokenKind::String => {
-                let text = self.advance().text.clone();
+                let token = self.advance();
                 Ok(Value::StringLiteral {
-                    value: unescape_quoted(&text),
-                    is_trimtick: false,
+                    value: decode_quoted_token(token)?,
+                    raw: token.text[1..token.text.len() - 1].to_string(),
+                    delimiter: token.quote.unwrap_or('"'),
+                    trimticks: None,
                 })
             }
             TokenKind::Number => {
@@ -368,12 +418,17 @@ impl<'a> TokenParser<'a> {
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
             return Err(self.error_at_current("Trimtick marker must be followed by a backtick string"));
         }
-        let text = self.advance().text.clone();
-        let raw = unescape_quoted(&text);
+        let token = self.advance();
+        let raw = decode_quoted_token(token)?;
         let value = apply_trimticks(&raw, marker_width);
         Ok(Value::StringLiteral {
             value,
-            is_trimtick: true,
+            raw: raw.clone(),
+            delimiter: '`',
+            trimticks: Some(TrimtickMetadata {
+                marker_width,
+                raw_value: raw,
+            }),
         })
     }
 
@@ -432,12 +487,30 @@ impl<'a> TokenParser<'a> {
         let mut segments = Vec::new();
         if self.match_kind(TokenKind::Dollar) {
             self.consume(TokenKind::Dot, "Expected `.` after `$`")?;
-            segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+            if self.match_kind(TokenKind::LeftBracket) {
+                let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
+                let key = decode_quoted_token(key_token)?;
+                if key.is_empty() {
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                            .at_path("$")
+                            .with_span(key_token.span),
+                    );
+                }
+                self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
+                segments.push(ReferenceSegment::Key(key));
+            } else {
+                segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+            }
         } else if self.match_kind(TokenKind::LeftBracket) {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
-            let key = unescape_quoted(&key_token.text);
+            let key = decode_quoted_token(key_token)?;
             if key.is_empty() {
-                return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                return Err(
+                    Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                        .at_path("$")
+                        .with_span(key_token.span),
+                );
             }
             self.consume(TokenKind::RightBracket, "Expected `]` after quoted reference key")?;
             segments.push(ReferenceSegment::Key(key));
@@ -449,9 +522,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::At) {
                 if self.match_kind(TokenKind::LeftBracket) {
                     let key_token = self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted attribute key")?;
                     segments.push(ReferenceSegment::Attr(key));
@@ -463,9 +540,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::Dot) {
                 if self.match_kind(TokenKind::LeftBracket) {
                     let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
                     segments.push(ReferenceSegment::Key(key));
@@ -477,9 +558,13 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::LeftBracket) {
                 if self.check(TokenKind::String) {
                     let key_token = self.advance();
-                    let key = unescape_quoted(&key_token.text);
+                    let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                        return Err(
+                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                                .at_path("$")
+                                .with_span(key_token.span),
+                        );
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
@@ -511,10 +596,14 @@ impl<'a> TokenParser<'a> {
         match self.peek().kind {
             TokenKind::Identifier => Ok(self.advance().text.clone()),
             TokenKind::String => {
-                let text = self.advance().text.clone();
-                let key = unescape_quoted(&text);
+                let token = self.advance();
+                let key = decode_quoted_token(token)?;
                 if key.is_empty() {
-                    return Err(self.error_at_current("Empty quoted path segments are not valid"));
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
+                            .at_path("$")
+                            .with_span(token.span),
+                    );
                 }
                 Ok(key)
             }
@@ -530,10 +619,14 @@ impl<'a> TokenParser<'a> {
                 if token.quote == Some('`') {
                     return Err(self.error_at_current("Backtick strings are not valid node tags"));
                 }
-                let text = self.advance().text.clone();
-                let tag = unescape_quoted(&text);
+                let token = self.advance();
+                let tag = decode_quoted_token(token)?;
                 if tag.is_empty() {
-                    return Err(self.error_at_current("Empty quoted node tags are not valid"));
+                    return Err(
+                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted node tags are not valid")
+                            .at_path("$")
+                            .with_span(token.span),
+                    );
                 }
                 Ok(tag)
             }
@@ -550,7 +643,8 @@ impl<'a> TokenParser<'a> {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while self.check(TokenKind::At) {
-            attributes.push(self.parse_attribute_block()?);
+            let (attribute_map, _) = self.parse_attribute_block(1)?;
+            attributes.push(attribute_map);
             self.skip_newlines();
         }
 
@@ -594,35 +688,60 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    fn parse_attribute_block(&mut self, depth: usize) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
+        if depth > self.max_attribute_depth {
+            return Err(
+                Diagnostic::new(
+                    "ATTRIBUTE_DEPTH_EXCEEDED",
+                    format!("Attribute depth {depth} exceeds max_attribute_depth {}", self.max_attribute_depth),
+                )
+                .at_path("$")
+                .with_span(self.peek().span),
+            );
+        }
         self.consume(TokenKind::At, "Expected `@` before attribute block")?;
         self.skip_newlines();
         self.consume(TokenKind::LeftBrace, "Expected `{` after `@`")?;
-        let map = self.parse_attribute_members(TokenKind::RightBrace, "Expected attribute delimiter", "Expected `=` after attribute key")?;
+        let map = self.parse_attribute_members(
+            TokenKind::RightBrace,
+            "Expected attribute delimiter",
+            "Expected `=` after attribute key",
+            depth,
+        )?;
         self.consume(TokenKind::RightBrace, "Expected `}` after attribute block")?;
         Ok(map)
     }
 
     fn parse_attribute_value_shape(&mut self) -> Result<AttributeValue, Diagnostic> {
         if self.check(TokenKind::LeftBrace) {
-            let members = self.parse_attribute_object_members()?;
-            return Ok(AttributeValue::with_parts(None, None, BTreeMap::new(), members));
+            let (members, member_order) = self.parse_attribute_object_members()?;
+            return Ok(AttributeValue::with_parts(
+                None,
+                None,
+                BTreeMap::new(),
+                Vec::new(),
+                members,
+                member_order,
+            ));
         }
         let value = self.parse_value()?;
         Ok(AttributeValue::with_parts(
             None,
             Some(value),
             BTreeMap::new(),
+            Vec::new(),
             BTreeMap::new(),
+            Vec::new(),
         ))
     }
 
-    fn parse_attribute_object_members(&mut self) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+    fn parse_attribute_object_members(&mut self) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         self.consume(TokenKind::LeftBrace, "Expected `{` in attribute object")?;
         let members = self.parse_attribute_members(
             TokenKind::RightBrace,
             "Expected object member delimiter",
             "Expected `=` after object member key",
+            0,
         )?;
         self.consume(TokenKind::RightBrace, "Expected `}` after attribute object")?;
         Ok(members)
@@ -661,16 +780,25 @@ impl<'a> TokenParser<'a> {
         terminator: TokenKind,
         delimiter_message: &str,
         equals_message: &str,
-    ) -> Result<BTreeMap<String, AttributeValue>, Diagnostic> {
+        depth: usize,
+    ) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         let mut members = BTreeMap::new();
+        let mut member_order = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
             let key = self.parse_key()?;
             self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
+            let mut nested_attr_order = Vec::new();
             while self.check(TokenKind::At) {
-                nested_attrs.extend(self.parse_attribute_block()?);
+                let (parsed_attrs, parsed_order) = self.parse_attribute_block(depth + 1)?;
+                for nested_key in parsed_order {
+                    if !nested_attrs.contains_key(&nested_key) {
+                        nested_attr_order.push(nested_key.clone());
+                    }
+                }
+                nested_attrs.extend(parsed_attrs);
                 self.skip_newlines();
             }
             self.skip_newlines();
@@ -683,17 +811,22 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
             members.insert(
-                key,
+                key.clone(),
                 AttributeValue::with_parts(
                     datatype,
                     value.value,
                     nested_attrs,
+                    nested_attr_order,
                     value.object_members,
+                    value.object_member_order,
                 ),
             );
+            if !member_order.contains(&key) {
+                member_order.push(key);
+            }
             self.consume_member_delimiter(terminator, delimiter_message)?;
         }
-        Ok(members)
+        Ok((members, member_order))
     }
 
     fn consume_member_delimiter(
@@ -877,35 +1010,90 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
     )
 }
 
-fn unescape_quoted(text: &str) -> String {
+fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
+    decode_quoted_text(&token.text).map_err(|message| {
+        Diagnostic::new("SYNTAX_ERROR", message)
+            .at_path("$")
+            .with_span(token.span)
+    })
+}
+
+fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
     if text.len() < 2 {
-        return String::from(text);
+        return Ok(String::from(text));
     }
     let inner = &text[1..text.len() - 1];
     let mut output = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(ch) = chars.next() {
         if ch == '\\' {
-            if let Some(escaped) = chars.next() {
-                output.push(escaped);
-            } else {
-                output.push('\\');
+            let escaped = chars.next().ok_or("Invalid escape sequence")?;
+            match escaped {
+                '\\' => output.push('\\'),
+                '"' => output.push('"'),
+                '\'' => output.push('\''),
+                '`' => output.push('`'),
+                'n' => output.push('\n'),
+                'r' => output.push('\r'),
+                't' => output.push('\t'),
+                'b' => output.push('\u{0008}'),
+                'f' => output.push('\u{000C}'),
+                'u' => {
+                    let next = chars.next().ok_or("Invalid unicode escape")?;
+                    if next == '{' {
+                        let mut hex_digits = String::new();
+                        loop {
+                            let ch = chars.next().ok_or("Invalid unicode escape")?;
+                            if ch == '}' {
+                                break;
+                            }
+                            hex_digits.push(ch);
+                        }
+                        if !(1..=6).contains(&hex_digits.len())
+                            || !hex_digits.chars().all(|digit| digit.is_ascii_hexdigit())
+                        {
+                            return Err("Invalid unicode escape");
+                        }
+                        let codepoint =
+                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                        output.push(decoded);
+                    } else {
+                        let mut hex_digits = String::with_capacity(4);
+                        hex_digits.push(next);
+                        for _ in 0..3 {
+                            hex_digits.push(chars.next().ok_or("Invalid unicode escape")?);
+                        }
+                        if !hex_digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
+                            return Err("Invalid unicode escape");
+                        }
+                        let codepoint =
+                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                        output.push(decoded);
+                    }
+                }
+                _ => return Err("Invalid escape sequence"),
             }
         } else {
             output.push(ch);
         }
     }
-    output
+    Ok(output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::parse_document_from_tokens;
-    use crate::Value;
+    use crate::{TrimtickMetadata, Value};
+
+    fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        parse_document_from_tokens(input, 256, 1)
+    }
 
     #[test]
     fn parses_simple_top_level_bindings_from_tokens() {
-        let bindings = parse_document_from_tokens("name = \"Pat\"\nage = 49").expect("token parse");
+        let bindings = parse("name = \"Pat\"\nage = 49").expect("token parse");
         assert_eq!(bindings.len(), 2);
         assert_eq!(bindings[0].key, "name");
         assert!(matches!(bindings[0].value, Value::StringLiteral { .. }));
@@ -915,19 +1103,19 @@ mod tests {
 
     #[test]
     fn parses_shorthand_header_key_from_tokens() {
-        let bindings = parse_document_from_tokens("aeon:mode = \"strict\"").expect("token parse");
+        let bindings = parse("aeon:mode = \"strict\"").expect("token parse");
         assert_eq!(bindings[0].key, "aeon:mode");
     }
 
     #[test]
     fn rejects_unsupported_complex_value_in_token_seam() {
-        let bindings = parse_document_from_tokens("items = [1, 2]").expect("token parse");
+        let bindings = parse("items = [1, 2]").expect("token parse");
         assert!(matches!(bindings[0].value, Value::ListNode { .. }));
     }
 
     #[test]
     fn parses_objects_tuples_and_references_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "obj = { a = 1, pair = (2, 3) }\nref = ~obj.pair[1]\nptr = ~>$.obj.a",
         )
         .expect("token parse");
@@ -938,7 +1126,7 @@ mod tests {
 
     #[test]
     fn parses_binding_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens("user@{ role = \"admin\"\n level = 5 } = 1")
+        let bindings = parse("user@{ role = \"admin\"\n level = 5 } = 1")
             .expect("token parse");
         assert!(bindings[0].attributes.contains_key("role"));
         assert!(bindings[0].attributes.contains_key("level"));
@@ -946,7 +1134,7 @@ mod tests {
 
     #[test]
     fn parses_node_literals_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>",
         )
         .expect("token parse");
@@ -955,14 +1143,14 @@ mod tests {
 
     #[test]
     fn rejects_node_literals_without_trailing_right_angle_after_children() {
-        let err = parse_document_from_tokens("content:node = <span(\"hello\")\n")
+        let err = parse("content:node = <span(\"hello\")\n")
             .expect_err("missing closing angle should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_datatype() {
-        let bindings = parse_document_from_tokens("v:node = <glyph:node>\n").expect("token parse");
+        let bindings = parse("v:node = <glyph:node>\n").expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral { tag, datatype, children, .. } => {
                 assert_eq!(tag, "glyph");
@@ -975,7 +1163,7 @@ mod tests {
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_attributes_and_datatype() {
-        let bindings = parse_document_from_tokens("v:node = <glyph@{id=\"x\"}:node>\n")
+        let bindings = parse("v:node = <glyph@{id=\"x\"}:node>\n")
             .expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral { tag, datatype, children, attributes, .. } => {
@@ -990,21 +1178,21 @@ mod tests {
 
     #[test]
     fn rejects_generic_inline_node_head_datatypes() {
-        let err = parse_document_from_tokens("v:node = <tag:pair<int32,string>(\"x\")>\n")
+        let err = parse("v:node = <tag:pair<int32,string>(\"x\")>\n")
             .expect_err("generic node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn rejects_separator_inline_node_head_datatypes() {
-        let err = parse_document_from_tokens("v:node = <tag:contact[x](\"x\")>\n")
+        let err = parse("v:node = <tag:contact[x](\"x\")>\n")
             .expect_err("separator node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn parses_multiline_separator_specs_and_generic_boundaries_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "size:sep\n[\nx\n]\n= ^300x250\nitems:list\n<\nn\n>\n=\n[\n2,\n3\n]\n",
         )
         .expect("token parse");
@@ -1017,39 +1205,83 @@ mod tests {
     #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings =
-            parse_document_from_tokens("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
+            parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
             bindings[0].value,
             Value::StringLiteral {
                 value: String::from("`"),
-                is_trimtick: false,
+                raw: String::from("\\`"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
         assert_eq!(
             bindings[1].value,
             Value::StringLiteral {
                 value: String::from("a\"b"),
-                is_trimtick: false,
+                raw: String::from("a\\\"b"),
+                delimiter: '"',
+                trimticks: None,
             }
         );
     }
 
     #[test]
+    fn decodes_standard_and_unicode_quoted_escapes() {
+        let bindings = parse(
+            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\ntag:node = <\"a\\u{41}\">\n",
+        )
+        .expect("token parse");
+        assert_eq!(bindings[0].key, "a\n");
+        assert_eq!(
+            bindings[1].value,
+            Value::StringLiteral {
+                value: String::from("xA"),
+                raw: String::from("x\\u0041"),
+                delimiter: '"',
+                trimticks: None,
+            }
+        );
+        match &bindings[2].value {
+            Value::NodeLiteral { tag, .. } => assert_eq!(tag, "aA"),
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_quoted_escapes() {
+        for (source, message) in [
+            ("value = \"x\\q\"\n", "Invalid escape sequence"),
+            ("value = \"x\\u{110000}\"\n", "Invalid unicode escape"),
+            ("tag:node = <\"a\\q\">\n", "Invalid escape sequence"),
+        ] {
+            let error = parse(source).expect_err("expected syntax error");
+            assert_eq!(error.code, "SYNTAX_ERROR");
+            assert_eq!(error.message, message);
+        }
+    }
+
+    #[test]
     fn parses_trimticks_from_tokens() {
-        let bindings = parse_document_from_tokens("note:trimtick = >`\n  one\n  two\n`\n")
+        let bindings = parse("note:trimtick = >`\n  one\n  two\n`\n")
             .expect("token parse");
         assert_eq!(
             bindings[0].value,
             Value::StringLiteral {
                 value: String::from("one\ntwo"),
-                is_trimtick: true,
+                raw: String::from("\n  one\n  two\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 1,
+                    raw_value: String::from("\n  one\n  two\n"),
+                }),
             }
         );
     }
 
     #[test]
     fn parses_multiline_node_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "s:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n",
         )
         .expect("token parse");
@@ -1058,7 +1290,7 @@ mod tests {
 
     #[test]
     fn parses_multiline_binding_layout_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "name\n:\nstring =\n\"playground\"\n",
         )
         .expect("token parse");
@@ -1069,12 +1301,15 @@ mod tests {
 
     #[test]
     fn rejects_empty_quoted_reference_segments() {
+        let object_key_error = parse("a = { \"\" = 1 }\nv = ~a.[\"\"]\n").expect_err("expected syntax error");
+        assert_eq!(object_key_error.code, "SYNTAX_ERROR");
+        assert_eq!(object_key_error.message, "Keys must not be empty");
+
         for source in [
-            "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
             "a = 1\nv = ~a@[\"\"]\n",
             "a = 1\nv = ~a[\"\"]\n",
         ] {
-            let error = parse_document_from_tokens(source).expect_err("expected syntax error");
+            let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR");
             assert!(error.message.contains("Empty quoted path segments are not valid"));
         }
@@ -1082,7 +1317,7 @@ mod tests {
 
     #[test]
     fn reports_missing_equals_after_key_with_key_name() {
-        let error = parse_document_from_tokens("a hello\n").expect_err("expected syntax error");
+        let error = parse("a hello\n").expect_err("expected syntax error");
         assert_eq!(error.code, "SYNTAX_ERROR");
         assert_eq!(error.message, "Expected '=' after key 'a'");
         let span = error.span.expect("span");
@@ -1094,7 +1329,7 @@ mod tests {
 
     #[test]
     fn reports_unexpected_identifier_token_in_value_position() {
-        let error = parse_document_from_tokens("a = hello\n").expect_err("expected syntax error");
+        let error = parse("a = hello\n").expect_err("expected syntax error");
         assert_eq!(error.code, "SYNTAX_ERROR");
         assert_eq!(error.message, "Unexpected token 'hello'");
         let span = error.span.expect("span");
@@ -1106,7 +1341,7 @@ mod tests {
 
     #[test]
     fn parses_extremely_multiline_binding_attributes_from_tokens() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse(
             "a\n@ \n{\nn\n:\nn \n=\n1\n}\n:\nn \n= \n2\n",
         )
         .expect("token parse");
@@ -1115,5 +1350,39 @@ mod tests {
         assert_eq!(bindings[0].datatype.as_deref(), Some("n"));
         assert!(bindings[0].attributes.contains_key("n"));
         assert!(matches!(bindings[0].value, Value::NumberLiteral { .. }));
+    }
+
+    #[test]
+    fn parses_root_quoted_member_reference_after_dollar_dot() {
+        let bindings = parse("\"a.b\" = 1\nv = ~$. [\"a.b\"]\n").expect("token parse");
+        assert!(matches!(bindings[1].value, Value::CloneReference { .. }));
+    }
+
+    #[test]
+    fn rejects_root_bracket_reference_without_dot_after_dollar() {
+        let error = parse("a = 1\nv = ~$[\"a\"]\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected `.` after `$`");
+    }
+
+    #[test]
+    fn rejects_deep_valid_nesting_with_structured_diagnostic() {
+        let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
+        let error = parse_document_from_tokens(&source, 256, 1).expect_err("expected nesting error");
+        assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
+        assert!(error.message.contains("max_nesting_depth 256"));
+    }
+
+    #[test]
+    fn rejects_empty_quoted_keys_in_binding_positions() {
+        let error = parse("\"\" = 1\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Keys must not be empty");
+    }
+
+    #[test]
+    fn rejects_nested_attribute_heads_at_default_depth() {
+        let error = parse("a@{b@{c=3}=2} = 1\n").expect_err("expected attribute depth error");
+        assert_eq!(error.code, "ATTRIBUTE_DEPTH_EXCEEDED");
     }
 }

@@ -33,7 +33,15 @@ from .ast import (
     TypeAnnotation,
     Value,
 )
-from .errors import GenericDepthExceededError, HeaderConflictError, InvalidSeparatorCharError, SeparatorDepthExceededError, SyntaxError
+from .errors import (
+    AttributeDepthExceededError,
+    GenericDepthExceededError,
+    HeaderConflictError,
+    InvalidSeparatorCharError,
+    NestingDepthExceededError,
+    SeparatorDepthExceededError,
+    SyntaxError,
+)
 from .lexer import Token
 from .spans import Span
 
@@ -59,12 +67,23 @@ class ParseResult:
 
 
 class Parser:
-    def __init__(self, source: str, tokens: list[Token], max_separator_depth: int = 1, max_generic_depth: int = 1) -> None:
+    def __init__(
+        self,
+        source: str,
+        tokens: list[Token],
+        max_separator_depth: int = 1,
+        max_generic_depth: int = 1,
+        max_attribute_depth: int = 1,
+        max_nesting_depth: int = 256,
+    ) -> None:
         self.source = source
         self.tokens = tokens
         self.current = 0
         self.max_separator_depth = max_separator_depth
         self.max_generic_depth = max_generic_depth
+        self.max_attribute_depth = max_attribute_depth
+        self.max_nesting_depth = max_nesting_depth
+        self.current_nesting_depth = 0
         self.errors: list[Exception] = []
         self.deferred_errors: list[Exception] = []
 
@@ -103,6 +122,8 @@ class Parser:
                     continue
                 binding = self.parse_binding()
                 bindings.append(binding)
+                if not self.check("EOF") and not self.check("NEWLINE") and not self.check("COMMA"):
+                    raise SyntaxError("Expected top-level binding delimiter", self.peek().span)
             except Exception as error:
                 self.errors.append(error)
                 if self.deferred_errors:
@@ -190,7 +211,7 @@ class Parser:
         self.skip_layout()
         attributes: list[Attribute] = []
         while self.check("AT"):
-            attributes.append(self.parse_attribute())
+            attributes.append(self.parse_attribute(1))
             self.skip_layout()
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
@@ -206,7 +227,9 @@ class Parser:
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
         return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end))
 
-    def parse_attribute(self) -> Attribute:
+    def parse_attribute(self, depth: int) -> Attribute:
+        if depth > self.max_attribute_depth:
+            raise AttributeDepthExceededError("$", depth, self.max_attribute_depth, self.peek().span)
         start = self.peek().span.start
         self.consume("AT", "Expected '@'")
         self.skip_layout()
@@ -219,7 +242,7 @@ class Parser:
             self.skip_layout()
             attributes: list[Attribute] = []
             while self.check("AT"):
-                attributes.append(self.parse_attribute())
+                attributes.append(self.parse_attribute(depth + 1))
                 self.skip_layout()
             datatype: TypeAnnotation | None = None
             if self.check("COLON"):
@@ -402,24 +425,31 @@ class Parser:
             return
 
     def parse_value(self) -> Value:
-        if self.check("LANGLE"):
-            return self.parse_node()
-        if self.check("RANGLE"):
-            return self.parse_trimtick_string()
-        if self.check("IDENT") and self.check_next("LANGLE"):
-            self.record_legacy_node_followup_error()
-            raise SyntaxError("Node values must use the '<tag>' or '<tag(...)>' forms", self.peek().span)
-        if self.check("LBRACE"):
-            return self.parse_object()
-        if self.check("LBRACKET"):
-            return self.parse_list()
-        if self.check("LPAREN"):
-            return self.parse_tuple()
-        if self.check("TILDE_ARROW"):
-            return self.parse_pointer_reference()
-        if self.check("TILDE"):
-            return self.parse_clone_reference()
-        return self.parse_literal()
+        self.current_nesting_depth += 1
+        if self.current_nesting_depth > self.max_nesting_depth:
+            self.current_nesting_depth -= 1
+            raise NestingDepthExceededError(self.current_nesting_depth + 1, self.max_nesting_depth, self.peek().span)
+        try:
+            if self.check("LANGLE"):
+                return self.parse_node()
+            if self.check("RANGLE"):
+                return self.parse_trimtick_string()
+            if self.check("IDENT") and self.check_next("LANGLE"):
+                self.record_legacy_node_followup_error()
+                raise SyntaxError("Node values must use the '<tag>' or '<tag(...)>' forms", self.peek().span)
+            if self.check("LBRACE"):
+                return self.parse_object()
+            if self.check("LBRACKET"):
+                return self.parse_list()
+            if self.check("LPAREN"):
+                return self.parse_tuple()
+            if self.check("TILDE_ARROW"):
+                return self.parse_pointer_reference()
+            if self.check("TILDE"):
+                return self.parse_clone_reference()
+            return self.parse_literal()
+        finally:
+            self.current_nesting_depth -= 1
 
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
@@ -428,7 +458,7 @@ class Parser:
         self.skip_layout()
         attributes: list[Attribute] = []
         while self.check("AT"):
-            attributes.append(self.parse_attribute())
+            attributes.append(self.parse_attribute(1))
             self.skip_layout()
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
@@ -507,11 +537,19 @@ class Parser:
 
     def parse_path(self) -> list[ReferencePathSegment]:
         path: list[ReferencePathSegment] = []
+        saw_root_dot = False
+        saw_explicit_root = False
         if self.check("DOLLAR"):
             self.advance()
+            saw_explicit_root = True
             if self.check("DOT"):
                 self.advance()
-        self.parse_path_initial_segment(path)
+                saw_root_dot = True
+        self.parse_path_initial_segment(
+            path,
+            saw_root_dot=saw_root_dot,
+            saw_explicit_root=saw_explicit_root,
+        )
         while self.check("DOT") or self.check("LBRACKET") or self.check("AT"):
             if self.check("DOT"):
                 self.advance()
@@ -527,11 +565,18 @@ class Parser:
             path.append(self.parse_bracket_path_segment())
         return path
 
-    def parse_path_initial_segment(self, path: list[ReferencePathSegment]) -> None:
+    def parse_path_initial_segment(
+        self,
+        path: list[ReferencePathSegment],
+        saw_root_dot: bool = False,
+        saw_explicit_root: bool = False,
+    ) -> None:
         if self.check("IDENT") or self.check("STRING"):
             path.append(self.parse_member_segment("Expected path segment"))
             return
         if self.check("LBRACKET"):
+            if saw_explicit_root and not saw_root_dot and self.check_next("STRING"):
+                raise SyntaxError("Expected '.' after '$' before quoted root-member segment", self.peek().span)
             path.append(self.parse_bracket_path_segment())
             return
         raise SyntaxError("Expected path segment", self.peek().span)
@@ -718,8 +763,22 @@ class Parser:
         raise SyntaxError(message, self.peek().span)
 
 
-def parse_tokens(source: str, tokens: list[Token], max_separator_depth: int = 1, max_generic_depth: int = 1) -> ParseResult:
-    return Parser(source, tokens, max_separator_depth=max_separator_depth, max_generic_depth=max_generic_depth).parse()
+def parse_tokens(
+    source: str,
+    tokens: list[Token],
+    max_separator_depth: int = 1,
+    max_generic_depth: int = 1,
+    max_attribute_depth: int = 1,
+    max_nesting_depth: int = 256,
+) -> ParseResult:
+    return Parser(
+        source,
+        tokens,
+        max_separator_depth=max_separator_depth,
+        max_generic_depth=max_generic_depth,
+        max_attribute_depth=max_attribute_depth,
+        max_nesting_depth=max_nesting_depth,
+    ).parse()
 
 
 def apply_trimticks(raw: str, marker_width: int) -> str:

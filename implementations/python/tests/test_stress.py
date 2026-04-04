@@ -18,13 +18,16 @@ class TestAlgorithmicStress(unittest.TestCase):
     def test_algorithmic_dos_recursion_nesting(self):
         depth = 2000
         source = f"k = {'[' * depth}{']' * depth}"
-        try:
-            tokens = tokenize(source).tokens
-            result = parse_tokens(source, tokens)
-            self.assertGreater(len(result.errors), 0, "Expected a safely caught error for recursion limit")
-            self.assertIn("maximum recursion depth exceeded", str(result.errors[0]))
-        except RecursionError:
-            self.fail("RecursionError leaked and crashed the parser!")
+        tokens = tokenize(source).tokens
+        result = parse_tokens(source, tokens)
+        self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
+
+    def test_compile_fails_closed_on_deep_valid_nesting(self):
+        depth = 2000
+        source = f"k = {'[' * depth}0{']' * depth}"
+        result = compile_source(source)
+        self.assertEqual([], result.events)
+        self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
         
     def test_algorithmic_dos_large_integer(self):
         digits = 500000

@@ -329,6 +329,13 @@ describe('Core - compile()', () => {
             assert.deepStrictEqual(result.events.map(e => formatPath(e.path)), ['$.b', '$.a']);
         });
 
+        it('should allow quoted member traversal without an explicit root marker', () => {
+            const result = compile('"a.b":string = "x"\nb:string = ~["a.b"]');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.b'));
+        });
+
         it('should allow typed clone references when the referenced value matches', () => {
             const result = compile([
                 'aeon:mode = "strict"',
@@ -345,6 +352,27 @@ describe('Core - compile()', () => {
 
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SELF_REFERENCE'));
+        });
+
+        it('should report self reference for list elements that point at their owning binding', () => {
+            const result = compile('a:list = [~a]');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'SELF_REFERENCE'));
+        });
+
+        it('should allow backward references to earlier list items', () => {
+            const result = compile('c:list = [1, 1, ~c[0]]');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.c[2]'));
+        });
+
+        it('should allow backward references to earlier tuple items', () => {
+            const result = compile('c:tuple = (1, 1, ~c[0])');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.c[2]'));
         });
 
         it('should validate pointer references with same rules', () => {
@@ -455,8 +483,24 @@ describe('Core - compile()', () => {
             });
         });
 
-        it('should surface leading-zero reserved radix base brackets as syntax errors', () => {
+        it('should keep leading-zero reserved radix base brackets in the invalid-number bucket', () => {
             const result = compile('mask:radix[03] = %19');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should normalize invalid typed hex literals to syntax errors', () => {
+            const result = compile('a:hex = #F__F');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should normalize invalid untyped encoding literals to syntax errors', () => {
+            const result = compile('e = $QmF.zZTY0IQ==');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
@@ -664,6 +708,14 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should reject custom switch aliases in strict mode even when datatypePolicy is allow_custom', () => {
+            const result = compile('aeon:mode = "strict"\ns:toggle = on', {
+                datatypePolicy: 'allow_custom',
+            });
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'));
+        });
+
         it('should treat uppercase reserved-looking names as custom datatypes in strict mode', () => {
             const result = compile('aeon:mode = "strict"\na:N = 3\nb:Radix[10] = %1A', {
                 datatypePolicy: 'allow_custom',
@@ -686,6 +738,12 @@ describe('Core - compile()', () => {
 
         it('should allow custom datatypes in custom mode by default', () => {
             const result = compile('aeon:mode = "custom"\nstroke:myColor = #ff00ff');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
+        it('should allow custom switch aliases in custom mode', () => {
+            const result = compile('aeon:mode = "custom"\ns:toggle = on');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

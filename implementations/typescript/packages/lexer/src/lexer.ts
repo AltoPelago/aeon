@@ -661,7 +661,13 @@ export class Lexer {
             if (this.peek() === '&') {
                 value += this.advance();
                 let zone = '';
-                while (isAlphanumeric(this.peek()) || this.peek() === '/' || this.peek() === '_') {
+                while (
+                    isAlphanumeric(this.peek())
+                    || this.peek() === '/'
+                    || this.peek() === '_'
+                    || this.peek() === '-'
+                    || this.peek() === '+'
+                ) {
                     const ch = this.advance();
                     value += ch;
                     zone += ch;
@@ -698,6 +704,11 @@ export class Lexer {
         }
 
         if (value.endsWith('_')) {
+            this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
+            return;
+        }
+
+        if (!hasValidLiteralUnderscores(value)) {
             this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
             return;
         }
@@ -1202,10 +1213,15 @@ function isValidRadixPayload(payload: string): boolean {
 
 function isValidEncodingPayload(payload: string): boolean {
     if (payload.length === 0) return false;
-    if (!/^[A-Za-z0-9+/._-]+={0,2}$/.test(payload)) return false;
+    if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(payload)) return false;
     const firstPadding = payload.indexOf('=');
     if (firstPadding === -1) return true;
     return payload.slice(firstPadding).split('').every((c) => c === '=');
+}
+
+function hasValidLiteralUnderscores(raw: string): boolean {
+    const body = raw.slice(1);
+    return body.length > 0 && !body.startsWith('_') && !body.endsWith('_') && !body.includes('__');
 }
 
 /**

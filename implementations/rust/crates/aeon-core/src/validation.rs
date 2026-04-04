@@ -112,8 +112,16 @@ pub(crate) fn validate_reference_steps(
     let mut seen_base = HashSet::new();
     for step in steps {
         match step {
-            ValidationReferenceStep::ValidateValue { path, value } => {
-                validate_value_reference(value, path, all_targets, &seen_base, max_attribute_depth, errors);
+            ValidationReferenceStep::ValidateValue { path, owner_path, value } => {
+                validate_value_reference(
+                    value,
+                    path,
+                    owner_path,
+                    all_targets,
+                    &seen_base,
+                    max_attribute_depth,
+                    errors,
+                );
             }
             ValidationReferenceStep::VisibleTarget(path) => {
                 let _ = seen_base.insert(path.clone());
@@ -125,6 +133,7 @@ pub(crate) fn validate_reference_steps(
 fn validate_value_reference(
     value: &Value,
     current_path: &str,
+    owner_path: &str,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
@@ -149,7 +158,10 @@ fn validate_value_reference(
                 return;
             }
             let target = format_reference_target(segments);
-            if target == current_path {
+            if target == current_path
+                || target == owner_path
+                || is_attribute_to_own_payload_reference(current_path, &target)
+            {
                 errors.push(
                     Diagnostic::new(
                         "SELF_REFERENCE",
@@ -168,8 +180,16 @@ fn validate_value_reference(
                 );
                 return;
             }
-            let base = format_reference_base(segments);
-            if !seen_base.contains(&base) {
+            let requires_exact_attr_visibility =
+                target.contains('@') && !(current_path == format_reference_base(segments)
+                    && target.starts_with(&format!("{current_path}@")));
+            let is_visible = if requires_exact_attr_visibility {
+                seen_base.contains(&target)
+            } else {
+                let base = format_reference_base(segments);
+                seen_base.contains(&base)
+            };
+            if !is_visible {
                 errors.push(
                     Diagnostic::new(
                         "FORWARD_REFERENCE",
@@ -184,6 +204,7 @@ fn validate_value_reference(
             for binding in bindings {
                 validate_attribute_reference_map(
                     &binding.attributes,
+                    &binding.attribute_order,
                     current_path,
                     all_targets,
                     seen_base,
@@ -199,8 +220,10 @@ fn validate_value_reference(
             ..
         } => {
             for attribute in attributes {
+                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
                 validate_attribute_reference_map(
                     attribute,
+                    &attribute_order,
                     current_path,
                     all_targets,
                     seen_base,
@@ -212,6 +235,7 @@ fn validate_value_reference(
                 validate_value_reference(
                     child,
                     current_path,
+                    owner_path,
                     all_targets,
                     seen_base,
                     max_attribute_depth,
@@ -223,28 +247,47 @@ fn validate_value_reference(
     }
 }
 
+fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bool {
+    current_path
+        .split_once('@')
+        .is_some_and(|(binding_path, _)| target == binding_path)
+}
+
 fn validate_attribute_reference_map(
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     current_path: &str,
     all_targets: &HashSet<String>,
     seen_base: &HashSet<String>,
     max_attribute_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    for entry in attributes.values() {
-        for nested in [&entry.nested_attrs, &entry.object_members] {
-            validate_attribute_reference_map(
-                nested,
-                current_path,
-                all_targets,
-                seen_base,
-                max_attribute_depth,
-                errors,
-            );
-        }
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
+        validate_attribute_reference_map(
+            &entry.object_members,
+            &entry.object_member_order,
+            current_path,
+            all_targets,
+            seen_base,
+            max_attribute_depth,
+            errors,
+        );
+        validate_attribute_reference_map(
+            &entry.nested_attrs,
+            &entry.nested_attr_order,
+            current_path,
+            all_targets,
+            seen_base,
+            max_attribute_depth,
+            errors,
+        );
         if let Some(value) = &entry.value {
             validate_value_reference(
                 value,
+                current_path,
                 current_path,
                 all_targets,
                 seen_base,
@@ -303,6 +346,23 @@ pub(crate) fn validate_datatypes(
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "SwitchLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            path
+                        ),
+                    )
+                    .at_path(path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
             if !datatype_matches_value(datatype, resolved_value) {
                 let message = datatype_mismatch_message(path, datatype, resolved_value.value_kind());
                 errors.push(
@@ -370,6 +430,23 @@ pub(crate) fn validate_datatypes_light(
             }
             let resolved_value =
                 resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "SwitchLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            event.path
+                        ),
+                    )
+                    .at_path(event.path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
             if !datatype_matches_value(datatype, resolved_value) {
                 let message =
                     datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
@@ -723,7 +800,7 @@ fn validate_switch_literal_in_value(
 ) {
     match value {
         Value::SwitchLiteral { .. } => {
-            if matches!(mode, BehaviorMode::Strict) && datatype != Some("switch") {
+            if matches!(mode, BehaviorMode::Strict) && datatype.is_none() {
                 errors.push(
                     Diagnostic::new(
                         "UNTYPED_SWITCH_LITERAL",
@@ -1078,8 +1155,8 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             matches!(value, Value::NumberLiteral { .. })
         }
         "infinity" => matches!(value, Value::InfinityLiteral { .. }),
-        "string" => matches!(value, Value::StringLiteral { is_trimtick: false, .. }),
-        "trimtick" => matches!(value, Value::StringLiteral { is_trimtick: true, .. }),
+        "string" => matches!(value, Value::StringLiteral { trimticks: None, .. }),
+        "trimtick" => matches!(value, Value::StringLiteral { trimticks: Some(_), .. }),
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
         "switch" => matches!(value, Value::SwitchLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
@@ -1260,6 +1337,7 @@ fn validate_attribute_datatypes_in_scope(
         let path = parent.member(binding.key.clone());
         validate_attribute_datatype_map(
             &binding.attributes,
+            &binding.attribute_order,
             &path,
             datatype_policy,
             max_separator_depth,
@@ -1312,8 +1390,10 @@ fn validate_value_attribute_datatypes(
             ..
         } => {
             for attribute in attributes {
+                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
                 validate_attribute_datatype_map(
                     attribute,
+                    &attribute_order,
                     path,
                     datatype_policy,
                     max_separator_depth,
@@ -1338,13 +1418,17 @@ fn validate_value_attribute_datatypes(
 
 fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
     owner_path: &CanonicalPath,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    for (key, entry) in attributes {
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
         let attr_path = format!("{}@{}", format_path(owner_path), key);
         if let Some(datatype) = &entry.datatype {
             if let Some(value) = &entry.value {
@@ -1389,6 +1473,7 @@ fn validate_attribute_datatype_map(
         }
         validate_attribute_datatype_map(
             &entry.nested_attrs,
+            &entry.nested_attr_order,
             owner_path,
             datatype_policy,
             max_separator_depth,
@@ -1397,6 +1482,7 @@ fn validate_attribute_datatype_map(
         );
         validate_attribute_datatype_map(
             &entry.object_members,
+            &entry.object_member_order,
             owner_path,
             datatype_policy,
             max_separator_depth,

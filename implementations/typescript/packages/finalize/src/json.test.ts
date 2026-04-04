@@ -216,6 +216,21 @@ describe('Finalization (JSON)', () => {
         assert.strictEqual(result.document.opens, '09:30:00+02:40');
     });
 
+    it('reports infinity as outside the strict JSON profile', () => {
+        const events = compileToEvents('limit:infinity = Infinity');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, 'Infinity');
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.strictEqual(result.meta?.errors?.[0]?.code, 'FINALIZE_JSON_PROFILE_INFINITY');
+    });
+
+    it('preserves hex case while stripping visual separators', () => {
+        const events = compileToEvents('color:hex = #Ff_00_Aa');
+        const result = finalizeJson(events, { mode: 'strict' });
+        assert.strictEqual(result.document.color, 'Ff00Aa');
+    });
+
     it('strips underscore separators from finalized radix strings', () => {
         const events = compileToEvents('mask = %101_0101');
         const result = finalizeJson(events, { mode: 'strict' });
@@ -258,6 +273,65 @@ describe('Finalization (JSON)', () => {
         assert.deepStrictEqual(result.document, {
             app: {
                 name: 'demo',
+            },
+        });
+    });
+
+    it('projects exact top-level attribute paths without leaking siblings', () => {
+        const events = compileToEvents('title@{lang="en", tone="warm"} = "Hello"');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.title@lang'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            title: 'Hello',
+            '@': {
+                title: {
+                    lang: 'en',
+                },
+            },
+        });
+    });
+
+    it('projects attribute descendants without leaking sibling attributes', () => {
+        const events = compileToEvents('card = { title@{meta={ keep=2, "x.y"=1 }, tone="warm"} = "Hello" }');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.card.title@meta.keep'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            card: {
+                title: 'Hello',
+                '@': {
+                    title: {
+                        meta: {
+                            keep: 2,
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    it('projects exact node-head attribute paths without leaking siblings', () => {
+        const events = compileToEvents('badge = <pill@{id="main", class="hero"}("new")>');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.badge@@["id"]'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            badge: {
+                $node: 'pill',
+                '@': {
+                    id: 'main',
+                },
+                $children: ['new'],
             },
         });
     });

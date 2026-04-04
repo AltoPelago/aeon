@@ -32,6 +32,18 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a = 1\nv = ~a.[""]')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_root_quoted_member_requires_explicit_dot(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~$["a.b"]')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_root_quoted_member_accepts_explicit_dot_form(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~$.["a.b"]')
+        self.assertEqual([], result.errors)
+
+    def test_quoted_member_reference_without_explicit_root_marker_is_legal(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~["a.b"]')
+        self.assertEqual([], result.errors)
+
     def test_escaped_backtick_inside_backtick_string(self) -> None:
         result = compile_source("string006:string = `\\``")
         self.assertEqual([], result.errors)
@@ -54,6 +66,16 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a:list = [1,,2]")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_top_level_bindings_require_explicit_delimiter(self) -> None:
+        result = compile_source("a = 1 b = 2")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Expected top-level binding delimiter", result.errors[0].message)
+
+    def test_top_level_bindings_reject_block_comment_only_separation(self) -> None:
+        result = compile_source("a = 1 /* gap */ b = 2")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Expected top-level binding delimiter", result.errors[0].message)
+
     def test_custom_datatype_rejected_in_strict_header(self) -> None:
         source = 'aeon:mode = "strict"\ncolor:stroke = #ff00ff'
         result = compile_source(source)
@@ -63,6 +85,11 @@ class CoreCompileTests(unittest.TestCase):
         source = 'aeon:mode = "strict"\ncolor:stroke = #ff00ff'
         result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
         self.assertEqual([], result.errors)
+
+    def test_strict_mode_rejects_custom_switch_alias_even_with_allow_custom(self) -> None:
+        source = 'aeon:mode = "strict"\ns:toggle = on'
+        result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
+        self.assertEqual(["CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
 
     def test_custom_datatype_allowed_in_transport_mode_by_default(self) -> None:
         source = 'aeon:mode = "transport"\ncolor:stroke = #ff00ff'
@@ -76,6 +103,11 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_custom_mode_allows_custom_datatypes_by_default(self) -> None:
         source = 'aeon:mode = "custom"\ncolor:stroke = #ff00ff'
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+
+    def test_custom_mode_allows_custom_switch_aliases(self) -> None:
+        source = 'aeon:mode = "custom"\ns:toggle = on'
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
@@ -155,6 +187,29 @@ class CoreCompileTests(unittest.TestCase):
             with self.subTest(source=source):
                 result = compile_source(f'aeon:mode = "strict"\n{source}')
                 self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_zrut_accepts_common_named_zone_identifiers_with_dash_and_plus(self) -> None:
+        cases = (
+            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince",
+            "z:zrut = 2025-01-01T09Z&GB-Eire",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT-1",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT+1",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.errors)
+
+    def test_zrut_still_rejects_invalid_slash_placement(self) -> None:
+        cases = (
+            "z:zrut = 2025-01-01T09Z&/",
+            "z:zrut = 2025-01-01T09Z&Europe//Brussels",
+            "z:zrut = 2025-01-01T09Z&Europe/Belgium/",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
 
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')
@@ -242,6 +297,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a@b@c", CompileOptions(max_attribute_depth=8))
         self.assertEqual([], result.errors)
 
+    def test_nested_attribute_heads_fail_at_default_depth(self) -> None:
+        result = compile_source("a@{b@{c=3}=2} = 1")
+        self.assertEqual(["ATTRIBUTE_DEPTH_EXCEEDED"], [error.code for error in result.errors])
+
     def test_forward_reference(self) -> None:
         result = compile_source('v = ~a@ns\na@{ns="alto.v1"} = 1')
         self.assertEqual(["FORWARD_REFERENCE"], [error.code for error in result.errors])
@@ -285,6 +344,11 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a = 1\nb = "unterminated')
         self.assertEqual(["UNTERMINATED_STRING"], [error.code for error in result.errors])
         self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
+
+    def test_out_of_range_braced_unicode_escape_fails_closed(self) -> None:
+        result = compile_source(r'value = "\u{110000}"')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
     def test_strict_mode_untyped_switch_uses_aligned_message(self) -> None:
         result = compile_source('aeon:mode = "strict"\ndebug = yes')
@@ -409,6 +473,14 @@ class CoreCompileTests(unittest.TestCase):
     def test_hex_literal_with_trailing_underscore_is_rejected(self) -> None:
         result = compile_source("blue = #FF_FF_FF_")
         self.assertNotEqual([], result.errors)
+
+    def test_untyped_hex_literal_with_double_underscore_is_rejected(self) -> None:
+        result = compile_source("blue = #F__f")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_untyped_dotted_encoding_literal_is_rejected(self) -> None:
+        result = compile_source("payload = $QmF.zZTY0IQ==")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
 
 if __name__ == "__main__":

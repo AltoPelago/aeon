@@ -168,6 +168,7 @@ pub struct CompileOptions {
     pub max_attribute_depth: usize,
     pub max_separator_depth: usize,
     pub max_generic_depth: usize,
+    pub max_nesting_depth: usize,
     pub datatype_policy: Option<DatatypePolicy>,
     pub shallow_event_values: bool,
     pub emit_binding_projections: bool,
@@ -183,6 +184,7 @@ impl Default for CompileOptions {
             max_attribute_depth: 1,
             max_separator_depth: 1,
             max_generic_depth: 1,
+            max_nesting_depth: 256,
             datatype_policy: None,
             shallow_event_values: false,
             emit_binding_projections: true,
@@ -203,7 +205,12 @@ pub enum ReferenceSegment {
 pub enum Value {
     NumberLiteral { raw: String },
     InfinityLiteral { raw: String },
-    StringLiteral { value: String, is_trimtick: bool },
+    StringLiteral {
+        value: String,
+        raw: String,
+        delimiter: char,
+        trimticks: Option<TrimtickMetadata>,
+    },
     SwitchLiteral { raw: String },
     BooleanLiteral { raw: String },
     HexLiteral { raw: String },
@@ -227,14 +234,59 @@ pub enum Value {
     PointerReference { segments: Vec<ReferenceSegment>, span: Span },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrimtickMetadata {
+    pub marker_width: usize,
+    pub raw_value: String,
+}
+
+#[must_use]
+pub fn normalize_number_literal(raw: &str) -> String {
+    let mut value = raw.replace('_', "").replace('E', "e");
+    if value.starts_with('.') {
+        value = format!("0{value}");
+    }
+    if value.starts_with("-.") {
+        value = value.replacen("-.", "-0.", 1);
+    }
+    if value.starts_with("+.") {
+        value = value.replacen("+.", "0.", 1);
+    }
+    if value.starts_with('+') && value.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
+        value.remove(0);
+    }
+
+    let (mut mantissa, exponent) = match value.split_once('e') {
+        Some((mantissa, exponent)) => (mantissa.to_owned(), Some(exponent.to_owned())),
+        None => (value, None),
+    };
+
+    if let Some((int_part, frac_part_raw)) = mantissa.split_once('.') {
+        let mut frac_part = frac_part_raw.trim_end_matches('0').to_owned();
+        if frac_part.is_empty() {
+            frac_part = String::from("0");
+        }
+        if exponent.is_some() && frac_part == "0" {
+            mantissa = int_part.to_owned();
+        } else {
+            mantissa = format!("{int_part}.{frac_part}");
+        }
+    }
+
+    match exponent {
+        Some(exponent) => format!("{mantissa}e{exponent}"),
+        None => mantissa,
+    }
+}
+
 impl Value {
     #[must_use]
     pub fn value_kind(&self) -> &'static str {
         match self {
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
-            Self::StringLiteral { is_trimtick, .. } => {
-                if *is_trimtick {
+            Self::StringLiteral { trimticks, .. } => {
+                if trimticks.is_some() {
                     "TrimtickStringLiteral"
                 } else {
                     "StringLiteral"
@@ -264,7 +316,9 @@ pub struct AttributeValue {
     pub datatype: Option<String>,
     pub value: Option<Value>,
     pub nested_attrs: BTreeMap<String, AttributeValue>,
+    pub nested_attr_order: Vec<String>,
     pub object_members: BTreeMap<String, AttributeValue>,
+    pub object_member_order: Vec<String>,
 }
 
 impl AttributeValue {
@@ -274,27 +328,39 @@ impl AttributeValue {
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
+            nested_attr_order: Vec::new(),
             object_members: BTreeMap::new(),
+            object_member_order: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn with_nested_attrs(nested_attrs: BTreeMap<String, AttributeValue>) -> Self {
+    pub fn with_nested_attrs(
+        nested_attrs: BTreeMap<String, AttributeValue>,
+        nested_attr_order: Vec<String>,
+    ) -> Self {
         Self {
             datatype: None,
             value: None,
             nested_attrs,
+            nested_attr_order,
             object_members: BTreeMap::new(),
+            object_member_order: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn with_object_members(object_members: BTreeMap<String, AttributeValue>) -> Self {
+    pub fn with_object_members(
+        object_members: BTreeMap<String, AttributeValue>,
+        object_member_order: Vec<String>,
+    ) -> Self {
         Self {
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
+            nested_attr_order: Vec::new(),
             object_members,
+            object_member_order,
         }
     }
 
@@ -303,13 +369,17 @@ impl AttributeValue {
         datatype: Option<String>,
         value: Option<Value>,
         nested_attrs: BTreeMap<String, AttributeValue>,
+        nested_attr_order: Vec<String>,
         object_members: BTreeMap<String, AttributeValue>,
+        object_member_order: Vec<String>,
     ) -> Self {
         Self {
             datatype,
             value,
             nested_attrs,
+            nested_attr_order,
             object_members,
+            object_member_order,
         }
     }
 }
@@ -319,6 +389,7 @@ pub struct Binding {
     pub key: String,
     pub datatype: Option<String>,
     pub attributes: BTreeMap<String, AttributeValue>,
+    pub attribute_order: Vec<String>,
     pub value: Value,
     pub span: Span,
 }
@@ -392,7 +463,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    match parse_document_tokens(&source) {
+    match parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth) {
         Ok(bindings) => {
             trace_compile(format!("compile:parsed bindings={}", bindings.len()));
             finalize_compile(source, bindings, options)
@@ -414,7 +485,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
 pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(&source)?;
+    let parsed = parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth)?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
     let lower_header_start = std::time::Instant::now();
@@ -467,11 +538,20 @@ pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Resu
 
 pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
-    token_parser::parse_document_from_tokens(&source).map(|_| ())
+    token_parser::parse_document_from_tokens(
+        &source,
+        CompileOptions::default().max_nesting_depth,
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map(|_| ())
 }
 
-fn parse_document_tokens(source: &str) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(source)
+fn parse_document_tokens(
+    source: &str,
+    max_nesting_depth: usize,
+    max_attribute_depth: usize,
+) -> Result<Vec<Binding>, Diagnostic> {
+    token_parser::parse_document_from_tokens(source, max_nesting_depth, max_attribute_depth)
 }
 
 fn finalize_compile(source: String, bindings: Vec<Binding>, options: CompileOptions) -> CompileResult {
@@ -677,6 +757,108 @@ mod tests {
     }
 
     #[test]
+    fn validates_direct_list_item_references() {
+        let backward = compile("items = [1, ~items[0]]\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let binding_self_ref = compile("a:list = [~a]\n", CompileOptions::default());
+        assert_eq!(binding_self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let backward_member = compile(
+            "items = [{ email = \"a@example.com\" }, ~items[0].email]\n",
+            CompileOptions::default(),
+        );
+        assert!(backward_member.errors.is_empty(), "{:?}", backward_member.errors);
+
+        let forward = compile("items = [~items[1], 1]\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let self_ref = compile("items = [~items[0]]\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("items = [~items[9]]\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+
+        let forward_member = compile(
+            "items = [~items[1].email, { email = \"a@example.com\" }]\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(forward_member.errors[0].code, "FORWARD_REFERENCE");
+    }
+
+    #[test]
+    fn validates_direct_tuple_item_references() {
+        let forward = compile("items = (~items[1], 1)\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let self_ref = compile("items = (~items[0], 1)\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("items = (~items[9], 1)\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn payload_can_reference_own_attached_attributes() {
+        for source in [
+            "a@{x = 2} = ~a@x\n",
+            "a@{\"x.y\" = 2} = ~a@[\"x.y\"]\n",
+            "a@{x = { z = 2 }} = ~a@x.z\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn attribute_payload_references_to_payload_follow_self_forward_and_missing_rules() {
+        let backward = compile("b = 1\na@{x = ~b} = 1\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let self_ref = compile("a@{x = ~a} = 1\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let forward = compile("a@{x = ~b} = 1\nb = 1\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let missing = compile("a@{x = ~missing} = 1\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn attribute_payload_self_and_missing_targets_fail_closed() {
+        let self_ref = compile("a@{x = ~a@x} = 1\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let nested_self = compile("a@{x = { z = ~a@x.z }} = 1\n", CompileOptions::default());
+        assert_eq!(nested_self.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("a@{x = ~a@missing} = 1\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn attribute_payload_sibling_order_is_source_ordered() {
+        let backward = compile("a@{y = 1, x = ~a@y} = 1\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let quoted_backward = compile(
+            "a@{\"z.y\" = 1, \"x.y\" = ~a@[\"z.y\"]} = 1\n",
+            CompileOptions::default(),
+        );
+        assert!(quoted_backward.errors.is_empty(), "{:?}", quoted_backward.errors);
+
+        let forward = compile("a@{x = ~a@y, y = 1} = 1\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let quoted_forward = compile(
+            "a@{\"x.y\" = ~a@[\"z.y\"], \"z.y\" = 1} = 1\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(quoted_forward.errors[0].code, "FORWARD_REFERENCE");
+    }
+
+    #[test]
     fn supports_allow_custom_datatypes() {
         let result = compile(
             "color:stroke = #ff00ff",
@@ -740,6 +922,32 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_rejects_custom_switch_alias_even_with_allow_custom() {
+        let result = compile(
+            "aeon:mode = \"strict\"\ns:toggle = on\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED");
+        assert_eq!(
+            result.errors[0].message,
+            "Custom switch alias not allowed in strict mode at '$.s': use ':switch' instead of ':toggle'"
+        );
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.s"));
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
+    fn custom_mode_allows_custom_switch_aliases() {
+        let result = compile("aeon:mode = \"custom\"\ns:toggle = on\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
     fn typed_clone_reference_uses_target_value_kind_for_datatype_checking() {
         let result = compile("source:number = 99\ncopy:number = ~source", CompileOptions::default());
         assert!(result.errors.is_empty());
@@ -787,7 +995,7 @@ mod tests {
         let result = compile("a = 3e-3\nb = %3e-3\n", CompileOptions::default());
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].code, "INVALID_NUMBER");
         assert_eq!(result.errors[0].message, "Invalid radix literal `%3e-3`");
         let span = result.errors[0].span.as_ref().expect("span");
         assert_eq!(span.start.line, 2);
@@ -864,12 +1072,12 @@ mod tests {
             ),
             (
                 "a:datetime = 2007-01-02t10:10:25\n",
-                "INVALID_DATETIME",
+                "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25'",
             ),
             (
                 "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
-                "INVALID_DATETIME",
+                "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
             ),
         ];
@@ -881,6 +1089,55 @@ mod tests {
             assert_eq!(result.errors[0].code, expected_code);
             assert_eq!(result.errors[0].message, expected_message);
             assert!(result.errors[0].span.is_some(), "expected span for {source:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_lowercase_z_datetime_markers_as_syntax_errors() {
+        for source in [
+            "a:datetime = 2007-01-02T10:10:25z\n",
+            "a:zrut = 2007-01-02T10:10:25z&Australia/Melbourne\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(result.errors[0]
+                .message
+                .starts_with("Invalid datetime literal:"), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_zrut_zone_punctuation() {
+        for source in [
+            "z:zrut = 2025-01-01T09Z&Europe*Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe#Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe[Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe;Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe=Brussels\n",
+            "z:zrut = 2025-01-01T09Z&Europe'Brussels\n",
+            "z:zrut = 2025-01-01T09Z&*\n",
+            "z:zrut = 2025-01-01T09Z&#\n",
+            "z:zrut = 2025-01-01T09Z&Europe/Brussels&Local\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
+            assert_eq!(result.errors[0].code, "INVALID_DATETIME");
+        }
+    }
+
+    #[test]
+    fn accepts_valid_zrut_zone_characters() {
+        for source in [
+            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince\n",
+            "z:zrut = 2025-01-01T09Z&GB-Eire\n",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT-1\n",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT+1\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
         }
     }
 
@@ -1044,7 +1301,9 @@ mod tests {
             result.events[0].annotations["ns"].value,
             Some(Value::StringLiteral {
                 value: String::from("alto.v1"),
-                is_trimtick: false,
+                raw: String::from("alto.v1"),
+                delimiter: '"',
+                trimticks: None,
             })
         );
     }
@@ -1363,6 +1622,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_untyped_hex_literals_with_double_underscore() {
+        let result = compile("blue = #F__f\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
     fn supports_backtick_strings_and_multiline_node_introducers() {
         let result = compile(
             "text:string = `hello`\ncontent:node = <div(\n  <span@{id=\"text\"}:node(\n    `world`\n  )>\n)>\n",
@@ -1420,14 +1686,18 @@ mod tests {
             result.events[0].value,
             Value::StringLiteral {
                 value: String::from("`"),
-                is_trimtick: false,
+                raw: String::from("\\`"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
         assert_eq!(
             result.events[4].value,
             Value::StringLiteral {
                 value: String::from("\"'"),
-                is_trimtick: false,
+                raw: String::from("\"'"),
+                delimiter: '`',
+                trimticks: None,
             }
         );
     }
@@ -1443,14 +1713,24 @@ mod tests {
             result.events[0].value,
             Value::StringLiteral {
                 value: String::from("one\ntwo"),
-                is_trimtick: true,
+                raw: String::from("\n  one\n  two\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 1,
+                    raw_value: String::from("\n  one\n  two\n"),
+                }),
             }
         );
         assert_eq!(
             result.events[1].value,
             Value::StringLiteral {
                 value: String::from("alpha\nbeta"),
-                is_trimtick: true,
+                raw: String::from("\n\talpha\n  beta\n"),
+                delimiter: '`',
+                trimticks: Some(TrimtickMetadata {
+                    marker_width: 2,
+                    raw_value: String::from("\n\talpha\n  beta\n"),
+                }),
             }
         );
     }
@@ -1485,6 +1765,36 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
+    }
+
+    #[test]
+    fn rejects_empty_quoted_keys_in_binding_positions() {
+        let result = compile("\"\" = 1\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].message, "Keys must not be empty");
+    }
+
+    #[test]
+    fn rejects_nested_attribute_heads_at_default_depth() {
+        let result = compile("a@{b@{c=3}=2} = 1\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "ATTRIBUTE_DEPTH_EXCEEDED");
+    }
+
+    #[test]
+    fn accepts_root_quoted_member_reference_after_dollar_dot() {
+        let result = compile("\"a.b\" = 1\nv = ~$. [\"a.b\"]\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn fails_closed_on_deep_valid_nesting() {
+        let source = format!("v = {}0{}\n", "[".repeat(300), "]".repeat(300));
+        let result = compile(&source, CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "NESTING_DEPTH_EXCEEDED");
     }
 
     #[test]

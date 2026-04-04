@@ -545,7 +545,41 @@ describe('Parser', () => {
         });
 
         it('should parse quoted bracket segment in reference path', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~$.["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const ref = result.document!.bindings[1]!.value;
+            if (ref.type === 'CloneReference') {
+                assert.deepStrictEqual(ref.path, ['a.b']);
+            } else {
+                assert.fail(`Expected CloneReference, got ${ref.type}`);
+            }
+        });
+
+        it('should reject quoted root-member traversal without an explicit dot after $', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~$["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should parse quoted member traversal without an explicit root marker', () => {
             const tokens = tokenize('"a.b" = 2\nv = ~["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const ref = result.document!.bindings[1]!.value;
+            if (ref.type === 'CloneReference') {
+                assert.deepStrictEqual(ref.path, ['a.b']);
+            } else {
+                assert.fail(`Expected CloneReference, got ${ref.type}`);
+            }
+        });
+
+        it('should parse quoted root-member traversal with an explicit dot after $', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~$.["a.b"]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -801,7 +835,7 @@ describe('Parser', () => {
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
         });
 
         it('should accept single-digit separator specs', () => {
@@ -820,12 +854,12 @@ describe('Parser', () => {
             assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
 
-        it('should reject reserved boundary chars in custom bracket specs before depth checks', () => {
+        it('should enforce separator depth before rejecting custom bracket punctuation in repeated specs', () => {
             const tokens = tokenize('badSepType1:matrix[,][;] = ^1,2,3;4,5,6').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 1 });
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
 
         it('should parse radix base brackets', () => {

@@ -180,12 +180,6 @@ function* findReferences(value: Value): Generator<ReferenceNode> {
             return;
 
         case 'ObjectNode':
-            for (const binding of value.bindings) {
-                yield* findReferences(binding.value);
-                for (const attr of binding.attributes) {
-                    yield* findReferencesInAttribute(attr);
-                }
-            }
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
@@ -231,16 +225,24 @@ function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
             return;
 
         case 'ObjectNode':
+            for (const attr of value.attributes) {
+                yield* findReferencesInAttribute(attr);
+            }
+            return;
+
         case 'ListNode':
         case 'TupleLiteral':
+            for (const attr of value.attributes) {
+                yield* findReferencesInAttribute(attr);
+            }
+            return;
+
         case 'NodeLiteral':
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
-            if (value.type === 'NodeLiteral') {
-                for (const child of value.children) {
-                    yield* findReferences(child);
-                }
+            for (const child of value.children) {
+                yield* findReferences(child);
             }
             return;
 
@@ -297,6 +299,12 @@ function validateOneReference(
     }
 
     if (targetPath === sourcePath) {
+        errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
+        return;
+    }
+
+    const indexedOwnerPath = sourcePath.replace(/(?:\[\d+\])+$/, '');
+    if (indexedOwnerPath !== sourcePath && targetPath === indexedOwnerPath) {
         errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
         return;
     }

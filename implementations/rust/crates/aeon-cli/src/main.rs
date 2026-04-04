@@ -14,7 +14,7 @@ use aeon_finalize::{
     finalize_json, finalize_map, value_to_ast_json, FinalizeMode, FinalizeOptions, FinalizeScope, Materialization,
 };
 use aeon_core::{
-    compile, format_path, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment,
+    compile, format_path, normalize_number_literal, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment,
     ReferenceSegment, Value, VERSION,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
@@ -1937,11 +1937,24 @@ fn next_backup_path(path: &str) -> String {
 }
 
 fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\u{000C}' => escaped.push_str("\\f"),
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04X}", ch as u32);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String {
@@ -2119,13 +2132,24 @@ fn render_value_json_string(value: &Value) -> String {
         Value::NumberLiteral { raw } => format!(
             "{{\"type\":\"NumberLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
-            escape_json(raw)
+            escape_json(&normalize_number_literal(raw))
         ),
-        Value::StringLiteral { value, .. } => format!(
-            "{{\"type\":\"StringLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
-            escape_json(value),
-            escape_json(value)
-        ),
+        Value::StringLiteral { value, raw, delimiter, trimticks } => {
+            let trimticks_json = trimticks.as_ref().map(|metadata| {
+                format!(
+                    ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
+                    metadata.marker_width,
+                    escape_json(&metadata.raw_value)
+                )
+            }).unwrap_or_default();
+            format!(
+                "{{\"type\":\"StringLiteral\",\"raw\":\"{}\",\"value\":\"{}\",\"delimiter\":\"{}\"{}}}",
+                escape_json(raw),
+                escape_json(value),
+                escape_json(&delimiter.to_string()),
+                trimticks_json
+            )
+        }
         Value::SwitchLiteral { raw } => format!(
             "{{\"type\":\"SwitchLiteral\",\"value\":\"{}\"}}",
             escape_json(raw)
@@ -2147,12 +2171,12 @@ fn render_value_json_string(value: &Value) -> String {
         ),
         Value::EncodingLiteral { raw } => format!(
             "{{\"type\":\"EncodingLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('$')),
             escape_json(raw)
         ),
         Value::RadixLiteral { raw } => format!(
             "{{\"type\":\"RadixLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('%')),
             escape_json(raw)
         ),
         Value::DateLiteral { raw } => format!(
@@ -2429,7 +2453,8 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "MISSING_REFERENCE_TARGET" | "FORWARD_REFERENCE" | "SELF_REFERENCE"
         | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
         "UNTYPED_SWITCH_LITERAL" | "UNTYPED_VALUE_IN_STRICT_MODE"
-        | "CUSTOM_DATATYPE_NOT_ALLOWED" | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+        | "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED" | "CUSTOM_DATATYPE_NOT_ALLOWED"
+        | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
         "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
         "TYPE_GUARD_FAILED" => Some("Finalization"),
         _ if code.starts_with("FINALIZE_") => Some("Finalization"),
@@ -2579,12 +2604,12 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::NumberLiteral { raw } => EventValue {
             value_type: String::from("NumberLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(normalize_number_literal(raw))),
             elements: Vec::new(),
         },
-        Value::StringLiteral { value, .. } => EventValue {
+        Value::StringLiteral { value, raw, .. } => EventValue {
             value_type: String::from("StringLiteral"),
-            raw: Some(value.clone()),
+            raw: Some(raw.clone()),
             value: Some(JsonValue::String(value.clone())),
             elements: Vec::new(),
         },
@@ -2615,13 +2640,13 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
             elements: Vec::new(),
         },
         Value::RadixLiteral { raw } => EventValue {
             value_type: String::from("RadixLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(raw.trim_start_matches('%').to_string())),
             elements: Vec::new(),
         },
         Value::DateLiteral { raw } => EventValue {
@@ -3704,7 +3729,10 @@ mod tests {
 
     #[test]
     fn render_events_emits_richer_json_values() {
-        let result = compile("a:int32 = 1\nb = [2]\nc = { d = \"x\" }\n", CompileOptions::default());
+        let result = compile(
+            "a:int32 = 1_000_000\nb = [1_2.3_4]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
+            CompileOptions::default(),
+        );
         let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
         let events = parsed.as_array().expect("events array");
         let by_key = events
@@ -3712,11 +3740,27 @@ mod tests {
             .filter_map(|event| Some((event.get("key")?.as_str()?.to_string(), event)))
             .collect::<std::collections::BTreeMap<_, _>>();
         assert_eq!(by_key["a"]["value"]["type"], "NumberLiteral");
-        assert_eq!(by_key["a"]["value"]["raw"], "1");
+        assert_eq!(by_key["a"]["value"]["raw"], "1_000_000");
+        assert_eq!(by_key["a"]["value"]["value"], "1000000");
         assert_eq!(by_key["b"]["value"]["type"], "ListNode");
-        assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "2");
+        assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "1_2.3_4");
+        assert_eq!(by_key["b"]["value"]["elements"][0]["value"], "12.34");
         assert_eq!(by_key["c"]["value"]["type"], "ObjectNode");
         assert_eq!(by_key["c"]["value"]["bindings"][0]["key"], "d");
+        assert_eq!(by_key["single"]["value"]["delimiter"], "'");
+        assert_eq!(by_key["single"]["value"]["raw"], "alpha");
+        assert_eq!(by_key["raw"]["value"]["delimiter"], "`");
+        assert_eq!(by_key["raw"]["value"]["raw"], "beta");
+        assert_eq!(by_key["trim"]["value"]["delimiter"], "`");
+        assert_eq!(by_key["trim"]["value"]["raw"], "\n  one\n  two\n");
+        assert_eq!(by_key["trim"]["value"]["trimticks"]["markerWidth"], 1);
+        assert_eq!(by_key["trim"]["value"]["trimticks"]["rawValue"], "\n  one\n  two\n");
+        assert_eq!(by_key["enc"]["value"]["type"], "EncodingLiteral");
+        assert_eq!(by_key["enc"]["value"]["raw"], "$QmFzZTY0IQ==");
+        assert_eq!(by_key["enc"]["value"]["value"], "QmFzZTY0IQ==");
+        assert_eq!(by_key["rad"]["value"]["type"], "RadixLiteral");
+        assert_eq!(by_key["rad"]["value"]["raw"], "%+A_!_&z");
+        assert_eq!(by_key["rad"]["value"]["value"], "+A_!_&z");
     }
 
     #[test]
@@ -3752,6 +3796,22 @@ mod tests {
         assert_eq!(node["attributes"][0]["entries"]["class"]["datatype"]["name"], "string");
         assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["type"], "StringLiteral");
         assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["value"], "dark");
+    }
+
+    #[test]
+    fn inspect_json_escapes_preserved_control_bytes_in_strings() {
+        let source = "tab = `\t`\nbackspace = `\u{0008}`\nformfeed = `\u{000C}`\n";
+        let result = compile(source, CompileOptions::default());
+        let rendered = render_events(&result.events);
+        let parsed: JsonValue = serde_json::from_str(&rendered).expect("valid events json");
+        let events = parsed.as_array().expect("events array");
+        let by_key = events
+            .iter()
+            .filter_map(|event| Some((event.get("key")?.as_str()?.to_string(), event)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_key["tab"]["value"]["value"], "\t");
+        assert_eq!(by_key["backspace"]["value"]["value"], "\u{0008}");
+        assert_eq!(by_key["formfeed"]["value"]["value"], "\u{000C}");
     }
 
     #[test]
@@ -4014,6 +4074,7 @@ mod tests {
         assert_eq!(entries[0]["path"], "$.name");
         assert_eq!(entries[0]["value"]["type"], "StringLiteral");
         assert_eq!(entries[0]["value"]["value"], "AEON");
+        assert_eq!(entries[0]["value"]["delimiter"], "\"");
         assert_eq!(entries[1]["path"], "$.count");
         assert_eq!(entries[1]["value"]["type"], "NumberLiteral");
         assert_eq!(entries[2]["path"], "$.config");

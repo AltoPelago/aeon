@@ -168,6 +168,11 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '#FF00AA');
         });
 
+        it('should reject hex literals with double underscore', () => {
+            const result = tokenize('#F__f');
+            assert.strictEqual(result.errors.length, 1);
+        });
+
         it('should tokenize radix literals', () => {
             const result = tokenize('%1011');
             assert.strictEqual(result.tokens[0]!.type, TokenType.RadixLiteral);
@@ -216,10 +221,9 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '$abc-_+/==');
         });
 
-        it('should tokenize encoding literals with the shared lexical-envelope characters', () => {
-            const result = tokenize('$abc-._==');
-            assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$abc-._==');
+        it('should reject dotted encoding literals', () => {
+            const result = tokenize('$QmF.zZTY0IQ==');
+            assert.strictEqual(result.errors.length, 1);
         });
 
         it('should terminate encoding literals at non-encoding boundary characters', () => {
@@ -348,6 +352,10 @@ describe('Lexer', () => {
                 '2025-01-01T09:30+02:00&Europe/Belgium/Brussels',
                 '2025-01-01T09:+02:00&Europe/Belgium/Brussels',
                 '2025-01-01T09:30Z&Local',
+                '2025-01-01T09:30Z&America/Port-au-Prince',
+                '2025-01-01T09:30Z&GB-Eire',
+                '2025-01-01T09:30Z&Etc/GMT-1',
+                '2025-01-01T09:30Z&Etc/GMT+1',
             ]) {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);

@@ -50,6 +50,45 @@ def main() -> int:
             ],
         ),
         LaneCommand(
+            name="finalize",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                str(repo_root / "cts" / "finalize" / "v1" / "finalize-json-cts.v1.json"),
+                "--lane",
+                "finalize-json",
+            ],
+        ),
+        LaneCommand(
+            name="inspect",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                str(repo_root / "cts" / "inspect" / "v1" / "inspect-json-cts.v1.json"),
+                "--lane",
+                "inspect-json",
+            ],
+        ),
+        LaneCommand(
+            name="finalize-map",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                str(repo_root / "cts" / "finalize-map" / "v1" / "finalize-map-cts.v1.json"),
+                "--lane",
+                "finalize-map",
+            ],
+        ),
+        LaneCommand(
             name="annotations",
             command=[
                 "node",
@@ -78,7 +117,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core aes annotations aeos", file=sys.stderr)
+            print("Valid lanes: core aes finalize inspect finalize-map annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
 

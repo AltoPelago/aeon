@@ -40,6 +40,18 @@ function normalizeDiagnostics(errors) {
   }));
 }
 
+function normalizeFinalizeDiagnostics(meta, key) {
+  const entries = meta && typeof meta === 'object' ? meta[key] : null;
+  if (!Array.isArray(entries)) return [];
+  return entries.map((e) => ({
+    code: String(e?.code ?? ''),
+    path: e?.path == null ? null : normalizePath(String(e.path)),
+    phase: e?.phase ?? e?.phaseLabel ?? null,
+    span: normalizeSpan(e?.span),
+    message: typeof e?.message === 'string' ? e.message : '',
+  }));
+}
+
 function normalizeCoreBindings(events) {
   if (!Array.isArray(events)) return [];
   return events.map((e) => ({
@@ -134,6 +146,62 @@ function compareExpectedArray(expected, actual, label) {
   return failures;
 }
 
+function normalizePathsDeep(value, keyHint = null) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizePathsDeep(entry, keyHint));
+  }
+  if (!value || typeof value !== 'object') {
+    if ((keyHint === 'path' || keyHint === 'reference') && typeof value === 'string') {
+      return normalizePath(value);
+    }
+    return value;
+  }
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = normalizePathsDeep(entry, key);
+  }
+  return out;
+}
+
+function compareExpectedSubset(expected, actual, label) {
+  const failures = [];
+
+  function visit(exp, got, pathLabel) {
+    if (Array.isArray(exp)) {
+      if (!Array.isArray(got)) {
+        failures.push(`${pathLabel} mismatch: expected array, got ${JSON.stringify(got)}`);
+        return;
+      }
+      if (got.length !== exp.length) {
+        failures.push(`${pathLabel} length mismatch: expected ${exp.length}, got ${got.length}`);
+        return;
+      }
+      for (let i = 0; i < exp.length; i += 1) {
+        visit(exp[i], got[i], `${pathLabel}[${i}]`);
+      }
+      return;
+    }
+    if (exp && typeof exp === 'object') {
+      if (!got || typeof got !== 'object' || Array.isArray(got)) {
+        failures.push(`${pathLabel} mismatch: expected object, got ${JSON.stringify(got)}`);
+        return;
+      }
+      for (const key of Object.keys(exp)) {
+        visit(exp[key], got[key], `${pathLabel}.${key}`);
+      }
+      return;
+    }
+    const normalizedExp = normalizePathsDeep(exp, pathLabel.split('.').at(-1) ?? null);
+    const normalizedGot = normalizePathsDeep(got, pathLabel.split('.').at(-1) ?? null);
+    if (JSON.stringify(normalizedExp) !== JSON.stringify(normalizedGot)) {
+      failures.push(`${pathLabel} mismatch: expected ${JSON.stringify(normalizedExp)}, got ${JSON.stringify(normalizedGot)}`);
+    }
+  }
+
+  visit(expected, actual, label);
+  return failures;
+}
+
 async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
@@ -150,14 +218,40 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
   if (Number.isInteger(maxGenericDepth)) args.push('--max-generic-depth', String(maxGenericDepth));
 
-  const { stdout, stderr, code } = await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out = [];
-    const err = [];
-    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
-    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
-    child.on('close', (c) => resolve({ code: c, stdout: Buffer.concat(out).toString('utf8').trim(), stderr: Buffer.concat(err).toString('utf8') }));
-  });
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
+
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  try {
+    return { ok: true, parse: JSON.parse(stdout), stderr, code };
+  } catch {
+    if (code !== 0) {
+      return { ok: false, parse: null, stderr: `${stderr}\nSUT exited ${code} without valid JSON envelope`, code };
+    }
+    return { ok: false, parse: null, stderr: `${stderr}\nInvalid JSON: ${stdout}`, code };
+  }
+}
+
+async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, materialization, includePaths, outputMode }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-finalize-'));
+  const file = path.join(dir, 'input.aeon');
+  fs.writeFileSync(file, source, 'utf8');
+
+  const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
+  const command = isJs ? process.execPath : sutPath;
+  const formatFlag = outputMode === 'map' ? '--map' : '--json';
+  const args = isJs ? [sutPath, 'finalize', file, formatFlag] : ['finalize', file, formatFlag];
+  args.push(mode === 'transport' ? '--loose' : '--strict');
+  if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
+  if (scope) args.push('--scope', scope);
+  if (materialization === 'projected') {
+    args.push('--projected');
+    for (const includePath of includePaths ?? []) {
+      args.push('--include-path', includePath);
+    }
+  }
+
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -180,14 +274,7 @@ async function runFmt({ sutPath, source }) {
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'fmt', file] : ['fmt', file];
 
-  const { stdout, stderr, code } = await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out = [];
-    const err = [];
-    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
-    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
-    child.on('close', (c) => resolve({ code: c, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') }));
-  });
+  const { stdout, stderr, code } = await spawnCaptured(command, args);
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -208,6 +295,38 @@ async function runFmt({ sutPath, source }) {
         });
 
   return { ok: true, stdout, stderr, errors };
+}
+
+async function spawnCaptured(command, args, options = {}) {
+  const { trimStdout = false } = options;
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const out = [];
+    const err = [];
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    child.stdout.on('data', (d) => out.push(Buffer.from(d)));
+    child.stderr.on('data', (d) => err.push(Buffer.from(d)));
+    child.on('error', (error) => {
+      finish({
+        code: -1,
+        stdout: '',
+        stderr: `Failed to spawn SUT: ${error.message}`,
+      });
+    });
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(out).toString('utf8');
+      finish({
+        code,
+        stdout: trimStdout ? stdout.trim() : stdout,
+        stderr: Buffer.concat(err).toString('utf8'),
+      });
+    });
+  });
 }
 
 function normalizeGenericDiagnostics(stderr) {
@@ -267,9 +386,9 @@ function loadManifest(ctsPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.sut || !args.cts || !args.lane) {
-    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical>');
+    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical|finalize-json|finalize-map|inspect-json>');
   }
-  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical') {
+  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json') {
     fail(`Unsupported lane: ${args.lane}`);
   }
 
@@ -309,6 +428,52 @@ async function main() {
         ok = errors.length === 0;
         result = {
           canonical_text: ok ? normalizeCanonicalText(formatted.stdout) : '',
+        };
+      } else if (args.lane === 'finalize-json' || args.lane === 'finalize-map') {
+        const finalized = await runFinalize({
+          sutPath: args.sut,
+          source,
+          mode,
+          datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
+          scope: typeof test.input?.options?.scope === 'string' ? test.input.options.scope : 'payload',
+          materialization: typeof test.input?.options?.materialization === 'string' ? test.input.options.materialization : 'all',
+          includePaths: Array.isArray(test.input?.options?.include_paths) ? test.input.options.include_paths : [],
+          outputMode: args.lane === 'finalize-map' ? 'map' : 'json',
+        });
+        if (!finalized.ok || !finalized.parse) {
+          console.error(`❌ ${test.id}: harness failure`);
+          if (finalized.stderr) console.error(finalized.stderr.trim());
+          process.exit(3);
+        }
+
+        errors = normalizeFinalizeDiagnostics(finalized.parse.meta, 'errors');
+        warnings = normalizeFinalizeDiagnostics(finalized.parse.meta, 'warnings');
+        ok = errors.length === 0;
+        result = args.lane === 'finalize-map'
+          ? { entries: finalized.parse.document?.entries ?? [] }
+          : { document: finalized.parse.document ?? null };
+      } else if (args.lane === 'inspect-json') {
+        const inspect = await runInspect({
+          sutPath: args.sut,
+          source,
+          mode,
+          datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
+          rich,
+          maxAttributeDepth,
+          maxSeparatorDepth,
+          maxGenericDepth,
+        });
+        if (!inspect.ok || !inspect.parse) {
+          console.error(`❌ ${test.id}: harness failure`);
+          if (inspect.stderr) console.error(inspect.stderr.trim());
+          process.exit(3);
+        }
+
+        errors = normalizeDiagnostics(inspect.parse.errors);
+        warnings = [];
+        ok = errors.length === 0;
+        result = {
+          events: normalizePathsDeep(inspect.parse.events ?? []),
         };
       } else {
         const inspect = await runInspect({
@@ -362,6 +527,19 @@ async function main() {
           if (normalizedExpected !== result.canonical_text) {
             failures.push(`canonical_text mismatch: expected ${JSON.stringify(normalizedExpected)}, got ${JSON.stringify(result.canonical_text)}`);
           }
+        }
+      } else if (args.lane === 'finalize-json') {
+        if ('document' in (test.expected?.result ?? {})) {
+          const expectedDocument = test.expected.result.document;
+          if (JSON.stringify(expectedDocument) !== JSON.stringify(result.document)) {
+            failures.push(`document mismatch: expected ${JSON.stringify(expectedDocument)}, got ${JSON.stringify(result.document)}`);
+          }
+        }
+      } else if (args.lane === 'finalize-map') {
+        failures.push(...compareExpectedArray(test.expected?.result?.entries, result.entries, 'entries'));
+      } else if (args.lane === 'inspect-json') {
+        if ('events' in (test.expected?.result ?? {})) {
+          failures.push(...compareExpectedSubset(test.expected.result.events, result.events, 'events'));
         }
       } else {
         failures.push(...compareExpectedArray(test.expected?.result?.events, result.events, 'events'));

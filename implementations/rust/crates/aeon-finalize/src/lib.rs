@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use aeon_core::{
-    compile, format_path, AssignmentEvent, AttributeValue, CompileOptions, Diagnostic,
+    compile, format_path, normalize_number_literal, AssignmentEvent, AttributeValue, CompileOptions, Diagnostic,
     HeaderFields, ReferenceSegment, Span, Value,
 };
 use serde::de::DeserializeOwned;
@@ -133,11 +133,20 @@ pub fn from_aeon_str<T: DeserializeOwned>(
 pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> FinalizeJsonResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    let mut active_paths = BTreeSet::new();
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
     let payload = if matches!(options.scope, FinalizeScope::Payload | FinalizeScope::Full) {
-        payload_to_json(events, &projection, &path_values, options.mode, &mut errors, &mut warnings)
+        payload_to_json(
+            events,
+            &projection,
+            &path_values,
+            options.mode,
+            &mut errors,
+            &mut warnings,
+            &mut active_paths,
+        )
     } else {
         JsonValue::Object(Map::new())
     };
@@ -151,6 +160,7 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
             options.mode,
             &mut errors,
             &mut warnings,
+            &mut active_paths,
         )
     } else {
         JsonValue::Object(Map::new())
@@ -244,18 +254,30 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         Value::NumberLiteral { raw } => json!({
             "type": "NumberLiteral",
             "raw": raw,
-            "value": raw,
+            "value": normalize_number_literal(raw),
         }),
         Value::InfinityLiteral { raw } => json!({
             "type": "InfinityLiteral",
             "raw": raw,
             "value": raw,
         }),
-        Value::StringLiteral { value, .. } => json!({
-            "type": "StringLiteral",
-            "raw": value,
-            "value": value,
-        }),
+        Value::StringLiteral { value, raw, delimiter, trimticks } => {
+            let mut object = Map::new();
+            object.insert(String::from("type"), JsonValue::String(String::from("StringLiteral")));
+            object.insert(String::from("raw"), JsonValue::String(raw.clone()));
+            object.insert(String::from("value"), JsonValue::String(value.clone()));
+            object.insert(String::from("delimiter"), JsonValue::String(delimiter.to_string()));
+            if let Some(metadata) = trimticks {
+                object.insert(
+                    String::from("trimticks"),
+                    json!({
+                        "markerWidth": metadata.marker_width,
+                        "rawValue": metadata.raw_value,
+                    }),
+                );
+            }
+            JsonValue::Object(object)
+        }
         Value::SwitchLiteral { raw } => json!({
             "type": "SwitchLiteral",
             "value": raw,
@@ -352,6 +374,7 @@ fn header_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut object = Map::new();
     if let Some(header) = header {
@@ -370,7 +393,17 @@ fn header_to_json(
             }
             object.insert(
                 key.clone(),
-                value_to_json(value, &path, projection, path_values, mode, errors, warnings, None),
+                value_to_json(
+                    value,
+                    &path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    None,
+                    active_paths,
+                ),
             );
         }
     }
@@ -384,6 +417,7 @@ fn payload_to_json(
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut document = Map::new();
     let mut attrs = Map::new();
@@ -411,12 +445,22 @@ fn payload_to_json(
                 errors,
                 warnings,
                 event.datatype.as_deref(),
+                active_paths,
             ),
         );
         if !event.annotations.is_empty() {
             attrs.insert(
                 key.clone(),
-                attributes_to_json(&event.annotations, path_values, mode, errors, warnings),
+                attributes_to_json(
+                    &event.annotations,
+                    &path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
             );
         }
     }
@@ -435,11 +479,65 @@ fn value_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
-    match value {
+    value_to_json_with_active_key(
+        value,
+        path,
+        path,
+        projection,
+        path_values,
+        mode,
+        errors,
+        warnings,
+        datatype,
+        active_paths,
+    )
+}
+
+fn value_to_json_with_active_key(
+    value: &Value,
+    path: &str,
+    active_key: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    datatype: Option<&str>,
+    active_paths: &mut BTreeSet<String>,
+) -> JsonValue {
+    let inserted = active_paths.insert(String::from(active_key));
+    if !inserted {
+        let diag = Diagnostic::new(
+            "FINALIZE_REFERENCE_CYCLE",
+            format!("Reference cycle during finalization at '{path}'"),
+        )
+        .at_path(path);
+        if matches!(mode, FinalizeMode::Strict) {
+            errors.push(diag);
+        } else {
+            warnings.push(diag);
+        }
+        return JsonValue::Null;
+    }
+
+    let result = match value {
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
-        Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
+        Value::InfinityLiteral { raw } => {
+            let diag = Diagnostic::new(
+                "FINALIZE_JSON_PROFILE_INFINITY",
+                format!("Infinity literal is not representable in the strict JSON profile: {raw}"),
+            )
+            .at_path(path);
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
+            }
+            JsonValue::String(raw.clone())
+        }
         Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
         Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').replace('_', "")),
@@ -474,7 +572,16 @@ fn value_to_json(
         } => {
             let mut output = Map::new();
             output.insert(String::from("$node"), JsonValue::String(tag.clone()));
-            let attr_json = node_attributes_to_json(attributes, path_values, mode, errors, warnings);
+            let attr_json = node_attributes_to_json(
+                attributes,
+                &format!("{path}@"),
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+            );
             if matches!(&attr_json, JsonValue::Object(map) if !map.is_empty()) {
                 output.insert(String::from("@"), attr_json);
             }
@@ -486,7 +593,17 @@ fn value_to_json(
                         .enumerate()
                         .map(|(index, child)| {
                             let child_path = format!("{path}<{index}>");
-                            value_to_json(child, &child_path, projection, path_values, mode, errors, warnings, None)
+                            value_to_json(
+                                child,
+                                &child_path,
+                                projection,
+                                path_values,
+                                mode,
+                                errors,
+                                warnings,
+                                None,
+                                active_paths,
+                            )
                         })
                         .collect(),
                 ),
@@ -507,6 +624,7 @@ fn value_to_json(
                         errors,
                         warnings,
                         None,
+                        active_paths,
                     ));
                 }
             }
@@ -539,12 +657,22 @@ fn value_to_json(
                             errors,
                             warnings,
                             binding.datatype.as_deref(),
+                            active_paths,
                         ),
                     );
                     if !binding.attributes.is_empty() {
                         attrs.insert(
                             binding.key.clone(),
-                            attributes_to_json(&binding.attributes, path_values, mode, errors, warnings),
+                            attributes_to_json(
+                                &binding.attributes,
+                                &child_path,
+                                projection,
+                                path_values,
+                                mode,
+                                errors,
+                                warnings,
+                                active_paths,
+                            ),
                         );
                     }
                 }
@@ -557,7 +685,32 @@ fn value_to_json(
         Value::CloneReference { segments, .. } => {
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
-                value_to_json(resolved, path, projection, path_values, mode, errors, warnings, datatype)
+                if active_paths.contains(&target) {
+                    let diag = Diagnostic::new(
+                        "FINALIZE_REFERENCE_CYCLE",
+                        format!("Reference cycle during finalization: '{path}' resolves through '{target}'"),
+                    )
+                    .at_path(path);
+                    if matches!(mode, FinalizeMode::Strict) {
+                        errors.push(diag);
+                    } else {
+                        warnings.push(diag);
+                    }
+                    JsonValue::Null
+                } else {
+                    value_to_json_with_active_key(
+                        resolved,
+                        path,
+                        &target,
+                        projection,
+                        path_values,
+                        mode,
+                        errors,
+                        warnings,
+                        datatype,
+                        active_paths,
+                    )
+                }
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
@@ -565,7 +718,9 @@ fn value_to_json(
         Value::PointerReference { segments, .. } => {
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
-    }
+    };
+    active_paths.remove(active_key);
+    result
 }
 
 fn render_reference_segments(segments: &[ReferenceSegment]) -> String {
@@ -621,13 +776,7 @@ fn attribute_entry_to_ast_json(entry: &AttributeValue) -> JsonValue {
             .unwrap_or(JsonValue::Null),
     );
     if let Some(value) = &entry.value {
-        let mut rendered = value_to_ast_json(value);
-        if let JsonValue::Object(ref mut value_obj) = rendered {
-            if matches!(value, Value::StringLiteral { .. }) {
-                value_obj.insert(String::from("delimiter"), JsonValue::String(String::from("\"")));
-            }
-        }
-        object.insert(String::from("value"), rendered);
+        object.insert(String::from("value"), value_to_ast_json(value));
     }
     if !entry.nested_attrs.is_empty() {
         object.insert(
@@ -685,6 +834,19 @@ fn parse_number(
     }
     if let Ok(value) = normalized.parse::<f64>() {
         if value.is_finite() {
+            if value.abs() > 9_007_199_254_740_991.0 {
+                let diag = Diagnostic::new(
+                    "FINALIZE_UNSAFE_NUMBER",
+                    format!("Numeric literal exceeds JSON safe range: {raw}"),
+                )
+                .at_path(path);
+                if matches!(mode, FinalizeMode::Strict) {
+                    errors.push(diag);
+                } else {
+                    warnings.push(diag);
+                }
+                return JsonValue::String(raw.to_owned());
+            }
             return json!(value);
         }
     }
@@ -704,6 +866,10 @@ fn render_member_segment(key: &str) -> String {
     } else {
         format!("[\"{}\"]", key.replace('\\', "\\\\").replace('"', "\\\""))
     }
+}
+
+fn render_attribute_segment(key: &str) -> String {
+    render_member_segment(key)
 }
 
 fn is_identifier(value: &str) -> bool {
@@ -762,20 +928,45 @@ fn push_map_entry(
 
 fn attributes_to_json(
     attributes: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut object = Map::new();
     let mut nested = Map::new();
     for (key, entry) in attributes {
-        let value = attribute_value_to_json(entry, path_values, mode, errors, warnings);
+        let entry_path = format!("{path}@{}", render_attribute_segment(key));
+        if !projection.includes(&entry_path) {
+            continue;
+        }
+        let value = attribute_value_to_json(
+            entry,
+            &entry_path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        );
         object.insert(key.clone(), value);
         if !entry.nested_attrs.is_empty() {
             nested.insert(
                 key.clone(),
-                attributes_to_json(&entry.nested_attrs, path_values, mode, errors, warnings),
+                attributes_to_json(
+                    &entry.nested_attrs,
+                    &entry_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
             );
         }
     }
@@ -787,14 +978,26 @@ fn attributes_to_json(
 
 fn node_attributes_to_json(
     attributes: &[BTreeMap<String, AttributeValue>],
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     let mut merged = Map::new();
     for block in attributes {
-        let JsonValue::Object(current) = attributes_to_json(block, path_values, mode, errors, warnings) else {
+        let JsonValue::Object(current) = attributes_to_json(
+            block,
+            path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        ) else {
             continue;
         };
         merge_json_object(&mut merged, current);
@@ -817,27 +1020,92 @@ fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, Js
 
 fn attribute_value_to_json(
     entry: &AttributeValue,
+    path: &str,
+    projection: &Projection,
     path_values: &BTreeMap<String, Value>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
 ) -> JsonValue {
     if !entry.object_members.is_empty() {
-        return attributes_to_json(&entry.object_members, path_values, mode, errors, warnings);
+        return object_attribute_members_to_json(
+            &entry.object_members,
+            path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            active_paths,
+        );
     }
     if let Some(value) = &entry.value {
         return value_to_json(
             value,
-            "$",
-            &Projection::new(Materialization::All, Vec::new()),
+            path,
+            projection,
             path_values,
             mode,
             errors,
             warnings,
             entry.datatype.as_deref(),
+            active_paths,
         );
     }
     JsonValue::Null
+}
+
+fn object_attribute_members_to_json(
+    members: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
+) -> JsonValue {
+    let mut object = Map::new();
+    let mut attrs = Map::new();
+    for (key, entry) in members {
+        let child_path = format!("{path}.{}", render_member_segment(key));
+        if !projection.includes(&child_path) {
+            continue;
+        }
+        object.insert(
+            key.clone(),
+            attribute_value_to_json(
+                entry,
+                &child_path,
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+            ),
+        );
+        if !entry.nested_attrs.is_empty() {
+            attrs.insert(
+                key.clone(),
+                attributes_to_json(
+                    &entry.nested_attrs,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                ),
+            );
+        }
+    }
+    if !attrs.is_empty() {
+        object.insert(String::from("@"), JsonValue::Object(attrs));
+    }
+    JsonValue::Object(object)
 }
 
 fn declared_radix_base(datatype: Option<&str>) -> Option<usize> {
@@ -890,19 +1158,73 @@ impl Projection {
         if matches!(self.materialization, Materialization::All) {
             return true;
         }
+        let normalized_candidate = normalize_projection_path(candidate);
 
         self.include_paths.iter().any(|include| {
-            candidate == include
-                || has_path_prefix(candidate, include)
-                || has_path_prefix(include, candidate)
+            let normalized_include = normalize_projection_path(include);
+            normalized_candidate == normalized_include
+                || has_path_prefix(&normalized_candidate, &normalized_include)
+                || has_path_prefix(&normalized_include, &normalized_candidate)
         })
     }
 }
 
 fn has_path_prefix(path: &str, prefix: &str) -> bool {
     path.strip_prefix(prefix)
-        .map(|rest| rest.starts_with('.') || rest.starts_with('['))
+        .map(|rest| rest.starts_with('.') || rest.starts_with('[') || rest.starts_with('@') || rest.starts_with('<'))
         .unwrap_or(false)
+}
+
+fn normalize_projection_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = String::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let current = bytes[index] as char;
+        if matches!(current, '.' | '@' | '$')
+            && index + 3 < bytes.len()
+            && bytes[index + 1] == b'['
+            && bytes[index + 2] == b'"'
+        {
+            let mut key = String::new();
+            let mut cursor = index + 3;
+            let mut escaped = false;
+            while cursor < bytes.len() {
+                let ch = bytes[cursor] as char;
+                if escaped {
+                    key.push(ch);
+                    escaped = false;
+                    cursor += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    cursor += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    break;
+                }
+                key.push(ch);
+                cursor += 1;
+            }
+            if cursor + 1 < bytes.len() && bytes[cursor] == b'"' && bytes[cursor + 1] == b']' && is_identifier(&key) {
+                if current == '$' {
+                    out.push_str("$.");
+                } else {
+                    out.push(current);
+                }
+                out.push_str(&key);
+                index = cursor + 2;
+                continue;
+            }
+        }
+        out.push(current);
+        index += 1;
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -947,6 +1269,172 @@ mod tests {
     }
 
     #[test]
+    fn projected_json_keeps_exact_top_level_attribute_selection_without_siblings() {
+        let source = "title@{lang = \"en\", tone = \"warm\"} = \"Hello\"\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.title@lang")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "title": "Hello",
+                "@": {
+                    "title": {
+                        "lang": "en"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_json_keeps_attribute_descendants_without_leaking_siblings() {
+        let source = "card = { title@{meta = { keep = 2, \"x.y\" = 1 }, tone = \"warm\"} = \"Hello\" }\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.card.title@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "card": {
+                    "title": "Hello",
+                    "@": {
+                        "title": {
+                            "meta": {
+                                "keep": 2
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_json_keeps_exact_node_head_attribute_selection_without_siblings() {
+        let source = "badge = <pill@{id = \"main\", class = \"hero\"}(\"new\")>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.badge@@[\"id\"]")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            finalized.document,
+            json!({
+                "badge": {
+                    "$node": "pill",
+                    "@": {
+                        "id": "main"
+                    },
+                    "$children": ["new"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projected_map_preserves_assignment_chain_for_attribute_paths() {
+        let source = "title@{lang = \"en\", meta = { keep = 2 }} = \"Hello\"\ncard = { label@{meta = { keep = 3, \"x.y\" = 4 }} = \"Hi\" }\nrich = <pill@{id = \"main\", meta = { keep = 5 }}(\"new\")>\n";
+        let result = compile(source, CompileOptions::default());
+
+        let top_level = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.title@lang"), String::from("$.title@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            top_level.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.title"]
+        );
+
+        let nested = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.card.label@meta.keep"), String::from("$.card.label@meta.[\"x.y\"]")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            nested.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.card", "$.card.label"]
+        );
+
+        let node = finalize_map(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.rich@@id"), String::from("$.rich@@meta.keep")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(
+            node.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            vec!["$.rich"]
+        );
+    }
+
+    #[test]
+    fn surfaced_string_ast_preserves_delimiters_and_trimtick_metadata() {
+        let result = compile(
+            "single = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), value_to_ast_json(&event.value)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(by_path["$.single"]["delimiter"], "'");
+        assert_eq!(by_path["$.single"]["raw"], "alpha");
+        assert_eq!(by_path["$.raw"]["delimiter"], "`");
+        assert_eq!(by_path["$.raw"]["raw"], "beta");
+        assert_eq!(by_path["$.trim"]["delimiter"], "`");
+        assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
+        assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
+        assert_eq!(by_path["$.trim"]["trimticks"]["rawValue"], "\n  one\n  two\n");
+    }
+
+    #[test]
+    fn surfaced_number_ast_preserves_raw_and_normalizes_value() {
+        let result = compile("a = 1_000_000\nb = 1_2.3_4\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), value_to_ast_json(&event.value)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(by_path["$.a"]["raw"], "1_000_000");
+        assert_eq!(by_path["$.a"]["value"], "1000000");
+        assert_eq!(by_path["$.b"]["raw"], "1_2.3_4");
+        assert_eq!(by_path["$.b"]["value"], "12.34");
+    }
+
+    #[test]
     fn resolves_clone_references_into_json_values() {
         let source = "source = 99\ncopy = ~source\n";
         let result = compile(source, CompileOptions::default());
@@ -960,6 +1448,55 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "ptr": "~>target", "target": 99 }));
+    }
+
+    #[test]
+    fn projected_clone_references_preserve_the_clone_path() {
+        let source = "a = { x = 1 }\nb = ~a\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                materialization: Materialization::Projected,
+                include_paths: vec![String::from("$.b.x")],
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(finalized.document, json!({ "b": { "x": 1 } }));
+    }
+
+    #[test]
+    fn finalize_json_reports_reference_cycles_instead_of_recursing() {
+        let events = vec![AssignmentEvent {
+            path: aeon_core::CanonicalPath::root().member("a"),
+            key: String::from("a"),
+            datatype: Some(String::from("list")),
+            annotations: BTreeMap::new(),
+            value: Value::ListNode {
+                items: vec![Value::CloneReference {
+                    segments: vec![ReferenceSegment::Key(String::from("a"))],
+                    span: Span::zero(),
+                }],
+            },
+            span: Span::zero(),
+        }];
+        let finalized = finalize_json(
+            &events,
+            FinalizeOptions {
+                mode: FinalizeMode::Strict,
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(finalized.document, json!({ "a": [null] }));
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_CYCLE"),
+            "{:?}",
+            finalized.meta.errors
+        );
     }
 
     #[test]
@@ -1081,13 +1618,13 @@ mod tests {
 
     #[test]
     fn strips_literal_sigils_in_finalized_json_like_typescript() {
-        let source = "hex = #FFF\nrad = %1011\nenc = $QmFzZTY0\n";
+        let source = "hex = #Ff_FF\nrad = %1011\nenc = $QmFzZTY0\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(
             finalized.document,
             json!({
-                "hex": "FFF",
+                "hex": "FfFF",
                 "rad": "1011",
                 "enc": "QmFzZTY0"
             })
@@ -1110,6 +1647,26 @@ mod tests {
         assert_eq!(finalized.document, json!({ "mask": "1A" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert!(finalized.meta.errors[0].message.contains("declared radix 10"));
+    }
+
+    #[test]
+    fn reports_unsafe_floating_numbers_during_finalization() {
+        let source = "n = 9007199254740993.0\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "n": "9007199254740993.0" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_UNSAFE_NUMBER");
+    }
+
+    #[test]
+    fn reports_infinity_as_outside_strict_json_profile() {
+        let source = "limit:infinity = Infinity\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "limit": "Infinity" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_INFINITY");
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

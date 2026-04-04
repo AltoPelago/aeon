@@ -137,6 +137,18 @@ describe('Reference Validation', () => {
 
             assert.strictEqual(result.errors.length, 0);
         });
+
+        it('should allow intra-sequence backward references in lists', () => {
+            const result = validate('c:list = [1, 1, ~c[0]]', true);
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should allow intra-sequence backward references in tuples', () => {
+            const result = validate('c:tuple = (1, 1, ~c[0])', true);
+
+            assert.strictEqual(result.errors.length, 0);
+        });
     });
 
     // ============================================
@@ -156,6 +168,14 @@ describe('Reference Validation', () => {
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SELF_REFERENCE');
+        });
+
+        it('should error when a list element references its own owning binding', () => {
+            const result = validate('a:list = [~a]', true);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SELF_REFERENCE');
+            assert.strictEqual(result.errors[0]!.targetPath, '$.a');
         });
 
         it('should classify indexed intra-binding reference as missing target in core v1', () => {

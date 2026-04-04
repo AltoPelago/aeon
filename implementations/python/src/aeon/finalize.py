@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+import re
 from typing import Iterable
 
 from ._compat import dataclass
@@ -41,6 +42,40 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
     return result
 
 
+def finalize_map(aes: object, options: FinalizeOptions | None = None) -> dict[str, object]:
+    opts = options or FinalizeOptions()
+    aes_events = normalize_aes_input(aes)
+    projection = Projection(opts.materialization, opts.include_paths)
+    entries: list[dict[str, object]] = []
+
+    for event in aes_events:
+        if not isinstance(event, dict):
+            continue
+        key = event.get("key")
+        path = event.get("path")
+        if not isinstance(key, str) or not isinstance(path, str):
+            continue
+        if opts.scope == "payload" and key.startswith("aeon:"):
+            continue
+        if opts.scope == "header" and not key.startswith("aeon:"):
+            continue
+        if not projection.includes(path):
+            continue
+        entries.append(
+            {
+                "path": path,
+                "key": key,
+                "datatype": event.get("datatype"),
+                "value": normalize_value(event.get("value")),
+                "span": normalize_value(event.get("span")),
+                "annotations": normalize_value(event.get("annotations")) if event.get("annotations") else None,
+            }
+        )
+
+    document: dict[str, object] = {"entries": entries}
+    return {"document": document}
+
+
 @dataclass(slots=True)
 class Projection:
     materialization: str
@@ -49,12 +84,14 @@ class Projection:
     def includes(self, path: str) -> bool:
         if self.materialization != "projected" or not self.include_paths:
             return True
+        canonical_path = normalize_projection_path(path)
         for include_path in self.include_paths:
-            if path == include_path:
+            canonical_include = normalize_projection_path(include_path)
+            if canonical_path == canonical_include:
                 return True
-            if path.startswith(include_path + ".") or path.startswith(include_path + "["):
+            if is_descendant_path(canonical_path, canonical_include):
                 return True
-            if include_path.startswith(path + ".") or include_path.startswith(path + "["):
+            if is_descendant_path(canonical_include, canonical_path):
                 return True
         return False
 
@@ -66,9 +103,9 @@ class JsonContext:
     errors: list[dict[str, object]]
     warnings: list[dict[str, object]]
 
-    def emit(self, level: str, message: str, path: str | None = None, span: object = None) -> None:
+    def emit(self, level: str, code: str, message: str, path: str | None = None, span: object = None) -> None:
         target = self.errors if level == "error" else self.warnings
-        diag = {"level": level, "message": message}
+        diag = {"level": level, "code": code, "message": message, "phaseLabel": "Finalization"}
         if path is not None:
             diag["path"] = path
         if span is not None:
@@ -102,13 +139,13 @@ def payload_to_json(
         if not ctx.projection.includes(scoped_path):
             continue
         if key in RESERVED_OBJECT_KEYS:
-            ctx.emit("error", f"Reserved key cannot be materialized in JSON output: {key}", scoped_path, event.get("span"))
+            ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", scoped_path, event.get("span"))
             continue
         if key in document:
-            ctx.emit("error" if ctx.strict else "warning", f"Duplicate top-level key during JSON finalization: {key}", scoped_path, event.get("span"))
+            ctx.emit("error" if ctx.strict else "warning", "FINALIZE_DUPLICATE_PATH", f"Duplicate top-level key during JSON finalization: {key}", scoped_path, event.get("span"))
             if ctx.strict:
                 continue
-        document[key] = value_to_json(event.get("value"), ctx, scoped_path)
+        document[key] = value_to_json(event.get("value"), ctx, scoped_path, event.get("datatype"))
         attr_json = annotation_entries_to_json(event.get("annotations"), ctx, scoped_path)
         if attr_json:
             document_attrs[key] = attr_json
@@ -139,7 +176,7 @@ def scope_to_json_document(scope: str, header: dict[str, object], payload: dict[
     return payload
 
 
-def value_to_json(value: object, ctx: JsonContext, path: str) -> object:
+def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object = None) -> object:
     value = normalize_value(value)
     if not isinstance(value, dict):
         return None
@@ -149,11 +186,17 @@ def value_to_json(value: object, ctx: JsonContext, path: str) -> object:
         return value.get("value")
     if value_type == "NumberLiteral":
         return number_to_json(value, ctx, path)
+    if value_type == "InfinityLiteral":
+        return infinity_to_json(value, ctx, path)
     if value_type == "BooleanLiteral":
         return value.get("value")
     if value_type == "SwitchLiteral":
         return value.get("value") in {"yes", "on"}
-    if value_type in {"HexLiteral", "RadixLiteral", "EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
+    if value_type == "HexLiteral":
+        return str(value.get("value", "")).replace("_", "")
+    if value_type == "RadixLiteral":
+        return radix_to_json(value, ctx, path, datatype)
+    if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
         return value.get("value")
     if value_type == "ObjectNode":
         bindings = value.get("bindings")
@@ -182,13 +225,40 @@ def number_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> obj
     try:
         number = float(raw) if any(char in raw for char in ".eE") else int(raw, 10)
     except ValueError:
-        ctx.emit("error" if ctx.strict else "warning", f"Invalid numeric literal for JSON output: {raw}", path, value.get("span"))
+        ctx.emit("error" if ctx.strict else "warning", "FINALIZE_INVALID_NUMBER", f"Invalid numeric literal for JSON output: {raw}", path, value.get("span"))
         return raw
 
     if abs(float(number)) > MAX_SAFE_INTEGER:
-        ctx.emit("error" if ctx.strict else "warning", f"Numeric literal exceeds JSON safe range: {raw}", path, value.get("span"))
+        ctx.emit("error" if ctx.strict else "warning", "FINALIZE_UNSAFE_NUMBER", f"Numeric literal exceeds JSON safe range: {raw}", path, value.get("span"))
         return raw
     return number
+
+
+def infinity_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> str:
+    raw = str(value.get("value", ""))
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_JSON_PROFILE_INFINITY",
+        f"Infinity literal is not representable in the strict JSON profile: {raw}",
+        path,
+        value.get("span"),
+    )
+    return raw
+
+
+def radix_to_json(value: dict[str, object], ctx: JsonContext, path: str, datatype: object) -> str:
+    raw = str(value.get("value", ""))
+    normalized = raw.replace("_", "")
+    base = declared_radix_base(datatype)
+    if base is not None and exceeds_declared_radix(normalized, base):
+        ctx.emit(
+            "error" if ctx.strict else "warning",
+            "FINALIZE_INVALID_RADIX_BASE",
+            f"Radix literal exceeds declared radix {base}: %{raw}",
+            path,
+            value.get("span"),
+        )
+    return normalized
 
 
 def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> dict[str, object]:
@@ -205,13 +275,13 @@ def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> 
         if not ctx.projection.includes(entry_path):
             continue
         if key in RESERVED_OBJECT_KEYS:
-            ctx.emit("error", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, binding.get("span"))
+            ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, binding.get("span"))
             continue
         if key in obj:
-            ctx.emit("error" if ctx.strict else "warning", f"Duplicate object key during JSON finalization: {key}", entry_path, binding.get("span"))
+            ctx.emit("error" if ctx.strict else "warning", "FINALIZE_DUPLICATE_PATH", f"Duplicate object key during JSON finalization: {key}", entry_path, binding.get("span"))
             if ctx.strict:
                 continue
-        obj[key] = value_to_json(binding.get("value"), ctx, entry_path)
+        obj[key] = value_to_json(binding.get("value"), ctx, entry_path, binding.get("datatype"))
         attr_json = attributes_to_json(binding.get("attributes"), ctx, entry_path)
         if attr_json:
             attr_entries[key] = attr_json
@@ -273,7 +343,13 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
 
 def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, path: str) -> str:
     token = prefix + format_reference_path(value.get("path"))
-    ctx.emit("error" if ctx.strict else "warning", f"Reference cannot be materialized in JSON output: {token}", path, value.get("span"))
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_UNMATERIALIZED_REFERENCE",
+        f"Reference cannot be materialized in JSON output: {token}",
+        path,
+        value.get("span"),
+    )
     return token
 
 
@@ -312,17 +388,27 @@ def extract_header_keys(header: dict[str, object] | None) -> list[str]:
 
 
 def is_top_level_path(path: str) -> bool:
-    return path.startswith("$.") and path.count(".") == 1 and "[" not in path
+    if path.startswith('$.["') and path.endswith('"]'):
+        return True
+    if not path.startswith("$."):
+        return False
+    suffix = path[2:]
+    return all(ch not in suffix for ch in ".[@")
 
 
 def scoped_top_level_path(scope: str, branch: str, key: str) -> str:
-    if scope == "full":
-        return f"$.{branch}.{key}"
-    return f"$.{key}"
+    base = f"$.{branch}" if scope == "full" else "$"
+    return append_member_path(base, key)
 
 
 def format_child_path(base_path: str, key: str) -> str:
-    return f"{base_path}.{key}" if is_identifier_safe(key) else f'{base_path}["{escape_string(key)}"]'
+    return append_member_path(base_path, key)
+
+
+def append_member_path(base_path: str, key: str) -> str:
+    if is_identifier_safe(key):
+        return f"{base_path}.{key}"
+    return f'{base_path}.["{escape_string(key)}"]'
 
 
 def format_annotation_key(key: str) -> str:
@@ -371,3 +457,98 @@ def normalize_aes_input(aes: object) -> list[dict[str, object]]:
     if isinstance(events, list):
         return events
     raise TypeError("finalize_json expected AES events or a compile result")
+
+
+def is_descendant_path(path: str, ancestor: str) -> bool:
+    suffix = path[len(ancestor):] if path.startswith(ancestor) else None
+    if suffix is None:
+        return False
+    return suffix.startswith((".", "[", "@", "<"))
+
+
+def normalize_projection_path(path: str) -> str:
+    normalized = path
+
+    def replace_segment(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        key = match.group(2)
+        if is_identifier_safe(key):
+            return f"{prefix}{key}"
+        return match.group(0)
+
+    normalized = re.sub(r'(\.)\["([^"\\]+)"\]', replace_segment, normalized)
+    normalized = re.sub(r'(@)\["([^"\\]+)"\]', replace_segment, normalized)
+    root_match = re.fullmatch(r'\$\["([^"\\]+)"\](.*)', normalized)
+    if root_match and is_identifier_safe(root_match.group(1)):
+        normalized = f"$.{root_match.group(1)}{root_match.group(2)}"
+    return normalized
+
+
+def declared_radix_base(datatype: object) -> int | None:
+    rendered = render_datatype(datatype)
+    if rendered is None:
+        return None
+    trimmed = rendered.strip()
+    if trimmed == "radix2":
+        return 2
+    if trimmed == "radix6":
+        return 6
+    if trimmed == "radix8":
+        return 8
+    if trimmed == "radix12":
+        return 12
+    if not trimmed.startswith("radix[") or not trimmed.endswith("]"):
+        return None
+    body = trimmed[6:-1]
+    if not body.isdigit():
+        return None
+    base = int(body)
+    if 2 <= base <= 64:
+        return base
+    return None
+
+
+def render_datatype(datatype: object) -> str | None:
+    if isinstance(datatype, str):
+        return datatype
+    if not isinstance(datatype, dict):
+        return None
+    name = datatype.get("name")
+    if not isinstance(name, str):
+        return None
+    generic_args = datatype.get("genericArgs")
+    generic = ""
+    if isinstance(generic_args, list) and all(isinstance(item, str) for item in generic_args):
+        if generic_args:
+            generic = "<" + ", ".join(generic_args) + ">"
+    radix_base = datatype.get("radixBase")
+    radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
+    separators = datatype.get("separators")
+    suffix = ""
+    if isinstance(separators, list):
+        suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
+    return f"{name}{generic}{radix}{suffix}"
+
+
+def exceeds_declared_radix(value: str, base: int) -> bool:
+    for char in value:
+        if char in "+-.":
+            continue
+        digit = radix_digit_value(char)
+        if digit is None or digit >= base:
+            return True
+    return False
+
+
+def radix_digit_value(char: str) -> int | None:
+    if "0" <= char <= "9":
+        return ord(char) - ord("0")
+    if "A" <= char <= "Z":
+        return ord(char) - ord("A") + 10
+    if "a" <= char <= "z":
+        return ord(char) - ord("a") + 36
+    if char == "&":
+        return 62
+    if char == "!":
+        return 63
+    return None

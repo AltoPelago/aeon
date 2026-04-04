@@ -39,6 +39,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "INVALID_DATETIME",
         "INVALID_NUMBER",
         "INVALID_SEPARATOR_CHAR",
+        "NESTING_DEPTH_EXCEEDED",
         "SEPARATOR_DEPTH_EXCEEDED",
         "GENERIC_DEPTH_EXCEEDED",
     }:
@@ -47,7 +48,13 @@ def infer_phase_label_from_code(code: str) -> str | None:
         return "Core Validation"
     if code in {"MISSING_REFERENCE_TARGET", "FORWARD_REFERENCE", "SELF_REFERENCE", "ATTRIBUTE_DEPTH_EXCEEDED"}:
         return "Reference Validation"
-    if code in {"UNTYPED_SWITCH_LITERAL", "UNTYPED_VALUE_IN_STRICT_MODE", "CUSTOM_DATATYPE_NOT_ALLOWED", "INVALID_NODE_HEAD_DATATYPE"}:
+    if code in {
+        "UNTYPED_SWITCH_LITERAL",
+        "UNTYPED_VALUE_IN_STRICT_MODE",
+        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+        "CUSTOM_DATATYPE_NOT_ALLOWED",
+        "INVALID_NODE_HEAD_DATATYPE",
+    }:
         return "Mode Enforcement"
     if code.startswith("FINALIZE_") or code == "TYPE_GUARD_FAILED":
         return "Finalization"
@@ -128,6 +135,15 @@ class SeparatorDepthExceededError(AeonError):
         )
 
 
+class NestingDepthExceededError(AeonError):
+    def __init__(self, observed: int, limit: int, span: Span) -> None:
+        super().__init__(
+            message=f"Value nesting depth {observed} exceeds max_nesting_depth {limit}",
+            span=span,
+            code="NESTING_DEPTH_EXCEEDED",
+        )
+
+
 class GenericDepthExceededError(AeonError):
     def __init__(self, observed: int, limit: int, span: Span) -> None:
         super().__init__(
@@ -172,6 +188,19 @@ class UntypedSwitchLiteralError(AeonError):
             message=f"Untyped switch literal in typed mode: '{path}' requires ':switch' type annotation",
             span=span,
             code="UNTYPED_SWITCH_LITERAL",
+            path=path,
+        )
+
+
+class CustomSwitchAliasNotAllowedError(AeonError):
+    def __init__(self, path: str, datatype: str, span: Span) -> None:
+        super().__init__(
+            message=(
+                f"Custom switch alias not allowed in strict mode at '{path}': "
+                f"use ':switch' instead of ':{datatype}'"
+            ),
+            span=span,
+            code="CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
             path=path,
         )
 

@@ -8,6 +8,7 @@ use aeon_aeos::{
 };
 use aeon_core::{
     AssignmentEvent, CompileOptions, Diagnostic, PathSegment, ReferenceSegment, Value, compile,
+    normalize_number_literal,
 };
 use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
 use serde::de::DeserializeOwned;
@@ -184,7 +185,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             JsonValue::String(raw.clone()),
         ),
         Value::NumberLiteral { raw } => {
-            scalar_value("NumberLiteral", raw.clone(), JsonValue::String(raw.clone()))
+            scalar_value(
+                "NumberLiteral",
+                raw.clone(),
+                JsonValue::String(normalize_number_literal(raw)),
+            )
         }
         Value::StringLiteral { value, .. } => scalar_value(
             "StringLiteral",
@@ -200,7 +205,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             scalar_value("SwitchLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
         Value::HexLiteral { raw } => {
-            scalar_value("HexLiteral", raw.clone(), JsonValue::String(raw.clone()))
+            scalar_value(
+                "HexLiteral",
+                raw.clone(),
+                JsonValue::String(raw.trim_start_matches('#').to_string()),
+            )
         }
         Value::SeparatorLiteral { raw } => scalar_value(
             "SeparatorLiteral",
@@ -210,10 +219,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::EncodingLiteral { raw } => scalar_value(
             "EncodingLiteral",
             raw.clone(),
-            JsonValue::String(raw.clone()),
+            JsonValue::String(raw.trim_start_matches('$').to_string()),
         ),
         Value::RadixLiteral { raw } => {
-            scalar_value("RadixLiteral", raw.clone(), JsonValue::String(raw.clone()))
+            scalar_value(
+                "RadixLiteral",
+                raw.clone(),
+                JsonValue::String(raw.trim_start_matches('%').to_string()),
+            )
         }
         Value::DateLiteral { raw } => {
             scalar_value("DateLiteral", raw.clone(), JsonValue::String(raw.clone()))
@@ -327,6 +340,79 @@ mod tests {
         let error = load_str::<GreetingDoc>("greeting = {\n", LoadOptions::default())
             .expect_err("compile failure");
         assert!(matches!(error, AeonLoadError::Compile(_)));
+    }
+
+    #[test]
+    fn surfaced_literal_values_drop_encoding_and_radix_sigils() {
+        let loaded = load_str::<BTreeMap<String, JsonValue>>(
+            "encoding = $QmFzZTY0IQ==\nradix = %+A_!_&z\n",
+            LoadOptions::default(),
+        )
+        .expect("load success");
+
+        let events = core_events_to_aeos(&loaded.compiled.events);
+        let by_key = events
+            .iter()
+            .map(|event| (event.key.as_str(), &event.value))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(by_key["encoding"].raw, Some(String::from("$QmFzZTY0IQ==")));
+        assert_eq!(
+            by_key["encoding"].value,
+            Some(JsonValue::String(String::from("QmFzZTY0IQ==")))
+        );
+        assert_eq!(by_key["radix"].raw, Some(String::from("%+A_!_&z")));
+        assert_eq!(
+            by_key["radix"].value,
+            Some(JsonValue::String(String::from("+A_!_&z")))
+        );
+    }
+
+    #[test]
+    fn surfaced_hex_values_keep_raw_and_drop_sigil_from_value() {
+        let loaded = load_str::<BTreeMap<String, JsonValue>>(
+            "color = #Ff_00_Aa\n",
+            LoadOptions::default(),
+        )
+        .expect("load success");
+
+        let events = core_events_to_aeos(&loaded.compiled.events);
+        let by_key = events
+            .iter()
+            .map(|event| (event.key.as_str(), &event.value))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(by_key["color"].raw, Some(String::from("#Ff_00_Aa")));
+        assert_eq!(
+            by_key["color"].value,
+            Some(JsonValue::String(String::from("Ff_00_Aa")))
+        );
+    }
+
+    #[test]
+    fn surfaced_number_values_preserve_raw_and_normalize_value() {
+        let loaded = load_str::<BTreeMap<String, JsonValue>>(
+            "a = 1_000_000\nb = 1_2.3_4\n",
+            LoadOptions::default(),
+        )
+        .expect("load success");
+
+        let events = core_events_to_aeos(&loaded.compiled.events);
+        let by_key = events
+            .iter()
+            .map(|event| (event.key.as_str(), &event.value))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(by_key["a"].raw, Some(String::from("1_000_000")));
+        assert_eq!(
+            by_key["a"].value,
+            Some(JsonValue::String(String::from("1000000")))
+        );
+        assert_eq!(by_key["b"].raw, Some(String::from("1_2.3_4")));
+        assert_eq!(
+            by_key["b"].value,
+            Some(JsonValue::String(String::from("12.34")))
+        );
     }
 
     #[test]

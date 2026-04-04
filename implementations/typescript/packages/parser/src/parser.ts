@@ -835,15 +835,19 @@ class Parser {
 
     private parsePath(): ReferencePathSegment[] {
         const path: ReferencePathSegment[] = [];
+        let sawRootDot = false;
+        let sawExplicitRoot = false;
 
         if (this.check(TokenType.Dollar)) {
             this.advance(); // consume $
+            sawExplicitRoot = true;
             if (this.check(TokenType.Dot)) {
-                this.advance(); // consume optional dot after $
+                this.advance(); // consume explicit dot after $
+                sawRootDot = true;
             }
         }
 
-        this.parsePathInitialSegment(path);
+        this.parsePathInitialSegment(path, sawRootDot, sawExplicitRoot);
 
         while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket) || this.check(TokenType.At)) {
             if (this.check(TokenType.Dot)) {
@@ -1193,13 +1197,25 @@ class Parser {
         return key;
     }
 
-    private parsePathInitialSegment(path: ReferencePathSegment[]): void {
+    private parsePathInitialSegment(
+        path: ReferencePathSegment[],
+        sawRootDot: boolean = false,
+        sawExplicitRoot: boolean = false
+    ): void {
         if (this.check(TokenType.Identifier) || this.check(TokenType.String)) {
             path.push(this.parseMemberSegment('Expected path segment'));
             return;
         }
 
         if (this.check(TokenType.LeftBracket)) {
+            if (sawExplicitRoot && !sawRootDot && this.peekNext()?.type === TokenType.String) {
+                throw new SyntaxError(
+                    "Expected '.' after '$' before quoted root-member segment",
+                    this.peek().span,
+                    'reference path',
+                    this.peek().value
+                );
+            }
             path.push(this.parseBracketPathSegment());
             return;
         }
@@ -1306,15 +1322,27 @@ class Parser {
 
     private parseSeparatorCharacter(): string {
         const token = this.peek();
+        if (
+            token.type === TokenType.Identifier
+            || token.type === TokenType.Number
+            || token.type === TokenType.String
+            || token.type === TokenType.Symbol
+        ) {
+            this.advance();
+            if (token.value.length !== 1) {
+                throw new InvalidSeparatorCharError(token.value, token.span);
+            }
+            const char = token.value;
+            const code = char.charCodeAt(0);
+            if (code < 0x21 || code > 0x7e || char === ',' || char === '[' || char === ']') {
+                throw new InvalidSeparatorCharError(char, token.span);
+            }
+            return char;
+        }
+
         let char: string;
 
         switch (token.type) {
-            case TokenType.Identifier:
-            case TokenType.Number:
-            case TokenType.String:
-            case TokenType.Symbol:
-                char = token.value;
-                break;
             case TokenType.Comma:
                 char = ',';
                 break;
@@ -1451,7 +1479,7 @@ class Parser {
         }
 
         this.advance();
-        if (value === ',' || value === '[') {
+        if (value === '[') {
             throw new InvalidSeparatorCharError(value, token.span);
         }
         return value;
