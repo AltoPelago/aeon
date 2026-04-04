@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use aeon_core::{
-    compile, format_path, AssignmentEvent, AttributeValue, CompileOptions, Diagnostic,
+    compile, format_path, normalize_number_literal, AssignmentEvent, AttributeValue, CompileOptions, Diagnostic,
     HeaderFields, ReferenceSegment, Span, Value,
 };
 use serde::de::DeserializeOwned;
@@ -254,7 +254,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         Value::NumberLiteral { raw } => json!({
             "type": "NumberLiteral",
             "raw": raw,
-            "value": raw,
+            "value": normalize_number_literal(raw),
         }),
         Value::InfinityLiteral { raw } => json!({
             "type": "InfinityLiteral",
@@ -1376,6 +1376,23 @@ mod tests {
         assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
         assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
         assert_eq!(by_path["$.trim"]["trimticks"]["rawValue"], "\n  one\n  two\n");
+    }
+
+    #[test]
+    fn surfaced_number_ast_preserves_raw_and_normalizes_value() {
+        let result = compile("a = 1_000_000\nb = 1_2.3_4\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), value_to_ast_json(&event.value)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(by_path["$.a"]["raw"], "1_000_000");
+        assert_eq!(by_path["$.a"]["value"], "1000000");
+        assert_eq!(by_path["$.b"]["raw"], "1_2.3_4");
+        assert_eq!(by_path["$.b"]["value"], "12.34");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use aeon_finalize::{
     finalize_json, finalize_map, value_to_ast_json, FinalizeMode, FinalizeOptions, FinalizeScope, Materialization,
 };
 use aeon_core::{
-    compile, format_path, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment,
+    compile, format_path, normalize_number_literal, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment,
     ReferenceSegment, Value, VERSION,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
@@ -2132,7 +2132,7 @@ fn render_value_json_string(value: &Value) -> String {
         Value::NumberLiteral { raw } => format!(
             "{{\"type\":\"NumberLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
-            escape_json(raw)
+            escape_json(&normalize_number_literal(raw))
         ),
         Value::StringLiteral { value, raw, delimiter, trimticks } => {
             let trimticks_json = trimticks.as_ref().map(|metadata| {
@@ -2603,7 +2603,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::NumberLiteral { raw } => EventValue {
             value_type: String::from("NumberLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.clone())),
+            value: Some(JsonValue::String(normalize_number_literal(raw))),
             elements: Vec::new(),
         },
         Value::StringLiteral { value, raw, .. } => EventValue {
@@ -3729,7 +3729,7 @@ mod tests {
     #[test]
     fn render_events_emits_richer_json_values() {
         let result = compile(
-            "a:int32 = 1\nb = [2]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
+            "a:int32 = 1_000_000\nb = [1_2.3_4]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
             CompileOptions::default(),
         );
         let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
@@ -3739,9 +3739,11 @@ mod tests {
             .filter_map(|event| Some((event.get("key")?.as_str()?.to_string(), event)))
             .collect::<std::collections::BTreeMap<_, _>>();
         assert_eq!(by_key["a"]["value"]["type"], "NumberLiteral");
-        assert_eq!(by_key["a"]["value"]["raw"], "1");
+        assert_eq!(by_key["a"]["value"]["raw"], "1_000_000");
+        assert_eq!(by_key["a"]["value"]["value"], "1000000");
         assert_eq!(by_key["b"]["value"]["type"], "ListNode");
-        assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "2");
+        assert_eq!(by_key["b"]["value"]["elements"][0]["raw"], "1_2.3_4");
+        assert_eq!(by_key["b"]["value"]["elements"][0]["value"], "12.34");
         assert_eq!(by_key["c"]["value"]["type"], "ObjectNode");
         assert_eq!(by_key["c"]["value"]["bindings"][0]["key"], "d");
         assert_eq!(by_key["single"]["value"]["delimiter"], "'");

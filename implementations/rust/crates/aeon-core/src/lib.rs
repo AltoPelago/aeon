@@ -240,6 +240,45 @@ pub struct TrimtickMetadata {
     pub raw_value: String,
 }
 
+#[must_use]
+pub fn normalize_number_literal(raw: &str) -> String {
+    let mut value = raw.replace('_', "").replace('E', "e");
+    if value.starts_with('.') {
+        value = format!("0{value}");
+    }
+    if value.starts_with("-.") {
+        value = value.replacen("-.", "-0.", 1);
+    }
+    if value.starts_with("+.") {
+        value = value.replacen("+.", "0.", 1);
+    }
+    if value.starts_with('+') && value.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
+        value.remove(0);
+    }
+
+    let (mut mantissa, exponent) = match value.split_once('e') {
+        Some((mantissa, exponent)) => (mantissa.to_owned(), Some(exponent.to_owned())),
+        None => (value, None),
+    };
+
+    if let Some((int_part, frac_part_raw)) = mantissa.split_once('.') {
+        let mut frac_part = frac_part_raw.trim_end_matches('0').to_owned();
+        if frac_part.is_empty() {
+            frac_part = String::from("0");
+        }
+        if exponent.is_some() && frac_part == "0" {
+            mantissa = int_part.to_owned();
+        } else {
+            mantissa = format!("{int_part}.{frac_part}");
+        }
+    }
+
+    match exponent {
+        Some(exponent) => format!("{mantissa}e{exponent}"),
+        None => mantissa,
+    }
+}
+
 impl Value {
     #[must_use]
     pub fn value_kind(&self) -> &'static str {

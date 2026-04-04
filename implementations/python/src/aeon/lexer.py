@@ -513,7 +513,7 @@ class Lexer:
                     value += self.advance()
             if self.peek() == "&":
                 value += self.advance()
-                while self.peek().isalnum() or self.peek() in {"/", "_"}:
+                while self.peek().isalnum() or self.peek() in {"/", "_", "-", "+"}:
                     value += self.advance()
             if self.is_valid_datetime_literal(value):
                 self.add_token("DATETIME", value, start)

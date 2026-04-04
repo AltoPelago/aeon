@@ -166,6 +166,29 @@ class CoreCompileTests(unittest.TestCase):
                 result = compile_source(f'aeon:mode = "strict"\n{source}')
                 self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_zrut_accepts_common_named_zone_identifiers_with_dash_and_plus(self) -> None:
+        cases = (
+            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince",
+            "z:zrut = 2025-01-01T09Z&GB-Eire",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT-1",
+            "z:zrut = 2025-01-01T09Z&Etc/GMT+1",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.errors)
+
+    def test_zrut_still_rejects_invalid_slash_placement(self) -> None:
+        cases = (
+            "z:zrut = 2025-01-01T09Z&/",
+            "z:zrut = 2025-01-01T09Z&Europe//Brussels",
+            "z:zrut = 2025-01-01T09Z&Europe/Belgium/",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
+
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')
         self.assertEqual(["INVALID_NODE_HEAD_DATATYPE"], [error.code for error in result.errors])

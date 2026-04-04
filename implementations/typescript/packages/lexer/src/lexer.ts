@@ -661,7 +661,13 @@ export class Lexer {
             if (this.peek() === '&') {
                 value += this.advance();
                 let zone = '';
-                while (isAlphanumeric(this.peek()) || this.peek() === '/' || this.peek() === '_') {
+                while (
+                    isAlphanumeric(this.peek())
+                    || this.peek() === '/'
+                    || this.peek() === '_'
+                    || this.peek() === '-'
+                    || this.peek() === '+'
+                ) {
                     const ch = this.advance();
                     value += ch;
                     zone += ch;

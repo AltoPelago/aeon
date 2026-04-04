@@ -352,6 +352,10 @@ describe('Lexer', () => {
                 '2025-01-01T09:30+02:00&Europe/Belgium/Brussels',
                 '2025-01-01T09:+02:00&Europe/Belgium/Brussels',
                 '2025-01-01T09:30Z&Local',
+                '2025-01-01T09:30Z&America/Port-au-Prince',
+                '2025-01-01T09:30Z&GB-Eire',
+                '2025-01-01T09:30Z&Etc/GMT-1',
+                '2025-01-01T09:30Z&Etc/GMT+1',
             ]) {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);
