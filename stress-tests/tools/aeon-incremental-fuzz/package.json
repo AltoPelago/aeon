@@ -10,6 +10,14 @@
     "incremental:oracle-only": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-top 3",
     "incremental:review": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
     "incremental:valid": "node ./run-incremental-fuzz.js --group interactions --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
+    "incremental:review:nodes": "node ./run-incremental-fuzz.js --group nodes --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
+    "incremental:valid:nodes": "node ./run-incremental-fuzz.js --group nodes --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
+    "incremental:review:attributes": "node ./run-incremental-fuzz.js --group attributes --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
+    "incremental:valid:attributes": "node ./run-incremental-fuzz.js --group attributes --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
+    "incremental:review:numbers": "node ./run-incremental-fuzz.js --group numbers --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
+    "incremental:valid:numbers": "node ./run-incremental-fuzz.js --group numbers --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
+    "incremental:review:separators": "node ./run-incremental-fuzz.js --group separators --budget 40 --oracle-only --oracle-seeds 24 --report-new-only --report-top 10",
+    "incremental:valid:separators": "node ./run-incremental-fuzz.js --group separators --budget 40 --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10",
     "incremental:json": "node ./run-incremental-fuzz.js --group interactions --budget 40 --report-top 3 --report-format json",
     "minimize": "node ./run-minimize.js"
   }

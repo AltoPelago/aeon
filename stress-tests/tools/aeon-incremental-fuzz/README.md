@@ -16,6 +16,14 @@ npm run incremental:oracle
 npm run incremental:oracle-only
 npm run incremental:review
 npm run incremental:valid
+npm run incremental:review:nodes
+npm run incremental:valid:nodes
+npm run incremental:review:attributes
+npm run incremental:valid:attributes
+npm run incremental:review:numbers
+npm run incremental:valid:numbers
+npm run incremental:review:separators
+npm run incremental:valid:separators
 npm run incremental:json
 npm run minimize -- --group interactions --source 'a = <x@{class = "hero"}(1, [2, 3)>'
 ```
@@ -29,6 +37,14 @@ node ./run-incremental-fuzz.js --group interactions --oracle-seeds 12 --report-t
 node ./run-incremental-fuzz.js --group interactions --oracle-only --oracle-seeds 24 --report-top 5
 node ./run-incremental-fuzz.js --group interactions --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
 node ./run-incremental-fuzz.js --group interactions --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
+node ./run-incremental-fuzz.js --group nodes --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
+node ./run-incremental-fuzz.js --group nodes --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
+node ./run-incremental-fuzz.js --group attributes --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
+node ./run-incremental-fuzz.js --group attributes --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
+node ./run-incremental-fuzz.js --group numbers --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
+node ./run-incremental-fuzz.js --group numbers --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
+node ./run-incremental-fuzz.js --group separators --oracle-only --oracle-seeds 24 --report-new-only --report-top 10
+node ./run-incremental-fuzz.js --group separators --oracle-only --oracle-seeds 24 --report-valid-only --report-top 10
 node ./run-incremental-fuzz.js --group interactions --report-file /tmp/incremental-fuzz-report.json
 node ./run-minimize.js --group numbers --source 'a = 1..2'
 ```
