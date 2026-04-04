@@ -180,12 +180,6 @@ function* findReferences(value: Value): Generator<ReferenceNode> {
             return;
 
         case 'ObjectNode':
-            for (const binding of value.bindings) {
-                yield* findReferences(binding.value);
-                for (const attr of binding.attributes) {
-                    yield* findReferencesInAttribute(attr);
-                }
-            }
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
@@ -231,12 +225,6 @@ function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
             return;
 
         case 'ObjectNode':
-            for (const binding of value.bindings) {
-                yield* findReferences(binding.value);
-                for (const attr of binding.attributes) {
-                    yield* findReferencesInAttribute(attr);
-                }
-            }
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
