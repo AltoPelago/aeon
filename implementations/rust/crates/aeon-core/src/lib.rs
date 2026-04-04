@@ -688,6 +688,45 @@ mod tests {
     }
 
     #[test]
+    fn validates_direct_list_item_references() {
+        let backward = compile("items = [1, ~items[0]]\n", CompileOptions::default());
+        assert!(backward.errors.is_empty(), "{:?}", backward.errors);
+
+        let backward_member = compile(
+            "items = [{ email = \"a@example.com\" }, ~items[0].email]\n",
+            CompileOptions::default(),
+        );
+        assert!(backward_member.errors.is_empty(), "{:?}", backward_member.errors);
+
+        let forward = compile("items = [~items[1], 1]\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let self_ref = compile("items = [~items[0]]\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("items = [~items[9]]\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+
+        let forward_member = compile(
+            "items = [~items[1].email, { email = \"a@example.com\" }]\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(forward_member.errors[0].code, "FORWARD_REFERENCE");
+    }
+
+    #[test]
+    fn validates_direct_tuple_item_references() {
+        let forward = compile("items = (~items[1], 1)\n", CompileOptions::default());
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
+
+        let self_ref = compile("items = (~items[0], 1)\n", CompileOptions::default());
+        assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
+
+        let missing = compile("items = (~items[9], 1)\n", CompileOptions::default());
+        assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
     fn supports_allow_custom_datatypes() {
         let result = compile(
             "color:stroke = #ff00ff",

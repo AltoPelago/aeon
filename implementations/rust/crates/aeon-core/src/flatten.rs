@@ -109,19 +109,21 @@ fn track_reference_binding(
     reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
 }
 
-fn track_reference_list_item(
+fn track_reference_sequence_item(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<ValidationReferenceStep>,
     parent_path: &str,
     index: usize,
+    value: &Value,
+    shallow_event_values: bool,
 ) {
     let item_target = render_child_index_path(parent_path, index);
+    reference_steps.push(ValidationReferenceStep::ValidateValue {
+        path: item_target.clone(),
+        value: clone_validation_value(value, shallow_event_values),
+    });
     let _ = reference_targets.insert(item_target.clone());
     reference_steps.push(ValidationReferenceStep::VisibleTarget(item_target));
-}
-
-fn track_reference_tuple_item(reference_targets: &mut HashSet<String>, parent_path: &str, index: usize) {
-    let _ = reference_targets.insert(render_child_index_path(parent_path, index));
 }
 
 fn flatten_validation_bindings(
@@ -161,7 +163,14 @@ fn flatten_validation_bindings(
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_reference_list_item(reference_targets, reference_steps, &path_parent, index);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
                     if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
@@ -186,7 +195,14 @@ fn flatten_validation_bindings(
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_reference_tuple_item(reference_targets, &path_parent, index);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
                     if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
@@ -246,7 +262,14 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_reference_list_item(reference_targets, reference_steps, &parent_path, index);
+                track_reference_sequence_item(
+                    reference_targets,
+                    reference_steps,
+                    &parent_path,
+                    index,
+                    item,
+                    shallow_event_values,
+                );
                 if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
@@ -271,7 +294,14 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_reference_tuple_item(reference_targets, &parent_path, index);
+                track_reference_sequence_item(
+                    reference_targets,
+                    reference_steps,
+                    &parent_path,
+                    index,
+                    item,
+                    shallow_event_values,
+                );
                 if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
@@ -352,7 +382,14 @@ fn flatten_bindings(
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     let item_text = format_path(&item_path);
-                    track_reference_list_item(reference_targets, reference_steps, &path_parent, index);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
@@ -389,7 +426,14 @@ fn flatten_bindings(
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     let item_text = format_path(&item_path);
-                    track_reference_tuple_item(reference_targets, &path_parent, index);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
@@ -473,11 +517,14 @@ fn flatten_container_item(
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
                 let item_text = format_path(&item_path);
-                if matches!(value, Value::ListNode { .. }) {
-                    track_reference_list_item(reference_targets, reference_steps, &parent_path, index);
-                } else {
-                    track_reference_tuple_item(reference_targets, &parent_path, index);
-                }
+                track_reference_sequence_item(
+                    reference_targets,
+                    reference_steps,
+                    &parent_path,
+                    index,
+                    item,
+                    shallow_event_values,
+                );
                 events.push(AssignmentEvent {
                     path: item_path.clone(),
                     key: index.to_string(),
