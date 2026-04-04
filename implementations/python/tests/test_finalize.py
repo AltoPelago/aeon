@@ -126,6 +126,32 @@ class FinalizeJsonTests(unittest.TestCase):
         time = finalize_json(compile_events("opens = 09:30:00+02:40"), FinalizeOptions(mode="loose"))
         self.assertEqual("09:30:00+02:40", time["document"]["opens"])
 
+    def test_strips_underscore_separators_from_finalized_radix_strings(self) -> None:
+        result = finalize_json(compile_events("mask = %101_0101"), FinalizeOptions(mode="strict"))
+        self.assertEqual("1010101", result["document"]["mask"])
+
+    def test_reports_radix_digits_that_exceed_declared_base_during_finalization(self) -> None:
+        result = finalize_json(compile_events("mask:radix[10] = %1A"), FinalizeOptions(mode="strict"))
+        self.assertEqual("1A", result["document"]["mask"])
+        self.assertTrue(result["meta"]["errors"])
+        self.assertIn("declared radix 10", result["meta"]["errors"][0]["message"])
+
+    def test_keeps_declared_radix_validation_working_for_nested_payload_output(self) -> None:
+        result = finalize_json(compile_events("config = { mask:radix[10] = %1A }"), FinalizeOptions(mode="strict", scope="full"))
+        self.assertEqual(
+            {
+                "header": {},
+                "payload": {
+                    "config": {
+                        "mask": "1A",
+                    }
+                },
+            },
+            result["document"],
+        )
+        self.assertTrue(result["meta"]["errors"])
+        self.assertIn("declared radix 10", result["meta"]["errors"][0]["message"])
+
     def test_projects_only_whitelisted_paths(self) -> None:
         events = compile_events('app = { name = "demo", port = 8080 }\nother = "ignore"')
         result = finalize_json(

@@ -108,7 +108,7 @@ def payload_to_json(
             ctx.emit("error" if ctx.strict else "warning", f"Duplicate top-level key during JSON finalization: {key}", scoped_path, event.get("span"))
             if ctx.strict:
                 continue
-        document[key] = value_to_json(event.get("value"), ctx, scoped_path)
+        document[key] = value_to_json(event.get("value"), ctx, scoped_path, event.get("datatype"))
         attr_json = annotation_entries_to_json(event.get("annotations"), ctx, scoped_path)
         if attr_json:
             document_attrs[key] = attr_json
@@ -139,7 +139,7 @@ def scope_to_json_document(scope: str, header: dict[str, object], payload: dict[
     return payload
 
 
-def value_to_json(value: object, ctx: JsonContext, path: str) -> object:
+def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object = None) -> object:
     value = normalize_value(value)
     if not isinstance(value, dict):
         return None
@@ -153,7 +153,11 @@ def value_to_json(value: object, ctx: JsonContext, path: str) -> object:
         return value.get("value")
     if value_type == "SwitchLiteral":
         return value.get("value") in {"yes", "on"}
-    if value_type in {"HexLiteral", "RadixLiteral", "EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
+    if value_type == "HexLiteral":
+        return value.get("value")
+    if value_type == "RadixLiteral":
+        return radix_to_json(value, ctx, path, datatype)
+    if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
         return value.get("value")
     if value_type == "ObjectNode":
         bindings = value.get("bindings")
@@ -191,6 +195,20 @@ def number_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> obj
     return number
 
 
+def radix_to_json(value: dict[str, object], ctx: JsonContext, path: str, datatype: object) -> str:
+    raw = str(value.get("value", ""))
+    normalized = raw.replace("_", "")
+    base = declared_radix_base(datatype)
+    if base is not None and exceeds_declared_radix(normalized, base):
+        ctx.emit(
+            "error" if ctx.strict else "warning",
+            f"Radix literal exceeds declared radix {base}: %{raw}",
+            path,
+            value.get("span"),
+        )
+    return normalized
+
+
 def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> dict[str, object]:
     obj: dict[str, object] = {}
     attr_entries: dict[str, object] = {}
@@ -211,7 +229,7 @@ def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> 
             ctx.emit("error" if ctx.strict else "warning", f"Duplicate object key during JSON finalization: {key}", entry_path, binding.get("span"))
             if ctx.strict:
                 continue
-        obj[key] = value_to_json(binding.get("value"), ctx, entry_path)
+        obj[key] = value_to_json(binding.get("value"), ctx, entry_path, binding.get("datatype"))
         attr_json = attributes_to_json(binding.get("attributes"), ctx, entry_path)
         if attr_json:
             attr_entries[key] = attr_json
@@ -381,3 +399,73 @@ def normalize_aes_input(aes: object) -> list[dict[str, object]]:
     if isinstance(events, list):
         return events
     raise TypeError("finalize_json expected AES events or a compile result")
+
+
+def declared_radix_base(datatype: object) -> int | None:
+    rendered = render_datatype(datatype)
+    if rendered is None:
+        return None
+    trimmed = rendered.strip()
+    if trimmed == "radix2":
+        return 2
+    if trimmed == "radix6":
+        return 6
+    if trimmed == "radix8":
+        return 8
+    if trimmed == "radix12":
+        return 12
+    if not trimmed.startswith("radix[") or not trimmed.endswith("]"):
+        return None
+    body = trimmed[6:-1]
+    if not body.isdigit():
+        return None
+    base = int(body)
+    if 2 <= base <= 64:
+        return base
+    return None
+
+
+def render_datatype(datatype: object) -> str | None:
+    if isinstance(datatype, str):
+        return datatype
+    if not isinstance(datatype, dict):
+        return None
+    name = datatype.get("name")
+    if not isinstance(name, str):
+        return None
+    generic_args = datatype.get("genericArgs")
+    generic = ""
+    if isinstance(generic_args, list) and all(isinstance(item, str) for item in generic_args):
+        if generic_args:
+            generic = "<" + ", ".join(generic_args) + ">"
+    radix_base = datatype.get("radixBase")
+    radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
+    separators = datatype.get("separators")
+    suffix = ""
+    if isinstance(separators, list):
+        suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
+    return f"{name}{generic}{radix}{suffix}"
+
+
+def exceeds_declared_radix(value: str, base: int) -> bool:
+    for char in value:
+        if char in "+-.":
+            continue
+        digit = radix_digit_value(char)
+        if digit is None or digit >= base:
+            return True
+    return False
+
+
+def radix_digit_value(char: str) -> int | None:
+    if "0" <= char <= "9":
+        return ord(char) - ord("0")
+    if "A" <= char <= "Z":
+        return ord(char) - ord("A") + 10
+    if "a" <= char <= "z":
+        return ord(char) - ord("a") + 36
+    if char == "&":
+        return 62
+    if char == "!":
+        return 63
+    return None
