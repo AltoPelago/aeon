@@ -52,6 +52,7 @@ class CompileOptions:
     max_attribute_depth: int = 1
     max_separator_depth: int = 1
     max_generic_depth: int = 1
+    max_nesting_depth: int = 256
     datatype_policy: str | None = None
     max_input_bytes: int | None = None
 
@@ -154,8 +155,9 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         lex_result.tokens,
         max_separator_depth=opts.max_separator_depth,
         max_generic_depth=opts.max_generic_depth,
+        max_nesting_depth=opts.max_nesting_depth,
     )
-    parse_errors = [error for error in parse_result.errors if isinstance(error, AeonError)]
+    parse_errors = [coerce_error(error) for error in parse_result.errors]
     if parse_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors])
     if parse_result.document is None:
@@ -185,6 +187,13 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
 
 def strip_leading_bom(source: str) -> str:
     return source[1:] if source.startswith("\ufeff") else source
+
+
+def coerce_error(error: Exception) -> AeonError:
+    if isinstance(error, AeonError):
+        return error
+    zero = Position(line=1, column=1, offset=0)
+    return SyntaxError(str(error) or error.__class__.__name__, Span(start=zero, end=zero))
 
 
 def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonError]]:

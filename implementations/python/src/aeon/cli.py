@@ -61,6 +61,7 @@ def inspect(args: list[str]) -> int:
     max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth")
     max_separator_depth = numeric_flag_value(args, "--max-separator-depth")
     max_generic_depth = numeric_flag_value(args, "--max-generic-depth")
+    max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth")
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
     if max_attribute_depth is None and "--max-attribute-depth" in args:
         print("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)", file=sys.stderr)
@@ -70,6 +71,9 @@ def inspect(args: list[str]) -> int:
         return 2
     if max_generic_depth is None and "--max-generic-depth" in args:
         print("Error: Invalid value for --max-generic-depth (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_nesting_depth is None and "--max-nesting-depth" in args:
+        print("Error: Invalid value for --max-nesting-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
@@ -87,6 +91,7 @@ def inspect(args: list[str]) -> int:
             max_attribute_depth=1 if max_attribute_depth is None else max_attribute_depth,
             max_separator_depth=1 if max_separator_depth is None else max_separator_depth,
             max_generic_depth=1 if max_generic_depth is None else max_generic_depth,
+            max_nesting_depth=256 if max_nesting_depth is None else max_nesting_depth,
             max_input_bytes=max_input_bytes,
         ),
     )
@@ -159,12 +164,12 @@ def first_non_flag(args: list[str]) -> str | None:
         if skip_next:
             skip_next = False
             continue
-        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-input-bytes"}:
+        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes"}:
             skip_next = True
             continue
         if item.startswith("--"):
             continue
-        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-input-bytes"}:
+        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes"}:
             continue
         return item
     return None
@@ -181,8 +186,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] | aeon-python --cts-validate"
-        .replace(" [--max-generic-depth <n>]", " [--max-generic-depth <n>] [--max-input-bytes <n>]")
+        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python --cts-validate"
     )
 
 

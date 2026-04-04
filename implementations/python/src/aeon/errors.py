@@ -39,6 +39,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "INVALID_DATETIME",
         "INVALID_NUMBER",
         "INVALID_SEPARATOR_CHAR",
+        "NESTING_DEPTH_EXCEEDED",
         "SEPARATOR_DEPTH_EXCEEDED",
         "GENERIC_DEPTH_EXCEEDED",
     }:
@@ -125,6 +126,15 @@ class SeparatorDepthExceededError(AeonError):
             message=f"Separator depth {observed} exceeds max_separator_depth {limit}",
             span=span,
             code="SEPARATOR_DEPTH_EXCEEDED",
+        )
+
+
+class NestingDepthExceededError(AeonError):
+    def __init__(self, observed: int, limit: int, span: Span) -> None:
+        super().__init__(
+            message=f"Value nesting depth {observed} exceeds max_nesting_depth {limit}",
+            span=span,
+            code="NESTING_DEPTH_EXCEEDED",
         )
 
 

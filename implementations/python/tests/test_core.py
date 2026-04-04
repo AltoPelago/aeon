@@ -54,6 +54,16 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a:list = [1,,2]")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_top_level_bindings_require_explicit_delimiter(self) -> None:
+        result = compile_source("a = 1 b = 2")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Expected top-level binding delimiter", result.errors[0].message)
+
+    def test_top_level_bindings_reject_block_comment_only_separation(self) -> None:
+        result = compile_source("a = 1 /* gap */ b = 2")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Expected top-level binding delimiter", result.errors[0].message)
+
     def test_custom_datatype_rejected_in_strict_header(self) -> None:
         source = 'aeon:mode = "strict"\ncolor:stroke = #ff00ff'
         result = compile_source(source)
@@ -285,6 +295,11 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a = 1\nb = "unterminated')
         self.assertEqual(["UNTERMINATED_STRING"], [error.code for error in result.errors])
         self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
+
+    def test_out_of_range_braced_unicode_escape_fails_closed(self) -> None:
+        result = compile_source(r'value = "\u{110000}"')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
     def test_strict_mode_untyped_switch_uses_aligned_message(self) -> None:
         result = compile_source('aeon:mode = "strict"\ndebug = yes')

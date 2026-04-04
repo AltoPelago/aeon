@@ -33,7 +33,14 @@ from .ast import (
     TypeAnnotation,
     Value,
 )
-from .errors import GenericDepthExceededError, HeaderConflictError, InvalidSeparatorCharError, SeparatorDepthExceededError, SyntaxError
+from .errors import (
+    GenericDepthExceededError,
+    HeaderConflictError,
+    InvalidSeparatorCharError,
+    NestingDepthExceededError,
+    SeparatorDepthExceededError,
+    SyntaxError,
+)
 from .lexer import Token
 from .spans import Span
 
@@ -59,12 +66,21 @@ class ParseResult:
 
 
 class Parser:
-    def __init__(self, source: str, tokens: list[Token], max_separator_depth: int = 1, max_generic_depth: int = 1) -> None:
+    def __init__(
+        self,
+        source: str,
+        tokens: list[Token],
+        max_separator_depth: int = 1,
+        max_generic_depth: int = 1,
+        max_nesting_depth: int = 256,
+    ) -> None:
         self.source = source
         self.tokens = tokens
         self.current = 0
         self.max_separator_depth = max_separator_depth
         self.max_generic_depth = max_generic_depth
+        self.max_nesting_depth = max_nesting_depth
+        self.current_nesting_depth = 0
         self.errors: list[Exception] = []
         self.deferred_errors: list[Exception] = []
 
@@ -103,6 +119,8 @@ class Parser:
                     continue
                 binding = self.parse_binding()
                 bindings.append(binding)
+                if not self.check("EOF") and not self.check("NEWLINE") and not self.check("COMMA"):
+                    raise SyntaxError("Expected top-level binding delimiter", self.peek().span)
             except Exception as error:
                 self.errors.append(error)
                 if self.deferred_errors:
@@ -402,24 +420,31 @@ class Parser:
             return
 
     def parse_value(self) -> Value:
-        if self.check("LANGLE"):
-            return self.parse_node()
-        if self.check("RANGLE"):
-            return self.parse_trimtick_string()
-        if self.check("IDENT") and self.check_next("LANGLE"):
-            self.record_legacy_node_followup_error()
-            raise SyntaxError("Node values must use the '<tag>' or '<tag(...)>' forms", self.peek().span)
-        if self.check("LBRACE"):
-            return self.parse_object()
-        if self.check("LBRACKET"):
-            return self.parse_list()
-        if self.check("LPAREN"):
-            return self.parse_tuple()
-        if self.check("TILDE_ARROW"):
-            return self.parse_pointer_reference()
-        if self.check("TILDE"):
-            return self.parse_clone_reference()
-        return self.parse_literal()
+        self.current_nesting_depth += 1
+        if self.current_nesting_depth > self.max_nesting_depth:
+            self.current_nesting_depth -= 1
+            raise NestingDepthExceededError(self.current_nesting_depth + 1, self.max_nesting_depth, self.peek().span)
+        try:
+            if self.check("LANGLE"):
+                return self.parse_node()
+            if self.check("RANGLE"):
+                return self.parse_trimtick_string()
+            if self.check("IDENT") and self.check_next("LANGLE"):
+                self.record_legacy_node_followup_error()
+                raise SyntaxError("Node values must use the '<tag>' or '<tag(...)>' forms", self.peek().span)
+            if self.check("LBRACE"):
+                return self.parse_object()
+            if self.check("LBRACKET"):
+                return self.parse_list()
+            if self.check("LPAREN"):
+                return self.parse_tuple()
+            if self.check("TILDE_ARROW"):
+                return self.parse_pointer_reference()
+            if self.check("TILDE"):
+                return self.parse_clone_reference()
+            return self.parse_literal()
+        finally:
+            self.current_nesting_depth -= 1
 
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
@@ -718,8 +743,20 @@ class Parser:
         raise SyntaxError(message, self.peek().span)
 
 
-def parse_tokens(source: str, tokens: list[Token], max_separator_depth: int = 1, max_generic_depth: int = 1) -> ParseResult:
-    return Parser(source, tokens, max_separator_depth=max_separator_depth, max_generic_depth=max_generic_depth).parse()
+def parse_tokens(
+    source: str,
+    tokens: list[Token],
+    max_separator_depth: int = 1,
+    max_generic_depth: int = 1,
+    max_nesting_depth: int = 256,
+) -> ParseResult:
+    return Parser(
+        source,
+        tokens,
+        max_separator_depth=max_separator_depth,
+        max_generic_depth=max_generic_depth,
+        max_nesting_depth=max_nesting_depth,
+    ).parse()
 
 
 def apply_trimticks(raw: str, marker_width: int) -> str:

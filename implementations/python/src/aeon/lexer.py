@@ -234,19 +234,41 @@ class Lexer:
                             hex_digits.append(self.advance())
                         if not self.match("}") or not 1 <= len(hex_digits) <= 6:
                             self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.consume_invalid_string_tail(delimiter, is_raw)
                             return
-                        value_parts.append(chr(int("".join(hex_digits), 16)))
+                        if any(not self.is_hex_digit(c) for c in hex_digits):
+                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.consume_invalid_string_tail(delimiter, is_raw)
+                            return
+                        codepoint = int("".join(hex_digits), 16)
+                        if codepoint > 0x10FFFF:
+                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.consume_invalid_string_tail(delimiter, is_raw)
+                            return
+                        value_parts.append(chr(codepoint))
                         continue
                     hex_digits = "".join(self.advance() for _ in range(4) if not self.is_at_end())
                     if len(hex_digits) != 4 or any(not self.is_hex_digit(c) for c in hex_digits):
                         self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                        self.consume_invalid_string_tail(delimiter, is_raw)
                         return
                     value_parts.append(chr(int(hex_digits, 16)))
                     continue
                 self.errors.append(SyntaxError("Invalid escape sequence", self.make_span(start)))
+                self.consume_invalid_string_tail(delimiter, is_raw)
                 return
             value_parts.append(self.advance())
         self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
+
+    def consume_invalid_string_tail(self, delimiter: str, is_raw: bool) -> None:
+        while not self.is_at_end():
+            char = self.peek()
+            if char == delimiter:
+                self.advance()
+                return
+            if char == "\n" and not is_raw:
+                return
+            self.advance()
 
     def scan_block_comment(self, start: Position) -> None:
         while not self.is_at_end():
