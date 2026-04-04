@@ -545,7 +545,28 @@ describe('Parser', () => {
         });
 
         it('should parse quoted bracket segment in reference path', () => {
-            const tokens = tokenize('"a.b" = 2\nv = ~["a.b"]').tokens;
+            const tokens = tokenize('"a.b" = 2\nv = ~$.["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const ref = result.document!.bindings[1]!.value;
+            if (ref.type === 'CloneReference') {
+                assert.deepStrictEqual(ref.path, ['a.b']);
+            } else {
+                assert.fail(`Expected CloneReference, got ${ref.type}`);
+            }
+        });
+
+        it('should reject quoted root-member traversal without an explicit dot after $', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~$["a.b"]').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should parse quoted root-member traversal with an explicit dot after $', () => {
+            const tokens = tokenize('"a.b" = 2\nv = ~$.["a.b"]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);

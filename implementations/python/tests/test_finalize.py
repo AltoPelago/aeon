@@ -126,6 +126,16 @@ class FinalizeJsonTests(unittest.TestCase):
         time = finalize_json(compile_events("opens = 09:30:00+02:40"), FinalizeOptions(mode="loose"))
         self.assertEqual("09:30:00+02:40", time["document"]["opens"])
 
+    def test_reports_infinity_as_outside_strict_json_profile(self) -> None:
+        result = finalize_json(compile_events("limit:infinity = Infinity"), FinalizeOptions(mode="strict"))
+        self.assertEqual("Infinity", result["document"]["limit"])
+        self.assertTrue(result["meta"]["errors"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_INFINITY", result["meta"]["errors"][0]["code"])
+
+    def test_preserves_hex_case_while_stripping_visual_separators(self) -> None:
+        result = finalize_json(compile_events("color:hex = #Ff_00_Aa"), FinalizeOptions(mode="strict"))
+        self.assertEqual("Ff00Aa", result["document"]["color"])
+
     def test_strips_underscore_separators_from_finalized_radix_strings(self) -> None:
         result = finalize_json(compile_events("mask = %101_0101"), FinalizeOptions(mode="strict"))
         self.assertEqual("1010101", result["document"]["mask"])

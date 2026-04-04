@@ -32,6 +32,14 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a = 1\nv = ~a.[""]')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_root_quoted_member_requires_explicit_dot(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~$["a.b"]')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_root_quoted_member_accepts_explicit_dot_form(self) -> None:
+        result = compile_source('"a.b" = 1\nv = ~$.["a.b"]')
+        self.assertEqual([], result.errors)
+
     def test_escaped_backtick_inside_backtick_string(self) -> None:
         result = compile_source("string006:string = `\\``")
         self.assertEqual([], result.errors)

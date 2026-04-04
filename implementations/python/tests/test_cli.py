@@ -195,6 +195,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual({"n": "9007199254740993.0"}, payload["document"])
         self.assertEqual("FINALIZE_UNSAFE_NUMBER", payload["meta"]["errors"][0]["code"])
 
+    def test_finalize_json_reports_infinity_as_strict_json_profile_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "infinity.aeon"
+            fixture.write_text("limit:infinity = Infinity\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"limit": "Infinity"}, payload["document"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_INFINITY", payload["meta"]["errors"][0]["code"])
+
     def test_finalize_json_supports_projected_payload_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "projection.aeon"

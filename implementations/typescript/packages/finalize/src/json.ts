@@ -22,10 +22,17 @@ type FinalizeScope = 'full' | 'header' | 'payload';
 type JsonReferenceStrategy = 'tokens' | 'link-pointers';
 type JsonContainer = JsonObject | JsonValue[];
 
-function toDiagnostic(level: 'error' | 'warning', message: string, path?: string, span?: unknown): Diagnostic {
+function toDiagnostic(
+    level: 'error' | 'warning',
+    message: string,
+    path?: string,
+    span?: unknown,
+    code?: string
+): Diagnostic {
     return {
         level,
         message,
+        ...(code !== undefined ? { code } : {}),
         ...(path !== undefined ? { path } : {}),
         ...(span !== undefined ? { span: span as any } : {}),
     };
@@ -226,14 +233,24 @@ function valueToJson(
             }
             return numeric;
         }
-        case 'InfinityLiteral':
+        case 'InfinityLiteral': {
+            const diag = toDiagnostic(
+                ctx.strict ? 'error' : 'warning',
+                `Infinity literal is not representable in the strict JSON profile: ${value.value}`,
+                path,
+                value.span,
+                'FINALIZE_JSON_PROFILE_INFINITY'
+            );
+            if (ctx.strict) ctx.errors.push(diag);
+            else ctx.warnings.push(diag);
             return value.value;
+        }
         case 'BooleanLiteral':
             return value.value;
         case 'SwitchLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
-            return value.value.replace(/_/g, '').toLowerCase();
+            return value.value.replace(/_/g, '');
         case 'RadixLiteral': {
             const normalized = value.value.replace(/_/g, '');
             const radixBase = declaredRadixBase(datatype ?? datatypeForPath(path, ctx));

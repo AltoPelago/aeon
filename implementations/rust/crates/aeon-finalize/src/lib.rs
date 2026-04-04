@@ -499,7 +499,19 @@ fn value_to_json(
     let result = match value {
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
-        Value::InfinityLiteral { raw } => JsonValue::String(raw.clone()),
+        Value::InfinityLiteral { raw } => {
+            let diag = Diagnostic::new(
+                "FINALIZE_JSON_PROFILE_INFINITY",
+                format!("Infinity literal is not representable in the strict JSON profile: {raw}"),
+            )
+            .at_path(path);
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
+            }
+            JsonValue::String(raw.clone())
+        }
         Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
         Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').replace('_', "")),
@@ -1564,13 +1576,13 @@ mod tests {
 
     #[test]
     fn strips_literal_sigils_in_finalized_json_like_typescript() {
-        let source = "hex = #FFF\nrad = %1011\nenc = $QmFzZTY0\n";
+        let source = "hex = #Ff_FF\nrad = %1011\nenc = $QmFzZTY0\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(
             finalized.document,
             json!({
-                "hex": "FFF",
+                "hex": "FfFF",
                 "rad": "1011",
                 "enc": "QmFzZTY0"
             })
@@ -1603,6 +1615,16 @@ mod tests {
         assert_eq!(finalized.document, json!({ "n": "9007199254740993.0" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert_eq!(finalized.meta.errors[0].code, "FINALIZE_UNSAFE_NUMBER");
+    }
+
+    #[test]
+    fn reports_infinity_as_outside_strict_json_profile() {
+        let source = "limit:infinity = Infinity\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "limit": "Infinity" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_INFINITY");
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

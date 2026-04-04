@@ -205,7 +205,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             scalar_value("SwitchLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
         Value::HexLiteral { raw } => {
-            scalar_value("HexLiteral", raw.clone(), JsonValue::String(raw.clone()))
+            scalar_value(
+                "HexLiteral",
+                raw.clone(),
+                JsonValue::String(raw.trim_start_matches('#').to_string()),
+            )
         }
         Value::SeparatorLiteral { raw } => scalar_value(
             "SeparatorLiteral",
@@ -361,6 +365,27 @@ mod tests {
         assert_eq!(
             by_key["radix"].value,
             Some(JsonValue::String(String::from("+A_!_&z")))
+        );
+    }
+
+    #[test]
+    fn surfaced_hex_values_keep_raw_and_drop_sigil_from_value() {
+        let loaded = load_str::<BTreeMap<String, JsonValue>>(
+            "color = #Ff_00_Aa\n",
+            LoadOptions::default(),
+        )
+        .expect("load success");
+
+        let events = core_events_to_aeos(&loaded.compiled.events);
+        let by_key = events
+            .iter()
+            .map(|event| (event.key.as_str(), &event.value))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(by_key["color"].raw, Some(String::from("#Ff_00_Aa")));
+        assert_eq!(
+            by_key["color"].value,
+            Some(JsonValue::String(String::from("Ff_00_Aa")))
         );
     }
 

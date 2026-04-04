@@ -186,12 +186,14 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
         return value.get("value")
     if value_type == "NumberLiteral":
         return number_to_json(value, ctx, path)
+    if value_type == "InfinityLiteral":
+        return infinity_to_json(value, ctx, path)
     if value_type == "BooleanLiteral":
         return value.get("value")
     if value_type == "SwitchLiteral":
         return value.get("value") in {"yes", "on"}
     if value_type == "HexLiteral":
-        return value.get("value")
+        return str(value.get("value", "")).replace("_", "")
     if value_type == "RadixLiteral":
         return radix_to_json(value, ctx, path, datatype)
     if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
@@ -230,6 +232,18 @@ def number_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> obj
         ctx.emit("error" if ctx.strict else "warning", "FINALIZE_UNSAFE_NUMBER", f"Numeric literal exceeds JSON safe range: {raw}", path, value.get("span"))
         return raw
     return number
+
+
+def infinity_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> str:
+    raw = str(value.get("value", ""))
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_JSON_PROFILE_INFINITY",
+        f"Infinity literal is not representable in the strict JSON profile: {raw}",
+        path,
+        value.get("span"),
+    )
+    return raw
 
 
 def radix_to_json(value: dict[str, object], ctx: JsonContext, path: str, datatype: object) -> str:
