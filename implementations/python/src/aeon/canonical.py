@@ -416,34 +416,7 @@ def format_number(raw: str) -> str:
 
 
 def format_separator(raw: str) -> str:
-    content = raw[1:] if raw.startswith("^") else raw
-    parts: list[str] = []
-    separators: list[str] = []
-    current: list[str] = []
-    in_quote: str | None = None
-
-    for char in content:
-        if char in {'"', "'"}:
-            if in_quote is None:
-                in_quote = char
-            elif in_quote == char:
-                in_quote = None
-            current.append(char)
-            continue
-        if in_quote is None and char in {"|", ",", ";"}:
-            parts.append("".join(current).strip())
-            separators.append(char)
-            current = []
-            continue
-        current.append(char)
-
-    parts.append("".join(current) if in_quote else "".join(current).strip())
-    result: list[str] = []
-    for index, part in enumerate(parts):
-        result.append(part)
-        if index < len(separators):
-            result.append(separators[index])
-    return "".join(result)
+    return raw[1:] if raw.startswith("^") else raw
 
 
 def is_simple_value(value: Value) -> bool:

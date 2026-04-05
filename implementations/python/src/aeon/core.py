@@ -407,6 +407,17 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
                 )
             )
             continue
+        if expected is not None and reserved_separator_datatype_requires_specs(binding.datatype) and actual_kind == "SeparatorLiteral":
+            errors.append(
+                DatatypeLiteralMismatchError(
+                    format_path(binding.path),
+                    binding.datatype,
+                    actual_kind,
+                    expected,
+                    binding.span,
+                )
+            )
+            continue
         if expected is None:
             custom_shape = classify_custom_datatype_shape(binding.datatype)
             if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
@@ -566,6 +577,9 @@ def validate_annotation_entries(
                 value = entry.get("value")
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
+                    if expected is not None and reserved_separator_datatype_requires_specs(datatype) and actual_kind == "SeparatorLiteral":
+                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
+                        continue
                     if expected is None:
                         custom_shape = classify_custom_datatype_shape(datatype)
                         if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
@@ -864,6 +878,10 @@ def datatype_base(datatype: str) -> str:
     return datatype[:end]
 
 
+def reserved_separator_datatype_requires_specs(datatype: str) -> bool:
+    return datatype_base(datatype) in {"sep", "set"} and not datatype_bracket_specs(datatype)
+
+
 def datatype_has_generic_args(datatype: str) -> bool:
     bracket_depth = 0
     generic_start = -1
@@ -929,7 +947,7 @@ def value_kind(value: Value) -> str:
     if isinstance(value, DateTimeLiteral):
         return "ZRUTDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
     if isinstance(value, SeparatorLiteral):
-        return "InvalidSeparatorLiteral" if value.raw.startswith("^ ") else "SeparatorLiteral"
+        return "SeparatorLiteral"
     if isinstance(value, HexLiteral):
         return "HexLiteral" if has_valid_literal_underscores(value.raw) else "InvalidHexLiteral"
     if isinstance(value, RadixLiteral):

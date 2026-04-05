@@ -73,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         help="Pass --brief through to the snippet harnesses when --run is enabled.",
     )
     parser.add_argument(
+        "--failures-only",
+        action="store_true",
+        help="Pass --failures-only through to the snippet harnesses when --run is enabled.",
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="Pass --no-color through to the snippet harnesses when --run is enabled.",
@@ -374,6 +379,8 @@ def run_generated_corpora(
             ]
             if args.brief:
                 command.append("--brief")
+            if args.failures_only:
+                command.append("--failures-only")
             if args.no_color:
                 command.append("--no-color")
             print()

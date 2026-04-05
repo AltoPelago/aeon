@@ -1823,11 +1823,11 @@ mod tests {
 
     #[test]
     fn strips_trailing_comments_from_raw_literals_in_canonicalization() {
-        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[/] = ^root/main/file.aeon // comment\n");
+        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[|] = ^aaa // comment\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[/] = ^root/main/file.aeon\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[|] = ^aaa\n"
         );
     }
 

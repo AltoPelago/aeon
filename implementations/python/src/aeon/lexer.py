@@ -333,52 +333,32 @@ class Lexer:
 
     def scan_separator_literal(self, start: Position) -> None:
         chars = ["^"]
-        in_quote: str | None = None
-        saw_non_space = False
         saw_payload_char = False
         while not self.is_at_end():
             char = self.peek()
-            next_char = self.peek_next()
-            if in_quote is not None:
-                if char == "\\":
-                    chars.append(self.advance())
-                    if not self.is_at_end():
-                        chars.append(self.advance())
-                    continue
-                chars.append(self.advance())
-                if char == in_quote:
-                    in_quote = None
-                continue
             if char in {'"', "'"}:
-                in_quote = char
                 chars.append(self.advance())
-                saw_non_space = True
                 saw_payload_char = True
-                continue
-            if char in {"\n", "\0", ",", "]", ")", "}"}:
-                break
-            if char == "\\" and next_char in {"\\", ",", " "}:
-                chars.append(self.advance())
-                chars.append(self.advance())
-                saw_non_space = True
-                saw_payload_char = True
-                continue
-            if char in {" ", "\t"} and not saw_payload_char:
-                probe = self.offset
-                while probe < len(self.source) and self.source[probe] in {" ", "\t"}:
-                    probe += 1
-                next_visible = self.source[probe] if probe < len(self.source) else "\0"
-                if next_visible in {"\n", "\0", ",", "]", ")", "}"}:
+                while not self.is_at_end():
+                    inner = self.peek()
+                    if inner in {"\n", "\0"}:
+                        self.errors.append(UnterminatedStringError(char, self.make_span(start)))
+                        return
                     chars.append(self.advance())
-                    saw_payload_char = True
-                    continue
-                break
-            if char in {" ", "\t"} and saw_non_space:
+                    if inner == "\\":
+                        if not self.is_at_end():
+                            chars.append(self.advance())
+                        continue
+                    if inner == char:
+                        break
+                if chars[-1] != char:
+                    self.errors.append(UnterminatedStringError(char, self.make_span(start)))
+                    return
+                continue
+            if not self.is_separator_raw_char(char):
                 break
             chars.append(self.advance())
-            if char not in {" ", "\t"}:
-                saw_non_space = True
-                saw_payload_char = True
+            saw_payload_char = True
         value = "".join(chars)
         if value == "^":
             self.errors.append(SyntaxError("Separator literals must contain a payload", self.make_span(start)))
@@ -584,7 +564,37 @@ class Lexer:
 
     @staticmethod
     def is_valid_separator_payload(payload: str) -> bool:
-        return not any(char in "[]{}()" for char in payload)
+        if not payload:
+            return False
+        index = 0
+        while index < len(payload):
+            char = payload[index]
+            if char in {'"', "'"}:
+                quote = char
+                index += 1
+                terminated = False
+                while index < len(payload):
+                    inner = payload[index]
+                    if inner in {"\n", "\r"}:
+                        return False
+                    if inner == "\\":
+                        index += 2
+                        continue
+                    index += 1
+                    if inner == quote:
+                        terminated = True
+                        break
+                if not terminated:
+                    return False
+                continue
+            if not Lexer.is_separator_raw_char(char):
+                return False
+            index += 1
+        return True
+
+    @staticmethod
+    def is_separator_raw_char(char: str) -> bool:
+        return bool(re.match(r"^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$", char))
 
     @staticmethod
     def matches_time_core(value: str, allow_hour_precision_marker: bool) -> bool:

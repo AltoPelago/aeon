@@ -283,11 +283,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertTrue(datatype_has_generic_args("custom<custom>"))
         self.assertFalse(datatype_has_generic_args('custom["<"][">"]'))
 
-    def test_separator_literals_terminate_before_tab_followed_comments(self) -> None:
-        result = compile_source('g:sep = ^1\t// d')
+    def test_separator_literals_terminate_before_comments_resume(self) -> None:
+        result = compile_source('g:sep[|] = ^aaa // d')
         self.assertEqual([], result.errors)
         self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
-        self.assertEqual("^1", result.events[0]["value"]["raw"])
+        self.assertEqual("^aaa", result.events[0]["value"]["raw"])
 
     def test_missing_attribute_reference(self) -> None:
         result = compile_source("a = 1\nv = ~a@ns")
@@ -456,15 +456,22 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue:sep = ^")
         self.assertNotEqual([], result.errors)
 
-    def test_spaces_only_separator_literal_inside_node_child_is_accepted(self) -> None:
-        result = compile_source("n:node = <b(^    )>")
+    def test_separator_literals_accept_quoted_segments_with_spaces_and_punctuation(self) -> None:
+        result = compile_source('value:sep[|] = ^"hello world"|"this, [is] fine"')
         self.assertEqual([], result.errors)
-        child = result.events[0]["value"]["children"][0]
-        self.assertEqual("    ", child["value"])
+        self.assertEqual('"hello world"|"this, [is] fine"', result.events[0]["value"]["value"])
 
-    def test_unparameterized_separator_datatype_rejects_caret_with_non_space_payload(self) -> None:
-        result = compile_source("blue:sep = ^ 200")
+    def test_separator_literals_reject_raw_spaces(self) -> None:
+        result = compile_source("n:node = <b(^aaa bbb)>")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_separator_literals_reject_raw_slashes(self) -> None:
+        result = compile_source("blue:sep[|] = ^root/main")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_unparameterized_separator_datatype_rejects_caret_payload(self) -> None:
+        result = compile_source("blue:sep = ^200")
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
         result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))

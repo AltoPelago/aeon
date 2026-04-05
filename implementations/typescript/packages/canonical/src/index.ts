@@ -763,38 +763,7 @@ function trimTrailingZeros(value: string): string {
 }
 
 function formatSeparator(raw: string): string {
-    const content = raw.startsWith('^') ? raw.slice(1) : raw;
-    const parts: string[] = [];
-    const seps: string[] = [];
-    let current = '';
-    let inQuote: string | null = null;
-
-    for (let i = 0; i < content.length; i++) {
-        const ch = content[i]!;
-        if (ch === '"' || ch === "'") {
-            if (inQuote === null) inQuote = ch;
-            else if (inQuote === ch) inQuote = null;
-            current += ch;
-            continue;
-        }
-
-        if (inQuote === null && (ch === '|' || ch === ',' || ch === ';')) {
-            parts.push(current.trim());
-            seps.push(ch);
-            current = '';
-            continue;
-        }
-
-        current += ch;
-    }
-    parts.push(inQuote ? current : current.trim());
-
-    let result = '';
-    for (let i = 0; i < parts.length; i++) {
-        result += parts[i]!;
-        if (seps[i]) result += seps[i]!;
-    }
-    return result;
+    return raw.startsWith('^') ? raw.slice(1) : raw;
 }
 
 function isSimpleValue(value: Value): boolean {

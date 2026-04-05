@@ -273,6 +273,14 @@ test('canonicalizes chained separator specs up to the v1 capability floor', () =
     assert.equal(reparsed.errors.length, 0);
 });
 
+test('canonicalize preserves separator payload quoting without trimming raw segments', () => {
+    const input = 'parts:sep[|] = ^"hello world"|tail';
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('parts:sep[|] = ^"hello world"|tail'));
+});
+
 test('canonicalize honors custom maxSeparatorDepth', () => {
     const input = 'grid:dim[x][y] = ^100x200y300';
     const result = canonicalize(input, { maxSeparatorDepth: 1 });

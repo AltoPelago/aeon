@@ -296,6 +296,16 @@ export function enforceMode(
             errors.push(new CustomSwitchAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
+        if (expectedKinds && reservedSeparatorDatatypeRequiresSpecs(event.datatype) && actualKind === 'SeparatorLiteral') {
+            errors.push(new DatatypeLiteralMismatchError(
+                event.span,
+                formatPath(event.path),
+                event.datatype,
+                actualKind,
+                expectedKinds
+            ));
+            continue;
+        }
         if (expectedKinds && !expectedKinds.includes(actualKind)) {
             errors.push(new DatatypeLiteralMismatchError(
                 event.span,
@@ -425,7 +435,7 @@ function resolvedValueKind(value: Value): string {
         return value.raw.includes('&') ? 'ZRUTDateTimeLiteral' : 'DateTimeLiteral';
     }
     if (value.type === 'SeparatorLiteral') {
-        return value.raw.startsWith('^ ') ? 'InvalidSeparatorLiteral' : 'SeparatorLiteral';
+        return 'SeparatorLiteral';
     }
     if (value.type === 'HexLiteral') {
         return hasValidLiteralUnderscores(value.raw) ? 'HexLiteral' : 'InvalidHexLiteral';
@@ -516,6 +526,16 @@ function validateAnnotationEntries(
             } else {
                 const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
                 const actualKind = resolvedValueKind(resolved);
+                if (expectedKinds && reservedSeparatorDatatypeRequiresSpecs(entry.datatype) && actualKind === 'SeparatorLiteral') {
+                    errors.push(new DatatypeLiteralMismatchError(
+                        span,
+                        attrPath,
+                        entry.datatype,
+                        actualKind,
+                        expectedKinds
+                    ));
+                    continue;
+                }
                 if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         span,
@@ -791,6 +811,11 @@ function datatypeBase(datatype: string): string {
         .filter((idx) => idx >= 0)
         .reduce((min, idx) => Math.min(min, idx), datatype.length);
     return datatype.slice(0, endIdx);
+}
+
+function reservedSeparatorDatatypeRequiresSpecs(datatype: string): boolean {
+    const base = datatypeBase(datatype);
+    return SEPARATOR_TYPES.has(base) && bracketSpecs(datatype).length === 0;
 }
 
 export function datatypeHasGenericArgs(datatype: string): boolean {

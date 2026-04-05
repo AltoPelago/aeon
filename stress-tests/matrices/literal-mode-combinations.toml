@@ -1,40 +1,40 @@
 mode_order = ["strict", "custom", "transport"]
 
 [[stress]]
-description = "1a. boolean"
+description = "Boolean"
 key = "a"
 type = { strict = ":boolean", custom = ":flag", transport = "" }
 value = [
   ["true", "false"],
 ]
-string = "|KEY||TYPE| = |0|"
+string = "|KEY||TYPE| = |0| // boolean"
 outcome = "pass"
 
 [[stress]]
-description = "2a. switch"
+description = "Switch"
 key = "a"
 type = { strict = ":switch", custom = ":toggle", transport = "" }
 value = [
   ["yes", "no", "on", "off"],
 ]
-string = "|KEY||TYPE| = |0|"
+string = "|KEY||TYPE| = |0| // switch"
 outcome = "pass"
 
 [[stress]]
-description = "3a. number"
+description = "Number +/-"
 key = "a"
-type = { strict = ":number", custom = ":n", transport = "" }
+type = { strict = ":number", custom = ":mm", transport = "" }
 value = [
   ["-", "+", ""],
   ["0", "1", "3000"],
 ]
-string = "|KEY||TYPE| = |0|1|"
+string = "|KEY||TYPE| = |0|1| // number"
 outcome = "pass"
 
 [[stress]]
-description = "3b. number exponent"
+description = "Number exponent"
 key = "a"
-type = { strict = ":number", custom = ":n", transport = "" }
+type = { strict = ":number", custom = ":mm", transport = "" }
 value = [
   ["-", "+", ""],
   ["0", "1", "3000"],
@@ -42,13 +42,13 @@ value = [
   ["+", "-", ""],
   ["0", "2", "33"],
 ]
-string = "|KEY||TYPE| = |0|1|2|3|4|"
+string = "|KEY||TYPE| = |0|1|2|3|4| // number"
 outcome = "pass"
 
 [[stress]]
-description = "3c. number float"
+description = "Number float"
 key = "a"
-type = { strict = ":number", custom = ":n", transport = "" }
+type = { strict = ":number", custom = ":mm", transport = "" }
 value = [
   ["-", "+", ""],
   ["0", "1", "3000", ""],
@@ -56,5 +56,52 @@ value = [
   ["2", "33", "0", "00"],
   ["", "e0", "e2", "e-2", "e+2"],
 ]
-string = "|KEY||TYPE| = |0|1|2|3|4|"
+string = "|KEY||TYPE| = |0|1|2|3|4| // number"
+outcome = "pass"
+
+[[stress]]
+description = "String escaping"
+key = "a"
+type = { strict = ":string", custom = ":custom", transport = "" }
+value = [
+  ["AZ", "az", "09"],
+  ["\t", "\n", "\r", "\b"],
+]
+string = "|KEY||TYPE| = \"|0|1|.\" // string"
+outcome = "pass"
+
+[[stress]]
+description = "Attribute"
+key = "a"
+type = { strict = ":string", custom = ":custom", transport = "" }
+value = [
+  ["AZ", "az", "09"],
+  ["\t", "\n", "\r", "\b"],
+]
+string = "|KEY|@{|KEY||TYPE| = \"|0|1|!\"}|TYPE| = \"|0|1|.\" // string"
+outcome = "pass"
+
+[[stress]]
+description = "Hex"
+key = "a"
+type = { strict = ":hex", custom = ":color", transport = "" }
+value = [
+  ["00", "99", "FF"],
+  ["0_0", "9_9", "F_F"],
+  ["00", "99", "FF"],
+]
+string = "|KEY||TYPE| = #|0|1|2| // hex"
+outcome = "pass"
+
+[[stress]]
+description = "Sep"
+key = "a"
+type = { strict = ":sep", custom = ":code", transport = "" }
+value = [
+  [".", "2", "x"],
+  ["00", "99", "FF"],
+  ["!\"#$%&'*+-./", "0123456789", "Az", "\\ "],
+  [":;=?@^_`|~", "<>", "\\"],
+]
+string = "|KEY||TYPE|[|0|] = ^|0|1|2| // sep"
 outcome = "pass"

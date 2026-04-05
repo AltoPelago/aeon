@@ -125,12 +125,8 @@ function slashChannelClosingMarker(openMarker: string): string {
     return openMarker;
 }
 
-function isSeparatorBoundary(c: string): boolean {
-    return c === '\n' || c === ',' || c === ']' || c === ')' || c === '}';
-}
-
-function isHorizontalWhitespace(c: string): boolean {
-    return c === ' ' || c === '\t';
+function isSeparatorRawChar(c: string): boolean {
+    return /[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]/.test(c);
 }
 
 
@@ -775,57 +771,51 @@ export class Lexer {
 
     private scanSeparatorLiteral(start: Position): void {
         let value = '^';
-        let inQuote: string | null = null; // Track which quote character we're inside
+        let sawPayload = false;
 
-        // Raw separator payload terminates on grammar boundaries outside quotes.
         while (!this.isAtEnd()) {
             const c = this.peek();
-            const next = this.peekNext();
 
-            // Check for terminators only when not inside quotes.
-            if (inQuote === null && isSeparatorBoundary(c)) {
-                break;
-            }
-
-            // Unescaped horizontal whitespace inside raw payload is only allowed as
-            // trailing padding immediately before the next grammar boundary.
-            // Interior spaces/tabs must be escaped.
-            if (inQuote === null && isHorizontalWhitespace(c) && !this.onlyWhitespaceUntilSeparatorBoundary()) {
-                break;
-            }
-
-            // Handle the small set of raw separator escapes we still allow.
-            if (inQuote === null && c === '\\' && (next === '\\' || next === ',' || next === ' ')) {
-                value += this.advance(); // consume backslash
-                value += this.advance(); // consume escaped character
-                continue;
-            }
-
-            // Handle quote state transitions.
             if (c === '"' || c === "'") {
-                if (inQuote === null) {
-                    // Entering a quoted section.
-                    inQuote = c;
-                } else if (inQuote === c) {
-                    // Exiting the quoted section.
-                    inQuote = null;
-                }
-                // If inQuote is a different character, we're still inside the other quote type.
-            }
+                const quote = this.advance();
+                value += quote;
+                sawPayload = true;
 
-            // Handle escape sequences inside quotes.
-            if (inQuote !== null && c === '\\') {
-                value += this.advance(); // consume backslash
-                if (!this.isAtEnd()) {
-                    value += this.advance(); // consume escaped character
+                while (!this.isAtEnd()) {
+                    const inner = this.peek();
+                    if (inner === '\n') {
+                        this.errors.push(new UnterminatedStringError(quote, createSpan(start, this.currentPosition())));
+                        return;
+                    }
+                    if (inner === '\\') {
+                        value += this.advance();
+                        if (!this.isAtEnd()) {
+                            value += this.advance();
+                        }
+                        continue;
+                    }
+                    value += this.advance();
+                    if (inner === quote) {
+                        break;
+                    }
+                }
+
+                if (!value.endsWith(quote)) {
+                    this.errors.push(new UnterminatedStringError(quote, createSpan(start, this.currentPosition())));
+                    return;
                 }
                 continue;
+            }
+
+            if (!isSeparatorRawChar(c)) {
+                break;
             }
 
             value += this.advance();
+            sawPayload = true;
         }
 
-        if (value === '^') {
+        if (!sawPayload) {
             this.addToken(TokenType.Caret, value, start);
             return;
         }
@@ -836,19 +826,6 @@ export class Lexer {
         }
 
         this.addToken(TokenType.SeparatorLiteral, value, start);
-    }
-
-    private onlyWhitespaceUntilSeparatorBoundary(): boolean {
-        let index = this.offset;
-        while (index < this.input.length) {
-            const c = this.input[index]!;
-            if (isHorizontalWhitespace(c)) {
-                index += 1;
-                continue;
-            }
-            return isSeparatorBoundary(c);
-        }
-        return true;
     }
 
     private scanIdentifierOrKeyword(first: string, start: Position): void {
@@ -1165,7 +1142,40 @@ function isValidZrutZone(zone: string): boolean {
 }
 
 function isValidSeparatorPayload(payload: string): boolean {
-    return !/[()[\]{}]/.test(payload);
+    if (payload.length === 0) return false;
+
+    let index = 0;
+    while (index < payload.length) {
+        const c = payload[index]!;
+        if (c === '"' || c === "'") {
+            const quote = c;
+            index += 1;
+            while (index < payload.length) {
+                const inner = payload[index]!;
+                if (inner === '\n') {
+                    return false;
+                }
+                if (inner === '\\') {
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                if (inner === quote) {
+                    break;
+                }
+            }
+            if (index > payload.length || payload[index - 1] !== quote) {
+                return false;
+            }
+            continue;
+        }
+        if (!isSeparatorRawChar(c)) {
+            return false;
+        }
+        index += 1;
+    }
+
+    return true;
 }
 
 function isValidRadixDigit(c: string): boolean {

@@ -345,41 +345,53 @@ impl<'a> Lexer<'a> {
     }
 
     fn scan_separator_literal(&mut self, start: Position) {
-        let mut saw_payload_char = false;
         while !self.is_at_end() {
             match self.peek() {
-                '\n' | '\r' | ',' | ']' | ')' | '}' => break,
-                ' ' | '\t' if !saw_payload_char => {
-                    self.errors.push(LexError {
-                        code: String::from("SYNTAX_ERROR"),
-                        message: String::from(
-                            "Separator literals must not begin with an unescaped space",
-                        ),
-                        span: Span {
-                            start,
-                            end: self.current_position(),
-                        },
-                    });
-                    return;
-                }
-                '\\'
-                    if matches!(self.peek_next(), '\\' | ',' | ' ') =>
-                {
-                    self.advance();
-                    self.advance();
-                    saw_payload_char = true;
-                }
-                ' ' | '\t' if saw_payload_char => break,
-                '\\' => {
-                    saw_payload_char = true;
-                    self.advance();
-                }
-                _ => {
-                    if !matches!(self.peek(), ' ' | '\t') {
-                        saw_payload_char = true;
+                '"' | '\'' => {
+                    let quote = self.advance();
+                    while !self.is_at_end() {
+                        match self.peek() {
+                            '\n' | '\r' => {
+                                self.errors.push(LexError {
+                                    code: String::from("UNTERMINATED_STRING"),
+                                    message: format!("Unterminated string literal (started with {quote})"),
+                                    span: Span {
+                                        start,
+                                        end: self.current_position(),
+                                    },
+                                });
+                                return;
+                            }
+                            '\\' => {
+                                self.advance();
+                                if !self.is_at_end() {
+                                    self.advance();
+                                }
+                            }
+                            ch => {
+                                self.advance();
+                                if ch == quote {
+                                    break;
+                                }
+                            }
+                        }
                     }
+                    if self.is_at_end() && self.input[start.offset..self.offset].chars().last() != Some(quote) {
+                        self.errors.push(LexError {
+                            code: String::from("UNTERMINATED_STRING"),
+                            message: format!("Unterminated string literal (started with {quote})"),
+                            span: Span {
+                                start,
+                                end: self.current_position(),
+                            },
+                        });
+                        return;
+                    }
+                }
+                ch if is_separator_raw_char(ch) => {
                     self.advance();
                 }
+                _ => break,
             }
         }
         let text = self.slice_from(start.offset);
@@ -740,7 +752,74 @@ fn comment_metadata_for_marker(marker: char) -> CommentMetadata {
 }
 
 fn is_valid_separator_payload(payload: &str) -> bool {
-    !payload.chars().any(|ch| matches!(ch, '[' | ']' | '{' | '}' | '(' | ')'))
+    if payload.is_empty() {
+        return false;
+    }
+
+    let chars: Vec<char> = payload.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '"' || ch == '\'' {
+            let quote = ch;
+            index += 1;
+            let mut terminated = false;
+            while index < chars.len() {
+                let inner = chars[index];
+                if inner == '\n' || inner == '\r' {
+                    return false;
+                }
+                if inner == '\\' {
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                if inner == quote {
+                    terminated = true;
+                    break;
+                }
+            }
+            if !terminated {
+                return false;
+            }
+            continue;
+        }
+        if !is_separator_raw_char(ch) {
+            return false;
+        }
+        index += 1;
+    }
+
+    true
+}
+
+fn is_separator_raw_char(ch: char) -> bool {
+    matches!(
+        ch,
+        'A'..='Z'
+            | 'a'..='z'
+            | '0'..='9'
+            | '!'
+            | '#'
+            | '$'
+            | '%'
+            | '&'
+            | '*'
+            | '+'
+            | '-'
+            | '.'
+            | ':'
+            | ';'
+            | '='
+            | '?'
+            | '@'
+            | '^'
+            | '_'
+            | '|'
+            | '~'
+            | '<'
+            | '>'
+    )
 }
 
 #[cfg(test)]
@@ -912,21 +991,9 @@ mod tests {
     }
 
     #[test]
-    fn separator_literals_allow_comment_like_text() {
-        let result = tokenize("^http://www.aeonite.org/*hello*/file.aeon", LexerOptions::default());
-        assert!(result.errors.is_empty());
-        let token = result
-            .tokens
-            .iter()
-            .find(|token| token.kind == TokenKind::SeparatorLiteral)
-            .expect("separator token");
-        assert_eq!(token.text, "^http://www.aeonite.org/*hello*/file.aeon");
-    }
-
-    #[test]
-    fn separator_literals_terminate_before_tab_followed_comments() {
+    fn separator_literals_terminate_before_line_comments() {
         let result = tokenize(
-            "^1\t// hello",
+            "^aaa// hello",
             LexerOptions {
                 include_comments: true,
                 ..LexerOptions::default()
@@ -934,21 +1001,41 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
-        assert_eq!(result.tokens[0].text, "^1");
+        assert_eq!(result.tokens[0].text, "^aaa");
         assert_eq!(result.tokens[1].kind, TokenKind::LineComment);
         assert_eq!(result.tokens[1].text, "// hello");
     }
 
     #[test]
-    fn separator_literals_reject_bracket_brace_and_paren_chars() {
-        for source in [
-            "^http://www.aeonite.org/[...]/",
-            "^http://www.aeonite.org/{...}/",
-            "^http://www.aeonite.org/(...)/",
-            "^http://www.aeonite.org//[hello",
-        ] {
-            let result = tokenize(source, LexerOptions::default());
-            assert_eq!(result.errors.len(), 1, "{source}");
-        }
+    fn separator_literals_preserve_quoted_segments_with_punctuation() {
+        let result = tokenize("^\"hello world\"|\"this, [is] fine\",tail", LexerOptions::default());
+        assert!(result.errors.is_empty());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^\"hello world\"|\"this, [is] fine\"");
+        assert_eq!(result.tokens[1].kind, TokenKind::Comma);
+    }
+
+    #[test]
+    fn separator_literals_reject_unterminated_quoted_sections() {
+        let result = tokenize("^&\"*+,-.", LexerOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
+    }
+
+    #[test]
+    fn separator_literals_stop_before_raw_slashes() {
+        let result = tokenize("^root/main", LexerOptions::default());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^root");
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn separator_literals_stop_before_raw_spaces() {
+        let result = tokenize("^aaa bbb", LexerOptions::default());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^aaa");
+        assert_eq!(result.tokens[1].kind, TokenKind::Identifier);
+        assert_eq!(result.tokens[1].text, "bbb");
     }
 }

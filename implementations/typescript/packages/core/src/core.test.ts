@@ -397,43 +397,47 @@ describe('Core - compile()', () => {
 
     describe('separator depth policy', () => {
         it('should enforce max_separator_depth by default', () => {
-            const result = compile('a:grid[|][/] = ^1|2/3');
+            const result = compile('a:grid[|][x] = ^1|2x3');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'SEPARATOR_DEPTH_EXCEEDED'));
         });
 
         it('should allow chained separator specs when max_separator_depth is raised', () => {
-            const result = compile('a:grid[|][/] = ^1|2/3', { maxSeparatorDepth: 8 });
+            const result = compile('a:grid[|][x] = ^1|2x3', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept semicolon inside raw separator literal payload', () => {
+        it('should accept raw separator payloads that stay within the whitelist', () => {
             const result = compile('a:set[|] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept quoted semicolon inside separator literal payload', () => {
-            const result = compile('a:set[|] = ^"0;0"', { maxSeparatorDepth: 8 });
+        it('should accept quoted separator segments with spaces and punctuation', () => {
+            const result = compile('a:set[|] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept supported raw separator escapes inside separator literal payload', () => {
-            const result = compile('a:set[|] = ^0\\,0\\\\0\\ 0', { maxSeparatorDepth: 8 });
+        it('should reject unterminated quoted sections inside separator literal payload', () => {
+            const result = compile('a:set[|] = ^"0;0', { maxSeparatorDepth: 8 });
+            assert.ok(result.errors.some((e) => e.code === 'UNTERMINATED_STRING'));
+        });
+
+        it('should terminate raw separator payloads before comment syntax resumes', () => {
+            const result = compile('a:set[|] = ^aaa // d', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept spaces-only separator payload inside node children', () => {
-            const result = compile('r = <a(^    )>', { maxSeparatorDepth: 8 });
-            assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(result.events.length, 1);
+        it('should reject raw spaces inside separator payloads', () => {
+            const result = compile('r = <a(^aaa bbb)>', { maxSeparatorDepth: 8, recovery: true });
+            assert.ok(result.errors.some((e) => e.code === 'SYNTAX_ERROR'));
         });
 
-        it('should reject unescaped interior spaces inside raw separator payload in node children', () => {
-            const result = compile('n = <b(^a\\ b c)>', { maxSeparatorDepth: 8, recovery: true });
+        it('should reject raw slash characters inside separator payloads', () => {
+            const result = compile('n = <b(^root/main)>', { maxSeparatorDepth: 8, recovery: true });
             assert.ok(result.errors.some((e) => e.code === 'SYNTAX_ERROR'));
         });
     });
@@ -673,6 +677,12 @@ describe('Core - compile()', () => {
             const result = compile('blue:sep = ^');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.length > 0);
+        });
+
+        it('should reject unparameterized reserved separator datatypes with caret literals', () => {
+            const result = compile('blue:sep = ^200');
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
         });
 
         it('should reject separator literals whose payload is split onto the next line', () => {

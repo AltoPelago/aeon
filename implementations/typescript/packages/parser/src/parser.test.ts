@@ -754,7 +754,19 @@ describe('Parser', () => {
             assert.strictEqual(result.errors[0]!.code, 'ATTRIBUTE_DEPTH_EXCEEDED');
         });
 
-        it('should keep semicolon inside raw separator literal payload', () => {
+        it('should keep quoted separator segments intact', () => {
+            const tokens = tokenize('line:set[|] = ^"hello world"|"this, [is] fine"').tokens;
+            const result = parse(tokens, { maxSeparatorDepth: 8 });
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SeparatorLiteral');
+            if (value.type === 'SeparatorLiteral') {
+                assert.strictEqual(value.value, '"hello world"|"this, [is] fine"');
+            }
+        });
+
+        it('should allow semicolon inside raw separator literal payload', () => {
             const tokens = tokenize('line:set[|] = ^0|0|0;0|0').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
@@ -763,18 +775,6 @@ describe('Parser', () => {
             assert.strictEqual(value.type, 'SeparatorLiteral');
             if (value.type === 'SeparatorLiteral') {
                 assert.strictEqual(value.value, '0|0|0;0|0');
-            }
-        });
-
-        it('should allow semicolon inside quoted separator literal payload', () => {
-            const tokens = tokenize('line:set[|] = ^"0;0"').tokens;
-            const result = parse(tokens, { maxSeparatorDepth: 8 });
-
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'SeparatorLiteral');
-            if (value.type === 'SeparatorLiteral') {
-                assert.strictEqual(value.value, '"0;0"');
             }
         });
 
@@ -818,16 +818,12 @@ describe('Parser', () => {
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, [';']);
         });
 
-        it('should keep supported raw separator escapes inside payload', () => {
-            const tokens = tokenize('x:t[|] = ^a\\,b\\\\c\\ f').tokens;
+        it('should reject raw slash characters inside separator payloads', () => {
+            const tokens = tokenize('x:t[|] = ^root/main').tokens;
             const result = parse(tokens);
 
-            assert.strictEqual(result.errors.length, 0);
-            const value = result.document!.bindings[0]!.value;
-            assert.strictEqual(value.type, 'SeparatorLiteral');
-            if (value.type === 'SeparatorLiteral') {
-                assert.strictEqual(value.value, 'a\\,b\\\\c\\ f');
-            }
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
         it('should reject multi-character separator specs', () => {

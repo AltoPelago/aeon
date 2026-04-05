@@ -1841,6 +1841,44 @@ mod tests {
     }
 
     #[test]
+    fn separator_literals_accept_quoted_sections_in_payload() {
+        let result = compile(
+            "a:set[|] = ^\"hello world\"|\"this, [is] fine\"\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn separator_literals_reject_unterminated_quoted_sections() {
+        let result = compile("a:set[|] = ^\"0;0\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
+    }
+
+    #[test]
+    fn separator_literals_stop_before_comments_resume() {
+        let result = compile("a:set[|] = ^aaa // d\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn separator_literals_reject_raw_slashes() {
+        let result = compile("a:set[|] = ^root/main\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn unparameterized_reserved_separator_datatype_rejects_caret_literals() {
+        let result = compile("blue:sep = ^200\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+    }
+
+    #[test]
     fn scenarios_fixture_parses_cleanly() {
         let fixture = std::fs::read_to_string(format!(
             "{}/../../../../stress-tests/full/scenarios.aeon",

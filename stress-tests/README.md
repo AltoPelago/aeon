@@ -181,6 +181,7 @@ existing snippet lanes:
 python3 ./scripts/stress-combinations.py
 python3 ./scripts/stress-combinations.py --matrix ./stress-tests/matrices/literal-mode-combinations.toml
 python3 ./scripts/stress-combinations.py --run both --impl rust
+python3 ./scripts/stress-combinations.py --run both --brief --failures-only
 ```
 
 The matrix file is TOML. Each `[[stress]]` entry expands as a Cartesian product
@@ -194,6 +195,10 @@ across its `value` rows, then resolves mode-aware fields such as `type` and
 Generated corpora are written under `stress-tests/snippets/generated/` as
 `<matrix>.positive-<mode>.aeon-cases` and `<matrix>.negative-<mode>.aeon-cases`,
 with a sidecar JSON manifest for traceability.
+
+When `--run` is enabled, `--failures-only` suppresses `PASS` lines in the
+underlying snippet harnesses so only `FAIL`, `SKIP`, and the final summary are
+printed.
 
 Run canonical parity across the positive structural snippet corpora:
 

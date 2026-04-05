@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         help="On failure, print only the snippet and omit implementation output.",
     )
     parser.add_argument(
+        "--failures-only",
+        action="store_true",
+        help="Suppress PASS lines and print only FAIL, SKIP, and the final summary.",
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="Disable ANSI color output.",
@@ -170,7 +175,8 @@ def main() -> int:
             ok, output = run_case(impl, snippet, index, args.mode)
             title = snippet_title(snippet, index)
             if ok:
-                print(f"{status_label(color, 'PASS')}  [{impl}] {title}")
+                if not args.failures_only:
+                    print(f"{status_label(color, 'PASS')}  [{impl}] {title}")
             else:
                 failures += 1
                 print(f"{status_label(color, 'FAIL')}  [{impl}] {title}")

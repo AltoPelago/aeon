@@ -1170,7 +1170,10 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "time" => matches!(value, Value::TimeLiteral { .. }),
         "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
         "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
-        "sep" | "set" => matches!(value, Value::SeparatorLiteral { raw } if !raw.starts_with("^ ")),
+        "sep" | "set" => {
+            !datatype_bracket_specs(datatype).is_empty()
+                && matches!(value, Value::SeparatorLiteral { .. })
+        }
         "tuple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
