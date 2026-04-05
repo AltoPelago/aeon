@@ -246,7 +246,7 @@ test('runtime optionally includes annotation stream records', () => {
 });
 
 test('runtime enforces maxSeparatorDepth and allows override', () => {
-    const strictFail = runRuntime('a:grid[|][/] = ^1|2/3', {
+    const strictFail = runRuntime('a:grid[|][>] = ^1|2>3', {
         mode: 'strict',
         output: 'json',
     });
@@ -254,14 +254,14 @@ test('runtime enforces maxSeparatorDepth and allows override', () => {
     assert.ok(strictFail.meta.errors.some((diag) => diag.code === 'SEPARATOR_DEPTH_EXCEEDED'));
     assert.equal(strictFail.document, undefined);
 
-    const strictPass = runRuntime('a:grid[|][/] = ^1|2/3', {
+    const strictPass = runRuntime('a:grid[|][>] = ^1|2>3', {
         mode: 'strict',
         output: 'json',
         maxSeparatorDepth: 8,
     });
 
     assert.equal(strictPass.meta.errors.length, 0);
-    assert.equal((strictPass.document as Record<string, unknown>).a, '1|2/3');
+    assert.equal((strictPass.document as Record<string, unknown>).a, '1|2>3');
 });
 
 test('runtime forwards trailing separator delimiter policy into schema validation', () => {

@@ -37,12 +37,12 @@ describe('Datatype annotation formatting', () => {
             name: 'grid',
             genericArgs: [],
             radixBase: null,
-            separators: ['|', '/'],
+            separators: ['|', '>'],
             span: {
                 start: { line: 1, column: 1, offset: 0 },
                 end: { line: 1, column: 1, offset: 0 },
             },
-        }), 'grid[|][/]');
+        }), 'grid[|][>]');
     });
 
     it('formats radix datatype with bracket base metadata', () => {

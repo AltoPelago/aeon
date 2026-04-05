@@ -867,7 +867,7 @@ describe('Parser', () => {
         });
 
         it('should enforce max_separator_depth policy', () => {
-            const tokens = tokenize('matrix:grid[|][/] = 1').tokens;
+            const tokens = tokenize('matrix:grid[|][>] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 1 });
 
             assert.ok(result.errors.length > 0);

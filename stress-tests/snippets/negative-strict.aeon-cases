@@ -206,19 +206,19 @@ a:hex == #FFF
 ---
 a@{}: = #FFF
 ---
-file2:sep[/] = ^[root/main/file.aeon]
+file2:sep = ^[root/main/file.aeon]
 ---
-file2:sep[/] = ^{root/main/file.aeon}
+file2:sep = ^{root/main/file.aeon}
 ---
-file2:sep[/] = ^(root/main/file.aeon)
+file2:sep = ^(root/main/file.aeon)
 ---
-filex:sep[/] = [^root/main/file.aeon]
+filex:sep = [^root/main/file.aeon]
 ---
-file2:sep[/] = ^root/main/file.aeon]
+file2:sep = ^root/main/file.aeon]
 ---
-file2:sep[/] = ^root/main/file.aeon}
+file2:sep = ^root/main/file.aeon}
 ---
-file2:sep[/] = ^root/main/file.aeon)
+file2:sep = ^root/main/file.aeon)
 ---
 a:Infinity = infinity
 ---
