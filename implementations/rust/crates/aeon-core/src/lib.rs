@@ -1352,6 +1352,33 @@ mod tests {
     }
 
     #[test]
+    fn rejects_reserved_slash_separator_datatypes() {
+        let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
+    fn accepts_reserved_angle_separator_datatypes() {
+        let result = compile(
+            "a:set[<] = ^a<b\nb:set[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn accepts_reserved_caret_separator_datatypes() {
+        let result = compile(
+            "a:set[^] = ^a^b\nb:sep[^] = ^a^b\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
     fn rejects_oversized_radix_base_with_specific_radix_base_error() {
         let result = compile(
             "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
@@ -1872,10 +1899,17 @@ mod tests {
     }
 
     #[test]
-    fn unparameterized_reserved_separator_datatype_rejects_caret_literals() {
+    fn unparameterized_reserved_separator_datatype_accepts_caret_literals() {
         let result = compile("blue:sep = ^200\n", CompileOptions::default());
-        assert!(!result.errors.is_empty());
-        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn unparameterized_reserved_set_datatype_accepts_caret_literals() {
+        let result = compile("blue:set = ^200\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
     }
 
     #[test]

@@ -296,16 +296,6 @@ export function enforceMode(
             errors.push(new CustomSwitchAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
-        if (expectedKinds && reservedSeparatorDatatypeRequiresSpecs(event.datatype) && actualKind === 'SeparatorLiteral') {
-            errors.push(new DatatypeLiteralMismatchError(
-                event.span,
-                formatPath(event.path),
-                event.datatype,
-                actualKind,
-                expectedKinds
-            ));
-            continue;
-        }
         if (expectedKinds && !expectedKinds.includes(actualKind)) {
             errors.push(new DatatypeLiteralMismatchError(
                 event.span,
@@ -526,16 +516,6 @@ function validateAnnotationEntries(
             } else {
                 const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
                 const actualKind = resolvedValueKind(resolved);
-                if (expectedKinds && reservedSeparatorDatatypeRequiresSpecs(entry.datatype) && actualKind === 'SeparatorLiteral') {
-                    errors.push(new DatatypeLiteralMismatchError(
-                        span,
-                        attrPath,
-                        entry.datatype,
-                        actualKind,
-                        expectedKinds
-                    ));
-                    continue;
-                }
                 if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         span,
@@ -813,11 +793,6 @@ function datatypeBase(datatype: string): string {
     return datatype.slice(0, endIdx);
 }
 
-function reservedSeparatorDatatypeRequiresSpecs(datatype: string): boolean {
-    const base = datatypeBase(datatype);
-    return SEPARATOR_TYPES.has(base) && bracketSpecs(datatype).length === 0;
-}
-
 export function datatypeHasGenericArgs(datatype: string): boolean {
     let bracketDepth = 0;
     let genericStart = -1;
@@ -926,9 +901,7 @@ function bracketSpecs(datatype: string): string[] {
 }
 
 function isValidSeparatorSpec(spec: string): boolean {
-    if (spec.length !== 1) return false;
-    const code = spec.charCodeAt(0);
-    return code >= 0x21 && code <= 0x7e && spec !== ',' && spec !== '[' && spec !== ']';
+    return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(spec);
 }
 
 function isValidRadixBaseSpec(spec: string): boolean {

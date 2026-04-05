@@ -779,19 +779,27 @@ describe('Parser', () => {
         });
 
         it('should parse chained separator specs', () => {
-            const tokens = tokenize('matrix:grid[|][/] = 1').tokens;
+            const tokens = tokenize('matrix:grid[|][x] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', '/']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', 'x']);
         });
 
         it('should parse symbol separator chars', () => {
-            const tokens = tokenize('matrix:grid[|][/] = 1').tokens;
+            const tokens = tokenize('matrix:grid[|][<] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', '/']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', '<']);
+        });
+
+        it('should parse caret separator chars', () => {
+            const tokens = tokenize('matrix:grid[^] = ^a^b').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['^']);
         });
 
         it('should reject bracket separator chars', () => {
@@ -816,6 +824,14 @@ describe('Parser', () => {
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, [';']);
+        });
+
+        it('should reject slash separator chars', () => {
+            const tokens = tokenize('x:set[/] = ^1').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
         });
 
         it('should reject raw slash characters inside separator payloads', () => {

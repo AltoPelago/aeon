@@ -157,6 +157,16 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual(f"{datatype}[|]", result.events[0]["datatype"])
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
+    def test_reserved_slash_separator_specs_are_rejected(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nvalue:set[/] = ^000.000')
+        self.assertEqual(["INVALID_SEPARATOR_CHAR"], [error.code for error in result.errors])
+
+    def test_reserved_caret_separator_specs_are_allowed(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nleft:set[^] = ^a^b\nright:sep[^] = ^a^b')
+        self.assertEqual([], result.errors)
+        self.assertEqual("set[^]", result.events[0]["datatype"])
+        self.assertEqual("sep[^]", result.events[1]["datatype"])
+
     def test_infinity_datatype_is_allowed_in_typed_modes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nlimit:infinity = Infinity')
         self.assertEqual([], result.errors)
@@ -469,9 +479,13 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue:sep[|] = ^root/main")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
-    def test_unparameterized_separator_datatype_rejects_caret_payload(self) -> None:
+    def test_unparameterized_separator_datatype_accepts_caret_payload(self) -> None:
         result = compile_source("blue:sep = ^200")
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertEqual([], [error.code for error in result.errors])
+
+    def test_unparameterized_set_datatype_accepts_caret_payload(self) -> None:
+        result = compile_source("blue:set = ^200")
+        self.assertEqual([], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
         result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))

@@ -396,14 +396,7 @@ impl<'a> Lexer<'a> {
         }
         let text = self.slice_from(start.offset);
         if text == "^" {
-            self.errors.push(LexError {
-                code: String::from("SYNTAX_ERROR"),
-                message: String::from("Separator literals must contain a payload"),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
+            self.push_token(TokenKind::Caret, &text, start, None, None);
             return;
         }
         if !is_valid_separator_payload(&text[1..]) {
@@ -1004,6 +997,16 @@ mod tests {
         assert_eq!(result.tokens[0].text, "^aaa");
         assert_eq!(result.tokens[1].kind, TokenKind::LineComment);
         assert_eq!(result.tokens[1].text, "// hello");
+    }
+
+    #[test]
+    fn bare_caret_tokenizes_as_caret_before_bracket_close() {
+        let result = tokenize("x:set[^] = ^1", LexerOptions::default());
+        assert!(result.errors.is_empty());
+        assert!(result
+            .tokens
+            .iter()
+            .any(|token| token.kind == TokenKind::Caret && token.text == "^"));
     }
 
     #[test]

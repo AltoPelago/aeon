@@ -407,17 +407,6 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
                 )
             )
             continue
-        if expected is not None and reserved_separator_datatype_requires_specs(binding.datatype) and actual_kind == "SeparatorLiteral":
-            errors.append(
-                DatatypeLiteralMismatchError(
-                    format_path(binding.path),
-                    binding.datatype,
-                    actual_kind,
-                    expected,
-                    binding.span,
-                )
-            )
-            continue
         if expected is None:
             custom_shape = classify_custom_datatype_shape(binding.datatype)
             if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
@@ -577,9 +566,6 @@ def validate_annotation_entries(
                 value = entry.get("value")
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
-                    if expected is not None and reserved_separator_datatype_requires_specs(datatype) and actual_kind == "SeparatorLiteral":
-                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
-                        continue
                     if expected is None:
                         custom_shape = classify_custom_datatype_shape(datatype)
                         if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
@@ -878,10 +864,6 @@ def datatype_base(datatype: str) -> str:
     return datatype[:end]
 
 
-def reserved_separator_datatype_requires_specs(datatype: str) -> bool:
-    return datatype_base(datatype) in {"sep", "set"} and not datatype_bracket_specs(datatype)
-
-
 def datatype_has_generic_args(datatype: str) -> bool:
     bracket_depth = 0
     generic_start = -1
@@ -929,10 +911,7 @@ def datatype_bracket_specs(datatype: str) -> list[str]:
 
 
 def is_valid_separator_spec(spec: str) -> bool:
-    if len(spec) != 1:
-        return False
-    code = ord(spec)
-    return 0x21 <= code <= 0x7E and spec not in {",", "[", "]"}
+    return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", spec))
 
 
 def is_valid_custom_radix_base_spec(spec: str) -> bool:

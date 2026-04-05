@@ -98,10 +98,34 @@ description = "Sep"
 key = "a"
 type = { strict = ":sep", custom = ":code", transport = "" }
 value = [
-  [".", "2", "x"],
-  ["00", "99", "FF"],
-  ["!\"#$%&'*+-./", "0123456789", "Az", "\\ "],
-  [":;=?@^_`|~", "<>", "\\"],
+  ["00", "99", "\"hello,world\""],
+  ["", "0123456789", "Az", "'hello'"],
+  ["!#$%&*+-.:;=?@^_|~<>", "'world'", "' '"],
 ]
-string = "|KEY||TYPE|[|0|] = ^|0|1|2| // sep"
+string = "|KEY||TYPE| = ^|0|1|2|// sep"
+outcome = "pass"
+
+
+[[stress]]
+description = "Sep delimeter"
+key = "a"
+type = { strict = ":sep", custom = ":code", transport = ":sep" }
+value = [
+  ["a", "0", "."],
+  ["00", "99", "\"hello,world\""],
+  ["", "0123456789", "Az", "'hello world'"],
+  ["!#$%&*+-.:;=?@^_|~<>", "'world'", "' '"],
+]
+string = "|KEY||TYPE|[|0|] = ^|1|2|3|// sep"
+outcome = "pass"
+
+[[stress]]
+description = "Sep delimeter"
+key = "a"
+type = { strict = ":sep", custom = ":code", transport = ":sep" }
+value = [
+  ["!", "#", "$", "%", "&", "*", "+", "-", ".", ":", ";", "=", "?", "@", "^", "_", "|", "~", "<", ">"],
+  ["00"],
+]
+string = "|KEY||TYPE|[|0|] = ^|1|// sep"
 outcome = "pass"

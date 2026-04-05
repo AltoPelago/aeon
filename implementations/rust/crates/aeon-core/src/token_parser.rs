@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::header::apply_trimticks;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
+use crate::validation::datatype_has_generic_args;
 use crate::{
     tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
     TokenKind, TrimtickMetadata, Value,
@@ -252,10 +253,15 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::Dollar
                     | TokenKind::Percent
                     | TokenKind::Ampersand
+                    | TokenKind::Caret
                     | TokenKind::Equals
+                    | TokenKind::LeftAngle
+                    | TokenKind::RightAngle
                     | TokenKind::Tilde => {
                         let token = self.advance();
-                        if token.text.len() != 1 || token.text == "," || token.text == "[" || token.text == "]" {
+                        if token.text.len() != 1
+                            || !token.text.chars().all(is_allowed_separator_spec_char)
+                        {
                             return Err(Diagnostic {
                                 code: String::from("INVALID_SEPARATOR_CHAR"),
                                 path: Some(String::from("$")),
@@ -284,7 +290,10 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::Dollar
                     | TokenKind::Percent
                     | TokenKind::Ampersand
+                    | TokenKind::Caret
                     | TokenKind::Equals
+                    | TokenKind::LeftAngle
+                    | TokenKind::RightAngle
                     | TokenKind::Tilde => {
                         self.advance();
                     }
@@ -933,6 +942,35 @@ impl<'a> TokenParser<'a> {
     }
 }
 
+fn is_allowed_separator_spec_char(ch: char) -> bool {
+    matches!(
+        ch,
+        'A'..='Z'
+            | 'a'..='z'
+            | '0'..='9'
+            | '!'
+            | '#'
+            | '$'
+            | '%'
+            | '&'
+            | '*'
+            | '+'
+            | '-'
+            | '.'
+            | ':'
+            | ';'
+            | '='
+            | '?'
+            | '@'
+            | '^'
+            | '_'
+            | '|'
+            | '~'
+            | '<'
+            | '>'
+    )
+}
+
 fn is_valid_radix_base_token(raw: &str) -> bool {
     if raw.is_empty() || (raw.starts_with('0') && raw != "0") || !raw.chars().all(|ch| ch.is_ascii_digit()) {
         return false;
@@ -945,7 +983,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     if !is_reserved_v1_datatype(base) {
         return Ok(());
     }
-    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple") {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -975,17 +1013,27 @@ fn datatype_base(datatype: &str) -> &str {
 fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     let mut specs = Vec::new();
     let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
     let mut bracket_start = None;
     for (index, ch) in datatype.char_indices() {
         match ch {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
-            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
-            ']' if angle_depth == 0 => {
-                if let Some(start) = bracket_start.take() {
-                    specs.push(&datatype[start..index]);
+            '[' if angle_depth == 0 => {
+                bracket_depth += 1;
+                if bracket_depth == 1 {
+                    bracket_start = Some(index + ch.len_utf8());
                 }
             }
+            ']' if angle_depth == 0 && bracket_depth > 0 => {
+                bracket_depth -= 1;
+                if bracket_depth == 0 {
+                    if let Some(start) = bracket_start.take() {
+                        specs.push(&datatype[start..index]);
+                    }
+                }
+            }
+            '<' if bracket_depth == 0 => angle_depth += 1,
+            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
+            _ if bracket_depth > 0 => {}
             _ => {}
         }
     }

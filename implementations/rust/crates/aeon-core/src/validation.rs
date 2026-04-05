@@ -1170,10 +1170,8 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "time" => matches!(value, Value::TimeLiteral { .. }),
         "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
         "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
-        "sep" | "set" => {
-            !datatype_bracket_specs(datatype).is_empty()
-                && matches!(value, Value::SeparatorLiteral { .. })
-        }
+        "sep" => matches!(value, Value::SeparatorLiteral { .. }),
+        "set" => matches!(value, Value::SeparatorLiteral { .. }),
         "tuple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
@@ -1202,18 +1200,28 @@ fn custom_radix_specs_are_valid(datatype: &str) -> bool {
 fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     let mut specs = Vec::new();
     let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
     let mut bracket_start = None;
 
     for (index, ch) in datatype.char_indices() {
         match ch {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
-            '[' if angle_depth == 0 => bracket_start = Some(index + ch.len_utf8()),
-            ']' if angle_depth == 0 => {
-                if let Some(start) = bracket_start.take() {
-                    specs.push(&datatype[start..index]);
+            '[' if angle_depth == 0 => {
+                bracket_depth += 1;
+                if bracket_depth == 1 {
+                    bracket_start = Some(index + ch.len_utf8());
                 }
             }
+            ']' if angle_depth == 0 && bracket_depth > 0 => {
+                bracket_depth -= 1;
+                if bracket_depth == 0 {
+                    if let Some(start) = bracket_start.take() {
+                        specs.push(&datatype[start..index]);
+                    }
+                }
+            }
+            '<' if bracket_depth == 0 => angle_depth += 1,
+            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
+            _ if bracket_depth > 0 => {}
             _ => {}
         }
     }
@@ -1228,7 +1236,36 @@ fn is_valid_separator_spec(spec: &str) -> bool {
         return false;
     }
     let ch = spec.chars().next().unwrap_or_default();
-    matches!(ch as u32, 0x21..=0x7e) && ch != ',' && ch != '[' && ch != ']'
+    is_allowed_separator_spec_char(ch)
+}
+
+fn is_allowed_separator_spec_char(ch: char) -> bool {
+    matches!(
+        ch,
+        'A'..='Z'
+            | 'a'..='z'
+            | '0'..='9'
+            | '!'
+            | '#'
+            | '$'
+            | '%'
+            | '&'
+            | '*'
+            | '+'
+            | '-'
+            | '.'
+            | ':'
+            | ';'
+            | '='
+            | '?'
+            | '@'
+            | '^'
+            | '_'
+            | '|'
+            | '~'
+            | '<'
+            | '>'
+    )
 }
 
 fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
@@ -1246,6 +1283,8 @@ mod tests {
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
+        assert_eq!(datatype_bracket_specs("set[<]"), vec!["<"]);
+        assert_eq!(datatype_bracket_specs("set[>]"), vec![">"]);
         assert_eq!(separator_spec_depth("outer<inner[.]>[x]"), 1);
         assert_eq!(separator_spec_depth("outer<inner[.]>[22]"), 1);
     }

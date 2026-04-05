@@ -679,10 +679,16 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.length > 0);
         });
 
-        it('should reject unparameterized reserved separator datatypes with caret literals', () => {
+        it('should allow unparameterized reserved separator datatypes with caret literals', () => {
             const result = compile('blue:sep = ^200');
-            assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+        });
+
+        it('should allow unparameterized reserved set datatypes with caret literals', () => {
+            const result = compile('blue:set = ^200');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
         });
 
         it('should reject separator literals whose payload is split onto the next line', () => {

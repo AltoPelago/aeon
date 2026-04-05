@@ -361,7 +361,7 @@ class Lexer:
             saw_payload_char = True
         value = "".join(chars)
         if value == "^":
-            self.errors.append(SyntaxError("Separator literals must contain a payload", self.make_span(start)))
+            self.add_token("CARET", value, start)
             return
         if not self.is_valid_separator_payload(value[1:]):
             self.errors.append(SyntaxError(f"Invalid separator literal: '{value}'", self.make_span(start)))

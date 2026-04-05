@@ -367,8 +367,11 @@ class Parser:
             "DOLLAR",
             "PERCENT",
             "AMPERSAND",
+            "CARET",
             "EQUALS",
             "TILDE",
+            "LANGLE",
+            "RANGLE",
             "COLON",
             "COMMA",
             "SEMICOLON",
@@ -379,7 +382,7 @@ class Parser:
             self.advance()
         else:
             raise SyntaxError("Expected separator character", token.span)
-        if len(value) != 1 or not (0x21 <= ord(value) <= 0x7E) or value in {",", "[", "]"}:
+        if len(value) != 1 or not self.is_allowed_separator_spec_char(value):
             raise InvalidSeparatorCharError(value, token.span)
         return value
 
@@ -398,8 +401,11 @@ class Parser:
             "DOLLAR",
             "PERCENT",
             "AMPERSAND",
+            "CARET",
             "EQUALS",
             "TILDE",
+            "LANGLE",
+            "RANGLE",
             "COLON",
             "COMMA",
             "SEMICOLON",
@@ -427,6 +433,10 @@ class Parser:
                 continue
             self.deferred_errors.append(SyntaxError("Expected generic argument", arg_token.span))
             return
+
+    @staticmethod
+    def is_allowed_separator_spec_char(value: str) -> bool:
+        return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", value))
 
     def parse_value(self) -> Value:
         self.current_nesting_depth += 1
