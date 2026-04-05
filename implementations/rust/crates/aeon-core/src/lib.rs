@@ -1007,6 +1007,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_transport_number_before_finalize() {
+        let result = compile("aeon:mode = \"transport\"\na = 1-1\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INVALID_NUMBER");
+        assert_eq!(result.errors[0].message, "Number literal `1-1` is not valid");
+    }
+
+    #[test]
     fn accepts_leading_dot_radix_literals() {
         let result = compile("a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1066,6 +1075,16 @@ mod tests {
                 "a:date = 2024-13-13\n",
                 "INVALID_DATE",
                 "Invalid date literal: '2024-13-13'",
+            ),
+            (
+                "a = 0000-1-20\n",
+                "INVALID_DATE",
+                "Invalid date literal: '0000-1-20'",
+            ),
+            (
+                "a = 0000-02-1\n",
+                "INVALID_DATE",
+                "Invalid date literal: '0000-02-1'",
             ),
             (
                 "a:time = 24:00\n",

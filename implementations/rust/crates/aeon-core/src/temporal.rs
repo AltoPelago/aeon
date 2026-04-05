@@ -67,13 +67,19 @@ fn looks_like_date(value: &str) -> bool {
 }
 
 fn looks_like_date_candidate(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[8..10].iter().all(u8::is_ascii_digit)
+    let mut parts = value.split('-');
+    let (Some(year), Some(month), Some(day), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+
+    year.len() == 4
+        && (1..=2).contains(&month.len())
+        && (1..=2).contains(&day.len())
+        && year.bytes().all(|byte| byte.is_ascii_digit())
+        && month.bytes().all(|byte| byte.is_ascii_digit())
+        && day.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn looks_like_time(value: &str) -> bool {

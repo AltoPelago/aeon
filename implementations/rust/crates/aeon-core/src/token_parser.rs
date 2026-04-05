@@ -363,6 +363,15 @@ impl<'a> TokenParser<'a> {
                         message,
                     });
                 }
+                if !is_valid_number_literal(&raw) {
+                    return Err(Diagnostic {
+                        code: String::from("INVALID_NUMBER"),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message: format!("Number literal `{raw}` is not valid"),
+                    });
+                }
                 Ok(classify_temporal_literal(&raw).unwrap_or(Value::NumberLiteral { raw }))
             }
             TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {
@@ -1130,6 +1139,90 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
     Ok(output)
 }
 
+fn is_valid_number_literal(raw: &str) -> bool {
+    if raw.is_empty() {
+        return false;
+    }
+
+    let body = raw
+        .strip_prefix('+')
+        .or_else(|| raw.strip_prefix('-'))
+        .unwrap_or(raw);
+    if body.is_empty() {
+        return false;
+    }
+
+    let (mantissa, exponent) = match body.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => {
+            if mantissa.is_empty() || exponent.is_empty() || exponent.contains(['e', 'E']) {
+                return false;
+            }
+            (mantissa, Some(exponent))
+        }
+        None => (body, None),
+    };
+
+    if let Some(exponent) = exponent {
+        let exponent_digits = exponent
+            .strip_prefix('+')
+            .or_else(|| exponent.strip_prefix('-'))
+            .unwrap_or(exponent);
+        if !is_valid_exponent_digits(exponent_digits) {
+            return false;
+        }
+    }
+
+    match mantissa.split_once('.') {
+        Some((integer, fraction)) => {
+            if fraction.is_empty() || fraction.contains('.') {
+                return false;
+            }
+            if !integer.is_empty() && !is_valid_digit_group(integer) {
+                return false;
+            }
+            if !is_valid_digit_group(fraction) {
+                return false;
+            }
+            !has_invalid_leading_zero(integer)
+        }
+        None => is_valid_digit_group(mantissa) && !has_invalid_leading_zero(mantissa),
+    }
+}
+
+fn is_valid_digit_group(raw: &str) -> bool {
+    if raw.is_empty() {
+        return false;
+    }
+
+    let mut chars = raw.chars().peekable();
+    let mut saw_digit = false;
+    while let Some(ch) = chars.next() {
+        match ch {
+            '0'..='9' => saw_digit = true,
+            '_' => {
+                if !saw_digit {
+                    return false;
+                }
+                match chars.peek() {
+                    Some('0'..='9') => {}
+                    _ => return false,
+                }
+                saw_digit = false;
+            }
+            _ => return false,
+        }
+    }
+    saw_digit
+}
+
+fn has_invalid_leading_zero(raw: &str) -> bool {
+    raw.len() > 1 && raw.starts_with('0') && !raw.starts_with("0_")
+}
+
+fn is_valid_exponent_digits(raw: &str) -> bool {
+    is_valid_digit_group(raw) && !has_invalid_leading_zero(raw)
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_document_from_tokens;
@@ -1153,6 +1246,13 @@ mod tests {
     fn parses_shorthand_header_key_from_tokens() {
         let bindings = parse("aeon:mode = \"strict\"").expect("token parse");
         assert_eq!(bindings[0].key, "aeon:mode");
+    }
+
+    #[test]
+    fn rejects_malformed_bare_number_tokens() {
+        let error = parse("a = 1-1\n").expect_err("expected invalid number");
+        assert_eq!(error.code, "INVALID_NUMBER");
+        assert_eq!(error.message, "Number literal `1-1` is not valid");
     }
 
     #[test]

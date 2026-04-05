@@ -197,7 +197,51 @@ value = [
   ["00", "09", "13", "23"],
   ["00", "09", "59"],
   ["00", "09", "59"],
-  ["Z", "+02", "+02:30", ""],
+  ["Z", "+23:59", "+02:30", ""],
 ]
-string = "|KEY||TYPE| = |0|:|1|:|2| // list"
+string = "|KEY||TYPE| = |0|:|1|:|2|3| // list"
 outcome = "pass"
+
+[[stress]]
+description = "Time"
+key = "a"
+type = { strict = ":time", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59", ""],
+  ["Z", "+02:00", "+02:30", ""],
+]
+string = "|KEY||TYPE| = |0|:|1|2| // list"
+outcome = "pass"
+
+[[stress]]
+description = "Date"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["0001", "2005", "1970", "2060", "3000"],
+  ["01", "06", "12"],
+  ["01", "13", "28"],
+]
+string = "|KEY||TYPE| = |0|-|1|-|2| // list"
+outcome = "pass"
+
+[[stress]]
+description = "Date month"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["00", "1", "13"],
+]
+string = "|KEY||TYPE| = 0000-|0|-20 // list"
+outcome = "fail"
+
+[[stress]]
+description = "Date day"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["00", "1", "30"],
+]
+string = "|KEY||TYPE| = 0000-02-|0| // list"
+outcome = "fail"
