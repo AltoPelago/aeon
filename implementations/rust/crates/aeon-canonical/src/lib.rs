@@ -431,7 +431,7 @@ fn is_simple_value(value: &Value) -> bool {
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() => {}
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
         _ => return false,
     }
     chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
@@ -2160,12 +2160,12 @@ mod tests {
     }
 
     #[test]
-    fn keeps_underscore_prefixed_keys_quoted_canonically() {
+    fn keeps_underscore_prefixed_keys_bare_canonically() {
         let result = canonicalize("aeon:mode = \"transport\"\n\"_\" = 0\n\"_hello\" = 0\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\n\"_\" = 0\n\"_hello\" = 0\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\n_ = 0\n_hello = 0\n"
         );
     }
 

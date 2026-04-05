@@ -165,6 +165,14 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.key, 'a.b');
         });
 
+        it('should parse underscore-prefixed bare top-level keys', () => {
+            const tokens = tokenize('_hello = 2').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.key, '_hello');
+        });
+
         it('should reject empty quoted top-level key', () => {
             const tokens = tokenize('"" = 2').tokens;
             const result = parse(tokens);

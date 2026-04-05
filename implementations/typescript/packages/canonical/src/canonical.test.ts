@@ -378,7 +378,7 @@ test('canonicalize quotes non-identifier keys', () => {
     assert.ok(result.text.includes('"js#object.v1" = 2'));
 });
 
-test('keeps underscore-prefixed keys quoted canonically', () => {
+test('keeps underscore-prefixed keys bare canonically', () => {
     const input = ['"_" = 0', '"_hello" = 0'].join('\n');
     const result = canonicalize(input);
 
@@ -387,7 +387,7 @@ test('keeps underscore-prefixed keys quoted canonically', () => {
         .trim()
         .split('\n')
         .filter(Boolean);
-    assert.deepEqual(body, ['"_" = 0', '"_hello" = 0']);
+    assert.deepEqual(body, ['_ = 0', '_hello = 0']);
 });
 
 test('sorts escaped quoted keys by decoded codepoint order', () => {

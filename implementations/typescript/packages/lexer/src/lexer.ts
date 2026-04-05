@@ -346,7 +346,7 @@ export class Lexer {
             default:
                 if (isDigit(c)) {
                     this.scanNumber(c, start);
-                } else if (isLetter(c)) {
+                } else if (isLetter(c) || c === '_') {
                     this.scanIdentifierOrKeyword(c, start);
                 } else if (isPrintableAscii(c)) {
                     this.addToken(TokenType.Symbol, c, start);

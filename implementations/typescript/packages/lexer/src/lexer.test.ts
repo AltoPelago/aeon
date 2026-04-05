@@ -822,6 +822,15 @@ describe('Lexer', () => {
         });
     });
 
+    describe('identifier tokenization', () => {
+        it('should tokenize underscore-prefixed bare keys as identifiers', () => {
+            const result = tokenize('_hello = 0');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.Identifier);
+            assert.strictEqual(result.tokens[0]!.value, '_hello');
+        });
+    });
+
     describe('unterminated block comment error', () => {
         it('should produce error for unterminated block comment', () => {
             const result = tokenize('foo /* unterminated');
