@@ -205,6 +205,11 @@ When `--run` is enabled, `--failures-only` suppresses `PASS` lines in the
 underlying snippet harnesses so only `FAIL`, `SKIP`, and the final summary are
 printed.
 
+For Rust snippet runs, the harness now batches `.aeon-cases` corpora through
+`aeon-rust inspect-cases` when that command is available. That avoids spawning
+the Rust CLI once per snippet and makes large combination sweeps noticeably
+faster without changing the stress command surface.
+
 Run canonical parity across the positive structural snippet corpora:
 
 ```bash

@@ -19,7 +19,7 @@ use aeon_core::{
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
@@ -64,6 +64,13 @@ struct DoctorCheck {
     details: Option<JsonValue>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct InspectCaseResult {
+    index: usize,
+    ok: bool,
+    errors: JsonValue,
+}
+
 fn main() -> ExitCode {
     if env::var_os("AEON_TRACE_STARTUP").is_some() {
         eprintln!("[aeon-cli] main:start");
@@ -90,6 +97,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         Some("check") => check(&args[2..]),
         Some("doctor") => doctor(&args[2..]),
         Some("inspect") => inspect(&args[2..]),
+        Some("inspect-cases") => inspect_cases(&args[2..]),
         Some("finalize") => finalize(&args[2..]),
         Some("bind") => bind(&args[2..]),
         Some("integrity") => integrity(&args[2..]),
@@ -264,6 +272,76 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
+    const INSPECT_CASES_USAGE: &str = "Usage: aeon inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]";
+    let rich = args.iter().any(|arg| arg == "--rich");
+    let recovery = args.iter().any(|arg| arg == "--recovery");
+    let datatype_policy = flag_value(args, "--datatype-policy");
+    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
+        String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
+    })?;
+    let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
+        String::from("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)")
+    })?;
+    let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+        String::from("Error: Invalid value for --max-separator-depth (expected a non-negative integer)")
+    })?;
+    let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
+        String::from("Error: Invalid value for --max-generic-depth (expected a non-negative integer)")
+    })?;
+    let mode = flag_value(args, "--mode").ok_or_else(|| {
+        format!("Error: Missing required --mode <transport|strict|custom>\n{INSPECT_CASES_USAGE}")
+    })?;
+    if !matches!(mode.as_str(), "transport" | "strict" | "custom") {
+        return Err(format!(
+            "Error: Invalid value for --mode (expected transport, strict, or custom)\n{INSPECT_CASES_USAGE}"
+        ));
+    }
+
+    let file = find_file(
+        args,
+        &[
+            "--mode",
+            "--datatype-policy",
+            "--max-input-bytes",
+            "--max-attribute-depth",
+            "--max-separator-depth",
+            "--max-generic-depth",
+        ],
+    )
+    .ok_or_else(|| format!("Error: No file specified\n{INSPECT_CASES_USAGE}"))?;
+    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let cases = split_case_corpus(&source);
+    let datatype_policy = resolve_datatype_policy(datatype_policy.as_deref(), rich).map_err(|_| {
+        format!(
+            "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)\n{INSPECT_CASES_USAGE}"
+        )
+    })?;
+
+    let results = build_inspect_case_results(
+        &cases,
+        &mode,
+        CompileOptions {
+            recovery,
+            datatype_policy,
+            max_input_bytes,
+            max_attribute_depth,
+            max_separator_depth,
+            max_generic_depth,
+            ..CompileOptions::default()
+        },
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string(&json!({
+            "cases": results,
+        }))
+        .unwrap_or_else(|_| String::from("{\"cases\":[]}"))
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
@@ -1905,6 +1983,7 @@ fn print_help() {
     println!("  check <file> [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]");
     println!("  doctor [--json] [--contract-registry <registry.json>]");
     println!("  inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]");
+    println!("  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]");
     println!("  finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]");
     println!("  bind <file> (--schema <schema.json> | --contract-registry <registry.json>) [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--annotations] [--sort-annotations] [--max-input-bytes <n>]");
     println!("  integrity validate <file> [--json] [--strict|--loose]");
@@ -2788,6 +2867,55 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
+fn split_case_corpus(raw: &str) -> Vec<String> {
+    let mut cases = Vec::new();
+    let mut current = Vec::new();
+    for line in raw.lines() {
+        if line.trim() == "---" {
+            let snippet = current.join("\n").trim().to_string();
+            if !snippet.is_empty() {
+                cases.push(format!("{snippet}\n"));
+            }
+            current.clear();
+            continue;
+        }
+        current.push(line);
+    }
+    let snippet = current.join("\n").trim().to_string();
+    if !snippet.is_empty() {
+        cases.push(format!("{snippet}\n"));
+    }
+    cases
+}
+
+fn apply_mode_to_snippet(snippet: &str, mode: &str) -> String {
+    let stripped = snippet.trim_start();
+    if stripped.starts_with("aeon:mode") || stripped.starts_with("aeon:header") {
+        return snippet.to_string();
+    }
+    format!("aeon:mode = \"{mode}\"\n{snippet}")
+}
+
+fn build_inspect_case_results(
+    cases: &[String],
+    mode: &str,
+    options: CompileOptions,
+) -> Vec<InspectCaseResult> {
+    cases
+        .iter()
+        .enumerate()
+        .map(|(index, snippet)| {
+            let compiled = compile(&apply_mode_to_snippet(snippet, mode), options);
+            InspectCaseResult {
+                index: index + 1,
+                ok: compiled.errors.is_empty(),
+                errors: serde_json::from_str(&render_errors(&compiled.errors))
+                    .unwrap_or_else(|_| json!([])),
+            }
+        })
+        .collect()
+}
+
 fn optional_numeric_flag_value(args: &[String], flag: &str) -> Result<Option<usize>, String> {
     match flag_value(args, flag) {
         Some(value) => value
@@ -3484,6 +3612,27 @@ mod tests {
     }
 
     #[test]
+    fn inspect_cases_reports_usage_for_missing_mode() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-inspect-cases-missing-mode-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.aeon-cases");
+        fs::write(&file, "---\na = 1\n").expect("file");
+
+        let result = run(vec![
+            String::from("aeon-rust"),
+            String::from("inspect-cases"),
+            file.to_string_lossy().into_owned(),
+        ])
+        .expect_err("usage error");
+        assert!(result.contains("Error: Missing required --mode <transport|strict|custom>"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn inspect_reports_usage_for_invalid_datatype_policy() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -3530,6 +3679,20 @@ mod tests {
         .expect_err("usage error");
         assert!(result.contains("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_inspect_case_results_batches_positive_and_negative_cases() {
+        let cases = split_case_corpus("---\na = 1\n---\na = 1-1\n");
+        let results = build_inspect_case_results(&cases, "transport", CompileOptions::default());
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].index, 1);
+        assert!(results[0].ok);
+        assert_eq!(results[0].errors, json!([]));
+        assert_eq!(results[1].index, 2);
+        assert!(!results[1].ok);
+        let errors = results[1].errors.as_array().expect("errors array");
+        assert_eq!(errors[0]["code"], "INVALID_NUMBER");
     }
 
     #[test]

@@ -169,6 +169,40 @@ def run_case(
     return False, output
 
 
+def run_cases_batch_rust(
+    corpus_path: Path,
+    case_count: int,
+    mode: str,
+    max_separator_depth: int | None,
+) -> list[tuple[bool, str]] | None:
+    cli_args = [RUST_CMD[0], "inspect-cases", str(corpus_path), "--mode", mode]
+    if max_separator_depth is not None:
+        cli_args.extend(["--max-separator-depth", str(max_separator_depth)])
+    completed = subprocess.run(
+        cli_args,
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    try:
+        parsed = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    raw_cases = parsed.get("cases")
+    if not isinstance(raw_cases, list) or len(raw_cases) != case_count:
+        return None
+    results: list[tuple[bool, str]] = []
+    for case in raw_cases:
+        if not isinstance(case, dict):
+            return None
+        ok = bool(case.get("ok"))
+        output = json.dumps({"errors": case.get("errors", [])}, indent=2)
+        results.append((ok, output))
+    return results
+
+
 def main() -> int:
     args = parse_args()
     corpus_path = Path(args.file).resolve() if args.file else DEFAULT_CASES_BY_MODE[args.mode]
@@ -208,8 +242,17 @@ def main() -> int:
             render_progress()
             continue
 
+        batch_results = (
+            run_cases_batch_rust(corpus_path, len(cases), args.mode, args.max_separator_depth)
+            if impl == "rust"
+            else None
+        )
+
         for index, snippet in enumerate(cases, start=1):
-            ok, output = run_case(impl, snippet, index, args.mode, args.max_separator_depth)
+            if batch_results is not None:
+                ok, output = batch_results[index - 1]
+            else:
+                ok, output = run_case(impl, snippet, index, args.mode, args.max_separator_depth)
             completed += 1
             title = snippet_title(snippet, index)
             if ok:

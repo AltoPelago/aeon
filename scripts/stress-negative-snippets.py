@@ -154,6 +154,33 @@ def run_case(impl: str, snippet: str, index: int, mode: str) -> tuple[bool, str]
     return False, output
 
 
+def run_cases_batch_rust(corpus_path: Path, case_count: int, mode: str) -> list[tuple[bool, str]] | None:
+    completed = subprocess.run(
+        [RUST_CMD[0], "inspect-cases", str(corpus_path), "--mode", mode],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    try:
+        parsed = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    raw_cases = parsed.get("cases")
+    if not isinstance(raw_cases, list) or len(raw_cases) != case_count:
+        return None
+    results: list[tuple[bool, str]] = []
+    for case in raw_cases:
+        if not isinstance(case, dict):
+            return None
+        accepted = bool(case.get("ok"))
+        ok = not accepted
+        output = json.dumps({"errors": case.get("errors", [])}, indent=2)
+        results.append((ok, output))
+    return results
+
+
 def main() -> int:
     args = parse_args()
     corpus_path = Path(args.file).resolve() if args.file else DEFAULT_CASES_BY_MODE[args.mode]
@@ -193,8 +220,13 @@ def main() -> int:
             render_progress()
             continue
 
+        batch_results = run_cases_batch_rust(corpus_path, len(cases), args.mode) if impl == "rust" else None
+
         for index, snippet in enumerate(cases, start=1):
-            ok, output = run_case(impl, snippet, index, args.mode)
+            if batch_results is not None:
+                ok, output = batch_results[index - 1]
+            else:
+                ok, output = run_case(impl, snippet, index, args.mode)
             completed += 1
             title = snippet_title(snippet, index)
             if ok:
