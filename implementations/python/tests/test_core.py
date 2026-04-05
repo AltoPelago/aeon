@@ -495,8 +495,16 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))
         self.assertEqual(["INVALID_TIME", "INVALID_DATE", "INVALID_DATETIME"], [error.code for error in result.errors[:3]])
 
+    def test_invalid_single_digit_hour_time_candidate_uses_invalid_time(self) -> None:
+        result = compile_source('aeon:mode = "transport"\na = 9:00\n')
+        self.assertEqual(["INVALID_TIME"], [error.code for error in result.errors])
+
     def test_invalid_radix_literal_reports_invalid_number(self) -> None:
         result = compile_source("bits = %10A1-._/=")
+        self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
+
+    def test_malformed_transport_hyphen_number_tail_uses_invalid_number(self) -> None:
+        result = compile_source('aeon:mode = "transport"\na = 1-1\n')
         self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
 
     def test_custom_mode_untyped_switch_uses_general_typed_mode_error(self) -> None:

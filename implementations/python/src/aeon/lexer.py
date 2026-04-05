@@ -404,7 +404,6 @@ class Lexer:
             and not starts_with_leading_dot
             and first not in {"+", "-"}
             and self.peek() == ":"
-            and len(value) == 2
             and "_" not in value
         ):
             self.scan_time(start, value)
@@ -412,6 +411,15 @@ class Lexer:
 
         if not has_error and not starts_with_leading_dot and self.peek() == "-" and len(value) == 4 and "_" not in value:
             self.scan_date_or_datetime(start, value)
+            return
+
+        if not has_error and not starts_with_leading_dot and self.peek() == "-" and self.peek_next().isdigit() and "_" not in value:
+            while not self.is_at_end():
+                char = self.peek()
+                if char in {" ", "\t", "\n", "\r", ",", "]", ")", "}"}:
+                    break
+                value += self.advance()
+            self.errors.append(InvalidNumberError(value, self.make_span(start)))
             return
 
         if not starts_with_leading_dot and self.peek() == ".":

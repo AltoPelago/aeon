@@ -526,7 +526,7 @@ export class Lexer {
         scanDigitsWithUnderscores(true);
 
         // Check for time literal (HH:MM:SS with optional fractional seconds / zone)
-        if (!hasError && !startsWithLeadingDot && first !== '+' && first !== '-' && this.peek() === ':' && value.length === 2 && !value.includes('_')) {
+        if (!hasError && !startsWithLeadingDot && first !== '+' && first !== '-' && this.peek() === ':' && !value.includes('_')) {
             this.scanTime(value, start);
             return;
         }
@@ -534,6 +534,18 @@ export class Lexer {
         // Check for date literal (YYYY-MM-DD)
         if (!hasError && !startsWithLeadingDot && this.peek() === '-' && value.length === 4 && !value.includes('_')) {
             this.scanDateOrDateTime(value, start);
+            return;
+        }
+
+        if (!hasError && !startsWithLeadingDot && this.peek() === '-' && isDigit(this.peekNext()) && !value.includes('_')) {
+            while (!this.isAtEnd()) {
+                const ch = this.peek();
+                if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === ',' || ch === ']' || ch === ')' || ch === '}') {
+                    break;
+                }
+                value += this.advance();
+            }
+            this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
             return;
         }
 

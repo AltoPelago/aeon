@@ -710,6 +710,18 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
         });
+
+        it('should reject hyphen-separated malformed number tails: 1-1', () => {
+            const result = tokenize('1-1');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should reject single-digit hour time candidates with INVALID_TIME: 9:00', () => {
+            const result = tokenize('9:00');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_TIME');
+        });
     });
 
     describe('separator literal payload rules', () => {

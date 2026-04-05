@@ -577,6 +577,11 @@ describe('Core - compile()', () => {
                     message: "Invalid time literal: '24:00'",
                 },
                 {
+                    source: 'aeon:mode = "transport"\na = 9:00\n',
+                    code: 'INVALID_TIME',
+                    message: "Invalid time literal: '9:00'",
+                },
+                {
                     source: 'a:datetime = 2024-13-13T09:30:00Z\n',
                     code: 'INVALID_DATETIME',
                     message: "Invalid datetime literal: '2024-13-13T09:30:00Z'",
@@ -592,6 +597,15 @@ describe('Core - compile()', () => {
                 assert.strictEqual(result.errors[0]!.message, testCase.message);
                 assert.ok(result.errors[0]!.span);
             }
+        });
+
+        it('should report malformed transport hyphen-number tails as INVALID_NUMBER', () => {
+            const result = compile('aeon:mode = "transport"\na = 1-1\n');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+            assert.strictEqual(result.errors[0]!.message, "Invalid number literal: '1-1'");
         });
     });
 
