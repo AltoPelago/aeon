@@ -210,6 +210,11 @@ For Rust snippet runs, the harness now batches `.aeon-cases` corpora through
 the Rust CLI once per snippet and makes large combination sweeps noticeably
 faster without changing the stress command surface.
 
+The combination runner is intentionally a local/manual tool. It is not wired
+into GitHub CI, because the generated Cartesian-product sweeps are too large for
+the normal deploy path. CI currently stays on the smaller smoke and advanced
+stress lanes.
+
 Run canonical parity across the positive structural snippet corpora:
 
 ```bash

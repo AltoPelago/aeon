@@ -354,7 +354,7 @@ function renderNodeValue(
     opts: { inlineOnly: boolean }
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${value.tag}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+    const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -455,7 +455,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${value.tag}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
@@ -648,7 +648,7 @@ function renderScalarFromObject(value: unknown, path: string, errors: EmitError[
 }
 
 function formatBindingKey(key: string): string {
-    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+    return /^[a-zA-Z][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
 }
 
 function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {

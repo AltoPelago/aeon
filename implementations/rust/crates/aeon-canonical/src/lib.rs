@@ -402,7 +402,7 @@ fn render_key(key: &str) -> String {
     if is_identifier(key) || key.starts_with("aeon:") {
         key.to_owned()
     } else {
-        format!("\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""))
+        format!("\"{}\"", escape_string(key))
     }
 }
 
@@ -431,18 +431,26 @@ fn is_simple_value(value: &Value) -> bool {
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     match chars.next() {
-        Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
+        Some(first) if first.is_ascii_alphabetic() => {}
         _ => return false,
     }
     chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 fn escape_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
@@ -1382,14 +1390,59 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected quoted string"));
         }
         self.index += 1;
-        let start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == quote {
-                let value = std::str::from_utf8(&self.source[start..self.index])
-                    .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-                    .to_owned();
+        let mut value = String::new();
+        let mut chunk_start = self.index;
+        while self.index < self.source.len() {
+            let byte = self.source[self.index];
+            if byte == quote as u8 {
+                value.push_str(
+                    std::str::from_utf8(&self.source[chunk_start..self.index])
+                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
+                );
                 self.index += 1;
                 return Ok(value);
+            }
+            if byte == b'\\' {
+                value.push_str(
+                    std::str::from_utf8(&self.source[chunk_start..self.index])
+                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
+                );
+                self.index += 1;
+                let escaped = self.peek().ok_or_else(|| self.syntax_error("Unterminated string"))?;
+                match escaped {
+                    '\\' => value.push('\\'),
+                    '"' => value.push('"'),
+                    '\'' => value.push('\''),
+                    '`' => value.push('`'),
+                    'n' => value.push('\n'),
+                    'r' => value.push('\r'),
+                    't' => value.push('\t'),
+                    'b' => value.push('\u{0008}'),
+                    'f' => value.push('\u{000c}'),
+                    'u' => {
+                        self.index += 1;
+                        let hex_start = self.index;
+                        for _ in 0..4 {
+                            if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                return Err(self.syntax_error("Invalid unicode escape"));
+                            }
+                            self.index += 1;
+                        }
+                        let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                            .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                        let codepoint =
+                            u32::from_str_radix(hex, 16).map_err(|_| self.syntax_error("Invalid unicode escape"))?;
+                        let decoded =
+                            char::from_u32(codepoint).ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
+                        value.push(decoded);
+                        chunk_start = self.index;
+                        continue;
+                    }
+                    _ => return Err(self.syntax_error("Invalid escape sequence")),
+                }
+                self.index += 1;
+                chunk_start = self.index;
+                continue;
             }
             self.index += 1;
         }
@@ -2093,6 +2146,36 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"custom\"\n}\nwidth:unit = \"3cm\"\n"
+        );
+    }
+
+    #[test]
+    fn sorts_escaped_quoted_keys_by_decoded_codepoint_order() {
+        let result = canonicalize("aeon:mode = \"transport\"\n\"e\" = 0\n\"\\n\" = 0\n\" \" = 1\n\"º\" = 0\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\n\"\\n\" = 0\n\" \" = 1\ne = 0\n\"º\" = 0\n"
+        );
+    }
+
+    #[test]
+    fn keeps_underscore_prefixed_keys_quoted_canonically() {
+        let result = canonicalize("aeon:mode = \"transport\"\n\"_\" = 0\n\"_hello\" = 0\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\n\"_\" = 0\n\"_hello\" = 0\n"
+        );
+    }
+
+    #[test]
+    fn quotes_non_identifier_node_heads_canonically() {
+        let result = canonicalize("aeon:mode = \"transport\"\na = <\"a\">\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\na = <a>\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n"
         );
     }
 
