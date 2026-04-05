@@ -774,6 +774,12 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors[0]!.code, 'UNTERMINATED_STRING');
         });
 
+        it('should reject carriage returns inside quoted separator sections', () => {
+            const result = tokenize('^"a\rb"');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'UNTERMINATED_STRING');
+        });
+
         it('should terminate before a line comment opener outside quotes', () => {
             const result = tokenize('^aaa// hello', { includeComments: true });
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);

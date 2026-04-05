@@ -795,7 +795,7 @@ export class Lexer {
 
                 while (!this.isAtEnd()) {
                     const inner = this.peek();
-                    if (inner === '\n') {
+                    if (inner === '\n' || inner === '\r') {
                         this.errors.push(new UnterminatedStringError(quote, createSpan(start, this.currentPosition())));
                         return;
                     }

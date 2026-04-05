@@ -359,6 +359,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["UNTERMINATED_STRING"], [error.code for error in result.errors])
         self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
 
+    def test_separator_literal_quoted_segment_rejects_carriage_return(self) -> None:
+        result = compile_source('a:sep = ^"a\rb"')
+        self.assertGreaterEqual(len(result.errors), 1)
+        self.assertEqual("UNTERMINATED_STRING", result.errors[0].code)
+
     def test_out_of_range_braced_unicode_escape_fails_closed(self) -> None:
         result = compile_source(r'value = "\u{110000}"')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

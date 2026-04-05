@@ -341,7 +341,7 @@ class Lexer:
                 saw_payload_char = True
                 while not self.is_at_end():
                     inner = self.peek()
-                    if inner in {"\n", "\0"}:
+                    if inner in {"\n", "\r", "\0"}:
                         self.errors.append(UnterminatedStringError(char, self.make_span(start)))
                         return
                     chars.append(self.advance())

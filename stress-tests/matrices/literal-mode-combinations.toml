@@ -142,7 +142,7 @@ string = "|KEY||TYPE| = ^|0|1|2|// sep"
 outcome = "pass"
 
 [[stress]]
-description = "Sep delimeter"
+description = "Sep delimiter"
 key = "a"
 type = { strict = ":sep", custom = ":code"}
 value = [
@@ -155,7 +155,7 @@ string = "|KEY||TYPE|[|0|] = ^|1|2|3|// sep"
 outcome = "pass"
 
 [[stress]]
-description = "Sep delimeter"
+description = "Sep delimiter"
 key = "a"
 type = { strict = ":sep", custom = ":code" }
 value = [
@@ -318,4 +318,3 @@ value = [
 ]
 string = "|KEY||TYPE| = 2027-01-22T20&|0| // zrut"
 outcome = "pass"
-
