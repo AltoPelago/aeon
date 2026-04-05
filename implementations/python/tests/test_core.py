@@ -360,7 +360,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
 
     def test_separator_literal_quoted_segment_rejects_carriage_return(self) -> None:
-        result = compile_source('a:sep = ^"a\rb"')
+        result = compile_source('a:sep = ^"a' + '\r' + 'b"')
         self.assertGreaterEqual(len(result.errors), 1)
         self.assertEqual("UNTERMINATED_STRING", result.errors[0].code)
 
