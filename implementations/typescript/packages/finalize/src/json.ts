@@ -803,8 +803,19 @@ function writeContainerValue(container: JsonContainer, key: string | number, val
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
         return;
     }
-    if (!Object.prototype.hasOwnProperty.call(container, key)) {
+    // Only rewrite existing own data properties so pointer updates cannot
+    // create special object keys or interact with accessor/prototype chains.
+    const descriptor = Object.getOwnPropertyDescriptor(container, key);
+    if (!descriptor) {
         return;
     }
-    (container as JsonObject)[key] = value;
+    if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        return;
+    }
+    Object.defineProperty(container, key, {
+        value,
+        writable: descriptor.writable ?? true,
+        enumerable: descriptor.enumerable ?? true,
+        configurable: descriptor.configurable ?? true,
+    });
 }
