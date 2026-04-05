@@ -189,3 +189,15 @@ value = [
 string = "|KEY||TYPE| = (|0|,|1|,|2|) // list"
 outcome = "pass"
 
+[[stress]]
+description = "Time"
+key = "a"
+type = { strict = ":time", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59"],
+  ["00", "09", "59"],
+  ["Z", "+02", "+02:30", ""],
+]
+string = "|KEY||TYPE| = |0|:|1|:|2| // list"
+outcome = "pass"

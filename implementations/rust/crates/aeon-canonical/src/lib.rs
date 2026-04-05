@@ -1027,19 +1027,26 @@ fn looks_like_valid_radix_literal(raw: &str) -> bool {
     let mut saw_digit = false;
     let mut saw_decimal = false;
     let mut prev_was_digit = false;
+    let mut saw_digit_before_decimal = false;
 
     while index < chars.len() {
         let ch = chars[index];
         if is_radix_digit(ch) {
             saw_digit = true;
             prev_was_digit = true;
+            if !saw_decimal {
+                saw_digit_before_decimal = true;
+            }
         } else if ch == '_' {
             if !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
                 return false;
             }
             prev_was_digit = false;
         } else if ch == '.' {
-            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+                return false;
+            }
+            if !prev_was_digit && saw_digit_before_decimal {
                 return false;
             }
             saw_decimal = true;

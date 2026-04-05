@@ -957,17 +957,22 @@ def has_valid_radix_literal(raw: str) -> bool:
     saw_digit = False
     saw_decimal = False
     prev_was_digit = False
+    saw_digit_before_decimal = False
     while index < len(body):
         char = body[index]
         if is_valid_radix_digit(char):
             saw_digit = True
             prev_was_digit = True
+            if not saw_decimal:
+                saw_digit_before_decimal = True
         elif char == "_":
             if not prev_was_digit or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
                 return False
             prev_was_digit = False
         elif char == ".":
             if saw_decimal or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
+                return False
+            if not prev_was_digit and saw_digit_before_decimal:
                 return False
             saw_decimal = True
             prev_was_digit = False

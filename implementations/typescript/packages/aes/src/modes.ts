@@ -459,12 +459,14 @@ function hasValidRadixLiteral(raw: string): boolean {
     let sawDigit = false;
     let sawDecimal = false;
     let prevWasDigit = false;
+    let sawDigitBeforeDecimal = false;
 
     for (; index < body.length; index += 1) {
         const c = body[index]!;
         if (isValidRadixDigit(c)) {
             sawDigit = true;
             prevWasDigit = true;
+            if (!sawDecimal) sawDigitBeforeDecimal = true;
             continue;
         }
         if (c === '_') {
@@ -473,7 +475,8 @@ function hasValidRadixLiteral(raw: string): boolean {
             continue;
         }
         if (c === '.') {
-            if (sawDecimal || !prevWasDigit || index + 1 >= body.length || !isValidRadixDigit(body[index + 1]!)) return false;
+            if (sawDecimal || index + 1 >= body.length || !isValidRadixDigit(body[index + 1]!)) return false;
+            if (!prevWasDigit && sawDigitBeforeDecimal) return false;
             sawDecimal = true;
             prevWasDigit = false;
             continue;
