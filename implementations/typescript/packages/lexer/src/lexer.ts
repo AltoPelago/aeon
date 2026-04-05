@@ -590,12 +590,18 @@ export class Lexer {
             return;
         }
 
-        // Validate: no leading zeros (except 0 itself or 0.xxx)
+        // Validate: no leading zeros (except 0 itself, 0.xxx, or 0e...)
         const normalized = value.replace(/_/g, '');
         const normalizedBody = normalized[0] === '+' || normalized[0] === '-'
             ? normalized.slice(1)
             : normalized;
-        if (normalizedBody.length > 1 && normalizedBody[0] === '0' && normalizedBody[1] !== '.') {
+        if (
+            normalizedBody.length > 1
+            && normalizedBody[0] === '0'
+            && normalizedBody[1] !== '.'
+            && normalizedBody[1] !== 'e'
+            && normalizedBody[1] !== 'E'
+        ) {
             this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
             return;
         }

@@ -428,8 +428,16 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("value:number = 3e3_3")
         self.assertEqual([], [error.code for error in result.errors])
 
+    def test_zero_mantissa_exponents_are_accepted(self) -> None:
+        result = compile_source("a:number = 0e0\nb:number = +0e2\nc:number = -0e-2")
+        self.assertEqual([], [error.code for error in result.errors])
+
     def test_invalid_exponent_underscore_boundaries_are_rejected(self) -> None:
         result = compile_source("value:number = 3e_3")
+        self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
+
+    def test_leading_zero_exponent_mantissas_are_rejected(self) -> None:
+        result = compile_source("value:number = 00e2")
         self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
 
     def test_attribute_datatype_mismatch_is_rejected(self) -> None:

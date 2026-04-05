@@ -468,7 +468,7 @@ class Lexer:
 
         normalized = value.replace("_", "")
         unsigned = normalized[1:] if normalized.startswith(("+", "-")) else normalized
-        if len(unsigned) > 1 and unsigned.startswith("0") and not unsigned.startswith("0."):
+        if len(unsigned) > 1 and unsigned.startswith("0") and not unsigned.startswith(("0.", "0e", "0E")):
             self.errors.append(InvalidNumberError(value, self.make_span(start)))
             return
 

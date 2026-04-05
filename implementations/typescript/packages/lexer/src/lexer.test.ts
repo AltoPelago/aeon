@@ -146,6 +146,14 @@ describe('Lexer', () => {
             assert.strictEqual(tokens[1]!.value, '3.14e-2');
         });
 
+        it('should tokenize zero-mantissa exponents', () => {
+            const result = tokenize('0e0 +0e2 -0e-2');
+            const tokens = result.tokens.filter(t => t.type === TokenType.Number);
+            assert.strictEqual(tokens[0]!.value, '0e0');
+            assert.strictEqual(tokens[1]!.value, '+0e2');
+            assert.strictEqual(tokens[2]!.value, '-0e-2');
+        });
+
         it('should allow underscore separators', () => {
             const result = tokenize('1_000_000');
             assert.strictEqual(result.tokens[0]!.value, '1_000_000');
@@ -684,6 +692,12 @@ describe('Lexer', () => {
 
         it('should reject signed leading-zero decimals: -00.5', () => {
             const result = tokenize('-00.5');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should reject leading-zero exponent mantissas: 00e2', () => {
+            const result = tokenize('00e2');
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
         });
