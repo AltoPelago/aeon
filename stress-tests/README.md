@@ -39,6 +39,7 @@ Rule of thumb:
 | Full fixture matrix | `python3 ./scripts/stress-fixtures.py --impl rust` | broader shared fixture run with per-fixture options and known-red reporting |
 | Positive snippets | `python3 ./scripts/stress-positive-snippets.py` | editable corpus of mini fixtures that must pass |
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
+| Combination corpora | `python3 ./scripts/stress-combinations.py --run both` | expands mode-aware combination matrices into generated positive/negative snippet corpora and can immediately run them |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
 | Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
@@ -172,6 +173,27 @@ python3 ./scripts/stress-positive-snippets.py --file ./stress-tests/snippets/val
 
 This corpus uses the same `---` delimiter format, but every snippet is expected
 to pass with empty `errors`.
+
+Generate mode-aware combination corpora and optionally run them through the
+existing snippet lanes:
+
+```bash
+python3 ./scripts/stress-combinations.py
+python3 ./scripts/stress-combinations.py --matrix ./stress-tests/matrices/literal-mode-combinations.toml
+python3 ./scripts/stress-combinations.py --run both --impl rust
+```
+
+The matrix file is TOML. Each `[[stress]]` entry expands as a Cartesian product
+across its `value` rows, then resolves mode-aware fields such as `type` and
+`outcome` per mode. `type` and `outcome` may be declared as:
+
+- a single string used for all modes
+- a mode-keyed inline table such as `{ strict = ":number", custom = ":n", transport = "" }`
+- an array whose positions follow top-level `mode_order`
+
+Generated corpora are written under `stress-tests/snippets/generated/` as
+`<matrix>.positive-<mode>.aeon-cases` and `<matrix>.negative-<mode>.aeon-cases`,
+with a sidecar JSON manifest for traceability.
 
 Run canonical parity across the positive structural snippet corpora:
 

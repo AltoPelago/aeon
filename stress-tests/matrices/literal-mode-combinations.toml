@@ -1,0 +1,60 @@
+mode_order = ["strict", "custom", "transport"]
+
+[[stress]]
+description = "1a. boolean"
+key = "a"
+type = { strict = ":boolean", custom = ":flag", transport = "" }
+value = [
+  ["true", "false"],
+]
+string = "|KEY||TYPE| = |0|"
+outcome = "pass"
+
+[[stress]]
+description = "2a. switch"
+key = "a"
+type = { strict = ":switch", custom = ":toggle", transport = "" }
+value = [
+  ["yes", "no", "on", "off"],
+]
+string = "|KEY||TYPE| = |0|"
+outcome = "pass"
+
+[[stress]]
+description = "3a. number"
+key = "a"
+type = { strict = ":number", custom = ":n", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000"],
+]
+string = "|KEY||TYPE| = |0|1|"
+outcome = "pass"
+
+[[stress]]
+description = "3b. number exponent"
+key = "a"
+type = { strict = ":number", custom = ":n", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000"],
+  ["e"],
+  ["+", "-", ""],
+  ["0", "2", "33"],
+]
+string = "|KEY||TYPE| = |0|1|2|3|4|"
+outcome = "pass"
+
+[[stress]]
+description = "3c. number float"
+key = "a"
+type = { strict = ":number", custom = ":n", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000", ""],
+  ["."],
+  ["2", "33", "0", "00"],
+  ["", "e0", "e2", "e-2", "e+2"],
+]
+string = "|KEY||TYPE| = |0|1|2|3|4|"
+outcome = "pass"
