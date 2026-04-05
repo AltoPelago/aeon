@@ -286,7 +286,6 @@ impl<'a> Lexer<'a> {
         }
 
         if matches!(self.peek(), 'e' | 'E') {
-            let checkpoint = self.offset;
             self.advance();
             if matches!(self.peek(), '+' | '-') {
                 self.advance();
@@ -296,8 +295,19 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
             } else {
-                self.offset = checkpoint;
-                self.column = self.recompute_column(self.offset);
+                while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+                    self.advance();
+                }
+                let text = self.slice_from(start.offset);
+                self.errors.push(LexError {
+                    code: String::from("INVALID_NUMBER"),
+                    message: format!("Invalid number literal `{text}`"),
+                    span: Span {
+                        start,
+                        end: self.current_position(),
+                    },
+                });
+                return;
             }
         }
 
@@ -600,16 +610,6 @@ impl<'a> Lexer<'a> {
         self.input[start_offset..self.offset].to_owned()
     }
 
-    fn recompute_column(&self, offset: usize) -> usize {
-        let mut column = 1usize;
-        for ch in self.input[..offset].chars().rev() {
-            if ch == '\n' {
-                break;
-            }
-            column += 1;
-        }
-        column
-    }
 }
 
 fn is_identifier_start(ch: char) -> bool {

@@ -972,6 +972,9 @@ mod tests {
             "a:number = 3e3__3\n",
             "a:number = 33__3\n",
             "a:number = 3e3_\n",
+            "a:number = 1e\n",
+            "a:number = 1e+\n",
+            "a:number = 1e-\n",
         ];
 
         for source in invalid_number_cases {
@@ -1013,6 +1016,20 @@ mod tests {
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "INVALID_NUMBER");
         assert_eq!(result.errors[0].message, "Number literal `1-1` is not valid");
+    }
+
+    #[test]
+    fn rejects_incomplete_transport_exponent_forms_before_finalize() {
+        for source in [
+            "aeon:mode = \"transport\"\na = 1e\n",
+            "aeon:mode = \"transport\"\na = 1e+\n",
+            "aeon:mode = \"transport\"\na = 1e-\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "INVALID_NUMBER", "{:?}", result.errors);
+        }
     }
 
     #[test]
