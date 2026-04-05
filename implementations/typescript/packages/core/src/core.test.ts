@@ -495,6 +495,13 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
         });
 
+        it('should accept leading-dot radix literals', () => {
+            const result = compile('a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 3);
+        });
+
         it('should normalize invalid typed hex literals to syntax errors', () => {
             const result = compile('a:hex = #F__F');
 

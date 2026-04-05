@@ -1337,7 +1337,7 @@ fn has_valid_radix_literal(raw: &str) -> bool {
             }
             prev_was_digit = false;
         } else if ch == '.' {
-            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
                 return false;
             }
             saw_decimal = true;

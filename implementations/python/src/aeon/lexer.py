@@ -709,7 +709,7 @@ class Lexer:
 
     @staticmethod
     def is_radix_start_char(char: str) -> bool:
-        return char in {"+", "-", "&", "!"} or char.isalnum()
+        return char in {"+", "-", ".", "&", "!"} or char.isalnum()
 
     @staticmethod
     def is_radix_digit(char: str) -> bool:
@@ -735,7 +735,7 @@ class Lexer:
                     return False
                 prev_was_digit = False
             elif char == ".":
-                if saw_decimal or not prev_was_digit or index + 1 >= len(payload) or not Lexer.is_radix_digit(payload[index + 1]):
+                if saw_decimal or index + 1 >= len(payload) or not Lexer.is_radix_digit(payload[index + 1]):
                     return False
                 saw_decimal = True
                 prev_was_digit = False

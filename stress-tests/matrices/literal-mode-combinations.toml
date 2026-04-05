@@ -7,7 +7,7 @@ type = { strict = ":boolean", custom = ":flag", transport = "" }
 value = [
   ["true", "false"],
 ]
-string = "|KEY||TYPE| = |0| // boolean"
+string = "|KEY||TYPE| = |0|// boolean"
 outcome = "pass"
 
 [[stress]]
@@ -28,7 +28,7 @@ value = [
   ["-", "+", ""],
   ["0", "1", "3000"],
 ]
-string = "|KEY||TYPE| = |0|1| // number"
+string = "|KEY||TYPE| = |0|1|// number"
 outcome = "pass"
 
 [[stress]]
@@ -42,7 +42,7 @@ value = [
   ["+", "-", ""],
   ["0", "2", "33"],
 ]
-string = "|KEY||TYPE| = |0|1|2|3|4| // number"
+string = "|KEY||TYPE| = |0|1|2|3|4|// number"
 outcome = "pass"
 
 [[stress]]
@@ -56,7 +56,31 @@ value = [
   ["2", "33", "0", "00"],
   ["", "e0", "e2", "e-2", "e+2"],
 ]
-string = "|KEY||TYPE| = |0|1|2|3|4| // number"
+string = "|KEY||TYPE| = |0|1|2|3|4|// number"
+outcome = "pass"
+
+[[stress]]
+description = "Infinity"
+key = "a"
+type = { strict = ":infinity", custom = ":impossible", transport = "" }
+value = [
+  ["Infinity"],
+]
+string = "|KEY||TYPE| = |0|// infinity"
+outcome = "pass"
+
+[[stress]]
+description = "Radix"
+key = "a"
+type = { strict = ":radix", custom = ":mm", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000", "", "!", "&"],
+  ["."],
+  ["2", "33", "0", "00", "!", "&"],
+  ["", "a", "X", "n", "e"],
+]
+string = "|KEY||TYPE| = %|0|1|2|3|4| // radix"
 outcome = "pass"
 
 [[stress]]
@@ -65,7 +89,7 @@ key = "a"
 type = { strict = ":string", custom = ":custom", transport = "" }
 value = [
   ["AZ", "az", "09"],
-  ["\t", "\n", "\r", "\b"],
+  ['\t', '\n', '\r', '\b'],
 ]
 string = "|KEY||TYPE| = \"|0|1|.\" // string"
 outcome = "pass"
@@ -76,7 +100,7 @@ key = "a"
 type = { strict = ":string", custom = ":custom", transport = "" }
 value = [
   ["AZ", "az", "09"],
-  ["\t", "\n", "\r", "\b"],
+  ['\t', '\n', '\r', '\b'],
 ]
 string = "|KEY|@{|KEY||TYPE| = \"|0|1|!\"}|TYPE| = \"|0|1|.\" // string"
 outcome = "pass"
@@ -94,6 +118,18 @@ string = "|KEY||TYPE| = #|0|1|2| // hex"
 outcome = "pass"
 
 [[stress]]
+description = "Encoding"
+key = "a"
+type = { strict = ":base64", custom = ":binary", transport = "" }
+value = [
+  ["00", "99", "FF"],
+  ["AA", "aa", "_"],
+  ["-", "Ad-F_ff", "xX"],
+]
+string = "|KEY||TYPE| = $|0|1|2|== // hex"
+outcome = "pass"
+
+[[stress]]
 description = "Sep"
 key = "a"
 type = { strict = ":sep", custom = ":code", transport = "" }
@@ -105,15 +141,14 @@ value = [
 string = "|KEY||TYPE| = ^|0|1|2|// sep"
 outcome = "pass"
 
-
 [[stress]]
 description = "Sep delimeter"
 key = "a"
-type = { strict = ":sep", custom = ":code", transport = ":sep" }
+type = { strict = ":sep", custom = ":code"}
 value = [
   ["a", "0", "."],
   ["00", "99", "\"hello,world\""],
-  ["", "0123456789", "Az", "'hello world'"],
+  ["", "0123456789", "Az", '"hello\t\n\b\r world"'],
   ["!#$%&*+-.:;=?@^_|~<>", "'world'", "' '"],
 ]
 string = "|KEY||TYPE|[|0|] = ^|1|2|3|// sep"
@@ -122,10 +157,35 @@ outcome = "pass"
 [[stress]]
 description = "Sep delimeter"
 key = "a"
-type = { strict = ":sep", custom = ":code", transport = ":sep" }
+type = { strict = ":sep", custom = ":code" }
 value = [
   ["!", "#", "$", "%", "&", "*", "+", "-", ".", ":", ";", "=", "?", "@", "^", "_", "|", "~", "<", ">"],
   ["00"],
 ]
-string = "|KEY||TYPE|[|0|] = ^|1|// sep"
+string = "|KEY||TYPE|[|0|] = ^|0|1|// sep"
 outcome = "pass"
+
+[[stress]]
+description = "List"
+key = "a"
+type = { strict = ":list", custom = ":scrapheap", transport = "" }
+value = [
+  ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
+  ["1", "true", "off"],
+  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+]
+string = "|KEY||TYPE| = [|0|,|1|,|2|] // list"
+outcome = "pass"
+
+[[stress]]
+description = "Tuple"
+key = "a"
+type = { strict = ":tuple", custom = ":scrapheap", transport = "" }
+value = [
+  ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
+  ["1", "true", "off"],
+  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+]
+string = "|KEY||TYPE| = (|0|,|1|,|2|) // list"
+outcome = "pass"
+

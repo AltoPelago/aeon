@@ -192,6 +192,11 @@ across its `value` rows, then resolves mode-aware fields such as `type` and
 - a mode-keyed inline table such as `{ strict = ":number", custom = ":n", transport = "" }`
 - an array whose positions follow top-level `mode_order`
 
+When a mode-keyed inline table omits a mode, the generator skips that mode for
+the entry. This lets a case target only the modes it cares about without adding
+an explicit `modes = [...]` list. If you do provide `modes = [...]`, every
+listed mode must still be defined by the entry's mode-aware fields.
+
 Generated corpora are written under `stress-tests/snippets/generated/` as
 `<matrix>.positive-<mode>.aeon-cases` and `<matrix>.negative-<mode>.aeon-cases`,
 with a sidecar JSON manifest for traceability.

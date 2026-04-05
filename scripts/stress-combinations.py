@@ -121,6 +121,16 @@ def resolve_mode_value(raw: Any, mode_order: tuple[str, ...], mode: str, field_n
     )
 
 
+def mode_has_value(raw: Any, mode_order: tuple[str, ...], mode: str, field_name: str, description: str) -> bool:
+    if isinstance(raw, (str, list)):
+        return True
+    if isinstance(raw, dict):
+        return mode in raw
+    raise ValueError(
+        f"{description!r}: '{field_name}' must be a string, mode-keyed table, or array matching mode_order"
+    )
+
+
 def normalize_outcome(raw: Any, mode_order: tuple[str, ...], mode: str, description: str) -> str:
     value = resolve_mode_value(raw, mode_order, mode, "outcome", description).strip().lower()
     if value not in {"pass", "fail"}:
@@ -246,8 +256,21 @@ def expand_matrix(matrix_path: Path) -> tuple[tuple[str, ...], list[GeneratedCas
             if mode not in active_modes:
                 active_modes.append(mode)
 
+        explicit_modes = "modes" in entry
         variant_index = 0
         for mode in active_modes:
+            missing_required_fields = [
+                field_name
+                for field_name, field_value in (("type", type_value), ("outcome", outcome_value))
+                if not mode_has_value(field_value, mode_order, mode, field_name, description)
+            ]
+            if missing_required_fields:
+                if explicit_modes:
+                    missing_list = ", ".join(repr(field_name) for field_name in missing_required_fields)
+                    raise ValueError(
+                        f"{description!r}: explicit mode {mode!r} requires {missing_list} entries for that mode"
+                    )
+                continue
             rendered_type = resolve_mode_value(type_value, mode_order, mode, "type", description)
             outcome = normalize_outcome(outcome_value, mode_order, mode, description)
             for values in combinations:

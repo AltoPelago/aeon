@@ -967,7 +967,7 @@ def has_valid_radix_literal(raw: str) -> bool:
                 return False
             prev_was_digit = False
         elif char == ".":
-            if saw_decimal or not prev_was_digit or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
+            if saw_decimal or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
                 return False
             saw_decimal = True
             prev_was_digit = False

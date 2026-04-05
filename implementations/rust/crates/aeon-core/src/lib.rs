@@ -1007,6 +1007,13 @@ mod tests {
     }
 
     #[test]
+    fn accepts_leading_dot_radix_literals() {
+        let result = compile("a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 3);
+    }
+
+    #[test]
     fn reports_unterminated_string_with_aligned_message_and_exact_span_details() {
         let result = compile("a = 1\nb = \"unterminated", CompileOptions::default());
         assert!(result.events.is_empty());

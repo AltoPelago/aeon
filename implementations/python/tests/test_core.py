@@ -127,6 +127,10 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix[2]", result.events[0]["datatype"])
 
+    def test_leading_dot_radix_literals_are_allowed(self) -> None:
+        result = compile_source('aeon:mode = "strict"\na:radix = %-.3\nb:radix = %+.1\nc:radix = %.1')
+        self.assertEqual([], result.errors)
+
     def test_reserved_scalar_generics_are_rejected(self) -> None:
         result = compile_source("a:n<string> = 3")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

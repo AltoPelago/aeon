@@ -193,6 +193,15 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '%+9&.!');
         });
 
+        it('should tokenize leading-dot radix literals', () => {
+            for (const source of ['%.1', '%+.1', '%-.3']) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.RadixLiteral, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should terminate radix literals at non-radix boundary characters', () => {
             for (const source of ['%1/2', '%1=2']) {
                 const result = tokenize(source);
@@ -210,7 +219,7 @@ describe('Lexer', () => {
         });
 
         it('should treat invalid radix starts as ordinary tokens', () => {
-            for (const source of ['%_1', '%.1']) {
+            for (const source of ['%_1']) {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);
                 assert.strictEqual(result.tokens[0]!.type, TokenType.Percent, source);

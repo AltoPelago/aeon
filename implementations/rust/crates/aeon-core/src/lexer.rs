@@ -633,7 +633,7 @@ fn is_radix_char(ch: char) -> bool {
 }
 
 fn is_radix_start_char(ch: char) -> bool {
-    matches!(ch, '+' | '-' | '&' | '!') || ch.is_ascii_alphanumeric()
+    matches!(ch, '+' | '-' | '.' | '&' | '!') || ch.is_ascii_alphanumeric()
 }
 
 fn is_radix_digit(ch: char) -> bool {
@@ -663,7 +663,7 @@ fn is_valid_radix_payload(payload: &str) -> bool {
             }
             prev_was_digit = false;
         } else if ch == '.' {
-            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
                 return false;
             }
             saw_decimal = true;
@@ -919,6 +919,20 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_leading_dot_radix_literals() {
+        for source in ["value = %.1", "value = %+.1", "value = %-.3"] {
+            let result = tokenize(source, LexerOptions::default());
+            assert!(result.errors.is_empty(), "{source}");
+            let token = result
+                .tokens
+                .iter()
+                .find(|token| token.kind == TokenKind::RadixLiteral)
+                .expect("radix token");
+            assert_eq!(token.text, source.split_whitespace().last().unwrap(), "{source}");
+        }
+    }
+
+    #[test]
     fn radix_literals_terminate_at_non_radix_boundary_characters() {
         for source in ["value = %1/2", "value = %1=2"] {
             let result = tokenize(source, LexerOptions::default());
@@ -942,7 +956,7 @@ mod tests {
 
     #[test]
     fn invalid_radix_starts_fall_back_to_plain_tokens() {
-        for source in ["value = %_1", "value = %.1"] {
+        for source in ["value = %_1"] {
             let result = tokenize(source, LexerOptions::default());
             assert!(result.errors.is_empty(), "{source}");
             assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");

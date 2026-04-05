@@ -106,7 +106,7 @@ function isRadixChar(c: string): boolean {
 }
 
 function isRadixStartChar(c: string): boolean {
-    return c === '+' || c === '-' || isLetter(c) || isDigit(c) || c === '&' || c === '!';
+    return c === '+' || c === '-' || c === '.' || isLetter(c) || isDigit(c) || c === '&' || c === '!';
 }
 
 function isPrintableAscii(c: string): boolean {
@@ -1213,7 +1213,7 @@ function isValidRadixPayload(payload: string): boolean {
             continue;
         }
         if (c === '.') {
-            if (sawDecimal || !prevWasDigit || index + 1 >= payload.length || !isValidRadixDigit(payload[index + 1]!)) {
+            if (sawDecimal || index + 1 >= payload.length || !isValidRadixDigit(payload[index + 1]!)) {
                 return false;
             }
             sawDecimal = true;
