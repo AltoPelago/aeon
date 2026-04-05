@@ -1019,6 +1019,14 @@ mod tests {
     }
 
     #[test]
+    fn accepts_valid_untyped_transport_dates() {
+        let result = compile("aeon:mode = \"transport\"\nd:date = 2012-06-13\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].value.value_kind(), "DateLiteral");
+    }
+
+    #[test]
     fn rejects_incomplete_transport_exponent_forms_before_finalize() {
         for source in [
             "aeon:mode = \"transport\"\na = 1e\n",

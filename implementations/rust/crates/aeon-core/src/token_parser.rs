@@ -354,6 +354,9 @@ impl<'a> TokenParser<'a> {
             }
             TokenKind::Number => {
                 let raw = self.advance().text.clone();
+                if let Some(value) = classify_temporal_literal(&raw) {
+                    return Ok(value);
+                }
                 if let Some((code, message)) = invalid_temporal_literal(&raw) {
                     return Err(Diagnostic {
                         code: String::from(code),
@@ -372,7 +375,7 @@ impl<'a> TokenParser<'a> {
                         message: format!("Number literal `{raw}` is not valid"),
                     });
                 }
-                Ok(classify_temporal_literal(&raw).unwrap_or(Value::NumberLiteral { raw }))
+                Ok(Value::NumberLiteral { raw })
             }
             TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {
                 raw: self.advance().text.clone(),
