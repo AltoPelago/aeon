@@ -425,7 +425,7 @@ function resolvedValueKind(value: Value): string {
         return value.raw.includes('&') ? 'ZRUTDateTimeLiteral' : 'DateTimeLiteral';
     }
     if (value.type === 'SeparatorLiteral') {
-        return value.raw.startsWith('^ ') ? 'InvalidSeparatorLiteral' : 'SeparatorLiteral';
+        return 'SeparatorLiteral';
     }
     if (value.type === 'HexLiteral') {
         return hasValidLiteralUnderscores(value.raw) ? 'HexLiteral' : 'InvalidHexLiteral';
@@ -459,12 +459,14 @@ function hasValidRadixLiteral(raw: string): boolean {
     let sawDigit = false;
     let sawDecimal = false;
     let prevWasDigit = false;
+    let sawDigitBeforeDecimal = false;
 
     for (; index < body.length; index += 1) {
         const c = body[index]!;
         if (isValidRadixDigit(c)) {
             sawDigit = true;
             prevWasDigit = true;
+            if (!sawDecimal) sawDigitBeforeDecimal = true;
             continue;
         }
         if (c === '_') {
@@ -473,7 +475,8 @@ function hasValidRadixLiteral(raw: string): boolean {
             continue;
         }
         if (c === '.') {
-            if (sawDecimal || !prevWasDigit || index + 1 >= body.length || !isValidRadixDigit(body[index + 1]!)) return false;
+            if (sawDecimal || index + 1 >= body.length || !isValidRadixDigit(body[index + 1]!)) return false;
+            if (!prevWasDigit && sawDigitBeforeDecimal) return false;
             sawDecimal = true;
             prevWasDigit = false;
             continue;
@@ -901,9 +904,7 @@ function bracketSpecs(datatype: string): string[] {
 }
 
 function isValidSeparatorSpec(spec: string): boolean {
-    if (spec.length !== 1) return false;
-    const code = spec.charCodeAt(0);
-    return code >= 0x21 && code <= 0x7e && spec !== ',' && spec !== '[' && spec !== ']';
+    return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(spec);
 }
 
 function isValidRadixBaseSpec(spec: string): boolean {

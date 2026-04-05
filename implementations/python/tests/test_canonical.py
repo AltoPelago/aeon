@@ -64,6 +64,11 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertIn('s:set[2] = ^o2o2o', result.text)
 
+    def test_canonicalizes_separator_payloads_without_trimming_raw_segments(self) -> None:
+        result = canonicalize('aeon:mode = "custom"\nparts:sep[|] = ^"hello world"|tail')
+        self.assertEqual([], result.errors)
+        self.assertIn('parts:sep[|] = ^"hello world"|tail', result.text)
+
     def test_canonicalizes_multiline_generic_and_separator_boundaries(self) -> None:
         result = canonicalize(
             'aeon:mode = "strict"\n'

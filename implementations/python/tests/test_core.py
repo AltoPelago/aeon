@@ -127,6 +127,10 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix[2]", result.events[0]["datatype"])
 
+    def test_leading_dot_radix_literals_are_allowed(self) -> None:
+        result = compile_source('aeon:mode = "strict"\na:radix = %-.3\nb:radix = %+.1\nc:radix = %.1')
+        self.assertEqual([], result.errors)
+
     def test_reserved_scalar_generics_are_rejected(self) -> None:
         result = compile_source("a:n<string> = 3")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
@@ -156,6 +160,16 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual([], result.errors)
                 self.assertEqual(f"{datatype}[|]", result.events[0]["datatype"])
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
+
+    def test_reserved_slash_separator_specs_are_rejected(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nvalue:set[/] = ^000.000')
+        self.assertEqual(["INVALID_SEPARATOR_CHAR"], [error.code for error in result.errors])
+
+    def test_reserved_caret_separator_specs_are_allowed(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nleft:set[^] = ^a^b\nright:sep[^] = ^a^b')
+        self.assertEqual([], result.errors)
+        self.assertEqual("set[^]", result.events[0]["datatype"])
+        self.assertEqual("sep[^]", result.events[1]["datatype"])
 
     def test_infinity_datatype_is_allowed_in_typed_modes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nlimit:infinity = Infinity')
@@ -283,11 +297,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertTrue(datatype_has_generic_args("custom<custom>"))
         self.assertFalse(datatype_has_generic_args('custom["<"][">"]'))
 
-    def test_separator_literals_terminate_before_tab_followed_comments(self) -> None:
-        result = compile_source('g:sep = ^1\t// d')
+    def test_separator_literals_terminate_before_comments_resume(self) -> None:
+        result = compile_source('g:sep[|] = ^aaa // d')
         self.assertEqual([], result.errors)
         self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
-        self.assertEqual("^1", result.events[0]["value"]["raw"])
+        self.assertEqual("^aaa", result.events[0]["value"]["raw"])
 
     def test_missing_attribute_reference(self) -> None:
         result = compile_source("a = 1\nv = ~a@ns")
@@ -344,6 +358,11 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a = 1\nb = "unterminated')
         self.assertEqual(["UNTERMINATED_STRING"], [error.code for error in result.errors])
         self.assertEqual('Unterminated string literal (started with ")', result.errors[0].message)
+
+    def test_separator_literal_quoted_segment_rejects_carriage_return(self) -> None:
+        result = compile_source('a:sep = ^"a' + '\r' + 'b"')
+        self.assertGreaterEqual(len(result.errors), 1)
+        self.assertEqual("UNTERMINATED_STRING", result.errors[0].code)
 
     def test_out_of_range_braced_unicode_escape_fails_closed(self) -> None:
         result = compile_source(r'value = "\u{110000}"')
@@ -428,8 +447,16 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("value:number = 3e3_3")
         self.assertEqual([], [error.code for error in result.errors])
 
+    def test_zero_mantissa_exponents_are_accepted(self) -> None:
+        result = compile_source("a:number = 0e0\nb:number = +0e2\nc:number = -0e-2")
+        self.assertEqual([], [error.code for error in result.errors])
+
     def test_invalid_exponent_underscore_boundaries_are_rejected(self) -> None:
         result = compile_source("value:number = 3e_3")
+        self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
+
+    def test_leading_zero_exponent_mantissas_are_rejected(self) -> None:
+        result = compile_source("value:number = 00e2")
         self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
 
     def test_attribute_datatype_mismatch_is_rejected(self) -> None:
@@ -448,22 +475,41 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue:sep = ^")
         self.assertNotEqual([], result.errors)
 
-    def test_spaces_only_separator_literal_inside_node_child_is_accepted(self) -> None:
-        result = compile_source("n:node = <b(^    )>")
+    def test_separator_literals_accept_quoted_segments_with_spaces_and_punctuation(self) -> None:
+        result = compile_source('value:sep[|] = ^"hello world"|"this, [is] fine"')
         self.assertEqual([], result.errors)
-        child = result.events[0]["value"]["children"][0]
-        self.assertEqual("    ", child["value"])
+        self.assertEqual('"hello world"|"this, [is] fine"', result.events[0]["value"]["value"])
 
-    def test_unparameterized_separator_datatype_rejects_caret_with_non_space_payload(self) -> None:
-        result = compile_source("blue:sep = ^ 200")
+    def test_separator_literals_reject_raw_spaces(self) -> None:
+        result = compile_source("n:node = <b(^aaa bbb)>")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_separator_literals_reject_raw_slashes(self) -> None:
+        result = compile_source("blue:sep[|] = ^root/main")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_unparameterized_separator_datatype_accepts_caret_payload(self) -> None:
+        result = compile_source("blue:sep = ^200")
+        self.assertEqual([], [error.code for error in result.errors])
+
+    def test_unparameterized_set_datatype_accepts_caret_payload(self) -> None:
+        result = compile_source("blue:set = ^200")
+        self.assertEqual([], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
         result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))
         self.assertEqual(["INVALID_TIME", "INVALID_DATE", "INVALID_DATETIME"], [error.code for error in result.errors[:3]])
 
+    def test_invalid_single_digit_hour_time_candidate_uses_invalid_time(self) -> None:
+        result = compile_source('aeon:mode = "transport"\na = 9:00\n')
+        self.assertEqual(["INVALID_TIME"], [error.code for error in result.errors])
+
     def test_invalid_radix_literal_reports_invalid_number(self) -> None:
         result = compile_source("bits = %10A1-._/=")
+        self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
+
+    def test_malformed_transport_hyphen_number_tail_uses_invalid_number(self) -> None:
+        result = compile_source('aeon:mode = "transport"\na = 1-1\n')
         self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
 
     def test_custom_mode_untyped_switch_uses_general_typed_mode_error(self) -> None:

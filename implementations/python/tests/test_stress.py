@@ -53,9 +53,9 @@ class TestAlgorithmicStress(unittest.TestCase):
         except RecursionError:
             self.fail("RecursionError leaked and crashed the parser on nested generic depth!")
 
-    def test_separator_literal_escape_stress(self):
+    def test_separator_literal_segment_stress(self):
         repeats = 4000
-        payload = '0\\,0\\\\0\\ 0|"0;0"|'
+        payload = '0|0;"0, [x]"|tail|'
         source = f"line:set[|] = ^{payload * repeats}"
         result = compile_source(source, CompileOptions(max_separator_depth=8))
         self.assertEqual([], [error.code for error in result.errors])

@@ -146,6 +146,14 @@ describe('Lexer', () => {
             assert.strictEqual(tokens[1]!.value, '3.14e-2');
         });
 
+        it('should tokenize zero-mantissa exponents', () => {
+            const result = tokenize('0e0 +0e2 -0e-2');
+            const tokens = result.tokens.filter(t => t.type === TokenType.Number);
+            assert.strictEqual(tokens[0]!.value, '0e0');
+            assert.strictEqual(tokens[1]!.value, '+0e2');
+            assert.strictEqual(tokens[2]!.value, '-0e-2');
+        });
+
         it('should allow underscore separators', () => {
             const result = tokenize('1_000_000');
             assert.strictEqual(result.tokens[0]!.value, '1_000_000');
@@ -185,6 +193,15 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '%+9&.!');
         });
 
+        it('should tokenize leading-dot radix literals', () => {
+            for (const source of ['%.1', '%+.1', '%-.3']) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.RadixLiteral, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should terminate radix literals at non-radix boundary characters', () => {
             for (const source of ['%1/2', '%1=2']) {
                 const result = tokenize(source);
@@ -202,7 +219,7 @@ describe('Lexer', () => {
         });
 
         it('should treat invalid radix starts as ordinary tokens', () => {
-            for (const source of ['%_1', '%.1']) {
+            for (const source of ['%_1']) {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);
                 assert.strictEqual(result.tokens[0]!.type, TokenType.Percent, source);
@@ -687,9 +704,27 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
         });
+
+        it('should reject leading-zero exponent mantissas: 00e2', () => {
+            const result = tokenize('00e2');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should reject hyphen-separated malformed number tails: 1-1', () => {
+            const result = tokenize('1-1');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should reject single-digit hour time candidates with INVALID_TIME: 9:00', () => {
+            const result = tokenize('9:00');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_TIME');
+        });
     });
 
-    describe('separator literal quote-aware termination', () => {
+    describe('separator literal payload rules', () => {
         it('should terminate at newline outside quotes', () => {
             const result = tokenize('^content\nmore');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
@@ -709,16 +744,16 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[1]!.type, TokenType.RightBracket);
         });
 
-        it('should preserve semicolon inside double quotes', () => {
-            const result = tokenize('^"a;b",end');
+        it('should preserve quoted segments with spaces and punctuation', () => {
+            const result = tokenize('^"hello world"|"this, [is] fine",end');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^"a;b"');
+            assert.strictEqual(result.tokens[0]!.value, '^"hello world"|"this, [is] fine"');
         });
 
-        it('should preserve semicolon inside single quotes', () => {
-            const result = tokenize("^'a;b',end");
+        it('should preserve single-quoted segments too', () => {
+            const result = tokenize("^'hello world'|tail,end");
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, "^'a;b'");
+            assert.strictEqual(result.tokens[0]!.value, "^'hello world'|tail");
         });
 
         it('should handle escaped quotes inside quoted section', () => {
@@ -733,61 +768,72 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '^"a\'b;c\'d"');
         });
 
-        it('should keep escaped comma inside raw payload', () => {
-            const result = tokenize('^first\\,second,done');
-            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^first\\,second');
+        it('should reject unterminated quoted sections inside separator literals', () => {
+            const result = tokenize('^"a,b');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'UNTERMINATED_STRING');
         });
 
-        it('should keep escaped spaces inside raw payload', () => {
-            const result = tokenize('^one\\ five]');
-            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^one\\ five');
+        it('should reject carriage returns inside quoted separator sections', () => {
+            const result = tokenize('^"a' + '\r' + 'b"');
+            assert.ok(result.errors.length >= 1);
+            assert.strictEqual(result.errors[0]!.code, 'UNTERMINATED_STRING');
         });
 
-        it('should preserve spaces-only separator payload before a closing boundary', () => {
-            const result = tokenize('^    )');
+        it('should terminate before a line comment opener outside quotes', () => {
+            const result = tokenize('^aaa// hello', { includeComments: true });
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^    ');
-            assert.strictEqual(result.tokens[1]!.type, TokenType.RightParen);
-        });
-
-        it('should terminate raw separator literal before a tab-followed comment', () => {
-            const result = tokenize('^1\t// hello', { includeComments: true });
-            assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^1');
+            assert.strictEqual(result.tokens[0]!.value, '^aaa');
             assert.strictEqual(result.tokens[1]!.type, TokenType.LineComment);
             assert.strictEqual(result.tokens[1]!.value, '// hello');
         });
 
-        it('should terminate raw separator literal at the first unescaped interior space', () => {
-            const result = tokenize('^a\\ b c)');
+        it('should stop before raw whitespace outside quotes', () => {
+            const result = tokenize('^aaa bbb');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^a\\ b');
+            assert.strictEqual(result.tokens[0]!.value, '^aaa');
             assert.strictEqual(result.tokens[1]!.type, TokenType.Identifier);
-            assert.strictEqual(result.tokens[1]!.value, 'c');
+            assert.strictEqual(result.tokens[1]!.value, 'bbb');
         });
 
-        it('should allow comment-like text inside raw separator payloads', () => {
-            const result = tokenize('^http://www.aeonite.org/*hello*/file.aeon');
-            assert.strictEqual(result.errors.length, 0);
+        it('should stop before raw slash characters', () => {
+            const result = tokenize('^root/main');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '^http://www.aeonite.org/*hello*/file.aeon');
+            assert.strictEqual(result.tokens[0]!.value, '^root');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[1]!.type, TokenType.Symbol);
+            assert.strictEqual(result.tokens[1]!.value, '/');
         });
 
-        it('should reject bracket, brace, and paren characters inside raw separator payloads', () => {
-            const cases = [
-                '^http://www.aeonite.org/[...]/',
-                '^http://www.aeonite.org/{...}/',
-                '^http://www.aeonite.org/(...)/',
-                '^http://www.aeonite.org//[hello',
-            ];
+        it('should stop before raw backslashes', () => {
+            const result = tokenize('^aaa\\\\bbb');
+            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
+            assert.strictEqual(result.tokens[0]!.value, '^aaa');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[1]!.type, TokenType.Symbol);
+            assert.strictEqual(result.tokens[1]!.value, '\\');
+        });
 
-            for (const source of cases) {
-                const result = tokenize(source);
-                assert.strictEqual(result.errors.length, 1, source);
-            }
+        it('should reject empty raw payloads before line comments', () => {
+            const result = tokenize('^// hello', { includeComments: true });
+            assert.strictEqual(result.tokens[0]!.type, TokenType.Caret);
+            assert.strictEqual(result.tokens[1]!.type, TokenType.LineComment);
+        });
+
+        it('should treat raw commas as grammar boundaries, not payload', () => {
+            const result = tokenize('^1,2,3');
+            assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
+            assert.strictEqual(result.tokens[0]!.value, '^1');
+            assert.strictEqual(result.tokens[1]!.type, TokenType.Comma);
+        });
+    });
+
+    describe('identifier tokenization', () => {
+        it('should tokenize underscore-prefixed bare keys as identifiers', () => {
+            const result = tokenize('_hello = 0');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.Identifier);
+            assert.strictEqual(result.tokens[0]!.value, '_hello');
         });
     });
 

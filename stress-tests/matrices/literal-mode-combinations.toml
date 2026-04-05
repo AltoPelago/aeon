@@ -1,0 +1,320 @@
+mode_order = ["strict", "custom", "transport"]
+
+[[stress]]
+description = "Boolean"
+key = "a"
+type = { strict = ":boolean", custom = ":flag", transport = "" }
+value = [
+  ["true", "false"],
+]
+string = "|KEY||TYPE| = |0|// boolean"
+outcome = "pass"
+
+[[stress]]
+description = "Switch"
+key = "a"
+type = { strict = ":switch", custom = ":toggle", transport = "" }
+value = [
+  ["yes", "no", "on", "off"],
+]
+string = "|KEY||TYPE| = |0| // switch"
+outcome = "pass"
+
+[[stress]]
+description = "Number +/-"
+key = "a"
+type = { strict = ":number", custom = ":mm", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000"],
+]
+string = "|KEY||TYPE| = |0|1|// number"
+outcome = "pass"
+
+[[stress]]
+description = "Number exponent"
+key = "a"
+type = { strict = ":number", custom = ":mm", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000"],
+  ["e"],
+  ["+", "-", ""],
+  ["0", "2", "33"],
+]
+string = "|KEY||TYPE| = |0|1|2|3|4|// number"
+outcome = "pass"
+
+[[stress]]
+description = "Number float"
+key = "a"
+type = { strict = ":number", custom = ":mm", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000", ""],
+  ["."],
+  ["2", "33", "0", "00"],
+  ["", "e0", "e2", "e-2", "e+2"],
+]
+string = "|KEY||TYPE| = |0|1|2|3|4|// number"
+outcome = "pass"
+
+[[stress]]
+description = "Infinity"
+key = "a"
+type = { strict = ":infinity", custom = ":impossible", transport = "" }
+value = [
+  ["Infinity"],
+]
+string = "|KEY||TYPE| = |0|// infinity"
+outcome = "pass"
+
+[[stress]]
+description = "Radix"
+key = "a"
+type = { strict = ":radix", custom = ":mm", transport = "" }
+value = [
+  ["-", "+", ""],
+  ["0", "1", "3000", "", "!", "&"],
+  ["."],
+  ["2", "33", "0", "00", "!", "&"],
+  ["", "a", "X", "n", "e"],
+]
+string = "|KEY||TYPE| = %|0|1|2|3|4| // radix"
+outcome = "pass"
+
+[[stress]]
+description = "String escaping"
+key = "a"
+type = { strict = ":string", custom = ":custom", transport = "" }
+value = [
+  ["AZ", "az", "09"],
+  ['\t', '\n', '\r', '\b'],
+]
+string = "|KEY||TYPE| = \"|0|1|.\" // string"
+outcome = "pass"
+
+[[stress]]
+description = "Attribute"
+key = "a"
+type = { strict = ":string", custom = ":custom", transport = "" }
+value = [
+  ["AZ", "az", "09"],
+  ['\t', '\n', '\r', '\b'],
+]
+string = "|KEY|@{|KEY||TYPE| = \"|0|1|!\"}|TYPE| = \"|0|1|.\" // string"
+outcome = "pass"
+
+[[stress]]
+description = "Hex"
+key = "a"
+type = { strict = ":hex", custom = ":color", transport = "" }
+value = [
+  ["00", "99", "FF"],
+  ["0_0", "9_9", "F_F"],
+  ["00", "99", "FF"],
+]
+string = "|KEY||TYPE| = #|0|1|2| // hex"
+outcome = "pass"
+
+[[stress]]
+description = "Encoding"
+key = "a"
+type = { strict = ":base64", custom = ":binary", transport = "" }
+value = [
+  ["00", "99", "FF"],
+  ["AA", "aa", "_"],
+  ["-", "Ad-F_ff", "xX"],
+]
+string = "|KEY||TYPE| = $|0|1|2|== // hex"
+outcome = "pass"
+
+[[stress]]
+description = "Sep"
+key = "a"
+type = { strict = ":sep", custom = ":code", transport = "" }
+value = [
+  ["00", "99", "\"hello,world\""],
+  ["", "0123456789", "Az", "'hello'"],
+  ["!#$%&*+-.:;=?@^_|~<>", "'world'", "' '"],
+]
+string = "|KEY||TYPE| = ^|0|1|2|// sep"
+outcome = "pass"
+
+[[stress]]
+description = "Sep delimiter"
+key = "a"
+type = { strict = ":sep", custom = ":code"}
+value = [
+  ["a", "0", "."],
+  ["00", "99", "\"hello,world\""],
+  ["", "0123456789", "Az", '"hello\t\n\b\r world"'],
+  ["!#$%&*+-.:;=?@^_|~<>", "'world'", "' '"],
+]
+string = "|KEY||TYPE|[|0|] = ^|1|2|3|// sep"
+outcome = "pass"
+
+[[stress]]
+description = "Sep delimiter"
+key = "a"
+type = { strict = ":sep", custom = ":code" }
+value = [
+  ["!", "#", "$", "%", "&", "*", "+", "-", ".", ":", ";", "=", "?", "@", "^", "_", "|", "~", "<", ">"],
+  ["00"],
+]
+string = "|KEY||TYPE|[|0|] = ^|0|1|// sep"
+outcome = "pass"
+
+[[stress]]
+description = "List"
+key = "a"
+type = { strict = ":list", custom = ":scrapheap", transport = "" }
+value = [
+  ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
+  ["1", "true", "off"],
+  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+]
+string = "|KEY||TYPE| = [|0|,|1|,|2|] // list"
+outcome = "pass"
+
+[[stress]]
+description = "Tuple"
+key = "a"
+type = { strict = ":tuple", custom = ":scrapheap", transport = "" }
+value = [
+  ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
+  ["1", "true", "off"],
+  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+]
+string = "|KEY||TYPE| = (|0|,|1|,|2|) // tuple"
+outcome = "pass"
+
+[[stress]]
+description = "Time"
+key = "a"
+type = { strict = ":time", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59"],
+  ["00", "09", "59"],
+  ["Z", "+23:59", "+02:30", ""],
+]
+string = "|KEY||TYPE| = |0|:|1|:|2|3| // time"
+outcome = "pass"
+
+[[stress]]
+description = "Time"
+key = "a"
+type = { strict = ":time", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59", ""],
+  ["Z", "+02:00", "+02:30", ""],
+]
+string = "|KEY||TYPE| = |0|:|1|2| // time"
+outcome = "pass"
+
+[[stress]]
+description = "Date"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["0001", "2005", "1970", "2060", "3000"],
+  ["01", "06", "12"],
+  ["01", "13", "28"],
+]
+string = "|KEY||TYPE| = |0|-|1|-|2| // date"
+outcome = "pass"
+
+[[stress]]
+description = "Date month"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["00", "1", "13"],
+]
+string = "|KEY||TYPE| = 0000-|0|-20 // date"
+outcome = "fail"
+
+[[stress]]
+description = "Date day"
+key = "a"
+type = { strict = ":date", custom = ":specialday", transport = "" }
+value = [
+  ["00", "1", "30"],
+]
+string = "|KEY||TYPE| = 0000-02-|0| // date"
+outcome = "fail"
+
+[[stress]]
+description = "Number malformed tail"
+key = "a"
+type = { transport = "" }
+value = [
+  ["1-1"],
+]
+string = "|KEY||TYPE| = |0| // number"
+outcome = "fail"
+
+[[stress]]
+description = "Number incomplete exponent"
+key = "a"
+type = { transport = "" }
+value = [
+  ["1e", "1e+", "1e-"],
+]
+string = "|KEY||TYPE| = |0| // number"
+outcome = "fail"
+
+[[stress]]
+description = "Time single digit hour"
+key = "a"
+type = { transport = "" }
+value = [
+  ["9:00","9:3","09:0"],
+]
+string = "|KEY||TYPE| = |0| // time"
+outcome = "fail"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59", ""],
+  ["Z", "+02:00", "+02:30", ""],
+]
+string = "|KEY||TYPE| = 2027-01-22T|0|:|1|2| // datetime"
+outcome = "pass"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["T", "Z", "0:", "2", "+02:00", "20:z"],
+]
+string = "|KEY||TYPE| = 2027-01-22T|0| // datetime"
+outcome = "fail"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["", ":", ":20", ":20:20"],
+  ["+02:00", "Z", ""]
+]
+string = "|KEY||TYPE| = 2027-01-22T20|0|1| // datetime"
+outcome = "pass"
+
+[[stress]]
+description = "ZRUT"
+key = "a"
+type = { strict = ":zrut", custom = ":wakeup", transport = "" }
+value = [
+  ["Europe/Belgium/Brussels", "Europe/Maastricht", "GMT+1", "GMT-1", "Europe/Gent-Brugge"],
+]
+string = "|KEY||TYPE| = 2027-01-22T20&|0| // zrut"
+outcome = "pass"

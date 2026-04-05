@@ -273,6 +273,14 @@ test('canonicalizes chained separator specs up to the v1 capability floor', () =
     assert.equal(reparsed.errors.length, 0);
 });
 
+test('canonicalize preserves separator payload quoting without trimming raw segments', () => {
+    const input = 'parts:sep[|] = ^"hello world"|tail';
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('parts:sep[|] = ^"hello world"|tail'));
+});
+
 test('canonicalize honors custom maxSeparatorDepth', () => {
     const input = 'grid:dim[x][y] = ^100x200y300';
     const result = canonicalize(input, { maxSeparatorDepth: 1 });
@@ -368,6 +376,41 @@ test('canonicalize quotes non-identifier keys', () => {
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('"display name" = "AEON"'));
     assert.ok(result.text.includes('"js#object.v1" = 2'));
+});
+
+test('keeps underscore-prefixed keys bare canonically', () => {
+    const input = ['"_" = 0', '"_hello" = 0'].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    const body = (result.text.split('}\n')[1] ?? '')
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+    assert.deepEqual(body, ['_ = 0', '_hello = 0']);
+});
+
+test('sorts escaped quoted keys by decoded codepoint order', () => {
+    const input = ['"e" = 0', '"\\n" = 0', '" " = 1', '"º" = 0'].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    const body = (result.text.split('}\n')[1] ?? '')
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+    assert.deepEqual(body, ['"\\n" = 0', '" " = 1', 'e = 0', '"º" = 0']);
+});
+
+test('quotes non-identifier node heads canonically', () => {
+    const input = ['a = <"a">', 'b = <"\\n">', 'c = <" ">', 'd = <"º">'].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('a = <a>'));
+    assert.ok(result.text.includes('b = <"\\n">'));
+    assert.ok(result.text.includes('c = <" ">'));
+    assert.ok(result.text.includes('d = <"º">'));
 });
 
 test('canonicalizes node introducer syntax', () => {

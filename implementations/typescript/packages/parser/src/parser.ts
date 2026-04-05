@@ -1333,8 +1333,7 @@ class Parser {
                 throw new InvalidSeparatorCharError(token.value, token.span);
             }
             const char = token.value;
-            const code = char.charCodeAt(0);
-            if (code < 0x21 || code > 0x7e || char === ',' || char === '[' || char === ']') {
+            if (!isAllowedSeparatorSpecChar(char)) {
                 throw new InvalidSeparatorCharError(char, token.span);
             }
             return char;
@@ -1376,6 +1375,12 @@ class Parser {
             case TokenType.Equals:
                 char = '=';
                 break;
+            case TokenType.LeftAngle:
+                char = '<';
+                break;
+            case TokenType.RightAngle:
+                char = '>';
+                break;
             case TokenType.Tilde:
                 char = '~';
                 break;
@@ -1404,8 +1409,7 @@ class Parser {
                 token.value
             );
         }
-        const code = char.charCodeAt(0);
-        if (code < 0x21 || code > 0x7e || char === ',' || char === '[' || char === ']') {
+        if (!isAllowedSeparatorSpecChar(char)) {
             throw new InvalidSeparatorCharError(char, token.span);
         }
 
@@ -1455,6 +1459,12 @@ class Parser {
                 break;
             case TokenType.Equals:
                 value = '=';
+                break;
+            case TokenType.LeftAngle:
+                value = '<';
+                break;
+            case TokenType.RightAngle:
+                value = '>';
                 break;
             case TokenType.Tilde:
                 value = '~';
@@ -1517,6 +1527,10 @@ class Parser {
         }
         throw new SyntaxError(message, next.span, "',' or newline", next.value);
     }
+}
+
+function isAllowedSeparatorSpecChar(char: string): boolean {
+    return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);

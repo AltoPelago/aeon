@@ -48,9 +48,9 @@ const cases = [
   { name: 'tuple-generic-type', binding: 'pair:tuple<int32, int32> = (1, 2)', expectPass: true },
   { name: 'tuple-untyped-expected-fail', binding: 'pair = (1, 2)', expectPass: false },
   { name: 'strict-untyped-expected-fail', binding: 'raw = true', expectPass: false },
-  { name: 'separator-depth-default-fail', binding: 'line:sep[|][/] = ^one|two', compileOptions: { maxSeparatorDepth: 1 }, expectPass: false },
-  { name: 'separator-depth-enabled-pass', binding: 'line:sep[|][/] = ^one|two', compileOptions: { maxSeparatorDepth: 8 }, expectPass: true, path: 'line', datatype: 'sep[|,/]' },
-  { name: 'separator-multi-literal-fail', binding: 'line:sep[|][/] = ^one|two;one|two;', compileOptions: { maxSeparatorDepth: 8 }, expectPass: false },
+  { name: 'separator-depth-default-fail', binding: 'line:sep[|][>] = ^one|two>three', compileOptions: { maxSeparatorDepth: 1 }, expectPass: false },
+  { name: 'separator-depth-enabled-pass', binding: 'line:sep[|][>] = ^one|two>three', compileOptions: { maxSeparatorDepth: 8 }, expectPass: true, path: 'line', datatype: 'sep[|,>]' },
+  { name: 'separator-multi-literal-fail', binding: 'line:sep[|][>] = ^one|two>three;one|two>three;', compileOptions: { maxSeparatorDepth: 8 }, expectPass: false },
   {
     name: 'attrs-before-datatype-pass',
     binding: 'doc@{id:string="a3",class:string="dark-mode"}:document = true',

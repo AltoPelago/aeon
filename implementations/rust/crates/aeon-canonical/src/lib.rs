@@ -402,7 +402,7 @@ fn render_key(key: &str) -> String {
     if is_identifier(key) || key.starts_with("aeon:") {
         key.to_owned()
     } else {
-        format!("\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""))
+        format!("\"{}\"", escape_string(key))
     }
 }
 
@@ -438,11 +438,19 @@ fn is_identifier(value: &str) -> bool {
 }
 
 fn escape_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
@@ -700,13 +708,19 @@ fn looks_like_date(value: &str) -> bool {
 }
 
 fn looks_like_date_candidate(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[8..10].iter().all(u8::is_ascii_digit)
+    let mut parts = value.split('-');
+    let (Some(year), Some(month), Some(day), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+
+    year.len() == 4
+        && (1..=2).contains(&month.len())
+        && (1..=2).contains(&day.len())
+        && year.bytes().all(|byte| byte.is_ascii_digit())
+        && month.bytes().all(|byte| byte.is_ascii_digit())
+        && day.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn looks_like_time(value: &str) -> bool {
@@ -1027,19 +1041,26 @@ fn looks_like_valid_radix_literal(raw: &str) -> bool {
     let mut saw_digit = false;
     let mut saw_decimal = false;
     let mut prev_was_digit = false;
+    let mut saw_digit_before_decimal = false;
 
     while index < chars.len() {
         let ch = chars[index];
         if is_radix_digit(ch) {
             saw_digit = true;
             prev_was_digit = true;
+            if !saw_decimal {
+                saw_digit_before_decimal = true;
+            }
         } else if ch == '_' {
             if !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
                 return false;
             }
             prev_was_digit = false;
         } else if ch == '.' {
-            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+                return false;
+            }
+            if !prev_was_digit && saw_digit_before_decimal {
                 return false;
             }
             saw_decimal = true;
@@ -1369,14 +1390,59 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected quoted string"));
         }
         self.index += 1;
-        let start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == quote {
-                let value = std::str::from_utf8(&self.source[start..self.index])
-                    .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-                    .to_owned();
+        let mut value = String::new();
+        let mut chunk_start = self.index;
+        while self.index < self.source.len() {
+            let byte = self.source[self.index];
+            if byte == quote as u8 {
+                value.push_str(
+                    std::str::from_utf8(&self.source[chunk_start..self.index])
+                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
+                );
                 self.index += 1;
                 return Ok(value);
+            }
+            if byte == b'\\' {
+                value.push_str(
+                    std::str::from_utf8(&self.source[chunk_start..self.index])
+                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
+                );
+                self.index += 1;
+                let escaped = self.peek().ok_or_else(|| self.syntax_error("Unterminated string"))?;
+                match escaped {
+                    '\\' => value.push('\\'),
+                    '"' => value.push('"'),
+                    '\'' => value.push('\''),
+                    '`' => value.push('`'),
+                    'n' => value.push('\n'),
+                    'r' => value.push('\r'),
+                    't' => value.push('\t'),
+                    'b' => value.push('\u{0008}'),
+                    'f' => value.push('\u{000c}'),
+                    'u' => {
+                        self.index += 1;
+                        let hex_start = self.index;
+                        for _ in 0..4 {
+                            if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                return Err(self.syntax_error("Invalid unicode escape"));
+                            }
+                            self.index += 1;
+                        }
+                        let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                            .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                        let codepoint =
+                            u32::from_str_radix(hex, 16).map_err(|_| self.syntax_error("Invalid unicode escape"))?;
+                        let decoded =
+                            char::from_u32(codepoint).ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
+                        value.push(decoded);
+                        chunk_start = self.index;
+                        continue;
+                    }
+                    _ => return Err(self.syntax_error("Invalid escape sequence")),
+                }
+                self.index += 1;
+                chunk_start = self.index;
+                continue;
             }
             self.index += 1;
         }
@@ -1823,11 +1889,11 @@ mod tests {
 
     #[test]
     fn strips_trailing_comments_from_raw_literals_in_canonicalization() {
-        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[/] = ^root/main/file.aeon // comment\n");
+        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[|] = ^aaa // comment\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[/] = ^root/main/file.aeon\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[|] = ^aaa\n"
         );
     }
 
@@ -2084,6 +2150,36 @@ mod tests {
     }
 
     #[test]
+    fn sorts_escaped_quoted_keys_by_decoded_codepoint_order() {
+        let result = canonicalize("aeon:mode = \"transport\"\n\"e\" = 0\n\"\\n\" = 0\n\" \" = 1\n\"º\" = 0\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\n\"\\n\" = 0\n\" \" = 1\ne = 0\n\"º\" = 0\n"
+        );
+    }
+
+    #[test]
+    fn keeps_underscore_prefixed_keys_bare_canonically() {
+        let result = canonicalize("aeon:mode = \"transport\"\n\"_\" = 0\n\"_hello\" = 0\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\n_ = 0\n_hello = 0\n"
+        );
+    }
+
+    #[test]
+    fn quotes_non_identifier_node_heads_canonically() {
+        let result = canonicalize("aeon:mode = \"transport\"\na = <\"a\">\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"transport\"\n}\na = <a>\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n"
+        );
+    }
+
+    #[test]
     fn canonicalizes_hex_literals_to_lowercase() {
         let result = canonicalize("aeon:mode = \"custom\"\nshade:unit = #FF32\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2180,6 +2276,20 @@ mod tests {
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
             assert!(result.errors[0].message.starts_with("Invalid datetime literal"), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_non_zero_padded_date_candidates_during_canonicalization() {
+        for source in [
+            "aeon:mode = \"transport\"\na = 0000-1-20\n",
+            "aeon:mode = \"transport\"\na = 0000-02-1\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(result.errors[0].message.starts_with("Invalid date literal"), "{:?}", result.errors);
         }
     }
 

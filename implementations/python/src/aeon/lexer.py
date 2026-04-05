@@ -333,55 +333,35 @@ class Lexer:
 
     def scan_separator_literal(self, start: Position) -> None:
         chars = ["^"]
-        in_quote: str | None = None
-        saw_non_space = False
         saw_payload_char = False
         while not self.is_at_end():
             char = self.peek()
-            next_char = self.peek_next()
-            if in_quote is not None:
-                if char == "\\":
-                    chars.append(self.advance())
-                    if not self.is_at_end():
-                        chars.append(self.advance())
-                    continue
-                chars.append(self.advance())
-                if char == in_quote:
-                    in_quote = None
-                continue
             if char in {'"', "'"}:
-                in_quote = char
                 chars.append(self.advance())
-                saw_non_space = True
                 saw_payload_char = True
-                continue
-            if char in {"\n", "\0", ",", "]", ")", "}"}:
-                break
-            if char == "\\" and next_char in {"\\", ",", " "}:
-                chars.append(self.advance())
-                chars.append(self.advance())
-                saw_non_space = True
-                saw_payload_char = True
-                continue
-            if char in {" ", "\t"} and not saw_payload_char:
-                probe = self.offset
-                while probe < len(self.source) and self.source[probe] in {" ", "\t"}:
-                    probe += 1
-                next_visible = self.source[probe] if probe < len(self.source) else "\0"
-                if next_visible in {"\n", "\0", ",", "]", ")", "}"}:
+                while not self.is_at_end():
+                    inner = self.peek()
+                    if inner in {"\n", "\r", "\0"}:
+                        self.errors.append(UnterminatedStringError(char, self.make_span(start)))
+                        return
                     chars.append(self.advance())
-                    saw_payload_char = True
-                    continue
-                break
-            if char in {" ", "\t"} and saw_non_space:
+                    if inner == "\\":
+                        if not self.is_at_end():
+                            chars.append(self.advance())
+                        continue
+                    if inner == char:
+                        break
+                if chars[-1] != char:
+                    self.errors.append(UnterminatedStringError(char, self.make_span(start)))
+                    return
+                continue
+            if not self.is_separator_raw_char(char):
                 break
             chars.append(self.advance())
-            if char not in {" ", "\t"}:
-                saw_non_space = True
-                saw_payload_char = True
+            saw_payload_char = True
         value = "".join(chars)
         if value == "^":
-            self.errors.append(SyntaxError("Separator literals must contain a payload", self.make_span(start)))
+            self.add_token("CARET", value, start)
             return
         if not self.is_valid_separator_payload(value[1:]):
             self.errors.append(SyntaxError(f"Invalid separator literal: '{value}'", self.make_span(start)))
@@ -424,7 +404,6 @@ class Lexer:
             and not starts_with_leading_dot
             and first not in {"+", "-"}
             and self.peek() == ":"
-            and len(value) == 2
             and "_" not in value
         ):
             self.scan_time(start, value)
@@ -432,6 +411,15 @@ class Lexer:
 
         if not has_error and not starts_with_leading_dot and self.peek() == "-" and len(value) == 4 and "_" not in value:
             self.scan_date_or_datetime(start, value)
+            return
+
+        if not has_error and not starts_with_leading_dot and self.peek() == "-" and self.peek_next().isdigit() and "_" not in value:
+            while not self.is_at_end():
+                char = self.peek()
+                if char in {" ", "\t", "\n", "\r", ",", "]", ")", "}"}:
+                    break
+                value += self.advance()
+            self.errors.append(InvalidNumberError(value, self.make_span(start)))
             return
 
         if not starts_with_leading_dot and self.peek() == ".":
@@ -468,7 +456,7 @@ class Lexer:
 
         normalized = value.replace("_", "")
         unsigned = normalized[1:] if normalized.startswith(("+", "-")) else normalized
-        if len(unsigned) > 1 and unsigned.startswith("0") and not unsigned.startswith("0."):
+        if len(unsigned) > 1 and unsigned.startswith("0") and not unsigned.startswith(("0.", "0e", "0E")):
             self.errors.append(InvalidNumberError(value, self.make_span(start)))
             return
 
@@ -584,7 +572,37 @@ class Lexer:
 
     @staticmethod
     def is_valid_separator_payload(payload: str) -> bool:
-        return not any(char in "[]{}()" for char in payload)
+        if not payload:
+            return False
+        index = 0
+        while index < len(payload):
+            char = payload[index]
+            if char in {'"', "'"}:
+                quote = char
+                index += 1
+                terminated = False
+                while index < len(payload):
+                    inner = payload[index]
+                    if inner in {"\n", "\r"}:
+                        return False
+                    if inner == "\\":
+                        index += 2
+                        continue
+                    index += 1
+                    if inner == quote:
+                        terminated = True
+                        break
+                if not terminated:
+                    return False
+                continue
+            if not Lexer.is_separator_raw_char(char):
+                return False
+            index += 1
+        return True
+
+    @staticmethod
+    def is_separator_raw_char(char: str) -> bool:
+        return bool(re.match(r"^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$", char))
 
     @staticmethod
     def matches_time_core(value: str, allow_hour_precision_marker: bool) -> bool:
@@ -699,7 +717,7 @@ class Lexer:
 
     @staticmethod
     def is_radix_start_char(char: str) -> bool:
-        return char in {"+", "-", "&", "!"} or char.isalnum()
+        return char in {"+", "-", ".", "&", "!"} or char.isalnum()
 
     @staticmethod
     def is_radix_digit(char: str) -> bool:
@@ -715,17 +733,22 @@ class Lexer:
         saw_digit = False
         saw_decimal = False
         prev_was_digit = False
+        saw_digit_before_decimal = False
         while index < len(payload):
             char = payload[index]
             if Lexer.is_radix_digit(char):
                 saw_digit = True
                 prev_was_digit = True
+                if not saw_decimal:
+                    saw_digit_before_decimal = True
             elif char == "_":
                 if not prev_was_digit or index + 1 >= len(payload) or not Lexer.is_radix_digit(payload[index + 1]):
                     return False
                 prev_was_digit = False
             elif char == ".":
-                if saw_decimal or not prev_was_digit or index + 1 >= len(payload) or not Lexer.is_radix_digit(payload[index + 1]):
+                if saw_decimal or index + 1 >= len(payload) or not Lexer.is_radix_digit(payload[index + 1]):
+                    return False
+                if not prev_was_digit and saw_digit_before_decimal:
                     return False
                 saw_decimal = True
                 prev_was_digit = False

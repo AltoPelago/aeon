@@ -397,43 +397,47 @@ describe('Core - compile()', () => {
 
     describe('separator depth policy', () => {
         it('should enforce max_separator_depth by default', () => {
-            const result = compile('a:grid[|][/] = ^1|2/3');
+            const result = compile('a:grid[|][x] = ^1|2x3');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'SEPARATOR_DEPTH_EXCEEDED'));
         });
 
         it('should allow chained separator specs when max_separator_depth is raised', () => {
-            const result = compile('a:grid[|][/] = ^1|2/3', { maxSeparatorDepth: 8 });
+            const result = compile('a:grid[|][x] = ^1|2x3', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept semicolon inside raw separator literal payload', () => {
+        it('should accept raw separator payloads that stay within the whitelist', () => {
             const result = compile('a:set[|] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept quoted semicolon inside separator literal payload', () => {
-            const result = compile('a:set[|] = ^"0;0"', { maxSeparatorDepth: 8 });
+        it('should accept quoted separator segments with spaces and punctuation', () => {
+            const result = compile('a:set[|] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept supported raw separator escapes inside separator literal payload', () => {
-            const result = compile('a:set[|] = ^0\\,0\\\\0\\ 0', { maxSeparatorDepth: 8 });
+        it('should reject unterminated quoted sections inside separator literal payload', () => {
+            const result = compile('a:set[|] = ^"0;0', { maxSeparatorDepth: 8 });
+            assert.ok(result.errors.some((e) => e.code === 'UNTERMINATED_STRING'));
+        });
+
+        it('should terminate raw separator payloads before comment syntax resumes', () => {
+            const result = compile('a:set[|] = ^aaa // d', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should accept spaces-only separator payload inside node children', () => {
-            const result = compile('r = <a(^    )>', { maxSeparatorDepth: 8 });
-            assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(result.events.length, 1);
+        it('should reject raw spaces inside separator payloads', () => {
+            const result = compile('r = <a(^aaa bbb)>', { maxSeparatorDepth: 8, recovery: true });
+            assert.ok(result.errors.some((e) => e.code === 'SYNTAX_ERROR'));
         });
 
-        it('should reject unescaped interior spaces inside raw separator payload in node children', () => {
-            const result = compile('n = <b(^a\\ b c)>', { maxSeparatorDepth: 8, recovery: true });
+        it('should reject raw slash characters inside separator payloads', () => {
+            const result = compile('n = <b(^root/main)>', { maxSeparatorDepth: 8, recovery: true });
             assert.ok(result.errors.some((e) => e.code === 'SYNTAX_ERROR'));
         });
     });
@@ -489,6 +493,13 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+        });
+
+        it('should accept leading-dot radix literals', () => {
+            const result = compile('a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 3);
         });
 
         it('should normalize invalid typed hex literals to syntax errors', () => {
@@ -566,6 +577,11 @@ describe('Core - compile()', () => {
                     message: "Invalid time literal: '24:00'",
                 },
                 {
+                    source: 'aeon:mode = "transport"\na = 9:00\n',
+                    code: 'INVALID_TIME',
+                    message: "Invalid time literal: '9:00'",
+                },
+                {
                     source: 'a:datetime = 2024-13-13T09:30:00Z\n',
                     code: 'INVALID_DATETIME',
                     message: "Invalid datetime literal: '2024-13-13T09:30:00Z'",
@@ -581,6 +597,15 @@ describe('Core - compile()', () => {
                 assert.strictEqual(result.errors[0]!.message, testCase.message);
                 assert.ok(result.errors[0]!.span);
             }
+        });
+
+        it('should report malformed transport hyphen-number tails as INVALID_NUMBER', () => {
+            const result = compile('aeon:mode = "transport"\na = 1-1\n');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NUMBER');
+            assert.strictEqual(result.errors[0]!.message, "Invalid number literal: '1-1'");
         });
     });
 
@@ -673,6 +698,18 @@ describe('Core - compile()', () => {
             const result = compile('blue:sep = ^');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.length > 0);
+        });
+
+        it('should allow unparameterized reserved separator datatypes with caret literals', () => {
+            const result = compile('blue:sep = ^200');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+        });
+
+        it('should allow unparameterized reserved set datatypes with caret literals', () => {
+            const result = compile('blue:set = ^200');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
         });
 
         it('should reject separator literals whose payload is split onto the next line', () => {

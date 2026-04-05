@@ -123,31 +123,31 @@ z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels // comment
 ---
 z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels,/* comment */
 ---
-file1:sep[/] = ^root/main/file.aeon
+file1:sep = ^"root/main/file.aeon"
 ---
-file2:sep[/] = ^root/main/file.aeon
+file2:sep = ^"root/main/file.aeon"
 ---
-file3:sep[/] = ^http://www.aeonite.org
+file3:sep = ^"http://www.aeonite.org"
 ---
-file4:sep[/] = ^root/main/file.aeon // comment
+file4:sep = ^"root/main/file.aeon" // comment
 ---
-file5:sep[/] = ^root/main/*hello*/file.aeon /* comment */
+file5:sep = ^"root/main/*hello*/file.aeon" /* comment */
 ---
-file6:sep[/] = ^http://www.aeonite.org//?notahint
+file6:sep = ^"http://www.aeonite.org//?notahint"
 ---
-file7:sep[/] = ^http://www.aeonite.org //? hint
+file7:sep = ^"http://www.aeonite.org" //? hint
 ---
-file8:sep[/] = ^http://www.aeonite.org/?...?/ /? comment ?/
+file8:sep = ^"http://www.aeonite.org/?...?/" /? comment ?/
 ---
-file9:sep[/] = ^http://www.aeonite.org/#...#/  /#comment#/
+file9:sep = ^"http://www.aeonite.org/#...#/"  /#comment#/
 ---
-file10:sep[/] = ^http://www.aeonite.org// // comment
+file10:sep = ^"http://www.aeonite.org//" // comment
 ---
-a:list = [^http://www.aeonite.org/*hello*/]
+a:list = [^"http://www.aeonite.org/*hello*/"]
 ---
-b:o = {a:sep[/]=^http://www.aeonite.org/*hello*/}
+b:o = {a:sep=^"http://www.aeonite.org/*hello*/"}
 ---
-c:tuple = (^http://www.aeonite.org/*hello*/)
+c:tuple = (^"http://www.aeonite.org/*hello*/")
 ---
 //new set
 b:node =  < a (   ) >

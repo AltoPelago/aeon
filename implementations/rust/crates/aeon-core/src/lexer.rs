@@ -286,7 +286,6 @@ impl<'a> Lexer<'a> {
         }
 
         if matches!(self.peek(), 'e' | 'E') {
-            let checkpoint = self.offset;
             self.advance();
             if matches!(self.peek(), '+' | '-') {
                 self.advance();
@@ -296,8 +295,19 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
             } else {
-                self.offset = checkpoint;
-                self.column = self.recompute_column(self.offset);
+                while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+                    self.advance();
+                }
+                let text = self.slice_from(start.offset);
+                self.errors.push(LexError {
+                    code: String::from("INVALID_NUMBER"),
+                    message: format!("Invalid number literal `{text}`"),
+                    span: Span {
+                        start,
+                        end: self.current_position(),
+                    },
+                });
+                return;
             }
         }
 
@@ -345,53 +355,58 @@ impl<'a> Lexer<'a> {
     }
 
     fn scan_separator_literal(&mut self, start: Position) {
-        let mut saw_payload_char = false;
         while !self.is_at_end() {
             match self.peek() {
-                '\n' | '\r' | ',' | ']' | ')' | '}' => break,
-                ' ' | '\t' if !saw_payload_char => {
-                    self.errors.push(LexError {
-                        code: String::from("SYNTAX_ERROR"),
-                        message: String::from(
-                            "Separator literals must not begin with an unescaped space",
-                        ),
-                        span: Span {
-                            start,
-                            end: self.current_position(),
-                        },
-                    });
-                    return;
-                }
-                '\\'
-                    if matches!(self.peek_next(), '\\' | ',' | ' ') =>
-                {
-                    self.advance();
-                    self.advance();
-                    saw_payload_char = true;
-                }
-                ' ' | '\t' if saw_payload_char => break,
-                '\\' => {
-                    saw_payload_char = true;
-                    self.advance();
-                }
-                _ => {
-                    if !matches!(self.peek(), ' ' | '\t') {
-                        saw_payload_char = true;
+                '"' | '\'' => {
+                    let quote = self.advance();
+                    while !self.is_at_end() {
+                        match self.peek() {
+                            '\n' | '\r' => {
+                                self.errors.push(LexError {
+                                    code: String::from("UNTERMINATED_STRING"),
+                                    message: format!("Unterminated string literal (started with {quote})"),
+                                    span: Span {
+                                        start,
+                                        end: self.current_position(),
+                                    },
+                                });
+                                return;
+                            }
+                            '\\' => {
+                                self.advance();
+                                if !self.is_at_end() {
+                                    self.advance();
+                                }
+                            }
+                            ch => {
+                                self.advance();
+                                if ch == quote {
+                                    break;
+                                }
+                            }
+                        }
                     }
+                    if self.is_at_end() && self.input[start.offset..self.offset].chars().last() != Some(quote) {
+                        self.errors.push(LexError {
+                            code: String::from("UNTERMINATED_STRING"),
+                            message: format!("Unterminated string literal (started with {quote})"),
+                            span: Span {
+                                start,
+                                end: self.current_position(),
+                            },
+                        });
+                        return;
+                    }
+                }
+                ch if is_separator_raw_char(ch) => {
                     self.advance();
                 }
+                _ => break,
             }
         }
         let text = self.slice_from(start.offset);
         if text == "^" {
-            self.errors.push(LexError {
-                code: String::from("SYNTAX_ERROR"),
-                message: String::from("Separator literals must contain a payload"),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
+            self.push_token(TokenKind::Caret, &text, start, None, None);
             return;
         }
         if !is_valid_separator_payload(&text[1..]) {
@@ -595,16 +610,6 @@ impl<'a> Lexer<'a> {
         self.input[start_offset..self.offset].to_owned()
     }
 
-    fn recompute_column(&self, offset: usize) -> usize {
-        let mut column = 1usize;
-        for ch in self.input[..offset].chars().rev() {
-            if ch == '\n' {
-                break;
-            }
-            column += 1;
-        }
-        column
-    }
 }
 
 fn is_identifier_start(ch: char) -> bool {
@@ -628,7 +633,7 @@ fn is_radix_char(ch: char) -> bool {
 }
 
 fn is_radix_start_char(ch: char) -> bool {
-    matches!(ch, '+' | '-' | '&' | '!') || ch.is_ascii_alphanumeric()
+    matches!(ch, '+' | '-' | '.' | '&' | '!') || ch.is_ascii_alphanumeric()
 }
 
 fn is_radix_digit(ch: char) -> bool {
@@ -647,18 +652,25 @@ fn is_valid_radix_payload(payload: &str) -> bool {
     let mut saw_digit = false;
     let mut saw_decimal = false;
     let mut prev_was_digit = false;
+    let mut saw_digit_before_decimal = false;
     while index < chars.len() {
         let ch = chars[index];
         if is_radix_digit(ch) {
             saw_digit = true;
             prev_was_digit = true;
+            if !saw_decimal {
+                saw_digit_before_decimal = true;
+            }
         } else if ch == '_' {
             if !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
                 return false;
             }
             prev_was_digit = false;
         } else if ch == '.' {
-            if saw_decimal || !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
+                return false;
+            }
+            if !prev_was_digit && saw_digit_before_decimal {
                 return false;
             }
             saw_decimal = true;
@@ -740,7 +752,74 @@ fn comment_metadata_for_marker(marker: char) -> CommentMetadata {
 }
 
 fn is_valid_separator_payload(payload: &str) -> bool {
-    !payload.chars().any(|ch| matches!(ch, '[' | ']' | '{' | '}' | '(' | ')'))
+    if payload.is_empty() {
+        return false;
+    }
+
+    let chars: Vec<char> = payload.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '"' || ch == '\'' {
+            let quote = ch;
+            index += 1;
+            let mut terminated = false;
+            while index < chars.len() {
+                let inner = chars[index];
+                if inner == '\n' || inner == '\r' {
+                    return false;
+                }
+                if inner == '\\' {
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                if inner == quote {
+                    terminated = true;
+                    break;
+                }
+            }
+            if !terminated {
+                return false;
+            }
+            continue;
+        }
+        if !is_separator_raw_char(ch) {
+            return false;
+        }
+        index += 1;
+    }
+
+    true
+}
+
+fn is_separator_raw_char(ch: char) -> bool {
+    matches!(
+        ch,
+        'A'..='Z'
+            | 'a'..='z'
+            | '0'..='9'
+            | '!'
+            | '#'
+            | '$'
+            | '%'
+            | '&'
+            | '*'
+            | '+'
+            | '-'
+            | '.'
+            | ':'
+            | ';'
+            | '='
+            | '?'
+            | '@'
+            | '^'
+            | '_'
+            | '|'
+            | '~'
+            | '<'
+            | '>'
+    )
 }
 
 #[cfg(test)]
@@ -847,6 +926,20 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_leading_dot_radix_literals() {
+        for source in ["value = %.1", "value = %+.1", "value = %-.3"] {
+            let result = tokenize(source, LexerOptions::default());
+            assert!(result.errors.is_empty(), "{source}");
+            let token = result
+                .tokens
+                .iter()
+                .find(|token| token.kind == TokenKind::RadixLiteral)
+                .expect("radix token");
+            assert_eq!(token.text, source.split_whitespace().last().unwrap(), "{source}");
+        }
+    }
+
+    #[test]
     fn radix_literals_terminate_at_non_radix_boundary_characters() {
         for source in ["value = %1/2", "value = %1=2"] {
             let result = tokenize(source, LexerOptions::default());
@@ -870,7 +963,7 @@ mod tests {
 
     #[test]
     fn invalid_radix_starts_fall_back_to_plain_tokens() {
-        for source in ["value = %_1", "value = %.1"] {
+        for source in ["value = %_1"] {
             let result = tokenize(source, LexerOptions::default());
             assert!(result.errors.is_empty(), "{source}");
             assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");
@@ -912,21 +1005,9 @@ mod tests {
     }
 
     #[test]
-    fn separator_literals_allow_comment_like_text() {
-        let result = tokenize("^http://www.aeonite.org/*hello*/file.aeon", LexerOptions::default());
-        assert!(result.errors.is_empty());
-        let token = result
-            .tokens
-            .iter()
-            .find(|token| token.kind == TokenKind::SeparatorLiteral)
-            .expect("separator token");
-        assert_eq!(token.text, "^http://www.aeonite.org/*hello*/file.aeon");
-    }
-
-    #[test]
-    fn separator_literals_terminate_before_tab_followed_comments() {
+    fn separator_literals_terminate_before_line_comments() {
         let result = tokenize(
-            "^1\t// hello",
+            "^aaa// hello",
             LexerOptions {
                 include_comments: true,
                 ..LexerOptions::default()
@@ -934,21 +1015,51 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
-        assert_eq!(result.tokens[0].text, "^1");
+        assert_eq!(result.tokens[0].text, "^aaa");
         assert_eq!(result.tokens[1].kind, TokenKind::LineComment);
         assert_eq!(result.tokens[1].text, "// hello");
     }
 
     #[test]
-    fn separator_literals_reject_bracket_brace_and_paren_chars() {
-        for source in [
-            "^http://www.aeonite.org/[...]/",
-            "^http://www.aeonite.org/{...}/",
-            "^http://www.aeonite.org/(...)/",
-            "^http://www.aeonite.org//[hello",
-        ] {
-            let result = tokenize(source, LexerOptions::default());
-            assert_eq!(result.errors.len(), 1, "{source}");
-        }
+    fn bare_caret_tokenizes_as_caret_before_bracket_close() {
+        let result = tokenize("x:set[^] = ^1", LexerOptions::default());
+        assert!(result.errors.is_empty());
+        assert!(result
+            .tokens
+            .iter()
+            .any(|token| token.kind == TokenKind::Caret && token.text == "^"));
+    }
+
+    #[test]
+    fn separator_literals_preserve_quoted_segments_with_punctuation() {
+        let result = tokenize("^\"hello world\"|\"this, [is] fine\",tail", LexerOptions::default());
+        assert!(result.errors.is_empty());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^\"hello world\"|\"this, [is] fine\"");
+        assert_eq!(result.tokens[1].kind, TokenKind::Comma);
+    }
+
+    #[test]
+    fn separator_literals_reject_unterminated_quoted_sections() {
+        let result = tokenize("^&\"*+,-.", LexerOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
+    }
+
+    #[test]
+    fn separator_literals_stop_before_raw_slashes() {
+        let result = tokenize("^root/main", LexerOptions::default());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^root");
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn separator_literals_stop_before_raw_spaces() {
+        let result = tokenize("^aaa bbb", LexerOptions::default());
+        assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
+        assert_eq!(result.tokens[0].text, "^aaa");
+        assert_eq!(result.tokens[1].kind, TokenKind::Identifier);
+        assert_eq!(result.tokens[1].text, "bbb");
     }
 }

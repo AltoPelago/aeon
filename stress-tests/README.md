@@ -39,6 +39,7 @@ Rule of thumb:
 | Full fixture matrix | `python3 ./scripts/stress-fixtures.py --impl rust` | broader shared fixture run with per-fixture options and known-red reporting |
 | Positive snippets | `python3 ./scripts/stress-positive-snippets.py` | editable corpus of mini fixtures that must pass |
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
+| Combination corpora | `python3 ./scripts/stress-combinations.py --run both` | expands mode-aware combination matrices into generated positive/negative snippet corpora and can immediately run them |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
 | Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
@@ -172,6 +173,47 @@ python3 ./scripts/stress-positive-snippets.py --file ./stress-tests/snippets/val
 
 This corpus uses the same `---` delimiter format, but every snippet is expected
 to pass with empty `errors`.
+
+Generate mode-aware combination corpora and optionally run them through the
+existing snippet lanes:
+
+```bash
+python3 ./scripts/stress-combinations.py
+python3 ./scripts/stress-combinations.py --matrix ./stress-tests/matrices/literal-mode-combinations.toml
+python3 ./scripts/stress-combinations.py --run both --impl rust
+python3 ./scripts/stress-combinations.py --run both --brief --failures-only
+```
+
+The matrix file is TOML. Each `[[stress]]` entry expands as a Cartesian product
+across its `value` rows, then resolves mode-aware fields such as `type` and
+`outcome` per mode. `type` and `outcome` may be declared as:
+
+- a single string used for all modes
+- a mode-keyed inline table such as `{ strict = ":number", custom = ":n", transport = "" }`
+- an array whose positions follow top-level `mode_order`
+
+When a mode-keyed inline table omits a mode, the generator skips that mode for
+the entry. This lets a case target only the modes it cares about without adding
+an explicit `modes = [...]` list. If you do provide `modes = [...]`, every
+listed mode must still be defined by the entry's mode-aware fields.
+
+Generated corpora are written under `stress-tests/snippets/generated/` as
+`<matrix>.positive-<mode>.aeon-cases` and `<matrix>.negative-<mode>.aeon-cases`,
+with a sidecar JSON manifest for traceability.
+
+When `--run` is enabled, `--failures-only` suppresses `PASS` lines in the
+underlying snippet harnesses so only `FAIL`, `SKIP`, and the final summary are
+printed.
+
+For Rust snippet runs, the harness now batches `.aeon-cases` corpora through
+`aeon-rust inspect-cases` when that command is available. That avoids spawning
+the Rust CLI once per snippet and makes large combination sweeps noticeably
+faster without changing the stress command surface.
+
+The combination runner is intentionally a local/manual tool. It is not wired
+into GitHub CI, because the generated Cartesian-product sweeps are too large for
+the normal deploy path. CI currently stays on the smaller smoke and advanced
+stress lanes.
 
 Run canonical parity across the positive structural snippet corpora:
 

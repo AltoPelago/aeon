@@ -911,10 +911,7 @@ def datatype_bracket_specs(datatype: str) -> list[str]:
 
 
 def is_valid_separator_spec(spec: str) -> bool:
-    if len(spec) != 1:
-        return False
-    code = ord(spec)
-    return 0x21 <= code <= 0x7E and spec not in {",", "[", "]"}
+    return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", spec))
 
 
 def is_valid_custom_radix_base_spec(spec: str) -> bool:
@@ -929,7 +926,7 @@ def value_kind(value: Value) -> str:
     if isinstance(value, DateTimeLiteral):
         return "ZRUTDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
     if isinstance(value, SeparatorLiteral):
-        return "InvalidSeparatorLiteral" if value.raw.startswith("^ ") else "SeparatorLiteral"
+        return "SeparatorLiteral"
     if isinstance(value, HexLiteral):
         return "HexLiteral" if has_valid_literal_underscores(value.raw) else "InvalidHexLiteral"
     if isinstance(value, RadixLiteral):
@@ -960,17 +957,22 @@ def has_valid_radix_literal(raw: str) -> bool:
     saw_digit = False
     saw_decimal = False
     prev_was_digit = False
+    saw_digit_before_decimal = False
     while index < len(body):
         char = body[index]
         if is_valid_radix_digit(char):
             saw_digit = True
             prev_was_digit = True
+            if not saw_decimal:
+                saw_digit_before_decimal = True
         elif char == "_":
             if not prev_was_digit or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
                 return False
             prev_was_digit = False
         elif char == ".":
-            if saw_decimal or not prev_was_digit or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
+            if saw_decimal or index + 1 >= len(body) or not is_valid_radix_digit(body[index + 1]):
+                return False
+            if not prev_was_digit and saw_digit_before_decimal:
                 return False
             saw_decimal = True
             prev_was_digit = False

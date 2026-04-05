@@ -32,7 +32,7 @@ a:node = <hello( <br>, br>)
 ---
 badNode:node = <tag("x")
 ---
-badSep:sep[/] = ^root\\]main
+badSep:sep = ^root\\]main
 ---
 a:string =  -"hello"
 b:number = -"hello"

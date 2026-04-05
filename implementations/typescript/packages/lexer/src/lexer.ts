@@ -106,7 +106,7 @@ function isRadixChar(c: string): boolean {
 }
 
 function isRadixStartChar(c: string): boolean {
-    return c === '+' || c === '-' || isLetter(c) || isDigit(c) || c === '&' || c === '!';
+    return c === '+' || c === '-' || c === '.' || isLetter(c) || isDigit(c) || c === '&' || c === '!';
 }
 
 function isPrintableAscii(c: string): boolean {
@@ -125,12 +125,8 @@ function slashChannelClosingMarker(openMarker: string): string {
     return openMarker;
 }
 
-function isSeparatorBoundary(c: string): boolean {
-    return c === '\n' || c === ',' || c === ']' || c === ')' || c === '}';
-}
-
-function isHorizontalWhitespace(c: string): boolean {
-    return c === ' ' || c === '\t';
+function isSeparatorRawChar(c: string): boolean {
+    return /[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]/.test(c);
 }
 
 
@@ -350,7 +346,7 @@ export class Lexer {
             default:
                 if (isDigit(c)) {
                     this.scanNumber(c, start);
-                } else if (isLetter(c)) {
+                } else if (isLetter(c) || c === '_') {
                     this.scanIdentifierOrKeyword(c, start);
                 } else if (isPrintableAscii(c)) {
                     this.addToken(TokenType.Symbol, c, start);
@@ -530,7 +526,7 @@ export class Lexer {
         scanDigitsWithUnderscores(true);
 
         // Check for time literal (HH:MM:SS with optional fractional seconds / zone)
-        if (!hasError && !startsWithLeadingDot && first !== '+' && first !== '-' && this.peek() === ':' && value.length === 2 && !value.includes('_')) {
+        if (!hasError && !startsWithLeadingDot && first !== '+' && first !== '-' && this.peek() === ':' && !value.includes('_')) {
             this.scanTime(value, start);
             return;
         }
@@ -538,6 +534,18 @@ export class Lexer {
         // Check for date literal (YYYY-MM-DD)
         if (!hasError && !startsWithLeadingDot && this.peek() === '-' && value.length === 4 && !value.includes('_')) {
             this.scanDateOrDateTime(value, start);
+            return;
+        }
+
+        if (!hasError && !startsWithLeadingDot && this.peek() === '-' && isDigit(this.peekNext()) && !value.includes('_')) {
+            while (!this.isAtEnd()) {
+                const ch = this.peek();
+                if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === ',' || ch === ']' || ch === ')' || ch === '}') {
+                    break;
+                }
+                value += this.advance();
+            }
+            this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
             return;
         }
 
@@ -590,12 +598,18 @@ export class Lexer {
             return;
         }
 
-        // Validate: no leading zeros (except 0 itself or 0.xxx)
+        // Validate: no leading zeros (except 0 itself, 0.xxx, or 0e...)
         const normalized = value.replace(/_/g, '');
         const normalizedBody = normalized[0] === '+' || normalized[0] === '-'
             ? normalized.slice(1)
             : normalized;
-        if (normalizedBody.length > 1 && normalizedBody[0] === '0' && normalizedBody[1] !== '.') {
+        if (
+            normalizedBody.length > 1
+            && normalizedBody[0] === '0'
+            && normalizedBody[1] !== '.'
+            && normalizedBody[1] !== 'e'
+            && normalizedBody[1] !== 'E'
+        ) {
             this.errors.push(new InvalidNumberError(value, createSpan(start, this.currentPosition())));
             return;
         }
@@ -769,57 +783,51 @@ export class Lexer {
 
     private scanSeparatorLiteral(start: Position): void {
         let value = '^';
-        let inQuote: string | null = null; // Track which quote character we're inside
+        let sawPayload = false;
 
-        // Raw separator payload terminates on grammar boundaries outside quotes.
         while (!this.isAtEnd()) {
             const c = this.peek();
-            const next = this.peekNext();
 
-            // Check for terminators only when not inside quotes.
-            if (inQuote === null && isSeparatorBoundary(c)) {
-                break;
-            }
-
-            // Unescaped horizontal whitespace inside raw payload is only allowed as
-            // trailing padding immediately before the next grammar boundary.
-            // Interior spaces/tabs must be escaped.
-            if (inQuote === null && isHorizontalWhitespace(c) && !this.onlyWhitespaceUntilSeparatorBoundary()) {
-                break;
-            }
-
-            // Handle the small set of raw separator escapes we still allow.
-            if (inQuote === null && c === '\\' && (next === '\\' || next === ',' || next === ' ')) {
-                value += this.advance(); // consume backslash
-                value += this.advance(); // consume escaped character
-                continue;
-            }
-
-            // Handle quote state transitions.
             if (c === '"' || c === "'") {
-                if (inQuote === null) {
-                    // Entering a quoted section.
-                    inQuote = c;
-                } else if (inQuote === c) {
-                    // Exiting the quoted section.
-                    inQuote = null;
-                }
-                // If inQuote is a different character, we're still inside the other quote type.
-            }
+                const quote = this.advance();
+                value += quote;
+                sawPayload = true;
 
-            // Handle escape sequences inside quotes.
-            if (inQuote !== null && c === '\\') {
-                value += this.advance(); // consume backslash
-                if (!this.isAtEnd()) {
-                    value += this.advance(); // consume escaped character
+                while (!this.isAtEnd()) {
+                    const inner = this.peek();
+                    if (inner === '\n' || inner === '\r') {
+                        this.errors.push(new UnterminatedStringError(quote, createSpan(start, this.currentPosition())));
+                        return;
+                    }
+                    if (inner === '\\') {
+                        value += this.advance();
+                        if (!this.isAtEnd()) {
+                            value += this.advance();
+                        }
+                        continue;
+                    }
+                    value += this.advance();
+                    if (inner === quote) {
+                        break;
+                    }
+                }
+
+                if (!value.endsWith(quote)) {
+                    this.errors.push(new UnterminatedStringError(quote, createSpan(start, this.currentPosition())));
+                    return;
                 }
                 continue;
+            }
+
+            if (!isSeparatorRawChar(c)) {
+                break;
             }
 
             value += this.advance();
+            sawPayload = true;
         }
 
-        if (value === '^') {
+        if (!sawPayload) {
             this.addToken(TokenType.Caret, value, start);
             return;
         }
@@ -830,19 +838,6 @@ export class Lexer {
         }
 
         this.addToken(TokenType.SeparatorLiteral, value, start);
-    }
-
-    private onlyWhitespaceUntilSeparatorBoundary(): boolean {
-        let index = this.offset;
-        while (index < this.input.length) {
-            const c = this.input[index]!;
-            if (isHorizontalWhitespace(c)) {
-                index += 1;
-                continue;
-            }
-            return isSeparatorBoundary(c);
-        }
-        return true;
     }
 
     private scanIdentifierOrKeyword(first: string, start: Position): void {
@@ -1159,7 +1154,40 @@ function isValidZrutZone(zone: string): boolean {
 }
 
 function isValidSeparatorPayload(payload: string): boolean {
-    return !/[()[\]{}]/.test(payload);
+    if (payload.length === 0) return false;
+
+    let index = 0;
+    while (index < payload.length) {
+        const c = payload[index]!;
+        if (c === '"' || c === "'") {
+            const quote = c;
+            index += 1;
+            while (index < payload.length) {
+                const inner = payload[index]!;
+                if (inner === '\n') {
+                    return false;
+                }
+                if (inner === '\\') {
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                if (inner === quote) {
+                    break;
+                }
+            }
+            if (index > payload.length || payload[index - 1] !== quote) {
+                return false;
+            }
+            continue;
+        }
+        if (!isSeparatorRawChar(c)) {
+            return false;
+        }
+        index += 1;
+    }
+
+    return true;
 }
 
 function isValidRadixDigit(c: string): boolean {
@@ -1197,7 +1225,7 @@ function isValidRadixPayload(payload: string): boolean {
             continue;
         }
         if (c === '.') {
-            if (sawDecimal || !prevWasDigit || index + 1 >= payload.length || !isValidRadixDigit(payload[index + 1]!)) {
+            if (sawDecimal || index + 1 >= payload.length || !isValidRadixDigit(payload[index + 1]!)) {
                 return false;
             }
             sawDecimal = true;

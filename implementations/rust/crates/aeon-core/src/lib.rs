@@ -972,6 +972,9 @@ mod tests {
             "a:number = 3e3__3\n",
             "a:number = 33__3\n",
             "a:number = 3e3_\n",
+            "a:number = 1e\n",
+            "a:number = 1e+\n",
+            "a:number = 1e-\n",
         ];
 
         for source in invalid_number_cases {
@@ -1004,6 +1007,44 @@ mod tests {
         assert_eq!(span.end.line, 2);
         assert_eq!(span.end.column, 10);
         assert_eq!(span.end.offset, 18);
+    }
+
+    #[test]
+    fn rejects_malformed_transport_number_before_finalize() {
+        let result = compile("aeon:mode = \"transport\"\na = 1-1\n", CompileOptions::default());
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INVALID_NUMBER");
+        assert_eq!(result.errors[0].message, "Number literal `1-1` is not valid");
+    }
+
+    #[test]
+    fn accepts_valid_untyped_transport_dates() {
+        let result = compile("aeon:mode = \"transport\"\nd:date = 2012-06-13\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].value.value_kind(), "DateLiteral");
+    }
+
+    #[test]
+    fn rejects_incomplete_transport_exponent_forms_before_finalize() {
+        for source in [
+            "aeon:mode = \"transport\"\na = 1e\n",
+            "aeon:mode = \"transport\"\na = 1e+\n",
+            "aeon:mode = \"transport\"\na = 1e-\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "INVALID_NUMBER", "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn accepts_leading_dot_radix_literals() {
+        let result = compile("a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 3);
     }
 
     #[test]
@@ -1059,6 +1100,16 @@ mod tests {
                 "a:date = 2024-13-13\n",
                 "INVALID_DATE",
                 "Invalid date literal: '2024-13-13'",
+            ),
+            (
+                "a = 0000-1-20\n",
+                "INVALID_DATE",
+                "Invalid date literal: '0000-1-20'",
+            ),
+            (
+                "a = 0000-02-1\n",
+                "INVALID_DATE",
+                "Invalid date literal: '0000-02-1'",
             ),
             (
                 "a:time = 24:00\n",
@@ -1349,6 +1400,33 @@ mod tests {
             .errors
             .iter()
             .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
+    fn rejects_reserved_slash_separator_datatypes() {
+        let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+    }
+
+    #[test]
+    fn accepts_reserved_angle_separator_datatypes() {
+        let result = compile(
+            "a:set[<] = ^a<b\nb:set[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn accepts_reserved_caret_separator_datatypes() {
+        let result = compile(
+            "a:set[^] = ^a^b\nb:sep[^] = ^a^b\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
@@ -1790,8 +1868,10 @@ mod tests {
 
     #[test]
     fn fails_closed_on_deep_valid_nesting() {
-        let source = format!("v = {}0{}\n", "[".repeat(300), "]".repeat(300));
-        let result = compile(&source, CompileOptions::default());
+        let mut options = CompileOptions::default();
+        options.max_nesting_depth = 32;
+        let source = format!("v = {}0{}\n", "[".repeat(40), "]".repeat(40));
+        let result = compile(&source, options);
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "NESTING_DEPTH_EXCEEDED");
@@ -1838,6 +1918,51 @@ mod tests {
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 5);
+    }
+
+    #[test]
+    fn separator_literals_accept_quoted_sections_in_payload() {
+        let result = compile(
+            "a:set[|] = ^\"hello world\"|\"this, [is] fine\"\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn separator_literals_reject_unterminated_quoted_sections() {
+        let result = compile("a:set[|] = ^\"0;0\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
+    }
+
+    #[test]
+    fn separator_literals_stop_before_comments_resume() {
+        let result = compile("a:set[|] = ^aaa // d\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn separator_literals_reject_raw_slashes() {
+        let result = compile("a:set[|] = ^root/main\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn unparameterized_reserved_separator_datatype_accepts_caret_literals() {
+        let result = compile("blue:sep = ^200\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn unparameterized_reserved_set_datatype_accepts_caret_literals() {
+        let result = compile("blue:set = ^200\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
     }
 
     #[test]
