@@ -186,7 +186,7 @@ value = [
   ["1", "true", "off"],
   ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
 ]
-string = "|KEY||TYPE| = (|0|,|1|,|2|) // list"
+string = "|KEY||TYPE| = (|0|,|1|,|2|) // tuple"
 outcome = "pass"
 
 [[stress]]
@@ -199,7 +199,7 @@ value = [
   ["00", "09", "59"],
   ["Z", "+23:59", "+02:30", ""],
 ]
-string = "|KEY||TYPE| = |0|:|1|:|2|3| // list"
+string = "|KEY||TYPE| = |0|:|1|:|2|3| // time"
 outcome = "pass"
 
 [[stress]]
@@ -211,7 +211,7 @@ value = [
   ["00", "09", "59", ""],
   ["Z", "+02:00", "+02:30", ""],
 ]
-string = "|KEY||TYPE| = |0|:|1|2| // list"
+string = "|KEY||TYPE| = |0|:|1|2| // time"
 outcome = "pass"
 
 [[stress]]
@@ -223,7 +223,7 @@ value = [
   ["01", "06", "12"],
   ["01", "13", "28"],
 ]
-string = "|KEY||TYPE| = |0|-|1|-|2| // list"
+string = "|KEY||TYPE| = |0|-|1|-|2| // date"
 outcome = "pass"
 
 [[stress]]
@@ -233,7 +233,7 @@ type = { strict = ":date", custom = ":specialday", transport = "" }
 value = [
   ["00", "1", "13"],
 ]
-string = "|KEY||TYPE| = 0000-|0|-20 // list"
+string = "|KEY||TYPE| = 0000-|0|-20 // date"
 outcome = "fail"
 
 [[stress]]
@@ -243,7 +243,7 @@ type = { strict = ":date", custom = ":specialday", transport = "" }
 value = [
   ["00", "1", "30"],
 ]
-string = "|KEY||TYPE| = 0000-02-|0| // list"
+string = "|KEY||TYPE| = 0000-02-|0| // date"
 outcome = "fail"
 
 [[stress]]
@@ -271,7 +271,51 @@ description = "Time single digit hour"
 key = "a"
 type = { transport = "" }
 value = [
-  ["9:00"],
+  ["9:00","9:3","09:0"],
 ]
 string = "|KEY||TYPE| = |0| // time"
 outcome = "fail"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["00", "09", "13", "23"],
+  ["00", "09", "59", ""],
+  ["Z", "+02:00", "+02:30", ""],
+]
+string = "|KEY||TYPE| = 2027-01-22T|0|:|1|2| // datetime"
+outcome = "pass"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["T", "Z", "0:", "2", "+02:00", "20:z"],
+]
+string = "|KEY||TYPE| = 2027-01-22T|0| // datetime"
+outcome = "fail"
+
+[[stress]]
+description = "DateTime"
+key = "a"
+type = { strict = ":datetime", custom = ":wakeup", transport = "" }
+value = [
+  ["", ":", ":20", ":20:20"],
+  ["+02:00", "Z", ""]
+]
+string = "|KEY||TYPE| = 2027-01-22T20|0|1| // datetime"
+outcome = "pass"
+
+[[stress]]
+description = "ZRUT"
+key = "a"
+type = { strict = ":zrut", custom = ":wakeup", transport = "" }
+value = [
+  ["Europe/Belgium/Brussels", "Europe/Maastricht", "GMT+1", "GMT-1", "Europe/Gent-Brugge"],
+]
+string = "|KEY||TYPE| = 2027-01-22T20&|0| // zrut"
+outcome = "pass"
+

@@ -128,6 +128,11 @@ def apply_mode(snippet: str, mode: str) -> str:
     return f'aeon:mode = "{mode}"\n{snippet}'
 
 
+def progress_line(done: int, total: int) -> str:
+    width = max(4, len(str(total)))
+    return f"{done:0{width}d}/{total:0{width}d} tests done"
+
+
 def run_case(
     impl: str,
     snippet: str,
@@ -174,26 +179,47 @@ def main() -> int:
         return 2
 
     implementations = ["typescript", "python", "rust"] if args.impl == "all" else [args.impl]
+    available_implementations = [impl for impl in implementations if implementation_available(impl)]
     color = not args.no_color and sys.stdout.isatty()
+    show_progress = args.failures_only and sys.stdout.isatty()
     failures = 0
-    total = 0
+    total = len(cases) * len(available_implementations)
     skipped = 0
+    completed = 0
+    current_progress = ""
+
+    def clear_progress() -> None:
+        nonlocal current_progress
+        if show_progress and current_progress:
+            print(f"\r{' ' * len(current_progress)}\r", end="", flush=True)
+            current_progress = ""
+
+    def render_progress() -> None:
+        nonlocal current_progress
+        if show_progress and total:
+            current_progress = progress_line(completed, total)
+            print(f"\r{current_progress}", end="", flush=True)
 
     for impl in implementations:
         if not implementation_available(impl):
             skipped += 1
+            clear_progress()
             print(f"{status_label(color, 'SKIP')}  [{impl}] implementation binary/build is not available")
+            render_progress()
             continue
 
         for index, snippet in enumerate(cases, start=1):
-            total += 1
             ok, output = run_case(impl, snippet, index, args.mode, args.max_separator_depth)
+            completed += 1
             title = snippet_title(snippet, index)
             if ok:
                 if not args.failures_only:
                     print(f"{status_label(color, 'PASS')}  [{impl}] {title}")
+                else:
+                    render_progress()
             else:
                 failures += 1
+                clear_progress()
                 print(f"{status_label(color, 'FAIL')}  [{impl}] {title}")
                 print("  snippet:")
                 for line in snippet.rstrip("\n").splitlines():
@@ -202,7 +228,9 @@ def main() -> int:
                     print("  output:")
                     for line in output.strip().splitlines()[:80]:
                         print(f"    {line}")
+                render_progress()
 
+    clear_progress()
     print()
     print(
         f"Positive snippet summary: mode={args.mode} total={total} failed={failures} skipped={skipped} "

@@ -1868,8 +1868,10 @@ mod tests {
 
     #[test]
     fn fails_closed_on_deep_valid_nesting() {
-        let source = format!("v = {}0{}\n", "[".repeat(300), "]".repeat(300));
-        let result = compile(&source, CompileOptions::default());
+        let mut options = CompileOptions::default();
+        options.max_nesting_depth = 32;
+        let source = format!("v = {}0{}\n", "[".repeat(40), "]".repeat(40));
+        let result = compile(&source, options);
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "NESTING_DEPTH_EXCEEDED");
