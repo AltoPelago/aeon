@@ -347,7 +347,7 @@ function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: 
     const attrEntries: JsonObject = {};
     for (const binding of bindings) {
         const key = binding.key;
-        const entryPath = `${basePath}.${key}`;
+        const entryPath = appendMemberPath(basePath, key);
         if (!shouldIncludeProjectedPath(entryPath, projection)) {
             continue;
         }
@@ -665,6 +665,9 @@ function attributesToJson(
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
             const entryPath = appendAttributePath(path, key);
+            if (!shouldIncludeProjectedPath(entryPath, projection)) {
+                continue;
+            }
             obj[key] = valueToJson(
                 entry.value,
                 ctx,
@@ -746,6 +749,9 @@ function annotationsToJson(
     const nestedAttrEntries: JsonObject = {};
     for (const [key, entry] of annotations.entries() as IterableIterator<[string, AttributeEntry]>) {
         const entryPath = appendAttributePath(path, key);
+        if (!shouldIncludeProjectedPath(entryPath, projection)) {
+            continue;
+        }
         obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
         const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {

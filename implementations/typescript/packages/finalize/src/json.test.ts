@@ -30,7 +30,7 @@ function compileHeader(input: string) {
     };
 }
 
-describe('Finalization (JSON)', () => {
+describe('Finalization (JSON)', { concurrency: false }, () => {
     it('builds JSON output from top-level bindings', () => {
         const events = compileToEvents(
             [
