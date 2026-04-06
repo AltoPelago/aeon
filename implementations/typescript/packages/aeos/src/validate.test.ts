@@ -252,6 +252,137 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('can require a binding to be any reference', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'CloneReference', path: ['source'], span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.ref', constraints: { reference: 'require' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('can require a pointer reference specifically', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'PointerReference', path: ['source'], span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.ref', constraints: { reference: 'require', reference_kind: 'pointer' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('rejects non-reference values when a reference is required', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'StringLiteral', value: 'nope', raw: '"nope"', delimiter: '"', span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.ref', constraints: { reference: 'require' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.REFERENCE_REQUIRED));
+        });
+
+        it('rejects the wrong reference kind when pointer is required', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'CloneReference', path: ['source'], span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.ref', constraints: { reference: 'require', reference_kind: 'pointer' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.REFERENCE_KIND_MISMATCH));
+        });
+
+        it('can forbid references for a specific binding', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'CloneReference', path: ['source'], span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.ref', constraints: { reference: 'forbid' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.REFERENCE_FORBIDDEN));
+        });
+
+        it('can forbid references schema-wide', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ref' }] },
+                    key: 'ref',
+                    value: { type: 'PointerReference', path: ['source'], span: [1, 4] },
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                reference_policy: 'forbid',
+                rules: [],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.REFERENCE_FORBIDDEN));
+        });
+
         it('keeps open-world validation as the default', () => {
             const aes: AES = [
                 {

@@ -22,6 +22,7 @@ export const ErrorCodes = {
     RULE_MISSING_PATH: 'rule_missing_path',
     DUPLICATE_RULE_PATH: 'duplicate_rule_path',
     UNKNOWN_CONSTRAINT_KEY: 'unknown_constraint_key',
+    INVALID_REFERENCE_CONSTRAINT: 'invalid_reference_constraint',
 
     // Presence checks (Phase 4)
     MISSING_REQUIRED_FIELD: 'missing_required_field',
@@ -29,6 +30,9 @@ export const ErrorCodes = {
 
     // Type checks (Phase 5)
     TYPE_MISMATCH: 'type_mismatch',
+    REFERENCE_REQUIRED: 'reference_required',
+    REFERENCE_FORBIDDEN: 'reference_forbidden',
+    REFERENCE_KIND_MISMATCH: 'reference_kind_mismatch',
     WRONG_CONTAINER_KIND: 'WRONG_CONTAINER_KIND',
     TUPLE_ARITY_MISMATCH: 'TUPLE_ARITY_MISMATCH',
     TUPLE_ELEMENT_TYPE_MISMATCH: 'TUPLE_ELEMENT_TYPE_MISMATCH',

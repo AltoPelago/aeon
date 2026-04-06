@@ -93,6 +93,7 @@ export interface FinalizeOptions {
   readonly includePaths?: readonly string[];
   readonly scope?: 'payload' | 'header' | 'full';
   readonly header?: { readonly fields: ReadonlyMap<string, Value> };
+  readonly maxMaterializedWeight?: number;
 }
 
 export interface FinalizeResult {
@@ -117,9 +118,10 @@ export interface FinalizedEntry {
 
 - Strict mode records duplicate paths as errors.
 - Loose mode records duplicate paths as warnings and keeps the first entry.
-- Finalization does not resolve references or materialize runtime objects.
+- Map/node finalization preserves symbolic references; JSON finalization may materialize clone references and linked JSON may materialize pointer aliases.
 - JSON output converts AEON values into JSON-compatible primitives and containers.
 - References (`~` / `~>`) emit diagnostics and are preserved as string tokens.
+- `finalizeJson(...)` materializes clone references into concrete JSON values and can enforce `maxMaterializedWeight` to fail closed on clone-amplification growth.
 - `finalizeLinkedJson(...)` is the opt-in live materialization variant for `~>` pointer aliases.
 - Binding attributes project under reserved `@` objects in JSON output.
 - Exact keys `@`, `$`, `$node`, and `$children` are reserved in JSON/node materialization and produce deterministic errors on collision.

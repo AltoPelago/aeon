@@ -35,6 +35,7 @@ export interface FinalizeOptions {
     readonly includePaths?: readonly string[];
     readonly scope?: FinalizeScope;
     readonly header?: FinalizeHeader;
+    readonly maxMaterializedWeight?: number;
 }
 
 export type FinalizeScope = 'full' | 'header' | 'payload';

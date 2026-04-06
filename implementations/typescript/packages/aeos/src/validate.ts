@@ -14,6 +14,7 @@ import { spanToTuple } from './types/spans.js';
 import { buildRuleIndex } from './rules/schemaIndex.js';
 import { checkPresence } from './rules/presence.js';
 import { checkTypes } from './rules/typeCheck.js';
+import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns } from './rules/stringForm.js';
 import type { ConstraintsV1 } from './types/schema.js';
@@ -65,8 +66,10 @@ export function validate(
     // Phase 0 guardrail: inputs are readonly, we never mutate
     // TypeScript enforces this at compile time via readonly types
 
+    // TODO: Phase 7 - String form constraints
     // Phase 8a: schema-side datatype label allowlist during rule indexing
     // Phase 8b: datatype-wide semantic rules via schema.datatype_rules
+    // TODO: Phase 9 - Guarantees
 
     // Phase 1: Envelope plumbing
     const ctx = createDiagContext();
@@ -86,7 +89,7 @@ export function validate(
                     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                         result += `.${segment.key}`;
                     } else {
-                        result += `.[${JSON.stringify(String(segment.key))}]`;
+                        result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
                     }
                     break;
                 case 'index':
@@ -231,6 +234,7 @@ export function validate(
 
     // Phase 5: Type checks (literal kind)
     checkTypes(ruleIndex, eventsByPath, ctx);
+    checkReferenceForms(schema, ruleIndex, eventsByPath, ctx);
 
     // Phase 5b: core v1 arity checks for tuple/list containers
     for (const [path, rule] of ruleIndex) {
@@ -486,7 +490,7 @@ function formatCanonicalPathLocal(path: any): string {
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                     result += `.${segment.key}`;
                 } else {
-                    result += `.[${JSON.stringify(String(segment.key))}]`;
+                    result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
                 }
                 break;
             case 'index':
