@@ -290,6 +290,24 @@ describe('Finalization (JSON)', () => {
         });
     });
 
+    it('projects quoted attribute paths without leaking siblings', () => {
+        const events = compileToEvents('title@{"x.y"="en", tone="warm"} = "Hello"');
+        const result = finalizeJson(events, {
+            mode: 'strict',
+            materialization: 'projected',
+            includePaths: ['$.title@["x.y"]'],
+        });
+
+        assert.deepStrictEqual(result.document, {
+            title: 'Hello',
+            '@': {
+                title: {
+                    'x.y': 'en',
+                },
+            },
+        });
+    });
+
     it('preserves indexed unresolved reference token format in core v1', () => {
         const events = compileToEvents('items = [10, 20]\nsecond = ~>items[1]', true);
         const result = finalizeJson(events, { mode: 'strict' });
@@ -344,6 +362,15 @@ describe('Finalization (JSON)', () => {
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
         assert.equal(result.meta?.errors?.[0]?.message, 'Reserved key: constructor');
         assert.deepStrictEqual(result.document, { payload: {} });
+        assert.strictEqual(({} as any).polluted, undefined);
+    });
+
+    it('does not traverse pointer targets through prototype chains in linked JSON', () => {
+        const events = compileToEvents('base = { safe = 1 }\nlink = ~>base.__proto__.polluted');
+        const result = finalizeLinkedJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.link, '~>base.__proto__.polluted');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'POINTER_TARGET_NOT_MATERIALIZED'));
         assert.strictEqual(({} as any).polluted, undefined);
     });
 });

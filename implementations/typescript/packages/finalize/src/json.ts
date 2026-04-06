@@ -51,6 +51,23 @@ type JsonContext = {
 
 const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor']);
 const PROTOTYPE_POLLUTING_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const IDENTIFIER_PATH_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function appendMemberPath(basePath: string, key: string): string {
+    return IDENTIFIER_PATH_SEGMENT.test(key)
+        ? `${basePath}.${key}`
+        : `${basePath}.[${JSON.stringify(key)}]`;
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return IDENTIFIER_PATH_SEGMENT.test(key)
+        ? `${basePath}@${key}`
+        : `${basePath}@[${JSON.stringify(key)}]`;
+}
+
+function hasSafeOwnProperty(container: JsonObject, key: string): boolean {
+    return !PROTOTYPE_POLLUTING_KEYS.has(key) && Object.prototype.hasOwnProperty.call(container, key);
+}
 export function finalizeJson(
     aes: readonly AssignmentEvent[],
     options: FinalizeOptions = {}
@@ -647,14 +664,15 @@ function attributesToJson(
     const nestedAttrEntries: JsonObject = {};
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
+            const entryPath = appendAttributePath(path, key);
             obj[key] = valueToJson(
                 entry.value,
                 ctx,
-                `${path}@${key}`,
+                entryPath,
                 projection,
                 entry.datatype ? formatDatatypeAnnotation(entry.datatype) : undefined
             );
-            const nested = attributesToJson(entry.attributes, ctx, `${path}@${key}`, projection);
+            const nested = attributesToJson(entry.attributes, ctx, entryPath, projection);
             if (nested) {
                 nestedAttrEntries[key] = nested;
             }
@@ -727,8 +745,9 @@ function annotationsToJson(
     const obj: JsonObject = {};
     const nestedAttrEntries: JsonObject = {};
     for (const [key, entry] of annotations.entries() as IterableIterator<[string, AttributeEntry]>) {
-        obj[key] = valueToJson(entry.value, ctx, `${path}@${key}`, projection);
-        const nested = annotationsToJson(entry.annotations, ctx, `${path}@${key}`, projection);
+        const entryPath = appendAttributePath(path, key);
+        obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
+        const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {
             nestedAttrEntries[key] = nested;
         }
@@ -740,8 +759,8 @@ function annotationsToJson(
 }
 
 function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {
-    if (scope === 'full') return `$.${branch}.${key}`;
-    return `$.${key}`;
+    const basePath = scope === 'full' ? `$.${branch}` : '$';
+    return appendMemberPath(basePath, key);
 }
 
 function isHeaderEventKey(key: string, header: FinalizeHeader | undefined): boolean {
@@ -865,6 +884,9 @@ function endpointFromReferencePath(
     if (last === undefined || typeof last === 'object') {
         return null;
     }
+    if (typeof last === 'string' && PROTOTYPE_POLLUTING_KEYS.has(last)) {
+        return null;
+    }
     const owner = traverseReferenceParts(root, parentParts);
     if (!owner) return null;
     return { owner, key: last };
@@ -879,8 +901,8 @@ function traverseCanonicalSegments(
         if (segment.type === 'root') continue;
         if (!isContainer(node)) return null;
         const next: JsonValue | undefined = segment.type === 'member'
-            ? (node as JsonObject)[segment.key]
-            : (node as JsonValue[])[segment.index];
+            ? readContainerValue(node, segment.key)
+            : readContainerValue(node, segment.index);
         if (next === undefined) return null;
         node = next;
     }
@@ -897,9 +919,7 @@ function traverseReferenceParts(
             return null;
         }
         if (!isContainer(node)) return null;
-        const next: JsonValue | undefined = typeof part === 'number'
-            ? (node as JsonValue[])[part]
-            : (node as JsonObject)[part];
+        const next = readContainerValue(node, part);
         if (next === undefined) return null;
         node = next;
     }
@@ -911,12 +931,11 @@ function isContainer(value: JsonValue | undefined): value is JsonContainer {
 }
 
 function readContainerValue(container: JsonContainer, key: string | number): JsonValue | undefined {
-    if (typeof key === 'string' && PROTOTYPE_POLLUTING_KEYS.has(key)) {
-        return undefined;
-    }
     return typeof key === 'number'
         ? (container as JsonValue[])[key]
-        : (container as JsonObject)[key];
+        : hasSafeOwnProperty(container as JsonObject, key)
+            ? (container as JsonObject)[key]
+            : undefined;
 }
 
 function writeContainerValue(container: JsonContainer, key: string | number, value: JsonValue): void {
@@ -924,8 +943,24 @@ function writeContainerValue(container: JsonContainer, key: string | number, val
         (container as JsonValue[])[key] = value;
         return;
     }
-    if (PROTOTYPE_POLLUTING_KEYS.has(key)) {
+    if (!hasSafeOwnProperty(container as JsonObject, key)) {
         return;
     }
-    (container as JsonObject)[key] = value;
+    const descriptor = Object.getOwnPropertyDescriptor(container, key);
+    if (!descriptor) {
+        return;
+    }
+    if (typeof descriptor.set === 'function') {
+        descriptor.set.call(container, value);
+        return;
+    }
+    if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        return;
+    }
+    Object.defineProperty(container, key, {
+        value,
+        writable: descriptor.writable ?? true,
+        enumerable: descriptor.enumerable ?? true,
+        configurable: descriptor.configurable ?? true,
+    });
 }

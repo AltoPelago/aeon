@@ -10,7 +10,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from aeon.core import compile_source
-from aeon.finalize import FinalizeOptions, finalize_json, finalize_map
+import aeon.finalize as finalize_module
+from aeon.finalize import (
+    FinalizeOptions,
+    JsonContext,
+    Projection,
+    finalize_json,
+    finalize_map,
+)
 from aeon.lexer import tokenize
 from aeon.parser import parse_tokens
 
@@ -372,6 +379,54 @@ class FinalizeJsonTests(unittest.TestCase):
             ),
         )
         self.assertEqual({"a.b": 2}, result["document"])
+
+    def test_node_materialized_weight_passes_single_at_base_path_to_attribute_measurement(self) -> None:
+        ctx = JsonContext(
+            strict=True,
+            projection=Projection("all", None),
+            errors=[],
+            warnings=[],
+            path_values={},
+            max_materialized_weight=None,
+            materialized_weight=0,
+            materialized_weight_cache={},
+            active_clone_paths=[],
+            active_paths=[],
+        )
+        node_value = {
+            "type": "NodeLiteral",
+            "tag": "pill",
+            "attributes": [
+                {
+                    "entries": {
+                        "id": {
+                            "value": {
+                                "type": "StringLiteral",
+                                "value": "main",
+                                "raw": '"main"',
+                            },
+                            "attributes": [],
+                        }
+                    }
+                }
+            ],
+            "children": [],
+        }
+        recorded_paths: list[str] = []
+        original = finalize_module.measure_attributes_weight
+
+        def recorder(attributes: object, ctx: JsonContext, path: str, stack: set[str]) -> int:
+            recorded_paths.append(path)
+            return original(attributes, ctx, path, stack)
+
+        finalize_module.measure_attributes_weight = recorder
+        try:
+            weight = finalize_module.measure_materialized_weight(node_value, ctx, "$.theme", set())
+        finally:
+            finalize_module.measure_attributes_weight = original
+
+        self.assertEqual(2, weight)
+        self.assertEqual(["$.theme"], recorded_paths[:1])
 
 
 if __name__ == "__main__":

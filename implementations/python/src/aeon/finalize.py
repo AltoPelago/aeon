@@ -505,7 +505,7 @@ def measure_materialized_weight(
     if value_type == "NodeLiteral":
         children = value.get("children")
         attributes = value.get("attributes")
-        attributes_weight = measure_attributes_weight(attributes, ctx, f"{current_path}@", stack)
+        attributes_weight = measure_attributes_weight(attributes, ctx, current_path, stack)
         children_weight = 0
         if isinstance(children, list):
             children_weight = sum(
