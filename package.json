@@ -1,0 +1,9 @@
+{
+  "name": "aeon-main",
+  "private": true,
+  "scripts": {
+    "ci": "npm --prefix implementations/typescript run ci",
+    "ci:typescript": "npm --prefix implementations/typescript run ci:typescript",
+    "ci:canonical": "npm --prefix implementations/typescript run ci:canonical"
+  }
+}

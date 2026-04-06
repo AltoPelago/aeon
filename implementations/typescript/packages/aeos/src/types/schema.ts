@@ -14,6 +14,12 @@ export interface ConstraintsV1 {
     /** Expected literal kind (StringLiteral, IntegerLiteral, etc.) */
     readonly type?: string;
 
+    /** Reference form policy for the path */
+    readonly reference?: 'allow' | 'forbid' | 'require';
+
+    /** Required reference kind when reference='require' */
+    readonly reference_kind?: 'clone' | 'pointer' | 'either';
+
     /** Core v1 container kind check: list | tuple */
     readonly type_is?: 'list' | 'tuple';
 
@@ -69,6 +75,9 @@ export interface SchemaV1 {
     /** Open-world or closed-world validation policy */
     readonly world?: 'open' | 'closed';
 
+    /** Optional schema-wide reference policy */
+    readonly reference_policy?: 'allow' | 'forbid';
+
     /** Optional datatype-wide constraints keyed by datatype base label */
     readonly datatype_rules?: Readonly<Record<string, ConstraintsV1>>;
 }
@@ -79,6 +88,8 @@ export interface SchemaV1 {
 export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'required',
     'type',
+    'reference',
+    'reference_kind',
     'type_is',
     'length_exact',
     'sign',

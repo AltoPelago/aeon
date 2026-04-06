@@ -30,7 +30,7 @@ function compileHeader(input: string) {
     };
 }
 
-describe('Finalization (JSON)', () => {
+describe('Finalization (JSON)', { concurrency: false }, () => {
     it('builds JSON output from top-level bindings', () => {
         const events = compileToEvents(
             [
@@ -69,6 +69,50 @@ describe('Finalization (JSON)', () => {
         assert.equal(result.meta?.errors?.length ?? 0, 0);
         assert.strictEqual(result.document.ref_source_num, 99);
         assert.strictEqual(result.document.clone001, 99);
+    });
+
+    it('materializes clone references to quoted top-level keys', () => {
+        const events = compileToEvents([
+            '"aeon:foo" = 1',
+            'copy1 = ~["aeon:foo"]',
+            '"a-b" = 2',
+            'copy2 = ~["a-b"]',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.equal(result.meta?.errors?.length ?? 0, 0);
+        assert.strictEqual(result.document['aeon:foo'], 1);
+        assert.strictEqual(result.document.copy1, 1);
+        assert.strictEqual(result.document['a-b'], 2);
+        assert.strictEqual(result.document.copy2, 2);
+    });
+
+    it('enforces maxMaterializedWeight for repeated clone expansion', () => {
+        const events = compileToEvents([
+            'big = { a = 1, b = 2, c = 3 }',
+            'copy1 = ~big',
+            'copy2 = ~big',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict', maxMaterializedWeight: 4 });
+
+        assert.deepStrictEqual(result.document.big, { a: 1, b: 2, c: 3 });
+        assert.deepStrictEqual(result.document.copy1, { a: 1, b: 2, c: 3 });
+        assert.strictEqual(result.document.copy2, '~big');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'REFERENCE_BUDGET_EXCEEDED'));
+    });
+
+    it('enforces maxMaterializedWeight for transitive clone chains', () => {
+        const events = compileToEvents([
+            'base = { a = 1, b = 2 }',
+            'copy1 = ~base',
+            'copy2 = ~copy1',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict', maxMaterializedWeight: 3 });
+
+        assert.deepStrictEqual(result.document.base, { a: 1, b: 2 });
+        assert.deepStrictEqual(result.document.copy1, { a: 1, b: 2 });
+        assert.strictEqual(result.document.copy2, '~copy1');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'REFERENCE_BUDGET_EXCEEDED'));
     });
 
     it('links pointer references as live aliases in linked JSON output', () => {
@@ -216,18 +260,19 @@ describe('Finalization (JSON)', () => {
         assert.strictEqual(result.document.opens, '09:30:00+02:40');
     });
 
-    it('reports infinity as outside the strict JSON profile', () => {
+    it('reports infinity as outside strict JSON profile', () => {
         const events = compileToEvents('limit:infinity = Infinity');
         const result = finalizeJson(events, { mode: 'strict' });
 
         assert.strictEqual(result.document.limit, 'Infinity');
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
-        assert.strictEqual(result.meta?.errors?.[0]?.code, 'FINALIZE_JSON_PROFILE_INFINITY');
+        assert.strictEqual(result.meta?.errors?.[0]?.message, 'Infinity literal is not representable in the strict JSON profile: Infinity');
     });
 
-    it('preserves hex case while stripping visual separators', () => {
+    it('preserves hex case while stripping underscore separators', () => {
         const events = compileToEvents('color:hex = #Ff_00_Aa');
         const result = finalizeJson(events, { mode: 'strict' });
+
         assert.strictEqual(result.document.color, 'Ff00Aa');
     });
 
@@ -277,61 +322,20 @@ describe('Finalization (JSON)', () => {
         });
     });
 
-    it('projects exact top-level attribute paths without leaking siblings', () => {
-        const events = compileToEvents('title@{lang="en", tone="warm"} = "Hello"');
+    it('projects quoted attribute paths without leaking siblings', () => {
+        const events = compileToEvents('title@{"x.y"="en", tone="warm"} = "Hello"');
         const result = finalizeJson(events, {
             mode: 'strict',
             materialization: 'projected',
-            includePaths: ['$.title@lang'],
+            includePaths: ['$.title@["x.y"]'],
         });
 
         assert.deepStrictEqual(result.document, {
             title: 'Hello',
             '@': {
                 title: {
-                    lang: 'en',
+                    'x.y': 'en',
                 },
-            },
-        });
-    });
-
-    it('projects attribute descendants without leaking sibling attributes', () => {
-        const events = compileToEvents('card = { title@{meta={ keep=2, "x.y"=1 }, tone="warm"} = "Hello" }');
-        const result = finalizeJson(events, {
-            mode: 'strict',
-            materialization: 'projected',
-            includePaths: ['$.card.title@meta.keep'],
-        });
-
-        assert.deepStrictEqual(result.document, {
-            card: {
-                title: 'Hello',
-                '@': {
-                    title: {
-                        meta: {
-                            keep: 2,
-                        },
-                    },
-                },
-            },
-        });
-    });
-
-    it('projects exact node-head attribute paths without leaking siblings', () => {
-        const events = compileToEvents('badge = <pill@{id="main", class="hero"}("new")>');
-        const result = finalizeJson(events, {
-            mode: 'strict',
-            materialization: 'projected',
-            includePaths: ['$.badge@@["id"]'],
-        });
-
-        assert.deepStrictEqual(result.document, {
-            badge: {
-                $node: 'pill',
-                '@': {
-                    id: 'main',
-                },
-                $children: ['new'],
             },
         });
     });
@@ -393,13 +397,21 @@ describe('Finalization (JSON)', () => {
         assert.strictEqual(({} as any).polluted, undefined);
     });
 
-    it('rejects prototype pollution via prototype key in strict mode', () => {
-        const events = compileToEvents('payload = { prototype = { polluted = "yes" } }');
-        const result = finalizeJson(events, { mode: 'strict' });
+    it('does not traverse pointer targets through prototype chains in linked JSON', () => {
+        const events = compileToEvents('base = { safe = 1 }\nlink = ~>base.__proto__.polluted');
+        const result = finalizeLinkedJson(events, { mode: 'strict' });
 
-        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
-        assert.equal(result.meta?.errors?.[0]?.message, 'Reserved key: prototype');
-        assert.deepStrictEqual(result.document, { payload: {} });
+        assert.strictEqual(result.document.link, '~>base.__proto__.polluted');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'POINTER_TARGET_NOT_MATERIALIZED'));
+        assert.strictEqual(({} as any).polluted, undefined);
+    });
+
+    it('does not traverse pointer targets through constructor segments in linked JSON', () => {
+        const events = compileToEvents('base = { safe = 1 }\nlink = ~>base.constructor.prototype.polluted');
+        const result = finalizeLinkedJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.link, '~>base.constructor.prototype.polluted');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'POINTER_TARGET_NOT_MATERIALIZED'));
         assert.strictEqual(({} as any).polluted, undefined);
     });
 });

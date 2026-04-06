@@ -480,6 +480,7 @@ mod tests {
             datatype_rules: BTreeMap::new(),
             datatype_allowlist: vec![String::from("farewell")],
             world: String::from("open"),
+            reference_policy: None,
         }
     }
 

@@ -7,6 +7,7 @@
 		"build": "pnpm -r --filter './packages/**' --filter './tools/**' build",
 		"typecheck": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"test": "pnpm -r --filter './packages/**' --filter './tools/**' test",
+		"test:unit:ci": "pnpm -r --filter './packages/**' --filter './tools/**' --filter '!@aeon/phase-fuzz' test",
 		"test:stress": "bash ../../scripts/stress-smoke.sh && pnpm -C ../../stress-tests/tools/aeon-stress-cli stress-advanced",
 		"test:fuzz": "pnpm --filter @aeon/phase-fuzz test",
 		"test:fuzz:lexer": "pnpm --filter @aeon/phase-fuzz fuzz:lexer",
@@ -19,6 +20,9 @@
 		"test:cts:canonical": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/canonical/v1/canonical-cts.v1.json --lane canonical",
 		"test:cts:annotations": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/annotation-cts-runner/dist/index.js --sut ./packages/cli/dist/main.js --cts ../../cts/annotations/v1/annotation-stream-cts.v1.json",
 		"test:cts:all": "pnpm test:cts && pnpm test:cts:core && pnpm test:cts:aes && pnpm test:cts:canonical && pnpm test:cts:annotations",
+		"ci:typescript": "pnpm build && pnpm typecheck && pnpm lint && pnpm depcheck && pnpm test:unit:ci && pnpm test:fuzz && pnpm test:stress && pnpm test:cts:all",
+		"ci:canonical": "pnpm build && cargo build -p aeon-cli --manifest-path ../rust/Cargo.toml && bash ../../scripts/canonical-cts.sh --mode all --brief",
+		"ci": "pnpm ci:typescript && pnpm ci:canonical",
 		"clean": "pnpm -r --filter './packages/**' --filter './tools/**' clean"
 	},
 	"devDependencies": {

@@ -39,6 +39,8 @@ pub struct Schema {
     pub datatype_allowlist: Vec<String>,
     #[serde(default = "default_world")]
     pub world: String,
+    #[serde(default)]
+    pub reference_policy: Option<String>,
 }
 
 fn default_world() -> String {
@@ -137,6 +139,8 @@ struct EventInfo {
 const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "required",
     "type",
+    "reference",
+    "reference_kind",
     "type_is",
     "length_exact",
     "sign",
@@ -262,6 +266,7 @@ fn validate_inner(aes: &[AesEvent], schema: Option<&Schema>, options: &Validatio
     let effective_rule_index = merge_datatype_rules(&rule_index, &schema.datatype_rules, &events_by_path);
     check_presence(&rule_index, &bound_paths, &mut ctx);
     check_types(&effective_rule_index, &events_by_path, &mut ctx);
+    check_reference_forms(schema, &rule_index, &events_by_path, &mut ctx);
     check_tuple_arity(&effective_rule_index, &container_arity, &events_by_path, &mut ctx);
     check_numeric_form(&effective_rule_index, &events_by_path, &mut ctx);
     check_string_form(&effective_rule_index, &events_by_path, &mut ctx);
@@ -296,6 +301,20 @@ fn finalize_result(
 fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, JsonValue> {
     let mut index = BTreeMap::new();
     let allowlist = &schema.datatype_allowlist;
+
+    if let Some(reference_policy) = schema.reference_policy.as_deref() {
+        if !matches!(reference_policy, "allow" | "forbid") {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from("$")),
+                    code: String::from("invalid_reference_constraint"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+        }
+    }
 
     for rule in &schema.rules {
         let Some(path) = rule.path.as_ref() else {
@@ -349,6 +368,10 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
             continue;
         }
 
+        if !validate_reference_constraints(schema, path, constraints_map, ctx) {
+            continue;
+        }
+
         if let Some(datatype) = constraints_map.get("datatype").and_then(JsonValue::as_str) {
             if !allowlist.is_empty() && !allowlist.iter().any(|allowed| allowed == datatype) {
                 emit_error(
@@ -367,6 +390,127 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
     }
 
     index
+}
+
+fn validate_reference_constraints(
+    schema: &Schema,
+    path: &str,
+    constraints: &serde_json::Map<String, JsonValue>,
+    ctx: &mut DiagContext,
+) -> bool {
+    let reference = constraints.get("reference").and_then(JsonValue::as_str);
+    let reference_kind = constraints.get("reference_kind").and_then(JsonValue::as_str);
+    let expected_type = constraints.get("type").and_then(JsonValue::as_str);
+
+    if constraints.get("reference").is_some() && !matches!(reference, Some("allow" | "forbid" | "require")) {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if constraints.get("reference_kind").is_some()
+        && !matches!(reference_kind, Some("clone" | "pointer" | "either"))
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if reference_kind.is_some() && reference != Some("require") {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if reference == Some("forbid") && expected_type.is_some_and(is_reference_type) {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if reference == Some("require") && expected_type.is_some_and(|value| !is_reference_type(value)) {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if reference_kind == Some("clone") && expected_type == Some("PointerReference") {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if reference_kind == Some("pointer") && expected_type == Some("CloneReference") {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    if schema.reference_policy.as_deref() == Some("forbid")
+        && (reference == Some("require") || expected_type.is_some_and(is_reference_type))
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    true
 }
 
 fn merge_datatype_rules(
@@ -465,6 +609,89 @@ fn check_types(
                     },
                 );
             }
+        }
+    }
+}
+
+fn check_reference_forms(
+    schema: &Schema,
+    rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) {
+    if schema.reference_policy.as_deref().unwrap_or("allow") == "forbid" {
+        for (path, event) in events_by_path {
+            if !is_reference_type(&event.value_type) {
+                continue;
+            }
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("reference_forbidden"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+        }
+    }
+
+    for (path, constraints) in rule_index {
+        let Some(reference) = constraints.get("reference").and_then(JsonValue::as_str) else {
+            continue;
+        };
+        let reference_kind = constraints.get("reference_kind").and_then(JsonValue::as_str);
+        let Some(event) = events_by_path.get(path) else {
+            continue;
+        };
+
+        match reference {
+            "allow" => {}
+            "forbid" => {
+                if is_reference_type(&event.value_type) {
+                    emit_error(
+                        ctx,
+                        ValidationDiagnostic {
+                            path: Some(path.clone()),
+                            code: String::from("reference_forbidden"),
+                            phase: String::from("schema_validation"),
+                            span: event.span,
+                        },
+                    );
+                }
+            }
+            "require" => {
+                if !is_reference_type(&event.value_type) {
+                    emit_error(
+                        ctx,
+                        ValidationDiagnostic {
+                            path: Some(path.clone()),
+                            code: String::from("reference_required"),
+                            phase: String::from("schema_validation"),
+                            span: event.span,
+                        },
+                    );
+                    continue;
+                }
+
+                let expected_type = match reference_kind {
+                    Some("clone") => Some("CloneReference"),
+                    Some("pointer") => Some("PointerReference"),
+                    _ => None,
+                };
+                if expected_type.is_some_and(|expected| event.value_type != expected) {
+                    emit_error(
+                        ctx,
+                        ValidationDiagnostic {
+                            path: Some(path.clone()),
+                            code: String::from("reference_kind_mismatch"),
+                            phase: String::from("schema_validation"),
+                            span: event.span,
+                        },
+                    );
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -741,6 +968,10 @@ fn type_matches(expected: &str, actual: &str) -> bool {
     }
 }
 
+fn is_reference_type(value_type: &str) -> bool {
+    matches!(value_type, "CloneReference" | "PointerReference")
+}
+
 fn is_indexed_path(path: &str) -> bool {
     path.ends_with(']') && path.contains('[')
 }
@@ -849,6 +1080,7 @@ impl SpanInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn empty_envelope_is_ok() {
@@ -859,6 +1091,7 @@ mod tests {
                 datatype_rules: BTreeMap::new(),
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
+                reference_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -873,5 +1106,121 @@ mod tests {
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert!(envelope.ok);
+    }
+
+    #[test]
+    fn schema_reference_policy_forbids_reference_bindings() {
+        let envelope = ValidationEnvelope {
+            aes: vec![AesEvent {
+                path: EventPath {
+                    segments: vec![
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("a")),
+                            index: None,
+                        },
+                    ],
+                },
+                key: String::from("a"),
+                datatype: None,
+                value: EventValue {
+                    value_type: String::from("CloneReference"),
+                    raw: None,
+                    value: None,
+                    elements: Vec::new(),
+                },
+                span: Some(SpanInput::Pair([0, 1])),
+            }],
+            schema: Some(Schema {
+                rules: Vec::new(),
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: Some(String::from("forbid")),
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "reference_forbidden");
+    }
+
+    #[test]
+    fn rule_reference_kind_requires_matching_reference_type() {
+        let envelope = ValidationEnvelope {
+            aes: vec![AesEvent {
+                path: EventPath {
+                    segments: vec![
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("a")),
+                            index: None,
+                        },
+                    ],
+                },
+                key: String::from("a"),
+                datatype: None,
+                value: EventValue {
+                    value_type: String::from("PointerReference"),
+                    raw: None,
+                    value: None,
+                    elements: Vec::new(),
+                },
+                span: Some(SpanInput::Pair([0, 1])),
+            }],
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.a")),
+                    constraints: json!({
+                        "reference": "require",
+                        "reference_kind": "clone"
+                    }),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "reference_kind_mismatch");
+    }
+
+    #[test]
+    fn invalid_reference_constraints_fail_schema_validation() {
+        let envelope = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.a")),
+                    constraints: json!({
+                        "reference_kind": "clone"
+                    }),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "invalid_reference_constraint");
     }
 }

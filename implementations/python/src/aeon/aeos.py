@@ -9,6 +9,8 @@ from ._compat import dataclass
 KNOWN_CONSTRAINT_KEYS = {
     "required",
     "type",
+    "reference",
+    "reference_kind",
     "type_is",
     "length_exact",
     "sign",
@@ -38,8 +40,12 @@ ERROR_CODES = {
     "rule_missing_path": "rule_missing_path",
     "duplicate_rule_path": "duplicate_rule_path",
     "unknown_constraint_key": "unknown_constraint_key",
+    "invalid_reference_constraint": "invalid_reference_constraint",
     "missing_required_field": "missing_required_field",
     "type_mismatch": "type_mismatch",
+    "reference_required": "reference_required",
+    "reference_forbidden": "reference_forbidden",
+    "reference_kind_mismatch": "reference_kind_mismatch",
     "wrong_container_kind": "WRONG_CONTAINER_KIND",
     "tuple_arity_mismatch": "TUPLE_ARITY_MISMATCH",
     "tuple_element_type_mismatch": "TUPLE_ELEMENT_TYPE_MISMATCH",
@@ -119,6 +125,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     rule_index = build_rule_index(schema, ctx)
     check_presence(rule_index, bound_paths, ctx)
     check_types(rule_index, events_by_path, ctx)
+    check_reference_forms(schema, rule_index, events_by_path, ctx)
 
     for path, rule in rule_index.items():
         expected_length = rule.get("constraints", {}).get("length_exact")
@@ -160,6 +167,9 @@ def validate_events(events: list[dict[str, object]], schema: dict[str, object], 
 
 def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, dict[str, object]]:
     index: dict[str, dict[str, object]] = {}
+    reference_policy = schema.get("reference_policy")
+    if reference_policy is not None and reference_policy not in {"allow", "forbid"}:
+        emit_error(ctx, create_diag("$", None, f"Invalid schema reference_policy: {reference_policy}", ERROR_CODES["invalid_reference_constraint"]))
     datatype_allowlist = schema.get("datatype_allowlist")
     allowlist = datatype_allowlist if isinstance(datatype_allowlist, list) else None
     rules = schema.get("rules")
@@ -182,11 +192,59 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if any(key not in KNOWN_CONSTRAINT_KEYS for key in constraints.keys()):
             emit_error(ctx, create_diag(path, None, f"Unknown constraint key in rule for path: {path}", ERROR_CODES["unknown_constraint_key"]))
             continue
+        if not validate_reference_constraints(schema, path, constraints, ctx):
+            continue
         datatype = constraints.get("datatype")
         if allowlist is not None and isinstance(datatype, str) and datatype not in allowlist:
             emit_error(ctx, create_diag(path, None, f"Datatype '{datatype}' not allowed by schema datatype_allowlist", ERROR_CODES["datatype_allowlist_reject"]))
         index[path] = rule
     return index
+
+
+def validate_reference_constraints(
+    schema: dict[str, object],
+    path: str,
+    constraints: dict[str, object],
+    ctx: DiagContext,
+) -> bool:
+    reference = constraints.get("reference")
+    reference_kind = constraints.get("reference_kind")
+    expected_type = constraints.get("type")
+    schema_reference_policy = schema.get("reference_policy")
+
+    if reference is not None and reference not in {"allow", "forbid", "require"}:
+        emit_error(ctx, create_diag(path, None, f"Invalid reference constraint for path {path}: {reference}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference_kind is not None and reference_kind not in {"clone", "pointer", "either"}:
+        emit_error(ctx, create_diag(path, None, f"Invalid reference_kind constraint for path {path}: {reference_kind}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference_kind is not None and reference != "require":
+        emit_error(ctx, create_diag(path, None, f"reference_kind requires reference='require' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference == "forbid" and is_reference_type(expected_type):
+        emit_error(ctx, create_diag(path, None, f"reference='forbid' conflicts with type='{expected_type}' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference == "require" and isinstance(expected_type, str) and not is_reference_type(expected_type):
+        emit_error(ctx, create_diag(path, None, f"reference='require' conflicts with non-reference type='{expected_type}' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference_kind == "clone" and expected_type == "PointerReference":
+        emit_error(ctx, create_diag(path, None, f"reference_kind='clone' conflicts with type='PointerReference' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference_kind == "pointer" and expected_type == "CloneReference":
+        emit_error(ctx, create_diag(path, None, f"reference_kind='pointer' conflicts with type='CloneReference' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if schema_reference_policy == "forbid" and (reference == "require" or is_reference_type(expected_type)):
+        emit_error(ctx, create_diag(path, None, f"schema reference_policy='forbid' conflicts with rule for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    return True
 
 
 def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
@@ -219,6 +277,51 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             if expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
                 code = ERROR_CODES["tuple_element_type_mismatch"] if re.search(r"\[\d+\]$", path) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
+
+
+def check_reference_forms(
+    schema: dict[str, object],
+    rule_index: dict[str, dict[str, object]],
+    events: dict[str, dict[str, object]],
+    ctx: DiagContext,
+) -> None:
+    if schema.get("reference_policy", "allow") == "forbid":
+        for path, event in events.items():
+            if not is_reference_type(event.get("type")):
+                continue
+            emit_error(ctx, create_diag(path, event.get("span"), f"References are forbidden by schema reference_policy, got {event.get('type')}", ERROR_CODES["reference_forbidden"]))
+
+    for path, rule in rule_index.items():
+        constraints = rule.get("constraints")
+        if not isinstance(constraints, dict):
+            continue
+        reference = constraints.get("reference")
+        reference_kind = constraints.get("reference_kind")
+        if not isinstance(reference, str):
+            continue
+        event = events.get(path)
+        if event is None:
+            continue
+        actual_type = event.get("type")
+
+        if reference == "forbid":
+            if is_reference_type(actual_type):
+                emit_error(ctx, create_diag(path, event.get("span"), f"Reference not allowed at {path}, got {actual_type}", ERROR_CODES["reference_forbidden"]))
+            continue
+
+        if reference == "allow":
+            continue
+
+        if not is_reference_type(actual_type):
+            emit_error(ctx, create_diag(path, event.get("span"), f"Reference required at {path}, got {actual_type}", ERROR_CODES["reference_required"]))
+            continue
+
+        if reference_kind in {None, "either"}:
+            continue
+
+        expected_type = "CloneReference" if reference_kind == "clone" else "PointerReference"
+        if actual_type != expected_type:
+            emit_error(ctx, create_diag(path, event.get("span"), f"Reference kind mismatch at {path}: expected {expected_type}, got {actual_type}", ERROR_CODES["reference_kind_mismatch"]))
 
 
 def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
@@ -399,6 +502,10 @@ def format_canonical_path(path: object) -> str:
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
     return result or "$"
+
+
+def is_reference_type(value_type: object) -> bool:
+    return value_type in {"CloneReference", "PointerReference"}
 
 
 def canonical_path_to_json(path: str) -> dict[str, object]:

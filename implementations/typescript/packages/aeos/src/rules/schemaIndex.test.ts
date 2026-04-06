@@ -83,4 +83,64 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors.length, 1);
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
     });
+
+    it('accepts valid reference constraint combinations', () => {
+        const schema: SchemaV1 = {
+            reference_policy: 'allow',
+            rules: [
+                { path: '$.ref', constraints: { reference: 'require', reference_kind: 'either' } },
+                { path: '$.ptr', constraints: { reference: 'require', reference_kind: 'pointer', type: 'PointerReference' } },
+                { path: '$.literal', constraints: { reference: 'forbid', type: 'StringLiteral' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 3);
+        assert.strictEqual(ctx.errors.length, 0);
+    });
+
+    it('rejects reference_kind without reference=require', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                { path: '$.a', constraints: { reference_kind: 'clone' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
+
+    it('rejects contradictory reference constraints', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                { path: '$.a', constraints: { reference: 'forbid', type: 'CloneReference' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
+
+    it('rejects rules that conflict with schema-wide reference_policy=forbid', () => {
+        const schema: SchemaV1 = {
+            reference_policy: 'forbid',
+            rules: [
+                { path: '$.a', constraints: { reference: 'require' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
 });

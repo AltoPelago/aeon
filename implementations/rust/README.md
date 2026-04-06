@@ -89,6 +89,7 @@ Current CLI status:
 - `fmt`
 - `finalize --json`
 - `finalize --map`
+- `finalize --max-materialized-weight <n>` for clone-expansion budgets
 - minimal `bind --schema <schema.json>`
 - direct schema JSON validation for canonical metadata keys and required fields
 - `bind --annotations` and `--sort-annotations`
@@ -107,7 +108,13 @@ Current CLI status:
 - GP security convention insertion/merge on `integrity sign --write`
 - `doctor [--json] [--contract-registry <registry.json>]`
 - projected and loose-mode `bind` behavior
+- `bind --max-materialized-weight <n>` for clone-expansion budgets
 - AEOS CTS adapter via `--cts-validate`
+
+Implementation note:
+
+- AEOS reference-form behavior is part of shared conformance.
+- `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
 
 Run the starter test suite with:
 
