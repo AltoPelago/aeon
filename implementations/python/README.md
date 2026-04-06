@@ -39,6 +39,11 @@ Current CTS status:
 - `annotations`: green
 - `aeos`: green
 
+Implementation note:
+
+- AEOS reference-form behavior is part of shared conformance.
+- `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
+
 Current mode semantics:
 
 - `transport`: untyped values allowed, custom datatypes allowed by default

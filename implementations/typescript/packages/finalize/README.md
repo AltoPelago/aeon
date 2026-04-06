@@ -123,6 +123,7 @@ export interface FinalizedEntry {
 - References (`~` / `~>`) emit diagnostics and are preserved as string tokens.
 - `finalizeJson(...)` materializes clone references into concrete JSON values and can enforce `maxMaterializedWeight` to fail closed on clone-amplification growth.
 - `finalizeLinkedJson(...)` is the opt-in live materialization variant for `~>` pointer aliases.
+- `maxMaterializedWeight` is an implementation-facing budget control, not a Core or AEOS conformance surface.
 - Binding attributes project under reserved `@` objects in JSON output.
 - Exact keys `@`, `$`, `$node`, and `$children` are reserved in JSON/node materialization and produce deterministic errors on collision.
 - Node values project with reserved `$node`, optional `@`, and `$children` members.

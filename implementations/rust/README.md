@@ -111,6 +111,11 @@ Current CLI status:
 - `bind --max-materialized-weight <n>` for clone-expansion budgets
 - AEOS CTS adapter via `--cts-validate`
 
+Implementation note:
+
+- AEOS reference-form behavior is part of shared conformance.
+- `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
+
 Run the starter test suite with:
 
 ```bash
