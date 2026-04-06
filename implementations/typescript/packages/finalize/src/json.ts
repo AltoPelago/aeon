@@ -50,6 +50,7 @@ type JsonContext = {
 };
 
 const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor']);
+const PROTOTYPE_POLLUTING_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 export function finalizeJson(
     aes: readonly AssignmentEvent[],
     options: FinalizeOptions = {}
@@ -910,6 +911,9 @@ function isContainer(value: JsonValue | undefined): value is JsonContainer {
 }
 
 function readContainerValue(container: JsonContainer, key: string | number): JsonValue | undefined {
+    if (typeof key === 'string' && PROTOTYPE_POLLUTING_KEYS.has(key)) {
+        return undefined;
+    }
     return typeof key === 'number'
         ? (container as JsonValue[])[key]
         : (container as JsonObject)[key];
@@ -918,6 +922,9 @@ function readContainerValue(container: JsonContainer, key: string | number): Jso
 function writeContainerValue(container: JsonContainer, key: string | number, value: JsonValue): void {
     if (typeof key === 'number') {
         (container as JsonValue[])[key] = value;
+        return;
+    }
+    if (PROTOTYPE_POLLUTING_KEYS.has(key)) {
         return;
     }
     (container as JsonObject)[key] = value;

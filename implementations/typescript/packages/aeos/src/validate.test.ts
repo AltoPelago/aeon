@@ -174,6 +174,30 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('escapes quoted canonical-path segments in diagnostics', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'bad\\key"' }] },
+                    key: 'bad\\key"',
+                    value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'bad\\key"' }] },
+                    key: 'bad\\key"',
+                    value: { type: 'StringLiteral', value: 'y', raw: '"y"', delimiter: '"', span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = { rules: [] };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.equal(result.errors[0]?.path, '$.["bad\\\\key\\""]');
+        });
+
         it('accepts clone references to existing attribute targets', () => {
             const aes: AES = [
                 {

@@ -19,6 +19,10 @@ import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns } from './rules/stringForm.js';
 import type { ConstraintsV1 } from './types/schema.js';
 
+function formatQuotedMemberSegment(key: unknown): string {
+    return `.[${JSON.stringify(String(key))}]`;
+}
+
 /**
  * Validation options
  */
@@ -89,7 +93,7 @@ export function validate(
                     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                         result += `.${segment.key}`;
                     } else {
-                        result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
+                        result += formatQuotedMemberSegment(segment.key);
                     }
                     break;
                 case 'index':
@@ -490,7 +494,7 @@ function formatCanonicalPathLocal(path: any): string {
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                     result += `.${segment.key}`;
                 } else {
-                    result += `.["${String(segment.key).replace(/"/g, '\\"')}"]`;
+                    result += formatQuotedMemberSegment(segment.key);
                 }
                 break;
             case 'index':
