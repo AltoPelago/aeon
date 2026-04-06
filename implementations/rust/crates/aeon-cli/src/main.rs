@@ -345,8 +345,8 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
-    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]";
-    let file = find_file(args, &["--datatype-policy", "--scope", "--include-path", "--max-input-bytes"])
+    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]";
+    let file = find_file(args, &["--datatype-policy", "--scope", "--include-path", "--max-input-bytes", "--max-materialized-weight"])
         .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
     let mode = resolve_finalize_mode(args)
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
@@ -360,6 +360,9 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
+    })?;
+    let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
+        String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
@@ -397,7 +400,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         include_paths,
         scope,
         header: result.header.clone(),
-        max_materialized_weight: None,
+        max_materialized_weight,
     };
 
     let has_finalize_errors;
@@ -835,7 +838,7 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
-    const BIND_USAGE: &str = "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]";
+    const BIND_USAGE: &str = "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--annotations] [--sort-annotations] [--max-input-bytes <n>] [--max-materialized-weight <n>]";
     let file = find_file(
         args,
         &[
@@ -846,6 +849,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             "--contract-registry",
             "--profile",
             "--max-input-bytes",
+            "--max-materialized-weight",
             "--trailing-separator-delimiter-policy",
         ],
     )
@@ -876,6 +880,9 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         .map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
+    })?;
+    let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
+        String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
@@ -982,7 +989,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
                 include_paths,
                 scope,
                 header: result.header.clone(),
-                max_materialized_weight: None,
+                max_materialized_weight,
             },
         );
         if result.errors.is_empty() || matches!(mode, FinalizeMode::Loose) {
@@ -4171,7 +4178,7 @@ mod tests {
         let result = run(vec![String::from("aeon-rust"), String::from("finalize")]).expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
         ));
     }
 
@@ -4336,9 +4343,22 @@ mod tests {
         .expect_err("usage error");
         assert!(result.contains("Error: --projected requires at least one --include-path <$.path>"));
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
         ));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finalize_rejects_invalid_max_materialized_weight_values() {
+        let result = run(vec![
+            String::from("aeon-rust"),
+            String::from("finalize"),
+            String::from("missing.aeon"),
+            String::from("--max-materialized-weight"),
+            String::from("abc"),
+        ])
+        .expect_err("usage error");
+        assert!(result.contains("Invalid value for --max-materialized-weight"));
     }
 
     #[test]
@@ -4775,6 +4795,14 @@ mod tests {
             String::from("--profile"),
         ])
         .is_err());
+        assert!(execute_bind(&[
+            String::from("input.aeon"),
+            String::from("--schema"),
+            String::from("schema.json"),
+            String::from("--max-materialized-weight"),
+            String::from("abc"),
+        ])
+        .is_err());
     }
 
     #[test]
@@ -4788,7 +4816,7 @@ mod tests {
         .expect_err("usage error");
         assert!(error.contains("Error: --projected requires at least one --include-path <$.path>"));
         assert!(error.contains(
-            "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]"
+            "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--annotations] [--sort-annotations] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
         ));
     }
 

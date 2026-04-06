@@ -262,6 +262,48 @@ class CliTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual({"a.b": 1}, payload["document"])
 
+    def test_finalize_respects_max_materialized_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "clone-budget.aeon"
+            fixture.write_text("big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                    "--max-materialized-weight",
+                    "4",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"a": 1, "b": 2, "c": 3}, payload["document"]["copy1"])
+        self.assertEqual("~big", payload["document"]["copy2"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_BUDGET_EXCEEDED" for error in payload["meta"]["errors"]))
+
+    def test_finalize_rejects_invalid_max_materialized_weight_value(self) -> None:
+        result = subprocess.run(
+            [
+                str(ROOT / "bin" / "aeon-python"),
+                "finalize",
+                "missing.aeon",
+                "--max-materialized-weight",
+                "abc",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("Invalid value for --max-materialized-weight", result.stderr)
+
     def test_finalize_map_supports_projected_attribute_path_chains(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "map-projection.aeon"

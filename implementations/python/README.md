@@ -67,6 +67,23 @@ print(loaded.document)
 PY
 ```
 
+Cap clone expansion during materialization:
+
+```bash
+cd implementations/python
+python3 - <<'PY'
+from aeon import load_text, LoadOptions
+from aeon.finalize import FinalizeOptions
+
+loaded = load_text(
+    'big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big',
+    LoadOptions(finalize=FinalizeOptions(max_materialized_weight=4)),
+)
+print(loaded.document)
+print(loaded.finalized["meta"]["errors"][0]["code"])
+PY
+```
+
 Load from disk and access a finalized value directly:
 
 ```bash
