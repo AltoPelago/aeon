@@ -71,6 +71,22 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.document.clone001, 99);
     });
 
+    it('materializes clone references to quoted top-level keys', () => {
+        const events = compileToEvents([
+            '"aeon:foo" = 1',
+            'copy1 = ~["aeon:foo"]',
+            '"a-b" = 2',
+            'copy2 = ~["a-b"]',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.equal(result.meta?.errors?.length ?? 0, 0);
+        assert.strictEqual(result.document['aeon:foo'], 1);
+        assert.strictEqual(result.document.copy1, 1);
+        assert.strictEqual(result.document['a-b'], 2);
+        assert.strictEqual(result.document.copy2, 2);
+    });
+
     it('enforces maxMaterializedWeight for repeated clone expansion', () => {
         const events = compileToEvents([
             'big = { a = 1, b = 2, c = 3 }',
@@ -244,6 +260,22 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.document.opens, '09:30:00+02:40');
     });
 
+    it('reports infinity as outside strict JSON profile', () => {
+        const events = compileToEvents('limit:infinity = Infinity');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, 'Infinity');
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.strictEqual(result.meta?.errors?.[0]?.message, 'Infinity literal is not representable in the strict JSON profile: Infinity');
+    });
+
+    it('preserves hex case while stripping underscore separators', () => {
+        const events = compileToEvents('color:hex = #Ff_00_Aa');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.color, 'Ff00Aa');
+    });
+
     it('strips underscore separators from finalized radix strings', () => {
         const events = compileToEvents('mask = %101_0101');
         const result = finalizeJson(events, { mode: 'strict' });
@@ -370,6 +402,15 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const result = finalizeLinkedJson(events, { mode: 'strict' });
 
         assert.strictEqual(result.document.link, '~>base.__proto__.polluted');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'POINTER_TARGET_NOT_MATERIALIZED'));
+        assert.strictEqual(({} as any).polluted, undefined);
+    });
+
+    it('does not traverse pointer targets through constructor segments in linked JSON', () => {
+        const events = compileToEvents('base = { safe = 1 }\nlink = ~>base.constructor.prototype.polluted');
+        const result = finalizeLinkedJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.link, '~>base.constructor.prototype.polluted');
         assert.ok(result.meta?.errors?.some((error) => error.code === 'POINTER_TARGET_NOT_MATERIALIZED'));
         assert.strictEqual(({} as any).polluted, undefined);
     });

@@ -256,13 +256,22 @@ function valueToJson(
             return numeric;
         }
         case 'InfinityLiteral':
+            ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                ...toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `Infinity literal is not representable in the strict JSON profile: ${value.value}`,
+                    path,
+                    value.span
+                ),
+                code: 'FINALIZE_JSON_PROFILE_INFINITY',
+            });
             return value.value;
         case 'BooleanLiteral':
             return value.value;
         case 'SwitchLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
-            return value.value.replace(/_/g, '').toLowerCase();
+            return value.value.replace(/_/g, '');
         case 'RadixLiteral': {
             const normalized = value.value.replace(/_/g, '');
             const radixBase = declaredRadixBase(datatype ?? datatypeForPath(path, ctx));
@@ -525,20 +534,20 @@ function measureMaterializedWeight(
         }
         case 'ObjectNode':
             return value.bindings.reduce((sum, binding) => {
-                const childPath = `${currentPath}.${binding.key}`;
+                const childPath = appendMemberPath(currentPath, binding.key);
                 return sum
                     + measureMaterializedWeight(binding.value, ctx, childPath, stack)
-                    + measureAttributeWeight(binding.attributes, ctx, `${childPath}@`, stack);
+                    + measureAttributeWeight(binding.attributes, ctx, childPath, stack);
             }, 0);
         case 'ListNode':
         case 'TupleLiteral':
             return value.elements.reduce((sum, element, index) => {
                 const childPath = `${currentPath}[${index}]`;
                 return sum + measureMaterializedWeight(element, ctx, childPath, stack);
-            }, 0) + measureAttributeWeight(value.attributes, ctx, `${currentPath}@`, stack);
+            }, 0) + measureAttributeWeight(value.attributes, ctx, currentPath, stack);
         case 'NodeLiteral':
             return 1
-                + measureAttributeWeight(value.attributes, ctx, `${currentPath}@`, stack)
+                + measureAttributeWeight(value.attributes, ctx, currentPath, stack)
                 + value.children.reduce((sum, child, index) => {
                     const childPath = `${currentPath}<${index}>`;
                     return sum + measureMaterializedWeight(child, ctx, childPath, stack);
@@ -560,9 +569,9 @@ function measureAttributeWeight(
         let total = 0;
         for (const attr of attributes) {
             for (const [key, entry] of attr.entries) {
-                const entryPath = `${currentPath}${key}`;
+                const entryPath = appendAttributePath(currentPath, key);
                 total += measureMaterializedWeight(entry.value, ctx, entryPath, stack);
-                total += measureAttributeWeight(entry.attributes, ctx, `${entryPath}@`, stack);
+                total += measureAttributeWeight(entry.attributes, ctx, entryPath, stack);
             }
         }
         return total;
@@ -570,9 +579,9 @@ function measureAttributeWeight(
 
     let total = 0;
     for (const [key, entry] of attributes.entries() as IterableIterator<[string, AttributeEntry]>) {
-        const entryPath = `${currentPath}${key}`;
+        const entryPath = appendAttributePath(currentPath, key);
         total += measureMaterializedWeight(entry.value, ctx, entryPath, stack);
-        total += measureAttributeWeight(entry.annotations, ctx, `${entryPath}@`, stack);
+        total += measureAttributeWeight(entry.annotations, ctx, entryPath, stack);
     }
     return total;
 }
@@ -619,20 +628,17 @@ function resolveReferenceSubpath(
 
 function formatCloneTargetPath(pathParts: readonly ReferencePathPart[]): string {
     if (pathParts.length === 0) return '$';
-
-    return '$' + pathParts.map((part) => {
+    let result = '$';
+    for (const part of pathParts) {
         if (typeof part === 'number') {
-            return `[${part}]`;
+            result += `[${part}]`;
+        } else if (typeof part === 'string') {
+            result = appendMemberPath(result, part);
+        } else {
+            result = appendAttributePath(result, part.key);
         }
-        if (typeof part === 'string') {
-            return /^[A-Za-z_][A-Za-z0-9_:-]*$/.test(part)
-                ? `.${part}`
-                : `.[${JSON.stringify(part)}]`;
-        }
-        return /^[A-Za-z_][A-Za-z0-9_:-]*$/.test(part.key)
-            ? `@${part.key}`
-            : `@[${JSON.stringify(part.key)}]`;
-    }).join('');
+    }
+    return result;
 }
 
 function buildAnnotationEntries(
