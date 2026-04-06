@@ -32,6 +32,20 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
+    def test_reference_policy_forbids_references(self) -> None:
+        aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "value": {"type": "CloneReference"}, "span": [0, 1]}]
+        result = validate(aes, {"rules": [], "reference_policy": "forbid"})
+        self.assertEqual(["reference_forbidden"], [error["code"] for error in result["errors"]])
+
+    def test_reference_kind_requires_matching_reference_type(self) -> None:
+        aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "value": {"type": "PointerReference"}, "span": [0, 1]}]
+        result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"reference": "require", "reference_kind": "clone"}}]})
+        self.assertEqual(["reference_kind_mismatch"], [error["code"] for error in result["errors"]])
+
+    def test_invalid_reference_constraints_fail_schema_validation(self) -> None:
+        result = validate([], {"rules": [{"path": "$.x", "constraints": {"reference_kind": "clone"}}]})
+        self.assertEqual(["invalid_reference_constraint"], [error["code"] for error in result["errors"]])
+
     def test_cts_payload_adapter(self) -> None:
         payload = json.dumps({"aes": [], "schema": {"rules": []}, "options": {}})
         parsed = json.loads(validate_cts_payload(payload))

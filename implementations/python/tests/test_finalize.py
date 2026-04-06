@@ -120,6 +120,51 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertTrue(result["meta"]["errors"])
         self.assertEqual("FINALIZE_UNMATERIALIZED_REFERENCE", result["meta"]["errors"][0]["code"])
 
+    def test_materializes_clone_references_as_concrete_json_values(self) -> None:
+        events = compile_events("source = 99\ncopy = ~source")
+        result = finalize_json(events, FinalizeOptions(mode="strict"))
+        self.assertEqual({"source": 99, "copy": 99}, result["document"])
+        self.assertFalse(result.get("meta", {}).get("errors"))
+
+    def test_enforces_max_materialized_weight_for_repeated_clone_expansion(self) -> None:
+        events = compile_events("big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big")
+        result = finalize_json(events, FinalizeOptions(mode="strict", max_materialized_weight=4))
+        self.assertEqual({"a": 1, "b": 2, "c": 3}, result["document"]["big"])
+        self.assertEqual({"a": 1, "b": 2, "c": 3}, result["document"]["copy1"])
+        self.assertEqual("~big", result["document"]["copy2"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_BUDGET_EXCEEDED" for error in result["meta"]["errors"]))
+
+    def test_enforces_max_materialized_weight_for_transitive_clone_chains(self) -> None:
+        events = compile_events("base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1")
+        result = finalize_json(events, FinalizeOptions(mode="strict", max_materialized_weight=3))
+        self.assertEqual({"a": 1, "b": 2}, result["document"]["base"])
+        self.assertEqual({"a": 1, "b": 2}, result["document"]["copy1"])
+        self.assertEqual("~copy1", result["document"]["copy2"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_BUDGET_EXCEEDED" for error in result["meta"]["errors"]))
+
+    def test_reports_reference_cycles_without_recursing(self) -> None:
+        events = [
+            {
+                "path": "$.a",
+                "key": "a",
+                "datatype": "list",
+                "span": [0, 0],
+                "value": {
+                    "type": "ListNode",
+                    "elements": [
+                        {
+                            "type": "CloneReference",
+                            "path": ["a"],
+                            "span": [0, 0],
+                        }
+                    ],
+                },
+            }
+        ]
+        result = finalize_json(events, FinalizeOptions(mode="strict"))
+        self.assertEqual({"a": ["~a"]}, result["document"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_CYCLE" for error in result["meta"]["errors"]))
+
     def test_materializes_switch_and_time_literals(self) -> None:
         switch = finalize_json(compile_events("debug = yes"), FinalizeOptions(mode="loose"))
         self.assertEqual(True, switch["document"]["debug"])

@@ -397,6 +397,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         include_paths,
         scope,
         header: result.header.clone(),
+        max_materialized_weight: None,
     };
 
     let has_finalize_errors;
@@ -981,6 +982,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
                 include_paths,
                 scope,
                 header: result.header.clone(),
+                max_materialized_weight: None,
             },
         );
         if result.errors.is_empty() || matches!(mode, FinalizeMode::Loose) {

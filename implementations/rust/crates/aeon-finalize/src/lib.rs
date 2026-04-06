@@ -34,6 +34,7 @@ pub struct FinalizeOptions {
     pub include_paths: Vec<String>,
     pub scope: FinalizeScope,
     pub header: Option<HeaderFields>,
+    pub max_materialized_weight: Option<usize>,
 }
 
 impl Default for FinalizeOptions {
@@ -44,6 +45,7 @@ impl Default for FinalizeOptions {
             include_paths: Vec::new(),
             scope: FinalizeScope::Payload,
             header: None,
+            max_materialized_weight: None,
         }
     }
 }
@@ -78,6 +80,23 @@ pub struct FinalizedMap {
 pub struct FinalizeMapResult {
     pub document: FinalizedMap,
     pub meta: FinalizeMeta,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MaterializationTracker {
+    max_materialized_weight: Option<usize>,
+    materialized_weight: usize,
+    materialized_weight_cache: BTreeMap<String, usize>,
+}
+
+impl MaterializationTracker {
+    fn new(max_materialized_weight: Option<usize>) -> Self {
+        Self {
+            max_materialized_weight,
+            materialized_weight: 0,
+            materialized_weight_cache: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -134,6 +153,7 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut active_paths = BTreeSet::new();
+    let mut tracker = MaterializationTracker::new(options.max_materialized_weight);
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
@@ -146,6 +166,7 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
             &mut errors,
             &mut warnings,
             &mut active_paths,
+            &mut tracker,
         )
     } else {
         JsonValue::Object(Map::new())
@@ -161,6 +182,7 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
             &mut errors,
             &mut warnings,
             &mut active_paths,
+            &mut tracker,
         )
     } else {
         JsonValue::Object(Map::new())
@@ -375,6 +397,7 @@ fn header_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let mut object = Map::new();
     if let Some(header) = header {
@@ -403,6 +426,7 @@ fn header_to_json(
                     warnings,
                     None,
                     active_paths,
+                    tracker,
                 ),
             );
         }
@@ -418,6 +442,7 @@ fn payload_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let mut document = Map::new();
     let mut attrs = Map::new();
@@ -446,6 +471,7 @@ fn payload_to_json(
                 warnings,
                 event.datatype.as_deref(),
                 active_paths,
+                tracker,
             ),
         );
         if !event.annotations.is_empty() {
@@ -460,6 +486,7 @@ fn payload_to_json(
                     errors,
                     warnings,
                     active_paths,
+                    tracker,
                 ),
             );
         }
@@ -480,6 +507,7 @@ fn value_to_json(
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     value_to_json_with_active_key(
         value,
@@ -492,6 +520,7 @@ fn value_to_json(
         warnings,
         datatype,
         active_paths,
+        tracker,
     )
 }
 
@@ -506,6 +535,7 @@ fn value_to_json_with_active_key(
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let inserted = active_paths.insert(String::from(active_key));
     if !inserted {
@@ -514,11 +544,7 @@ fn value_to_json_with_active_key(
             format!("Reference cycle during finalization at '{path}'"),
         )
         .at_path(path);
-        if matches!(mode, FinalizeMode::Strict) {
-            errors.push(diag);
-        } else {
-            warnings.push(diag);
-        }
+        errors.push(diag);
         return JsonValue::Null;
     }
 
@@ -581,6 +607,7 @@ fn value_to_json_with_active_key(
                 errors,
                 warnings,
                 active_paths,
+                tracker,
             );
             if matches!(&attr_json, JsonValue::Object(map) if !map.is_empty()) {
                 output.insert(String::from("@"), attr_json);
@@ -603,6 +630,7 @@ fn value_to_json_with_active_key(
                                 warnings,
                                 None,
                                 active_paths,
+                                tracker,
                             )
                         })
                         .collect(),
@@ -625,6 +653,7 @@ fn value_to_json_with_active_key(
                         warnings,
                         None,
                         active_paths,
+                        tracker,
                     ));
                 }
             }
@@ -658,6 +687,7 @@ fn value_to_json_with_active_key(
                             warnings,
                             binding.datatype.as_deref(),
                             active_paths,
+                            tracker,
                         ),
                     );
                     if !binding.attributes.is_empty() {
@@ -672,6 +702,7 @@ fn value_to_json_with_active_key(
                                 errors,
                                 warnings,
                                 active_paths,
+                                tracker,
                             ),
                         );
                     }
@@ -686,30 +717,30 @@ fn value_to_json_with_active_key(
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
                 if active_paths.contains(&target) {
-                    let diag = Diagnostic::new(
+                    errors.push(Diagnostic::new(
                         "FINALIZE_REFERENCE_CYCLE",
                         format!("Reference cycle during finalization: '{path}' resolves through '{target}'"),
                     )
-                    .at_path(path);
-                    if matches!(mode, FinalizeMode::Strict) {
-                        errors.push(diag);
-                    } else {
-                        warnings.push(diag);
-                    }
-                    JsonValue::Null
+                    .at_path(path));
+                    JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else {
-                    value_to_json_with_active_key(
-                        resolved,
-                        path,
-                        &target,
-                        projection,
-                        path_values,
-                        mode,
-                        errors,
-                        warnings,
-                        datatype,
-                        active_paths,
-                    )
+                    if !consume_clone_budget(&target, resolved, path, segments, path_values, errors, tracker) {
+                        JsonValue::String(format!("~{}", render_reference_segments(segments)))
+                    } else {
+                        value_to_json_with_active_key(
+                            resolved,
+                            path,
+                            &target,
+                            projection,
+                            path_values,
+                            mode,
+                            errors,
+                            warnings,
+                            datatype,
+                            active_paths,
+                            tracker,
+                        )
+                    }
                 }
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
@@ -721,6 +752,161 @@ fn value_to_json_with_active_key(
     };
     active_paths.remove(active_key);
     result
+}
+
+fn consume_clone_budget(
+    target_path: &str,
+    value: &Value,
+    path: &str,
+    _segments: &[ReferenceSegment],
+    path_values: &BTreeMap<String, Value>,
+    errors: &mut Vec<Diagnostic>,
+    tracker: &mut MaterializationTracker,
+) -> bool {
+    let Some(limit) = tracker.max_materialized_weight else {
+        return true;
+    };
+
+    let weight = measure_materialized_weight(value, target_path, path_values, tracker, &mut BTreeSet::new());
+    let next_weight = tracker.materialized_weight.saturating_add(weight);
+    if next_weight <= limit {
+        tracker.materialized_weight = next_weight;
+        return true;
+    }
+
+    errors.push(
+        Diagnostic::new(
+            "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+            format!(
+                "Reference materialization budget exceeded for '{target_path}' (budget=maxMaterializedWeight, observed={next_weight}, limit={limit})"
+            ),
+        )
+        .at_path(path),
+    );
+    false
+}
+
+fn measure_materialized_weight(
+    value: &Value,
+    current_path: &str,
+    path_values: &BTreeMap<String, Value>,
+    tracker: &mut MaterializationTracker,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    if stack.contains(current_path) {
+        return 1;
+    }
+
+    match value {
+        Value::StringLiteral { .. }
+        | Value::NumberLiteral { .. }
+        | Value::InfinityLiteral { .. }
+        | Value::SwitchLiteral { .. }
+        | Value::BooleanLiteral { .. }
+        | Value::HexLiteral { .. }
+        | Value::SeparatorLiteral { .. }
+        | Value::EncodingLiteral { .. }
+        | Value::RadixLiteral { .. }
+        | Value::DateLiteral { .. }
+        | Value::DateTimeLiteral { .. }
+        | Value::TimeLiteral { .. }
+        | Value::PointerReference { .. } => 1,
+        Value::CloneReference { segments, .. } => {
+            let target_path = reference_target_path(segments);
+            if let Some(weight) = tracker.materialized_weight_cache.get(&target_path) {
+                return *weight;
+            }
+            let Some(resolved) = path_values.get(&target_path) else {
+                return 1;
+            };
+            let mut next_stack = stack.clone();
+            next_stack.insert(String::from(current_path));
+            let weight =
+                measure_materialized_weight(resolved, &target_path, path_values, tracker, &mut next_stack);
+            tracker
+                .materialized_weight_cache
+                .insert(target_path, weight);
+            weight
+        }
+        Value::ObjectNode { bindings } => bindings
+            .iter()
+            .map(|binding| {
+                let child_path = format!("{current_path}.{}", render_member_segment(&binding.key));
+                measure_materialized_weight(&binding.value, &child_path, path_values, tracker, stack)
+                    + measure_attribute_weight(&binding.attributes, &child_path, path_values, tracker, stack)
+            })
+            .sum(),
+        Value::ListNode { items } | Value::TupleLiteral { items } => items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let child_path = format!("{current_path}[{index}]");
+                measure_materialized_weight(item, &child_path, path_values, tracker, stack)
+            })
+            .sum(),
+        Value::NodeLiteral {
+            attributes,
+            children,
+            ..
+        } => {
+            let attributes_weight: usize = attributes
+                .iter()
+                .map(|block| measure_attribute_weight(block, &format!("{current_path}@"), path_values, tracker, stack))
+                .sum();
+            1 + attributes_weight
+                + children
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        let child_path = format!("{current_path}<{index}>");
+                        measure_materialized_weight(child, &child_path, path_values, tracker, stack)
+                    })
+                    .sum::<usize>()
+        }
+    }
+}
+
+fn measure_attribute_weight(
+    attributes: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    path_values: &BTreeMap<String, Value>,
+    tracker: &mut MaterializationTracker,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    attributes
+        .iter()
+        .map(|(key, entry)| {
+            let entry_path = format!("{path}@{}", render_attribute_segment(key));
+            measure_attribute_value_weight(entry, &entry_path, path_values, tracker, stack)
+        })
+        .sum()
+}
+
+fn measure_attribute_value_weight(
+    entry: &AttributeValue,
+    path: &str,
+    path_values: &BTreeMap<String, Value>,
+    tracker: &mut MaterializationTracker,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    let mut total = 0;
+    if let Some(value) = &entry.value {
+        total += measure_materialized_weight(value, path, path_values, tracker, stack);
+    }
+    if !entry.nested_attrs.is_empty() {
+        total += measure_attribute_weight(&entry.nested_attrs, path, path_values, tracker, stack);
+    }
+    if !entry.object_members.is_empty() {
+        total += entry
+            .object_members
+            .iter()
+            .map(|(key, member)| {
+                let member_path = format!("{path}.{}", render_member_segment(key));
+                measure_attribute_value_weight(member, &member_path, path_values, tracker, stack)
+            })
+            .sum::<usize>();
+    }
+    total
 }
 
 fn render_reference_segments(segments: &[ReferenceSegment]) -> String {
@@ -935,6 +1121,7 @@ fn attributes_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let mut object = Map::new();
     let mut nested = Map::new();
@@ -952,6 +1139,7 @@ fn attributes_to_json(
             errors,
             warnings,
             active_paths,
+            tracker,
         );
         object.insert(key.clone(), value);
         if !entry.nested_attrs.is_empty() {
@@ -966,6 +1154,7 @@ fn attributes_to_json(
                     errors,
                     warnings,
                     active_paths,
+                    tracker,
                 ),
             );
         }
@@ -985,6 +1174,7 @@ fn node_attributes_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let mut merged = Map::new();
     for block in attributes {
@@ -997,6 +1187,7 @@ fn node_attributes_to_json(
             errors,
             warnings,
             active_paths,
+            tracker,
         ) else {
             continue;
         };
@@ -1027,6 +1218,7 @@ fn attribute_value_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     if !entry.object_members.is_empty() {
         return object_attribute_members_to_json(
@@ -1038,6 +1230,7 @@ fn attribute_value_to_json(
             errors,
             warnings,
             active_paths,
+            tracker,
         );
     }
     if let Some(value) = &entry.value {
@@ -1051,6 +1244,7 @@ fn attribute_value_to_json(
             warnings,
             entry.datatype.as_deref(),
             active_paths,
+            tracker,
         );
     }
     JsonValue::Null
@@ -1065,6 +1259,7 @@ fn object_attribute_members_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
 ) -> JsonValue {
     let mut object = Map::new();
     let mut attrs = Map::new();
@@ -1084,6 +1279,7 @@ fn object_attribute_members_to_json(
                 errors,
                 warnings,
                 active_paths,
+                tracker,
             ),
         );
         if !entry.nested_attrs.is_empty() {
@@ -1098,6 +1294,7 @@ fn object_attribute_members_to_json(
                     errors,
                     warnings,
                     active_paths,
+                    tracker,
                 ),
             );
         }
@@ -1466,6 +1663,68 @@ mod tests {
     }
 
     #[test]
+    fn finalize_json_enforces_max_materialized_weight_for_repeated_clone_expansion() {
+        let source = "big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(4),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "big": { "a": 1, "b": 2, "c": 3 },
+                "copy1": { "a": 1, "b": 2, "c": 3 },
+                "copy2": "~big"
+            })
+        );
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
+    fn finalize_json_enforces_max_materialized_weight_for_transitive_clone_chains() {
+        let source = "base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(3),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "base": { "a": 1, "b": 2 },
+                "copy1": { "a": 1, "b": 2 },
+                "copy2": "~copy1"
+            })
+        );
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
     fn finalize_json_reports_reference_cycles_instead_of_recursing() {
         let events = vec![AssignmentEvent {
             path: aeon_core::CanonicalPath::root().member("a"),
@@ -1487,7 +1746,7 @@ mod tests {
                 ..FinalizeOptions::default()
             },
         );
-        assert_eq!(finalized.document, json!({ "a": [null] }));
+        assert_eq!(finalized.document, json!({ "a": ["~a"] }));
         assert!(
             finalized
                 .meta

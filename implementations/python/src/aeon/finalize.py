@@ -16,6 +16,7 @@ class FinalizeOptions:
     include_paths: list[str] | None = None
     scope: str = "payload"
     header: dict[str, object] | None = None
+    max_materialized_weight: int | None = None
 
 
 def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[str, object]:
@@ -25,7 +26,25 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
     projection = Projection(opts.materialization, opts.include_paths)
     errors: list[dict[str, object]] = []
     warnings: list[dict[str, object]] = []
-    ctx = JsonContext(strict=strict, projection=projection, errors=errors, warnings=warnings)
+    path_values = {
+        event["path"]: event["value"]
+        for event in aes
+        if isinstance(event, dict)
+        and isinstance(event.get("path"), str)
+        and isinstance(event.get("value"), dict)
+    }
+    ctx = JsonContext(
+        strict=strict,
+        projection=projection,
+        errors=errors,
+        warnings=warnings,
+        path_values=path_values,
+        max_materialized_weight=opts.max_materialized_weight,
+        materialized_weight=0,
+        materialized_weight_cache={},
+        active_clone_paths=[],
+        active_paths=[],
+    )
 
     payload = payload_to_json(aes, ctx, opts.scope, opts.header)
     header = header_to_json(opts.header, ctx, opts.scope)
@@ -102,6 +121,12 @@ class JsonContext:
     projection: Projection
     errors: list[dict[str, object]]
     warnings: list[dict[str, object]]
+    path_values: dict[str, dict[str, object]]
+    max_materialized_weight: int | None
+    materialized_weight: int
+    materialized_weight_cache: dict[str, int]
+    active_clone_paths: list[str]
+    active_paths: list[str]
 
     def emit(self, level: str, code: str, message: str, path: str | None = None, span: object = None) -> None:
         target = self.errors if level == "error" else self.warnings
@@ -181,43 +206,66 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
     if not isinstance(value, dict):
         return None
 
-    value_type = value.get("type")
-    if value_type == "StringLiteral":
-        return value.get("value")
-    if value_type == "NumberLiteral":
-        return number_to_json(value, ctx, path)
-    if value_type == "InfinityLiteral":
-        return infinity_to_json(value, ctx, path)
-    if value_type == "BooleanLiteral":
-        return value.get("value")
-    if value_type == "SwitchLiteral":
-        return value.get("value") in {"yes", "on"}
-    if value_type == "HexLiteral":
-        return str(value.get("value", "")).replace("_", "")
-    if value_type == "RadixLiteral":
-        return radix_to_json(value, ctx, path, datatype)
-    if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
-        return value.get("value")
-    if value_type == "ObjectNode":
-        bindings = value.get("bindings")
-        return object_to_json(bindings if isinstance(bindings, list) else [], ctx, path)
-    if value_type in {"ListNode", "TupleLiteral"}:
-        elements = value.get("elements")
-        if not isinstance(elements, list):
-            return []
-        result = []
-        for index, element in enumerate(elements):
-            element_path = f"{path}[{index}]"
-            if ctx.projection.includes(element_path):
-                result.append(value_to_json(element, ctx, element_path))
-        return result
-    if value_type == "NodeLiteral":
-        return node_to_json(value, ctx, path)
-    if value_type == "CloneReference":
-        return reference_to_json("~", value, ctx, path)
-    if value_type == "PointerReference":
-        return reference_to_json("~>", value, ctx, path)
-    return None
+    ctx.active_paths.append(path)
+    try:
+        value_type = value.get("type")
+        if value_type == "StringLiteral":
+            return value.get("value")
+        if value_type == "NumberLiteral":
+            return number_to_json(value, ctx, path)
+        if value_type == "InfinityLiteral":
+            return infinity_to_json(value, ctx, path)
+        if value_type == "BooleanLiteral":
+            return value.get("value")
+        if value_type == "SwitchLiteral":
+            return value.get("value") in {"yes", "on"}
+        if value_type == "HexLiteral":
+            return str(value.get("value", "")).replace("_", "")
+        if value_type == "RadixLiteral":
+            return radix_to_json(value, ctx, path, datatype)
+        if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
+            return value.get("value")
+        if value_type == "ObjectNode":
+            bindings = value.get("bindings")
+            return object_to_json(bindings if isinstance(bindings, list) else [], ctx, path)
+        if value_type in {"ListNode", "TupleLiteral"}:
+            elements = value.get("elements")
+            if not isinstance(elements, list):
+                return []
+            result = []
+            for index, element in enumerate(elements):
+                element_path = f"{path}[{index}]"
+                if ctx.projection.includes(element_path):
+                    result.append(value_to_json(element, ctx, element_path))
+            return result
+        if value_type == "NodeLiteral":
+            return node_to_json(value, ctx, path)
+        if value_type == "CloneReference":
+            resolved = resolve_clone_reference(value, ctx)
+            if resolved is not None:
+                target_path, target_value = resolved
+                if target_path in ctx.active_clone_paths or target_path in ctx.active_paths:
+                    ctx.emit(
+                        "error",
+                        "FINALIZE_REFERENCE_CYCLE",
+                        f"Reference cycle during finalization: '{path}' resolves through '{target_path}'",
+                        path,
+                        value.get("span"),
+                    )
+                    return reference_to_json("~", value, ctx, path, emit_diagnostic=False)
+                if not consume_clone_budget(target_path, target_value, ctx, path, value.get("span")):
+                    return reference_to_json("~", value, ctx, path, emit_diagnostic=False)
+                ctx.active_clone_paths.append(target_path)
+                try:
+                    return value_to_json(target_value, ctx, path, datatype)
+                finally:
+                    ctx.active_clone_paths.pop()
+            return reference_to_json("~", value, ctx, path)
+        if value_type == "PointerReference":
+            return reference_to_json("~>", value, ctx, path)
+        return None
+    finally:
+        ctx.active_paths.pop()
 
 
 def number_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> object:
@@ -341,8 +389,10 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
     return result or None
 
 
-def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, path: str) -> str:
+def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, path: str, emit_diagnostic: bool = True) -> str:
     token = prefix + format_reference_path(value.get("path"))
+    if not emit_diagnostic:
+        return token
     ctx.emit(
         "error" if ctx.strict else "warning",
         "FINALIZE_UNMATERIALIZED_REFERENCE",
@@ -351,6 +401,151 @@ def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, p
         value.get("span"),
     )
     return token
+
+
+def resolve_clone_reference(value: dict[str, object], ctx: JsonContext) -> tuple[str, dict[str, object]] | None:
+    target_path = reference_target_path(value.get("path"))
+    resolved = ctx.path_values.get(target_path)
+    if not isinstance(resolved, dict):
+        return None
+    return target_path, resolved
+
+
+def reference_target_path(path: object) -> str:
+    return "$" + ("." + format_reference_path(path) if format_reference_path(path) else "")
+
+
+def consume_clone_budget(
+    target_path: str,
+    value: dict[str, object],
+    ctx: JsonContext,
+    path: str,
+    span: object,
+) -> bool:
+    if ctx.max_materialized_weight is None:
+        return True
+
+    weight = measure_materialized_weight(value, ctx, target_path, set())
+    next_weight = ctx.materialized_weight + weight
+    if next_weight <= ctx.max_materialized_weight:
+        ctx.materialized_weight = next_weight
+        return True
+
+    ctx.emit(
+        "error",
+        "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+        f"Reference materialization budget exceeded for '{target_path}' (budget=maxMaterializedWeight, observed={next_weight}, limit={ctx.max_materialized_weight})",
+        path,
+        span,
+    )
+    return False
+
+
+def measure_materialized_weight(
+    value: dict[str, object],
+    ctx: JsonContext,
+    current_path: str,
+    stack: set[str],
+) -> int:
+    if current_path in stack:
+        return 1
+
+    value_type = value.get("type")
+    if value_type in {
+        "StringLiteral",
+        "NumberLiteral",
+        "InfinityLiteral",
+        "BooleanLiteral",
+        "SwitchLiteral",
+        "HexLiteral",
+        "RadixLiteral",
+        "EncodingLiteral",
+        "SeparatorLiteral",
+        "DateLiteral",
+        "DateTimeLiteral",
+        "TimeLiteral",
+        "PointerReference",
+    }:
+        return 1
+
+    if value_type == "CloneReference":
+        target_path = reference_target_path(value.get("path"))
+        cached = ctx.materialized_weight_cache.get(target_path)
+        if cached is not None:
+            return cached
+        resolved = ctx.path_values.get(target_path)
+        if not isinstance(resolved, dict):
+            return 1
+        next_stack = set(stack)
+        next_stack.add(current_path)
+        weight = measure_materialized_weight(resolved, ctx, target_path, next_stack)
+        ctx.materialized_weight_cache[target_path] = weight
+        return weight
+
+    if value_type == "ObjectNode":
+        bindings = value.get("bindings")
+        if not isinstance(bindings, list):
+            return 0
+        return sum(
+            measure_binding_weight(binding, ctx, format_child_path(current_path, str(binding.get("key", ""))), stack)
+            for binding in bindings
+            if isinstance(binding, dict)
+        )
+
+    if value_type in {"ListNode", "TupleLiteral"}:
+        elements = value.get("elements")
+        if not isinstance(elements, list):
+            return 0
+        return sum(
+            measure_materialized_weight(element, ctx, f"{current_path}[{index}]", stack)
+            for index, element in enumerate(elements)
+            if isinstance(element, dict)
+        )
+
+    if value_type == "NodeLiteral":
+        children = value.get("children")
+        attributes = value.get("attributes")
+        attributes_weight = measure_attributes_weight(attributes, ctx, f"{current_path}@", stack)
+        children_weight = 0
+        if isinstance(children, list):
+            children_weight = sum(
+                measure_materialized_weight(child, ctx, f"{current_path}<{index}>", stack)
+                for index, child in enumerate(children)
+                if isinstance(child, dict)
+            )
+        return 1 + attributes_weight + children_weight
+
+    return 1
+
+
+def measure_binding_weight(binding: dict[str, object], ctx: JsonContext, path: str, stack: set[str]) -> int:
+    value = binding.get("value")
+    total = 0
+    if isinstance(value, dict):
+        total += measure_materialized_weight(value, ctx, path, stack)
+    total += measure_attributes_weight(binding.get("attributes"), ctx, path, stack)
+    return total
+
+
+def measure_attributes_weight(attributes: object, ctx: JsonContext, path: str, stack: set[str]) -> int:
+    if not isinstance(attributes, list):
+        return 0
+    total = 0
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            continue
+        entries = attribute.get("entries")
+        if not isinstance(entries, dict):
+            continue
+        for key, entry in entries.items():
+            if not isinstance(key, str) or not isinstance(entry, dict):
+                continue
+            entry_path = f"{path}@{format_annotation_key(key)}"
+            value = entry.get("value")
+            if isinstance(value, dict):
+                total += measure_materialized_weight(value, ctx, entry_path, stack)
+            total += measure_attributes_weight(entry.get("attributes"), ctx, entry_path, stack)
+    return total
 
 
 def format_reference_path(path: object) -> str:
