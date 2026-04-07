@@ -14,23 +14,12 @@ use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
 use serde::de::DeserializeOwned;
 use serde_json::{Value as JsonValue, json};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
     pub compile: CompileOptions,
     pub finalize: FinalizeOptions,
     pub schema: Option<Schema>,
     pub validation: ValidationOptions,
-}
-
-impl Default for LoadOptions {
-    fn default() -> Self {
-        Self {
-            compile: CompileOptions::default(),
-            finalize: FinalizeOptions::default(),
-            schema: None,
-            validation: ValidationOptions::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

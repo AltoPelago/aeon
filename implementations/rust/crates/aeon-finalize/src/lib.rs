@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -754,32 +756,30 @@ fn value_to_json_with_active_key(
                     )
                     .at_path(path));
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
+                } else if !consume_clone_budget(
+                    &target,
+                    resolved,
+                    path,
+                    segments,
+                    path_values,
+                    errors,
+                    tracker,
+                ) {
+                    JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else {
-                    if !consume_clone_budget(
-                        &target,
+                    value_to_json_with_active_key(
                         resolved,
                         path,
-                        segments,
+                        &target,
+                        projection,
                         path_values,
+                        mode,
                         errors,
+                        warnings,
+                        datatype,
+                        active_paths,
                         tracker,
-                    ) {
-                        JsonValue::String(format!("~{}", render_reference_segments(segments)))
-                    } else {
-                        value_to_json_with_active_key(
-                            resolved,
-                            path,
-                            &target,
-                            projection,
-                            path_values,
-                            mode,
-                            errors,
-                            warnings,
-                            datatype,
-                            active_paths,
-                            tracker,
-                        )
-                    }
+                    )
                 }
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))

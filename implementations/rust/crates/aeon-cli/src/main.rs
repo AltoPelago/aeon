@@ -133,7 +133,7 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
         fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     trace_check(format!("check:source_bytes={}", source.len()));
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -209,7 +209,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
     let source =
         fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -400,7 +400,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     let source =
         fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -989,7 +989,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     let source =
         fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok((ExitCode::from(1), json!({})));
@@ -1160,7 +1160,7 @@ fn format_source_for_cli(
     max_input_bytes: Option<usize>,
 ) -> Result<(ExitCode, String), String> {
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             return Ok((
                 ExitCode::from(1),
@@ -1193,7 +1193,7 @@ fn doctor(args: &[String]) -> Result<ExitCode, String> {
         ));
     }
 
-    let registry_path = registry_path.unwrap_or_else(|| default_contract_registry_path());
+    let registry_path = registry_path.unwrap_or_else(default_contract_registry_path);
     let result = run_doctor(&registry_path);
 
     if json_output {

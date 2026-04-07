@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 mod flatten;
 mod header;
 mod lexer;
@@ -477,7 +479,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = source.as_bytes().len();
+        let actual_bytes = source.len();
         if actual_bytes > max_bytes {
             return CompileResult {
                 source,
@@ -519,7 +521,6 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     }
 }
 
-#[must_use]
 pub fn benchmark_validation_phases(
     input: &str,
     options: CompileOptions,
@@ -2070,8 +2071,10 @@ mod tests {
 
     #[test]
     fn fails_closed_on_deep_valid_nesting() {
-        let mut options = CompileOptions::default();
-        options.max_nesting_depth = 32;
+        let options = CompileOptions {
+            max_nesting_depth: 32,
+            ..CompileOptions::default()
+        };
         let source = format!("v = {}0{}\n", "[".repeat(40), "]".repeat(40));
         let result = compile(&source, options);
         assert!(result.events.is_empty());

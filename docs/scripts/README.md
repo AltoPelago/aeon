@@ -12,6 +12,7 @@ Common root wrappers:
 
 - `npm run ci`
 - `npm run ci:rust`
+- `npm run ci:rust:verbose`
 - `npm run ci:full`
 - `npm run tests:all`
 

@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 
 use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
@@ -1418,10 +1420,7 @@ impl<'a> Parser<'a> {
         while self.peek() != Some(terminator) {
             items.push(self.parse_value()?);
             self.skip_inline_ws();
-            if self.peek() == Some(',') {
-                self.consume_delimiter();
-                self.skip_ws(true);
-            } else if self.peek() == Some('\n') {
+            if self.peek() == Some(',') || self.peek() == Some('\n') {
                 self.consume_delimiter();
                 self.skip_ws(true);
             } else if self.peek() != Some(terminator) {
@@ -1461,8 +1460,7 @@ impl<'a> Parser<'a> {
                 self.expect_char(')')?;
                 Vec::new()
             } else {
-                let items = self.parse_sequence(')')?;
-                items
+                self.parse_sequence(')')?
             }
         } else {
             Vec::new()

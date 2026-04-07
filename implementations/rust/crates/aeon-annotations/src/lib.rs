@@ -495,7 +495,7 @@ impl<'a> AnnotationParser<'a> {
                 self.skip_trivia(true);
                 while !self.scanner.is_eof() {
                     match self.scanner.peek() {
-                        Some(ch) if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}') => {
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | ']' | '}') => {
                             break;
                         }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
@@ -511,9 +511,7 @@ impl<'a> AnnotationParser<'a> {
             Some(_) => {
                 while !self.scanner.is_eof() {
                     match self.scanner.peek() {
-                        Some(ch)
-                            if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ')') =>
-                        {
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ')') => {
                             break;
                         }
                         Some('/')

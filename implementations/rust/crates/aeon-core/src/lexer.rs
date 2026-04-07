@@ -401,9 +401,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
                     }
-                    if self.is_at_end()
-                        && self.input[start.offset..self.offset].chars().last() != Some(quote)
-                    {
+                    if self.is_at_end() && !self.input[start.offset..self.offset].ends_with(quote) {
                         self.errors.push(LexError {
                             code: String::from("UNTERMINATED_STRING"),
                             message: format!("Unterminated string literal (started with {quote})"),
@@ -1010,11 +1008,10 @@ mod tests {
 
     #[test]
     fn invalid_radix_starts_fall_back_to_plain_tokens() {
-        for source in ["value = %_1"] {
-            let result = tokenize(source, LexerOptions::default());
-            assert!(result.errors.is_empty(), "{source}");
-            assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");
-        }
+        let source = "value = %_1";
+        let result = tokenize(source, LexerOptions::default());
+        assert!(result.errors.is_empty(), "{source}");
+        assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");
     }
 
     #[test]

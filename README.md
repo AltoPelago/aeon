@@ -18,6 +18,7 @@ Root npm workflow wrappers:
 
 - `npm run ci`: implementation CI entrypoint (delegates to TypeScript CI, including canonical cross-implementation checks).
 - `npm run ci:rust`: full Rust workspace sweep (fmt/check/clippy/test).
+- `npm run ci:rust:verbose`: same as `ci:rust`, but keeps Rust test stdout/stderr (`--nocapture`).
 - `npm run ci:full`: `ci` plus `ci:rust`.
 - `npm run tests:all`: `ci:full` plus matrix snippet combination run.
 

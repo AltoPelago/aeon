@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{BTreeMap, HashSet};
 
 use crate::flatten::{FlattenedDocument, ValidationEvent, ValidationReferenceStep};
@@ -335,21 +337,19 @@ pub(crate) fn validate_datatypes(
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
-            if !is_reserved_datatype(datatype) {
-                if datatype_policy == DatatypePolicy::ReservedOnly {
-                    errors.push(
-                        Diagnostic::new(
-                            "CUSTOM_DATATYPE_NOT_ALLOWED",
-                            format!(
-                                "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                                path
-                            ),
-                        )
-                        .at_path(path.clone())
-                        .with_span(event.span),
-                    );
-                    continue;
-                }
+            if !is_reserved_datatype(datatype) && datatype_policy == DatatypePolicy::ReservedOnly {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_DATATYPE_NOT_ALLOWED",
+                        format!(
+                            "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                            path
+                        ),
+                    )
+                    .at_path(path.clone())
+                    .with_span(event.span),
+                );
+                continue;
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
@@ -420,21 +420,19 @@ pub(crate) fn validate_datatypes_light(
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
-            if !is_reserved_datatype(datatype) {
-                if datatype_policy == DatatypePolicy::ReservedOnly {
-                    errors.push(
-                        Diagnostic::new(
-                            "CUSTOM_DATATYPE_NOT_ALLOWED",
-                            format!(
-                                "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                                event.path
-                            ),
-                        )
-                        .at_path(event.path.clone())
-                        .with_span(event.span),
-                    );
-                    continue;
-                }
+            if !is_reserved_datatype(datatype) && datatype_policy == DatatypePolicy::ReservedOnly {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_DATATYPE_NOT_ALLOWED",
+                        format!(
+                            "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                            event.path
+                        ),
+                    )
+                    .at_path(event.path.clone())
+                    .with_span(event.span),
+                );
+                continue;
             }
             let resolved_value = resolve_reference_value_light(&event.value, events, event_lookup)
                 .unwrap_or(&event.value);
@@ -1328,6 +1326,7 @@ fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{datatype_bracket_specs, separator_spec_depth};
 
@@ -1566,16 +1565,14 @@ fn validate_attribute_datatype_map(
                             .at_path(attr_path.clone()),
                         );
                     }
-                } else {
-                    if !datatype_matches_value(datatype, value) {
-                        errors.push(
-                            Diagnostic::new(
-                                "DATATYPE_LITERAL_MISMATCH",
-                                datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
-                            )
-                            .at_path(attr_path.clone()),
-                        );
-                    }
+                } else if !datatype_matches_value(datatype, value) {
+                    errors.push(
+                        Diagnostic::new(
+                            "DATATYPE_LITERAL_MISMATCH",
+                            datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
+                        )
+                        .at_path(attr_path.clone()),
+                    );
                 }
             }
         }

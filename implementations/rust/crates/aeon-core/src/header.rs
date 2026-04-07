@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 
 use crate::{Binding, Diagnostic, HeaderFields, Position, Span, Value};
