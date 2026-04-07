@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Check diagnostic parity on curated syntax/error snippets.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-diagnostic-snippets.py --brief
+"""
+
 from __future__ import annotations
 
 import argparse

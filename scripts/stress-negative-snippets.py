@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Run negative snippet corpora and verify reject behavior.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-negative-snippets.py --mode strict --impl all
+"""
+
 from __future__ import annotations
 
 import argparse

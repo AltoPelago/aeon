@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Purpose: fail if tracked files contain machine-local filesystem paths.
+# Run from: anywhere inside this git repo.
+# Example: bash ./scripts/check-no-local-paths.sh
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 cd "$repo_root"
 
 patterns=(

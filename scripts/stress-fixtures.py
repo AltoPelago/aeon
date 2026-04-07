@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Run curated stress fixtures across TS/Python/Rust CLIs.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-fixtures.py --impl all
+"""
+
 from __future__ import annotations
 
 import argparse

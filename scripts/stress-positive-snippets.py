@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Run positive snippet corpora across implementations.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-positive-snippets.py --mode strict --impl all
+"""
+
 from __future__ import annotations
 
 import argparse

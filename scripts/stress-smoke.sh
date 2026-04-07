@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Purpose: run a fast cross-implementation stress-smoke fixture subset.
+# Run from: repo root.
+# Example: bash ./scripts/stress-smoke.sh --impl all
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -11,6 +11,8 @@ It currently contains:
 - `scripts/`
 - `stress-tests/`
 
+Script catalog and operational usage notes live in [scripts/README.md](./scripts/README.md).
+
 This repository contains the maintained AEON implementation surface.
 
 Implementation references to specs, CTS, and contracts should continue to point at their proper authority surfaces rather than relying on mixed staging-era repo layout assumptions.

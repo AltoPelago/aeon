@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Small repeatable CLI benchmark helper.
 
+Run from repo root.
+
 Examples:
-  python3 scripts/bench-cli.py --cwd implementations/rust -- ./target/release/aeon-rust check /tmp/file.aeon
-  python3 scripts/bench-cli.py --iterations 10 --warmup 2 -- pnpm --dir implementations/typescript cli check /tmp/file.aeon
+  python3 ./scripts/bench-cli.py --cwd implementations/rust -- ./target/release/aeon-rust check /tmp/file.aeon
+  python3 ./scripts/bench-cli.py --iterations 10 --warmup 2 -- pnpm --dir implementations/typescript cli check /tmp/file.aeon
 """
 
 from __future__ import annotations
