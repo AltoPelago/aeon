@@ -32,7 +32,8 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
     let shorthand_header = bindings
         .iter()
         .find(|binding| binding.key.starts_with("aeon:") && binding.key != "aeon:header");
-    if let (Some(structured_header), Some(shorthand_header)) = (structured_header, shorthand_header) {
+    if let (Some(structured_header), Some(shorthand_header)) = (structured_header, shorthand_header)
+    {
         return Err(Diagnostic::new(
             "HEADER_CONFLICT",
             "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
@@ -45,13 +46,20 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
     for binding in bindings {
         if binding.key == "aeon:header" {
             if seen_body {
+                return Err(Diagnostic::new(
+                    "SYNTAX_ERROR",
+                    "Structured headers must appear before body bindings",
+                )
+                .at_path("$"));
+            }
+            let Value::ObjectNode {
+                bindings: header_bindings,
+            } = binding.value
+            else {
                 return Err(
-                    Diagnostic::new("SYNTAX_ERROR", "Structured headers must appear before body bindings")
+                    Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object")
                         .at_path("$"),
                 );
-            }
-            let Value::ObjectNode { bindings: header_bindings } = binding.value else {
-                return Err(Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object").at_path("$"));
             };
             for header in header_bindings {
                 let mapped_key = if header.key == "mode" {
@@ -59,7 +67,10 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
                 } else {
                     format!("aeon:{}", header.key)
                 };
-                lowered.push(Binding { key: mapped_key, ..header });
+                lowered.push(Binding {
+                    key: mapped_key,
+                    ..header
+                });
             }
         } else {
             seen_body = true;

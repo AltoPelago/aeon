@@ -87,7 +87,9 @@ fn strip_preamble_and_bom(source: &str) -> String {
 
 fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarget {
     if bindables.is_empty() {
-        return AnnotationTarget::Unbound { reason: "no_bindable" };
+        return AnnotationTarget::Unbound {
+            reason: "no_bindable",
+        };
     }
 
     let mut infix_containing = bindables
@@ -146,7 +148,10 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
     AnnotationTarget::Unbound { reason: "eof" }
 }
 
-fn resolve_nearest_by_offset<'a>(comment_span: Span, bindables: &'a [&'a Bindable]) -> Option<&'a Bindable> {
+fn resolve_nearest_by_offset<'a>(
+    comment_span: Span,
+    bindables: &'a [&'a Bindable],
+) -> Option<&'a Bindable> {
     let trailing = bindables
         .iter()
         .filter(|bindable| bindable.span.end.offset <= comment_span.start.offset)
@@ -183,7 +188,8 @@ fn span_length(span: Span) -> usize {
 
 fn is_descendant_path(parent: &str, candidate: &str) -> bool {
     candidate.len() > parent.len()
-        && (candidate.starts_with(&format!("{parent}.")) || candidate.starts_with(&format!("{parent}[")))
+        && (candidate.starts_with(&format!("{parent}."))
+            || candidate.starts_with(&format!("{parent}[")))
 }
 
 fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
@@ -327,24 +333,33 @@ impl<'a> AnnotationParser<'a> {
         match self.scanner.peek()? {
             '{' => {
                 let end = self.capture_object(&path, &mut bindables);
-                bindables.insert(0, Bindable {
-                    path,
-                    span: Span { start, end },
-                });
+                bindables.insert(
+                    0,
+                    Bindable {
+                        path,
+                        span: Span { start, end },
+                    },
+                );
             }
             '[' => {
                 let end = self.capture_sequence('[', ']', &path, &mut bindables);
-                bindables.insert(0, Bindable {
-                    path,
-                    span: Span { start, end },
-                });
+                bindables.insert(
+                    0,
+                    Bindable {
+                        path,
+                        span: Span { start, end },
+                    },
+                );
             }
             '(' => {
                 let end = self.capture_sequence('(', ')', &path, &mut bindables);
-                bindables.insert(0, Bindable {
-                    path,
-                    span: Span { start, end },
-                });
+                bindables.insert(
+                    0,
+                    Bindable {
+                        path,
+                        span: Span { start, end },
+                    },
+                );
             }
             '<' => {
                 let end = self.capture_balanced('<', '>');
@@ -457,7 +472,10 @@ impl<'a> AnnotationParser<'a> {
                     }
                 }
                 Some('"') | Some('\'') | Some('`') => self.scanner.read_string(),
-                Some('/') if self.scanner.peek_n(1) == Some('/') || self.scanner.peek_n(1) == Some('*') => {
+                Some('/')
+                    if self.scanner.peek_n(1) == Some('/')
+                        || self.scanner.peek_n(1) == Some('*') =>
+                {
                     self.skip_trivia(true);
                 }
                 Some(_) => {
@@ -477,7 +495,9 @@ impl<'a> AnnotationParser<'a> {
                 self.skip_trivia(true);
                 while !self.scanner.is_eof() {
                     match self.scanner.peek() {
-                        Some(ch) if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}') => break,
+                        Some(ch) if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}') => {
+                            break;
+                        }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
                             self.skip_trivia(true);
                         }
@@ -491,8 +511,17 @@ impl<'a> AnnotationParser<'a> {
             Some(_) => {
                 while !self.scanner.is_eof() {
                     match self.scanner.peek() {
-                        Some(ch) if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ')') => break,
-                        Some('/') if self.scanner.peek_n(1) == Some('/') || matches!(self.scanner.peek_n(1), Some('#' | '@' | '?')) => break,
+                        Some(ch)
+                            if matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ')') =>
+                        {
+                            break;
+                        }
+                        Some('/')
+                            if self.scanner.peek_n(1) == Some('/')
+                                || matches!(self.scanner.peek_n(1), Some('#' | '@' | '?')) =>
+                        {
+                            break;
+                        }
                         Some(_) => {
                             self.scanner.bump();
                         }
@@ -512,7 +541,10 @@ impl<'a> AnnotationParser<'a> {
             _ => {
                 let start = self.scanner.index;
                 while let Some(ch) = self.scanner.peek() {
-                    if matches!(ch, ':' | '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') {
+                    if matches!(
+                        ch,
+                        ':' | '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']'
+                    ) {
                         break;
                     }
                     self.scanner.bump();
@@ -594,7 +626,9 @@ impl<'a> AnnotationParser<'a> {
                     self.scanner.bump();
                     self.scanner.bump();
                     while !self.scanner.is_eof() {
-                        if self.scanner.peek() == Some(closing) && self.scanner.peek_n(1) == Some('/') {
+                        if self.scanner.peek() == Some(closing)
+                            && self.scanner.peek_n(1) == Some('/')
+                        {
                             self.scanner.bump();
                             self.scanner.bump();
                             break;
@@ -761,6 +795,8 @@ mod tests {
     fn binds_in_list_to_nearest_index() {
         let records = extract_annotations("a = [1, /? in-list ?/ 2]");
         assert_eq!(records.len(), 1);
-        assert!(matches!(records[0].target, AnnotationTarget::Path { ref path } if path == "$.a[1]"));
+        assert!(
+            matches!(records[0].target, AnnotationTarget::Path { ref path } if path == "$.a[1]")
+        );
     }
 }

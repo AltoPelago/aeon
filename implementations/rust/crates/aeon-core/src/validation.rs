@@ -4,8 +4,8 @@ use crate::flatten::{FlattenedDocument, ValidationEvent, ValidationReferenceStep
 use crate::pathing::{format_reference_base, format_reference_target};
 use crate::temporal::invalid_temporal_literal;
 use crate::{
-    format_path, AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath,
-    DatatypePolicy, Diagnostic, ReferenceSegment, Span, Value,
+    AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath, DatatypePolicy,
+    Diagnostic, ReferenceSegment, Span, Value, format_path,
 };
 
 #[derive(Debug, Clone)]
@@ -112,7 +112,11 @@ pub(crate) fn validate_reference_steps(
     let mut seen_base = HashSet::new();
     for step in steps {
         match step {
-            ValidationReferenceStep::ValidateValue { path, owner_path, value } => {
+            ValidationReferenceStep::ValidateValue {
+                path,
+                owner_path,
+                value,
+            } => {
                 validate_value_reference(
                     value,
                     path,
@@ -174,14 +178,17 @@ fn validate_value_reference(
             }
             if !all_targets.contains(&target) {
                 errors.push(
-                    Diagnostic::new("MISSING_REFERENCE_TARGET", format!("Missing reference target: '{target}'"))
-                        .at_path(current_path.to_owned())
-                        .with_span(reference_span),
+                    Diagnostic::new(
+                        "MISSING_REFERENCE_TARGET",
+                        format!("Missing reference target: '{target}'"),
+                    )
+                    .at_path(current_path.to_owned())
+                    .with_span(reference_span),
                 );
                 return;
             }
-            let requires_exact_attr_visibility =
-                target.contains('@') && !(current_path == format_reference_base(segments)
+            let requires_exact_attr_visibility = target.contains('@')
+                && !(current_path == format_reference_base(segments)
                     && target.starts_with(&format!("{current_path}@")));
             let is_visible = if requires_exact_attr_visibility {
                 seen_base.contains(&target)
@@ -364,7 +371,8 @@ pub(crate) fn validate_datatypes(
                 continue;
             }
             if !datatype_matches_value(datatype, resolved_value) {
-                let message = datatype_mismatch_message(path, datatype, resolved_value.value_kind());
+                let message =
+                    datatype_mismatch_message(path, datatype, resolved_value.value_kind());
                 errors.push(
                     Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
                         .at_path(path.clone())
@@ -428,8 +436,8 @@ pub(crate) fn validate_datatypes_light(
                     continue;
                 }
             }
-            let resolved_value =
-                resolve_reference_value_light(&event.value, events, event_lookup).unwrap_or(&event.value);
+            let resolved_value = resolve_reference_value_light(&event.value, events, event_lookup)
+                .unwrap_or(&event.value);
             if !is_reserved_datatype(datatype)
                 && mode == BehaviorMode::Strict
                 && resolved_value.value_kind() == "SwitchLiteral"
@@ -483,7 +491,9 @@ pub(crate) fn validate_header_typing(bindings: &[Binding], errors: &mut Vec<Diag
                     "UNTYPED_VALUE_IN_STRICT_MODE",
                     format!("Structured header binding `{}` must be typed", binding.key),
                 )
-                .at_path(format_path(&CanonicalPath::root().member(binding.key.clone()))),
+                .at_path(format_path(
+                    &CanonicalPath::root().member(binding.key.clone()),
+                )),
             );
         }
     }
@@ -551,7 +561,9 @@ fn resolve_reference_value_inner<'a>(
     seen: &mut HashSet<String>,
 ) -> Option<&'a Value> {
     let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => segments,
+        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
+            segments
+        }
         _ => return Some(value),
     };
     let target = format_reference_target(segments);
@@ -569,7 +581,9 @@ fn resolve_reference_value_light_inner<'a>(
     seen: &mut HashSet<String>,
 ) -> Option<&'a Value> {
     let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => segments,
+        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
+            segments
+        }
         _ => return Some(value),
     };
     let target = format_reference_target(segments);
@@ -658,11 +672,7 @@ fn resolve_reference_remainder<'a>(
                 return None;
             };
             let binding = bindings.iter().find(|candidate| candidate.key == *key)?;
-            resolve_reference_remainder(
-                &binding.value,
-                Some(&binding.attributes),
-                &remainder[1..],
-            )
+            resolve_reference_remainder(&binding.value, Some(&binding.attributes), &remainder[1..])
         }
         ReferenceSegment::Index(index) => match value {
             Value::ListNode { items } | Value::TupleLiteral { items } => {
@@ -691,7 +701,9 @@ fn resolve_reference_remainder_from_attr<'a>(
                 resolve_reference_remainder(attr.value.as_ref()?, None, remainder)
             }
         }
-        ReferenceSegment::Index(_) => resolve_reference_remainder(attr.value.as_ref()?, None, remainder),
+        ReferenceSegment::Index(_) => {
+            resolve_reference_remainder(attr.value.as_ref()?, None, remainder)
+        }
     }
 }
 
@@ -744,9 +756,7 @@ fn validate_node_head_datatypes_in_value(
 ) {
     match value {
         Value::NodeLiteral {
-            datatype,
-            children,
-            ..
+            datatype, children, ..
         } => {
             if matches!(mode, BehaviorMode::Strict) {
                 if let Some(datatype) = datatype {
@@ -767,7 +777,13 @@ fn validate_node_head_datatypes_in_value(
                 }
             }
             for (index, child) in children.iter().enumerate() {
-                validate_node_head_datatypes_in_value(child, &path.index(index), owner_span, mode, errors);
+                validate_node_head_datatypes_in_value(
+                    child,
+                    &path.index(index),
+                    owner_span,
+                    mode,
+                    errors,
+                );
             }
         }
         Value::ObjectNode { bindings } => {
@@ -783,7 +799,13 @@ fn validate_node_head_datatypes_in_value(
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
-                validate_node_head_datatypes_in_value(item, &path.index(index), owner_span, mode, errors);
+                validate_node_head_datatypes_in_value(
+                    item,
+                    &path.index(index),
+                    owner_span,
+                    mode,
+                    errors,
+                );
             }
         }
         _ => {}
@@ -816,7 +838,11 @@ fn validate_switch_literal_in_value(
         }
         Value::ObjectNode { .. } => {}
         Value::ListNode { items } | Value::TupleLiteral { items } => {
-            let nested_datatype = if datatype.is_some() { Some("switch") } else { None };
+            let nested_datatype = if datatype.is_some() {
+                Some("switch")
+            } else {
+                None
+            };
             for (index, item) in items.iter().enumerate() {
                 validate_switch_literal_in_value(
                     item,
@@ -859,7 +885,9 @@ fn validate_datatype_shape(
             format!("Datatype `{datatype}` exceeds generic depth limit"),
         ));
     }
-    if let Value::NumberLiteral { raw } = &event.value && !is_valid_number_literal(raw) {
+    if let Value::NumberLiteral { raw } = &event.value
+        && !is_valid_number_literal(raw)
+    {
         if let Some((code, message)) = invalid_temporal_literal(raw) {
             return Some(Diagnostic::new(code, message));
         }
@@ -898,7 +926,9 @@ fn validate_datatype_shape_light(
             format!("Datatype `{datatype}` exceeds generic depth limit"),
         ));
     }
-    if let Value::NumberLiteral { raw } = value && !is_valid_number_literal(raw) {
+    if let Value::NumberLiteral { raw } = value
+        && !is_valid_number_literal(raw)
+    {
         if let Some((code, message)) = invalid_temporal_literal(raw) {
             return Some(Diagnostic::new(code, message));
         }
@@ -938,7 +968,10 @@ fn validate_radix_datatype_shape(datatype: &str) -> Option<Diagnostic> {
 
 fn declared_radix_base(datatype: &str) -> Option<usize> {
     let body = datatype.strip_prefix("radix[")?.strip_suffix(']')?;
-    if body.is_empty() || (body.starts_with('0') && body != "0") || !body.chars().all(|ch| ch.is_ascii_digit()) {
+    if body.is_empty()
+        || (body.starts_with('0') && body != "0")
+        || !body.chars().all(|ch| ch.is_ascii_digit())
+    {
         return None;
     }
     let base = body.parse::<usize>().ok()?;
@@ -1155,8 +1188,20 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             matches!(value, Value::NumberLiteral { .. })
         }
         "infinity" => matches!(value, Value::InfinityLiteral { .. }),
-        "string" => matches!(value, Value::StringLiteral { trimticks: None, .. }),
-        "trimtick" => matches!(value, Value::StringLiteral { trimticks: Some(_), .. }),
+        "string" => matches!(
+            value,
+            Value::StringLiteral {
+                trimticks: None,
+                ..
+            }
+        ),
+        "trimtick" => matches!(
+            value,
+            Value::StringLiteral {
+                trimticks: Some(_),
+                ..
+            }
+        ),
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
         "switch" => matches!(value, Value::SwitchLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
@@ -1181,7 +1226,9 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             let expected = custom_expected.as_ref().expect("checked is_some");
             expected.contains(&value.value_kind())
         }
-        _ if matches!(value, Value::SeparatorLiteral { .. }) => custom_separator_specs_are_valid(datatype),
+        _ if matches!(value, Value::SeparatorLiteral { .. }) => {
+            custom_separator_specs_are_valid(datatype)
+        }
         _ if matches!(value, Value::RadixLiteral { .. }) => custom_radix_specs_are_valid(datatype),
         _ => true,
     }
@@ -1269,10 +1316,15 @@ fn is_allowed_separator_spec_char(ch: char) -> bool {
 }
 
 fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
-    if spec.is_empty() || (spec.starts_with('0') && spec != "0") || !spec.chars().all(|ch| ch.is_ascii_digit()) {
+    if spec.is_empty()
+        || (spec.starts_with('0') && spec != "0")
+        || !spec.chars().all(|ch| ch.is_ascii_digit())
+    {
         return false;
     }
-    spec.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+    spec.parse::<usize>()
+        .ok()
+        .is_some_and(|base| (2..=64).contains(&base))
 }
 
 #[cfg(test)]
@@ -1319,7 +1371,11 @@ fn has_valid_radix_literal(raw: &str) -> bool {
         return false;
     }
     let chars: Vec<char> = body.chars().collect();
-    let mut index = if matches!(chars.first(), Some('+' | '-')) { 1 } else { 0 };
+    let mut index = if matches!(chars.first(), Some('+' | '-')) {
+        1
+    } else {
+        0
+    };
     if index >= chars.len() {
         return false;
     }
@@ -1481,9 +1537,12 @@ fn validate_attribute_datatype_map(
         let attr_path = format!("{}@{}", format_path(owner_path), key);
         if let Some(datatype) = &entry.datatype {
             if let Some(value) = &entry.value {
-                if let Some(error) =
-                    validate_datatype_shape_light(datatype, value, max_separator_depth, max_generic_depth)
-                {
+                if let Some(error) = validate_datatype_shape_light(
+                    datatype,
+                    value,
+                    max_separator_depth,
+                    max_generic_depth,
+                ) {
                     let path_override = match error.code.as_str() {
                         "INVALID_NUMBER"
                         | "INVALID_SEPARATOR_CHAR"

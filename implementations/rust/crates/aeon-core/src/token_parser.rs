@@ -4,8 +4,8 @@ use crate::header::apply_trimticks;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
-    tokenize, AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token,
-    TokenKind, TrimtickMetadata, Value,
+    AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token, TokenKind,
+    TrimtickMetadata, Value, tokenize,
 };
 
 pub(crate) fn parse_document_from_tokens(
@@ -109,7 +109,8 @@ impl<'a> TokenParser<'a> {
                 if token.text == "aeon" && self.peek_next().kind == TokenKind::Colon {
                     self.advance();
                     self.advance();
-                    let field = self.consume(TokenKind::Identifier, "Expected header field after `aeon:`")?;
+                    let field =
+                        self.consume(TokenKind::Identifier, "Expected header field after `aeon:`")?;
                     Ok(format!("aeon:{}", field.text))
                 } else {
                     Ok(self.advance().text.clone())
@@ -122,7 +123,9 @@ impl<'a> TokenParser<'a> {
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
                 if key.is_empty() {
-                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty").at_path("$").with_span(token.span));
+                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty")
+                        .at_path("$")
+                        .with_span(token.span));
                 }
                 Ok(key)
             }
@@ -155,7 +158,10 @@ impl<'a> TokenParser<'a> {
                 message: String::from("Quoted type names are not supported"),
             });
         }
-        let datatype_name = self.consume(TokenKind::Identifier, "Expected datatype annotation")?.text.clone();
+        let datatype_name = self
+            .consume(TokenKind::Identifier, "Expected datatype annotation")?
+            .text
+            .clone();
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
@@ -165,7 +171,9 @@ impl<'a> TokenParser<'a> {
                     path: Some(String::from("$")),
                     span: Some(self.previous().span),
                     phase: None,
-                    message: String::from("Radix datatype bases must use bracket syntax like `radix[10]`"),
+                    message: String::from(
+                        "Radix datatype bases must use bracket syntax like `radix[10]`",
+                    ),
                 });
             }
             self.skip_newlines();
@@ -203,7 +211,9 @@ impl<'a> TokenParser<'a> {
                     path: Some(String::from("$")),
                     span: Some(self.peek().span),
                     phase: None,
-                    message: format!("Datatype `{datatype_name}` does not support bracket specifiers in v1"),
+                    message: format!(
+                        "Datatype `{datatype_name}` does not support bracket specifiers in v1"
+                    ),
                 });
             }
             if datatype_name == "radix" && !saw_radix_base {
@@ -234,7 +244,10 @@ impl<'a> TokenParser<'a> {
                 }
 
                 saw_radix_base = true;
-                self.consume(TokenKind::RightBracket, "Expected ']' to close radix base spec")?;
+                self.consume(
+                    TokenKind::RightBracket,
+                    "Expected ']' to close radix base spec",
+                )?;
                 self.skip_newlines();
                 continue;
             }
@@ -303,7 +316,10 @@ impl<'a> TokenParser<'a> {
                 }
             }
             self.skip_newlines();
-            self.consume(TokenKind::RightBracket, "Expected ']' to close separator spec")?;
+            self.consume(
+                TokenKind::RightBracket,
+                "Expected ']' to close separator spec",
+            )?;
             self.skip_newlines();
         }
 
@@ -394,9 +410,11 @@ impl<'a> TokenParser<'a> {
             TokenKind::True | TokenKind::False => Ok(Value::BooleanLiteral {
                 raw: self.advance().text.clone(),
             }),
-            TokenKind::Yes | TokenKind::No | TokenKind::On | TokenKind::Off => Ok(Value::SwitchLiteral {
-                raw: self.advance().text.clone(),
-            }),
+            TokenKind::Yes | TokenKind::No | TokenKind::On | TokenKind::Off => {
+                Ok(Value::SwitchLiteral {
+                    raw: self.advance().text.clone(),
+                })
+            }
             TokenKind::HexLiteral => Ok(Value::HexLiteral {
                 raw: self.advance().text.clone(),
             }),
@@ -431,13 +449,17 @@ impl<'a> TokenParser<'a> {
             }
             marker_width += 1;
             if marker_width > 4 {
-                return Err(self.error_at_current("Trimtick marker may contain at most four \">\" characters"));
+                return Err(self.error_at_current(
+                    "Trimtick marker may contain at most four \">\" characters",
+                ));
             }
             previous_end = Some(token.span.end.offset);
             self.advance();
         }
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
-            return Err(self.error_at_current("Trimtick marker must be followed by a backtick string"));
+            return Err(
+                self.error_at_current("Trimtick marker must be followed by a backtick string")
+            );
         }
         let token = self.advance();
         let raw = decode_quoted_token(token)?;
@@ -455,7 +477,8 @@ impl<'a> TokenParser<'a> {
 
     fn parse_list(&mut self) -> Result<Value, Diagnostic> {
         self.consume(TokenKind::LeftBracket, "Expected `[`")?;
-        let items = self.parse_delimited_values(TokenKind::RightBracket, "Expected list delimiter")?;
+        let items =
+            self.parse_delimited_values(TokenKind::RightBracket, "Expected list delimiter")?;
         self.consume(TokenKind::RightBracket, "Expected `]` after list")?;
         Ok(Value::ListNode { items })
     }
@@ -491,7 +514,8 @@ impl<'a> TokenParser<'a> {
 
     fn parse_object(&mut self) -> Result<Value, Diagnostic> {
         self.consume(TokenKind::LeftBrace, "Expected `{`")?;
-        let bindings = self.parse_delimited_bindings(TokenKind::RightBrace, "Expected object member delimiter")?;
+        let bindings = self
+            .parse_delimited_bindings(TokenKind::RightBrace, "Expected object member delimiter")?;
         self.consume(TokenKind::RightBrace, "Expected `}` after object")?;
         Ok(Value::ObjectNode { bindings })
     }
@@ -512,13 +536,17 @@ impl<'a> TokenParser<'a> {
                 let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
                 let key = decode_quoted_token(key_token)?;
                 if key.is_empty() {
-                    return Err(
-                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                            .at_path("$")
-                            .with_span(key_token.span),
-                    );
+                    return Err(Diagnostic::new(
+                        "SYNTAX_ERROR",
+                        "Empty quoted path segments are not valid",
+                    )
+                    .at_path("$")
+                    .with_span(key_token.span));
                 }
-                self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
+                self.consume(
+                    TokenKind::RightBracket,
+                    "Expected `]` after quoted member key",
+                )?;
                 segments.push(ReferenceSegment::Key(key));
             } else {
                 segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
@@ -527,13 +555,17 @@ impl<'a> TokenParser<'a> {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
             let key = decode_quoted_token(key_token)?;
             if key.is_empty() {
-                return Err(
-                    Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                        .at_path("$")
-                        .with_span(key_token.span),
-                );
+                return Err(Diagnostic::new(
+                    "SYNTAX_ERROR",
+                    "Empty quoted path segments are not valid",
+                )
+                .at_path("$")
+                .with_span(key_token.span));
             }
-            self.consume(TokenKind::RightBracket, "Expected `]` after quoted reference key")?;
+            self.consume(
+                TokenKind::RightBracket,
+                "Expected `]` after quoted reference key",
+            )?;
             segments.push(ReferenceSegment::Key(key));
         } else {
             segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
@@ -542,16 +574,21 @@ impl<'a> TokenParser<'a> {
         loop {
             if self.match_kind(TokenKind::At) {
                 if self.match_kind(TokenKind::LeftBracket) {
-                    let key_token = self.consume(TokenKind::String, "Expected quoted attribute key")?;
+                    let key_token =
+                        self.consume(TokenKind::String, "Expected quoted attribute key")?;
                     let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(
-                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                                .at_path("$")
-                                .with_span(key_token.span),
-                        );
+                        return Err(Diagnostic::new(
+                            "SYNTAX_ERROR",
+                            "Empty quoted path segments are not valid",
+                        )
+                        .at_path("$")
+                        .with_span(key_token.span));
                     }
-                    self.consume(TokenKind::RightBracket, "Expected `]` after quoted attribute key")?;
+                    self.consume(
+                        TokenKind::RightBracket,
+                        "Expected `]` after quoted attribute key",
+                    )?;
                     segments.push(ReferenceSegment::Attr(key));
                 } else {
                     segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
@@ -560,16 +597,21 @@ impl<'a> TokenParser<'a> {
             }
             if self.match_kind(TokenKind::Dot) {
                 if self.match_kind(TokenKind::LeftBracket) {
-                    let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
+                    let key_token =
+                        self.consume(TokenKind::String, "Expected quoted member key")?;
                     let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(
-                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                                .at_path("$")
-                                .with_span(key_token.span),
-                        );
+                        return Err(Diagnostic::new(
+                            "SYNTAX_ERROR",
+                            "Empty quoted path segments are not valid",
+                        )
+                        .at_path("$")
+                        .with_span(key_token.span));
                     }
-                    self.consume(TokenKind::RightBracket, "Expected `]` after quoted member key")?;
+                    self.consume(
+                        TokenKind::RightBracket,
+                        "Expected `]` after quoted member key",
+                    )?;
                     segments.push(ReferenceSegment::Key(key));
                 } else {
                     segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
@@ -581,11 +623,12 @@ impl<'a> TokenParser<'a> {
                     let key_token = self.advance();
                     let key = decode_quoted_token(key_token)?;
                     if key.is_empty() {
-                        return Err(
-                            Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                                .at_path("$")
-                                .with_span(key_token.span),
-                        );
+                        return Err(Diagnostic::new(
+                            "SYNTAX_ERROR",
+                            "Empty quoted path segments are not valid",
+                        )
+                        .at_path("$")
+                        .with_span(key_token.span));
                     }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
@@ -620,11 +663,12 @@ impl<'a> TokenParser<'a> {
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
                 if key.is_empty() {
-                    return Err(
-                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted path segments are not valid")
-                            .at_path("$")
-                            .with_span(token.span),
-                    );
+                    return Err(Diagnostic::new(
+                        "SYNTAX_ERROR",
+                        "Empty quoted path segments are not valid",
+                    )
+                    .at_path("$")
+                    .with_span(token.span));
                 }
                 Ok(key)
             }
@@ -643,11 +687,12 @@ impl<'a> TokenParser<'a> {
                 let token = self.advance();
                 let tag = decode_quoted_token(token)?;
                 if tag.is_empty() {
-                    return Err(
-                        Diagnostic::new("SYNTAX_ERROR", "Empty quoted node tags are not valid")
-                            .at_path("$")
-                            .with_span(token.span),
-                    );
+                    return Err(Diagnostic::new(
+                        "SYNTAX_ERROR",
+                        "Empty quoted node tags are not valid",
+                    )
+                    .at_path("$")
+                    .with_span(token.span));
                 }
                 Ok(tag)
             }
@@ -694,7 +739,8 @@ impl<'a> TokenParser<'a> {
         }
 
         self.consume(TokenKind::LeftParen, "Expected `(` or `>` in node literal")?;
-        children = self.parse_delimited_values(TokenKind::RightParen, "Expected node child delimiter")?;
+        children =
+            self.parse_delimited_values(TokenKind::RightParen, "Expected node child delimiter")?;
         self.consume(TokenKind::RightParen, "Expected `)` after node children")?;
         self.skip_newlines();
         self.consume(TokenKind::RightAngle, "Expected `>` after node children")?;
@@ -709,16 +755,20 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_attribute_block(&mut self, depth: usize) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
+    fn parse_attribute_block(
+        &mut self,
+        depth: usize,
+    ) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         if depth > self.max_attribute_depth {
-            return Err(
-                Diagnostic::new(
-                    "ATTRIBUTE_DEPTH_EXCEEDED",
-                    format!("Attribute depth {depth} exceeds max_attribute_depth {}", self.max_attribute_depth),
-                )
-                .at_path("$")
-                .with_span(self.peek().span),
-            );
+            return Err(Diagnostic::new(
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                format!(
+                    "Attribute depth {depth} exceeds max_attribute_depth {}",
+                    self.max_attribute_depth
+                ),
+            )
+            .at_path("$")
+            .with_span(self.peek().span));
         }
         self.consume(TokenKind::At, "Expected `@` before attribute block")?;
         self.skip_newlines();
@@ -756,7 +806,9 @@ impl<'a> TokenParser<'a> {
         ))
     }
 
-    fn parse_attribute_object_members(&mut self) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
+    fn parse_attribute_object_members(
+        &mut self,
+    ) -> Result<(BTreeMap<String, AttributeValue>, Vec<String>), Diagnostic> {
         self.consume(TokenKind::LeftBrace, "Expected `{` in attribute object")?;
         let members = self.parse_attribute_members(
             TokenKind::RightBrace,
@@ -984,10 +1036,15 @@ fn is_allowed_separator_spec_char(ch: char) -> bool {
 }
 
 fn is_valid_radix_base_token(raw: &str) -> bool {
-    if raw.is_empty() || (raw.starts_with('0') && raw != "0") || !raw.chars().all(|ch| ch.is_ascii_digit()) {
+    if raw.is_empty()
+        || (raw.starts_with('0') && raw != "0")
+        || !raw.chars().all(|ch| ch.is_ascii_digit())
+    {
         return false;
     }
-    raw.parse::<usize>().ok().is_some_and(|base| (2..=64).contains(&base))
+    raw.parse::<usize>()
+        .ok()
+        .is_some_and(|base| (2..=64).contains(&base))
 }
 
 fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(), Diagnostic> {
@@ -1058,15 +1115,50 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
 fn is_reserved_v1_datatype(base: &str) -> bool {
     matches!(
         base,
-        "n" | "number" | "int" | "int8" | "int16" | "int32" | "int64"
-            | "uint" | "uint8" | "uint16" | "uint32" | "uint64"
-            | "float" | "float32" | "float64"
-            | "string" | "trimtick" | "boolean" | "bool" | "switch" | "infinity"
-            | "hex" | "date" | "time" | "datetime" | "zrut"
-            | "encoding" | "base64" | "embed" | "inline"
-            | "radix" | "radix2" | "radix6" | "radix8" | "radix12"
-            | "sep" | "set"
-            | "tuple" | "list" | "object" | "obj" | "envelope" | "o" | "node" | "null"
+        "n" | "number"
+            | "int"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "float"
+            | "float32"
+            | "float64"
+            | "string"
+            | "trimtick"
+            | "boolean"
+            | "bool"
+            | "switch"
+            | "infinity"
+            | "hex"
+            | "date"
+            | "time"
+            | "datetime"
+            | "zrut"
+            | "encoding"
+            | "base64"
+            | "embed"
+            | "inline"
+            | "radix"
+            | "radix2"
+            | "radix6"
+            | "radix8"
+            | "radix12"
+            | "sep"
+            | "set"
+            | "tuple"
+            | "list"
+            | "object"
+            | "obj"
+            | "envelope"
+            | "o"
+            | "node"
+            | "null"
     )
 }
 
@@ -1114,8 +1206,8 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                         {
                             return Err("Invalid unicode escape");
                         }
-                        let codepoint =
-                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let codepoint = u32::from_str_radix(&hex_digits, 16)
+                            .map_err(|_| "Invalid unicode escape")?;
                         let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
                         output.push(decoded);
                     } else {
@@ -1127,8 +1219,8 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                         if !hex_digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
                             return Err("Invalid unicode escape");
                         }
-                        let codepoint =
-                            u32::from_str_radix(&hex_digits, 16).map_err(|_| "Invalid unicode escape")?;
+                        let codepoint = u32::from_str_radix(&hex_digits, 16)
+                            .map_err(|_| "Invalid unicode escape")?;
                         let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
                         output.push(decoded);
                     }
@@ -1266,10 +1358,8 @@ mod tests {
 
     #[test]
     fn parses_objects_tuples_and_references_from_tokens() {
-        let bindings = parse(
-            "obj = { a = 1, pair = (2, 3) }\nref = ~obj.pair[1]\nptr = ~>$.obj.a",
-        )
-        .expect("token parse");
+        let bindings = parse("obj = { a = 1, pair = (2, 3) }\nref = ~obj.pair[1]\nptr = ~>$.obj.a")
+            .expect("token parse");
         assert!(matches!(bindings[0].value, Value::ObjectNode { .. }));
         assert!(matches!(bindings[1].value, Value::CloneReference { .. }));
         assert!(matches!(bindings[2].value, Value::PointerReference { .. }));
@@ -1277,18 +1367,16 @@ mod tests {
 
     #[test]
     fn parses_binding_attributes_from_tokens() {
-        let bindings = parse("user@{ role = \"admin\"\n level = 5 } = 1")
-            .expect("token parse");
+        let bindings = parse("user@{ role = \"admin\"\n level = 5 } = 1").expect("token parse");
         assert!(bindings[0].attributes.contains_key("role"));
         assert!(bindings[0].attributes.contains_key("level"));
     }
 
     #[test]
     fn parses_node_literals_from_tokens() {
-        let bindings = parse(
-            "content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>",
-        )
-        .expect("token parse");
+        let bindings =
+            parse("content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
+                .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
     }
 
@@ -1303,7 +1391,12 @@ mod tests {
     fn parses_empty_node_shorthand_after_node_head_datatype() {
         let bindings = parse("v:node = <glyph:node>\n").expect("token parse");
         match &bindings[0].value {
-            Value::NodeLiteral { tag, datatype, children, .. } => {
+            Value::NodeLiteral {
+                tag,
+                datatype,
+                children,
+                ..
+            } => {
                 assert_eq!(tag, "glyph");
                 assert_eq!(datatype.as_deref(), Some("node"));
                 assert!(children.is_empty());
@@ -1314,10 +1407,15 @@ mod tests {
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_attributes_and_datatype() {
-        let bindings = parse("v:node = <glyph@{id=\"x\"}:node>\n")
-            .expect("token parse");
+        let bindings = parse("v:node = <glyph@{id=\"x\"}:node>\n").expect("token parse");
         match &bindings[0].value {
-            Value::NodeLiteral { tag, datatype, children, attributes, .. } => {
+            Value::NodeLiteral {
+                tag,
+                datatype,
+                children,
+                attributes,
+                ..
+            } => {
                 assert_eq!(tag, "glyph");
                 assert_eq!(datatype.as_deref(), Some("node"));
                 assert!(children.is_empty());
@@ -1343,10 +1441,9 @@ mod tests {
 
     #[test]
     fn parses_multiline_separator_specs_and_generic_boundaries_from_tokens() {
-        let bindings = parse(
-            "size:sep\n[\nx\n]\n= ^300x250\nitems:list\n<\nn\n>\n=\n[\n2,\n3\n]\n",
-        )
-        .expect("token parse");
+        let bindings =
+            parse("size:sep\n[\nx\n]\n= ^300x250\nitems:list\n<\nn\n>\n=\n[\n2,\n3\n]\n")
+                .expect("token parse");
         assert_eq!(bindings.len(), 2);
         assert_eq!(bindings[0].datatype.as_deref(), Some("sep[x]"));
         assert_eq!(bindings[1].datatype.as_deref(), Some("list<n>"));
@@ -1355,8 +1452,7 @@ mod tests {
 
     #[test]
     fn parses_escaped_backticks_from_tokens() {
-        let bindings =
-            parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
+        let bindings = parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
             bindings[0].value,
             Value::StringLiteral {
@@ -1379,10 +1475,8 @@ mod tests {
 
     #[test]
     fn decodes_standard_and_unicode_quoted_escapes() {
-        let bindings = parse(
-            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\ntag:node = <\"a\\u{41}\">\n",
-        )
-        .expect("token parse");
+        let bindings = parse("\"a\\n\" = 1\nvalue = \"x\\u0041\"\ntag:node = <\"a\\u{41}\">\n")
+            .expect("token parse");
         assert_eq!(bindings[0].key, "a\n");
         assert_eq!(
             bindings[1].value,
@@ -1414,8 +1508,7 @@ mod tests {
 
     #[test]
     fn parses_trimticks_from_tokens() {
-        let bindings = parse("note:trimtick = >`\n  one\n  two\n`\n")
-            .expect("token parse");
+        let bindings = parse("note:trimtick = >`\n  one\n  two\n`\n").expect("token parse");
         assert_eq!(
             bindings[0].value,
             Value::StringLiteral {
@@ -1432,19 +1525,14 @@ mod tests {
 
     #[test]
     fn parses_multiline_node_attributes_from_tokens() {
-        let bindings = parse(
-            "s:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n",
-        )
-        .expect("token parse");
+        let bindings = parse("s:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n")
+            .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
     }
 
     #[test]
     fn parses_multiline_binding_layout_from_tokens() {
-        let bindings = parse(
-            "name\n:\nstring =\n\"playground\"\n",
-        )
-        .expect("token parse");
+        let bindings = parse("name\n:\nstring =\n\"playground\"\n").expect("token parse");
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].datatype.as_deref(), Some("string"));
         assert!(matches!(bindings[0].value, Value::StringLiteral { .. }));
@@ -1452,17 +1540,19 @@ mod tests {
 
     #[test]
     fn rejects_empty_quoted_reference_segments() {
-        let object_key_error = parse("a = { \"\" = 1 }\nv = ~a.[\"\"]\n").expect_err("expected syntax error");
+        let object_key_error =
+            parse("a = { \"\" = 1 }\nv = ~a.[\"\"]\n").expect_err("expected syntax error");
         assert_eq!(object_key_error.code, "SYNTAX_ERROR");
         assert_eq!(object_key_error.message, "Keys must not be empty");
 
-        for source in [
-            "a = 1\nv = ~a@[\"\"]\n",
-            "a = 1\nv = ~a[\"\"]\n",
-        ] {
+        for source in ["a = 1\nv = ~a@[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
             let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR");
-            assert!(error.message.contains("Empty quoted path segments are not valid"));
+            assert!(
+                error
+                    .message
+                    .contains("Empty quoted path segments are not valid")
+            );
         }
     }
 
@@ -1492,10 +1582,7 @@ mod tests {
 
     #[test]
     fn parses_extremely_multiline_binding_attributes_from_tokens() {
-        let bindings = parse(
-            "a\n@ \n{\nn\n:\nn \n=\n1\n}\n:\nn \n= \n2\n",
-        )
-        .expect("token parse");
+        let bindings = parse("a\n@ \n{\nn\n:\nn \n=\n1\n}\n:\nn \n= \n2\n").expect("token parse");
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].key, "a");
         assert_eq!(bindings[0].datatype.as_deref(), Some("n"));
@@ -1519,7 +1606,8 @@ mod tests {
     #[test]
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
-        let error = parse_document_from_tokens(&source, 256, 1).expect_err("expected nesting error");
+        let error =
+            parse_document_from_tokens(&source, 256, 1).expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
         assert!(error.message.contains("max_nesting_depth 256"));
     }

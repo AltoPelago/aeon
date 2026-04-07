@@ -1,7 +1,11 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::pathing::{format_path, render_child_index_path, render_child_member_path, render_member_segment};
-use crate::{AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, Span, Value};
+use crate::pathing::{
+    format_path, render_child_index_path, render_child_member_path, render_member_segment,
+};
+use crate::{
+    AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, Span, Value,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct FlattenedDocument {
@@ -30,7 +34,11 @@ pub(crate) struct ValidationEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ValidationReferenceStep {
-    ValidateValue { path: String, owner_path: String, value: Value },
+    ValidateValue {
+        path: String,
+        owner_path: String,
+        value: Value,
+    },
     VisibleTarget(String),
 }
 
@@ -102,8 +110,16 @@ fn track_reference_binding(
     shallow_event_values: bool,
 ) {
     let _ = reference_targets.insert(render_child_member_path(parent_path, key));
-    collect_attribute_targets(path_text, attributes, attribute_order, reference_targets, String::new());
-    reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(path_text)));
+    collect_attribute_targets(
+        path_text,
+        attributes,
+        attribute_order,
+        reference_targets,
+        String::new(),
+    );
+    reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(
+        path_text,
+    )));
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         owner_path: String::from(path_text),
@@ -183,7 +199,12 @@ fn flatten_validation_bindings(
                         item,
                         shallow_event_values,
                     );
-                    if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
+                    if !matches!(
+                        item,
+                        Value::ObjectNode { .. }
+                            | Value::ListNode { .. }
+                            | Value::TupleLiteral { .. }
+                    ) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
                             datatype: None,
@@ -215,7 +236,12 @@ fn flatten_validation_bindings(
                         item,
                         shallow_event_values,
                     );
-                    if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
+                    if !matches!(
+                        item,
+                        Value::ObjectNode { .. }
+                            | Value::ListNode { .. }
+                            | Value::TupleLiteral { .. }
+                    ) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
                             datatype: None,
@@ -260,16 +286,14 @@ fn flatten_validation_value(
     reference_steps: &mut Vec<ValidationReferenceStep>,
 ) {
     match value {
-        Value::ObjectNode { bindings } => {
-            flatten_validation_bindings(
-                bindings,
-                parent,
-                shallow_event_values,
-                events,
-                reference_targets,
-                reference_steps,
-            )
-        }
+        Value::ObjectNode { bindings } => flatten_validation_bindings(
+            bindings,
+            parent,
+            shallow_event_values,
+            events,
+            reference_targets,
+            reference_steps,
+        ),
         Value::ListNode { items } => {
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
@@ -282,7 +306,10 @@ fn flatten_validation_value(
                     item,
                     shallow_event_values,
                 );
-                if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
+                if !matches!(
+                    item,
+                    Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
+                ) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
                         datatype: None,
@@ -314,7 +341,10 @@ fn flatten_validation_value(
                     item,
                     shallow_event_values,
                 );
-                if !matches!(item, Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }) {
+                if !matches!(
+                    item,
+                    Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
+                ) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
                         datatype: None,
@@ -511,20 +541,18 @@ fn flatten_container_item(
     span: Span,
 ) {
     match value {
-        Value::ObjectNode { bindings } => {
-            flatten_bindings(
-                bindings,
-                parent,
-                shallow_event_values,
-                emit_binding_projections,
-                include_event_annotations,
-                events,
-                rendered_event_paths,
-                bindings_out,
-                reference_targets,
-                reference_steps,
-            )
-        }
+        Value::ObjectNode { bindings } => flatten_bindings(
+            bindings,
+            parent,
+            shallow_event_values,
+            emit_binding_projections,
+            include_event_annotations,
+            events,
+            rendered_event_paths,
+            bindings_out,
+            reference_targets,
+            reference_steps,
+        ),
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
@@ -578,7 +606,9 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
         return value.clone();
     }
     match value {
-        Value::ObjectNode { .. } => Value::ObjectNode { bindings: Vec::new() },
+        Value::ObjectNode { .. } => Value::ObjectNode {
+            bindings: Vec::new(),
+        },
         Value::ListNode { .. } => Value::ListNode { items: Vec::new() },
         Value::TupleLiteral { .. } => Value::TupleLiteral { items: Vec::new() },
         Value::NodeLiteral {
@@ -605,30 +635,24 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
     match value {
         Value::NumberLiteral { raw } => Value::NumberLiteral { raw: raw.clone() },
         Value::InfinityLiteral { raw } => Value::InfinityLiteral { raw: raw.clone() },
-        Value::StringLiteral { delimiter, trimticks, .. } => Value::StringLiteral {
+        Value::StringLiteral {
+            delimiter,
+            trimticks,
+            ..
+        } => Value::StringLiteral {
             value: String::new(),
             raw: String::new(),
             delimiter: *delimiter,
             trimticks: trimticks.clone(),
         },
-        Value::SwitchLiteral { .. } => Value::SwitchLiteral {
-            raw: String::new(),
-        },
-        Value::BooleanLiteral { .. } => Value::BooleanLiteral {
-            raw: String::new(),
-        },
+        Value::SwitchLiteral { .. } => Value::SwitchLiteral { raw: String::new() },
+        Value::BooleanLiteral { .. } => Value::BooleanLiteral { raw: String::new() },
         Value::HexLiteral { .. } => Value::HexLiteral { raw: String::new() },
-        Value::SeparatorLiteral { .. } => Value::SeparatorLiteral {
-            raw: String::new(),
-        },
-        Value::EncodingLiteral { .. } => Value::EncodingLiteral {
-            raw: String::new(),
-        },
+        Value::SeparatorLiteral { .. } => Value::SeparatorLiteral { raw: String::new() },
+        Value::EncodingLiteral { .. } => Value::EncodingLiteral { raw: String::new() },
         Value::RadixLiteral { .. } => Value::RadixLiteral { raw: String::new() },
         Value::DateLiteral { .. } => Value::DateLiteral { raw: String::new() },
-        Value::DateTimeLiteral { .. } => Value::DateTimeLiteral {
-            raw: String::new(),
-        },
+        Value::DateTimeLiteral { .. } => Value::DateTimeLiteral { raw: String::new() },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
         Value::NodeLiteral { .. } => Value::NodeLiteral {
             raw: String::new(),
@@ -639,7 +663,9 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         },
         Value::ListNode { .. } => Value::ListNode { items: Vec::new() },
         Value::TupleLiteral { .. } => Value::TupleLiteral { items: Vec::new() },
-        Value::ObjectNode { .. } => Value::ObjectNode { bindings: Vec::new() },
+        Value::ObjectNode { .. } => Value::ObjectNode {
+            bindings: Vec::new(),
+        },
         Value::CloneReference { segments, span } => Value::CloneReference {
             segments: segments.clone(),
             span: *span,

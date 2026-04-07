@@ -184,13 +184,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             raw.clone(),
             JsonValue::String(raw.clone()),
         ),
-        Value::NumberLiteral { raw } => {
-            scalar_value(
-                "NumberLiteral",
-                raw.clone(),
-                JsonValue::String(normalize_number_literal(raw)),
-            )
-        }
+        Value::NumberLiteral { raw } => scalar_value(
+            "NumberLiteral",
+            raw.clone(),
+            JsonValue::String(normalize_number_literal(raw)),
+        ),
         Value::StringLiteral { value, .. } => scalar_value(
             "StringLiteral",
             value.clone(),
@@ -204,13 +202,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::SwitchLiteral { raw } => {
             scalar_value("SwitchLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
-        Value::HexLiteral { raw } => {
-            scalar_value(
-                "HexLiteral",
-                raw.clone(),
-                JsonValue::String(raw.trim_start_matches('#').to_string()),
-            )
-        }
+        Value::HexLiteral { raw } => scalar_value(
+            "HexLiteral",
+            raw.clone(),
+            JsonValue::String(raw.trim_start_matches('#').to_string()),
+        ),
         Value::SeparatorLiteral { raw } => scalar_value(
             "SeparatorLiteral",
             raw.clone(),
@@ -221,13 +217,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             raw.clone(),
             JsonValue::String(raw.trim_start_matches('$').to_string()),
         ),
-        Value::RadixLiteral { raw } => {
-            scalar_value(
-                "RadixLiteral",
-                raw.clone(),
-                JsonValue::String(raw.trim_start_matches('%').to_string()),
-            )
-        }
+        Value::RadixLiteral { raw } => scalar_value(
+            "RadixLiteral",
+            raw.clone(),
+            JsonValue::String(raw.trim_start_matches('%').to_string()),
+        ),
         Value::DateLiteral { raw } => {
             scalar_value("DateLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
@@ -370,11 +364,9 @@ mod tests {
 
     #[test]
     fn surfaced_hex_values_keep_raw_and_drop_sigil_from_value() {
-        let loaded = load_str::<BTreeMap<String, JsonValue>>(
-            "color = #Ff_00_Aa\n",
-            LoadOptions::default(),
-        )
-        .expect("load success");
+        let loaded =
+            load_str::<BTreeMap<String, JsonValue>>("color = #Ff_00_Aa\n", LoadOptions::default())
+                .expect("load success");
 
         let events = core_events_to_aeos(&loaded.compiled.events);
         let by_key = events
