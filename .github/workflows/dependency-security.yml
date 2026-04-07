@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Dependency review
-        uses: actions/dependency-review-action@e6e11c0c83b5a9e4ec0f82c7d2d3f0c8df3f73ba # v4.3.5
+        uses: actions/dependency-review-action@a6993e2c61fd5dc440b409aa1d6904921c5e1894 # v4.3.5
 
   typescript-dependency-integrity:
     if: github.event_name == 'pull_request'
@@ -33,7 +33,7 @@ jobs:
         run: bash ./scripts/check-typescript-lockfile.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@e2e1b36f43b0d1f9b1c3b74210b944739dfdbdb9 # v4.0.0
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
         with:
           version: 8.14.0
 
@@ -59,7 +59,9 @@ jobs:
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@9ee930c749c3947eabc9cf0f4a95bb6a0e3d6e9a # stable
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
