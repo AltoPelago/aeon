@@ -20,6 +20,7 @@ Supply-chain notes:
 
 - the current Python implementation is intentionally dependency-free at runtime
 - new external Python dependencies should be treated as a high-scrutiny change
+- repository-level CODEOWNERS and dependency review are part of the cross-implementation hardening layer even though this workspace currently has no third-party runtime dependencies
 - if runtime dependencies are introduced later, they should be pinned and reviewed with the same supply-chain discipline used for the TypeScript workspace
 
 ## Public Import Surface

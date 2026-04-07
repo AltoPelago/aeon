@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Dependency review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@e6e11c0c83b5a9e4ec0f82c7d2d3f0c8df3f73ba # v4.3.5
 
   typescript-dependency-integrity:
     if: github.event_name == 'pull_request'
@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
 
@@ -33,16 +33,19 @@ jobs:
         run: bash ./scripts/check-typescript-lockfile.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@e2e1b36f43b0d1f9b1c3b74210b944739dfdbdb9 # v4.0.0
         with:
           version: 8.14.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version: 20
           cache: pnpm
           cache-dependency-path: implementations/typescript/pnpm-lock.yaml
+
+      - name: Reject install-time lifecycle scripts
+        run: node ./scripts/check-typescript-lifecycle-scripts.mjs
 
       - name: Dependency install integrity check
         working-directory: implementations/typescript
@@ -53,10 +56,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@9ee930c749c3947eabc9cf0f4a95bb6a0e3d6e9a # stable
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -64,3 +67,10 @@ jobs:
       - name: Run RustSec advisory scan
         working-directory: implementations/rust
         run: cargo audit
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo-deny policy checks
+        working-directory: implementations/rust
+        run: cargo deny check

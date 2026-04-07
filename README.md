@@ -25,9 +25,13 @@ Root npm workflow wrappers:
 Security hardening notes:
 
 - pull requests run dependency review plus a TypeScript lockfile integrity check
+- pull requests reject unexpected TypeScript lifecycle scripts outside the reviewed allowlist
+- GitHub Actions are pinned to immutable commit SHAs rather than moving version tags
+- CODEOWNERS covers workflow, manifest, lockfile, and package publish-surface changes
 - TypeScript workspace installs prefer exact versions and frozen lockfile behavior
 - Dependabot is configured for GitHub Actions, TypeScript npm dependencies, and Rust cargo dependencies
-- Rust CI also performs a RustSec advisory scan
+- Rust CI performs both RustSec advisory scanning (`cargo audit`) and policy checks (`cargo deny`)
+- publish-surface changes are isolated under dedicated PR guardrails and release documentation
 - the Python implementation is currently dependency-free, so its main hardening goal is to preserve that small trust surface
 
 This repository contains the maintained AEON implementation surface.

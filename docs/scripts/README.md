@@ -19,6 +19,14 @@ Common root wrappers:
 Security-related helpers:
 
 - `scripts/check-typescript-lockfile.sh`
+- `scripts/check-typescript-lifecycle-scripts.mjs`
+- `implementations/rust/deny.toml` (`cargo deny` policy input for Rust CI)
+
+Security workflow guardrails:
+
+- `.github/CODEOWNERS` keeps workflow, manifest, lockfile, and publish-surface changes under explicit owner review.
+- `.github/workflows/dependency-security.yml` runs dependency review, lockfile integrity, lifecycle-script policy, `cargo audit`, and `cargo deny`.
+- `.github/workflows/publish-guard.yml` keeps publish-surface changes visible as their own review lane rather than burying them in general CI noise.
 
 ## Scope boundaries
 

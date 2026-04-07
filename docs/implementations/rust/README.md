@@ -33,7 +33,7 @@ Workspace/toolchain notes:
 Supply-chain notes:
 
 - Rust dependencies are locked via `Cargo.lock`
-- CI now runs a RustSec advisory scan (`cargo audit`) in addition to build/test checks
+- CI now runs both a RustSec advisory scan (`cargo audit`) and policy checks (`cargo deny`) in addition to build/test checks
 - this workspace currently does not depend on a general-purpose HTTP client stack, which reduces exposure to the class of incident that drove the recent TypeScript hardening pass
 
 ## Public Library Surfaces
