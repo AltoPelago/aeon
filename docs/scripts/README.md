@@ -16,6 +16,10 @@ Common root wrappers:
 - `npm run ci:full`
 - `npm run tests:all`
 
+Security-related helpers:
+
+- `scripts/check-typescript-lockfile.sh`
+
 ## Scope boundaries
 
 - These documents describe implementation workflows only.

@@ -34,6 +34,7 @@ For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 | --- | --- | --- |
 | `check-no-local-paths.sh` | Fails if tracked files contain machine-local filesystem paths. | `bash ./scripts/check-no-local-paths.sh` |
 | `pre-commit-check.sh` | Runs pre-commit safety checks (currently local-path scan). | `bash ./scripts/pre-commit-check.sh` |
+| `check-typescript-lockfile.sh` | Fails when TypeScript dependency manifests change without a matching `pnpm-lock.yaml` update. | `bash ./scripts/check-typescript-lockfile.sh <base-sha> <head-sha>` |
 | `repo-paths.mjs` | Node resolver for CTS/spec/tooling sibling roots and env defaults. | imported by other scripts |
 | `repo_paths.py` | Python resolver for CTS/spec/tooling sibling roots and env defaults. | imported by other scripts |
 | `run-with-repo-paths.mjs` | Runs a command with repo-path env defaults and normalized `--cts` argument. | `node ./scripts/run-with-repo-paths.mjs node ... --cts ...` |

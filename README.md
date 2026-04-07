@@ -22,6 +22,12 @@ Root npm workflow wrappers:
 - `npm run ci:full`: `ci` plus `ci:rust`.
 - `npm run tests:all`: `ci:full` plus matrix snippet combination run.
 
+Security hardening notes:
+
+- pull requests run dependency review plus a TypeScript lockfile integrity check
+- TypeScript workspace installs prefer exact versions and frozen lockfile behavior
+- Dependabot is configured for GitHub Actions, TypeScript npm dependencies, and Rust cargo dependencies
+
 This repository contains the maintained AEON implementation surface.
 
 Implementation references to specs, CTS, and contracts should continue to point at their proper authority surfaces rather than relying on mixed staging-era repo layout assumptions.
