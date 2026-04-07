@@ -20,13 +20,14 @@ Security-related helpers:
 
 - `scripts/check-typescript-lockfile.sh`
 - `scripts/check-typescript-lifecycle-scripts.mjs`
+- `scripts/check-typescript-publish-surface.mjs`
 - `implementations/rust/deny.toml` (`cargo deny` policy input for Rust CI)
 
 Security workflow guardrails:
 
 - `.github/CODEOWNERS` keeps workflow, manifest, lockfile, and publish-surface changes under explicit owner review.
 - `.github/workflows/dependency-security.yml` runs dependency review, lockfile integrity, lifecycle-script policy, `cargo audit`, and `cargo deny`.
-- `.github/workflows/publish-guard.yml` keeps publish-surface changes visible as their own review lane rather than burying them in general CI noise.
+- `.github/workflows/publish-guard.yml` blocks central TypeScript publish-control changes and non-first-wave publish metadata changes unless they are handled as an explicit release-policy update.
 
 ## Scope boundaries
 

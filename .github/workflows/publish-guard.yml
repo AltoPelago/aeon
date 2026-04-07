@@ -18,11 +18,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reject unexpected publish-surface changes
-        run: |
-          set -euo pipefail
-          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
-          echo "$changed"
-          if echo "$changed" | grep -E '(^|/)(package\.json|pnpm-workspace\.yaml|\.npmrc|Cargo\.toml|pyproject\.toml)$' >/dev/null; then
-            echo "Publish-surface files changed. Ensure this PR receives focused review."
-          fi
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version: 20
+
+      - name: Enforce TypeScript publish-surface policy
+        run: node ./scripts/check-typescript-publish-surface.mjs "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"

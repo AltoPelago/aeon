@@ -31,7 +31,7 @@ Security hardening notes:
 - TypeScript workspace installs prefer exact versions and frozen lockfile behavior
 - Dependabot is configured for GitHub Actions, TypeScript npm dependencies, and Rust cargo dependencies
 - Rust CI performs both RustSec advisory scanning (`cargo audit`) and policy checks (`cargo deny`)
-- publish-surface changes are isolated under dedicated PR guardrails and release documentation
+- central TypeScript publish-control changes and non-first-wave publish metadata changes are blocked by a dedicated PR guardrail
 - the Python implementation is currently dependency-free, so its main hardening goal is to preserve that small trust surface
 
 This repository contains the maintained AEON implementation surface.
