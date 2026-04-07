@@ -26,7 +26,7 @@ Current workspace members:
 
 Workspace/toolchain notes:
 
-- MSRV: Rust `1.85`
+- MSRV: Rust `1.88`
 - edition: Rust `2024`
 - binary entrypoint: `aeon-rust`
 

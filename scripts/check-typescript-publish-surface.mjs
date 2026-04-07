@@ -23,6 +23,12 @@ const highRiskFiles = new Set([
   'implementations/typescript/pnpm-workspace.yaml',
   'implementations/typescript/.npmrc',
 ]);
+const policyDocs = new Set([
+  'README.md',
+  'RELEASING.md',
+  'VERSIONING.md',
+  'docs/release-strategy.md',
+]);
 
 const firstWavePackageJsons = new Set([
   'implementations/typescript/packages/lexer/package.json',
@@ -73,15 +79,18 @@ const changedFiles = git(['diff', '--name-only', baseSha, headSha])
   .split('\n')
   .map((line) => line.trim())
   .filter(Boolean);
+const hasExplicitReleasePolicyChange = changedFiles.some((file) => policyDocs.has(file));
 
 const violations = [];
 
 for (const file of changedFiles) {
   if (highRiskFiles.has(file)) {
-    violations.push({
-      file,
-      reason: 'central TypeScript publish control file changed',
-    });
+    if (!hasExplicitReleasePolicyChange) {
+      violations.push({
+        file,
+        reason: 'central TypeScript publish control file changed without a matching release-policy doc update',
+      });
+    }
     continue;
   }
 
@@ -114,7 +123,7 @@ if (violations.length > 0) {
   for (const violation of violations) {
     console.error(`- ${violation.file}: ${violation.reason}`);
   }
-  console.error('If this publish-surface change is intentional, handle it as an explicit release-policy change first.');
+  console.error('If this publish-surface change is intentional, handle it as an explicit release-policy change first by updating RELEASING.md, VERSIONING.md, README.md, or docs/release-strategy.md.');
   process.exit(1);
 }
 
