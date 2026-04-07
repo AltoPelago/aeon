@@ -16,6 +16,12 @@ Distribution metadata:
 - Python requirement: `>=3.12`
 - console script: `aeon-python = aeon.cli:main`
 
+Supply-chain notes:
+
+- the current Python implementation is intentionally dependency-free at runtime
+- new external Python dependencies should be treated as a high-scrutiny change
+- if runtime dependencies are introduced later, they should be pinned and reviewed with the same supply-chain discipline used for the TypeScript workspace
+
 ## Public Import Surface
 
 The package’s top-level supported import surface is currently:

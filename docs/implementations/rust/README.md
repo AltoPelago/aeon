@@ -30,6 +30,12 @@ Workspace/toolchain notes:
 - edition: Rust `2024`
 - binary entrypoint: `aeon-rust`
 
+Supply-chain notes:
+
+- Rust dependencies are locked via `Cargo.lock`
+- CI now runs a RustSec advisory scan (`cargo audit`) in addition to build/test checks
+- this workspace currently does not depend on a general-purpose HTTP client stack, which reduces exposure to the class of incident that drove the recent TypeScript hardening pass
+
 ## Public Library Surfaces
 
 Core compile pipeline:
