@@ -321,18 +321,18 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
     let mut index = BTreeMap::new();
     let allowlist = &schema.datatype_allowlist;
 
-    if let Some(reference_policy) = schema.reference_policy.as_deref() {
-        if !matches!(reference_policy, "allow" | "forbid") {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(String::from("$")),
-                    code: String::from("invalid_reference_constraint"),
-                    phase: String::from("schema_validation"),
-                    span: None,
-                },
-            );
-        }
+    if let Some(reference_policy) = schema.reference_policy.as_deref()
+        && !matches!(reference_policy, "allow" | "forbid")
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from("$")),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
     }
 
     for rule in &schema.rules {
@@ -391,18 +391,19 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
             continue;
         }
 
-        if let Some(datatype) = constraints_map.get("datatype").and_then(JsonValue::as_str) {
-            if !allowlist.is_empty() && !allowlist.iter().any(|allowed| allowed == datatype) {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("datatype_allowlist_reject"),
-                        phase: String::from("schema_validation"),
-                        span: None,
-                    },
-                );
-            }
+        if let Some(datatype) = constraints_map.get("datatype").and_then(JsonValue::as_str)
+            && !allowlist.is_empty()
+            && !allowlist.iter().any(|allowed| allowed == datatype)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("datatype_allowlist_reject"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
         }
 
         index.insert(path.clone(), constraints);
@@ -623,22 +624,22 @@ fn check_types(
             }
         }
 
-        if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str) {
-            if !type_matches(expected_type, &event.value_type) {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from(if is_indexed_path(path) {
-                            "TUPLE_ELEMENT_TYPE_MISMATCH"
-                        } else {
-                            "type_mismatch"
-                        }),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
+            && !type_matches(expected_type, &event.value_type)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from(if is_indexed_path(path) {
+                        "TUPLE_ELEMENT_TYPE_MISMATCH"
+                    } else {
+                        "type_mismatch"
+                    }),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }
@@ -787,32 +788,32 @@ fn check_numeric_form(
         }
 
         let digit_count = count_integer_digits(&event.raw);
-        if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64) {
-            if digit_count < min_digits as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("numeric_form_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-                continue;
-            }
+        if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64)
+            && digit_count < min_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            continue;
         }
-        if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64) {
-            if digit_count > max_digits as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("numeric_form_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64)
+            && digit_count > max_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }
@@ -834,32 +835,32 @@ fn check_string_form(
         };
         let length = value.chars().count();
 
-        if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64) {
-            if length < min_length as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("string_length_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-                continue;
-            }
+        if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64)
+            && length < min_length as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("string_length_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            continue;
         }
-        if let Some(max_length) = constraints.get("max_length").and_then(JsonValue::as_u64) {
-            if length > max_length as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("string_length_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(max_length) = constraints.get("max_length").and_then(JsonValue::as_u64)
+            && length > max_length as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("string_length_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }

@@ -444,10 +444,10 @@ impl<'a> TokenParser<'a> {
         let mut previous_end = None;
         while self.check(TokenKind::RightAngle) {
             let token = self.peek();
-            if let Some(end) = previous_end {
-                if end != token.span.start.offset {
-                    return Err(self.error_at_current("Trimtick marker must be contiguous"));
-                }
+            if let Some(end) = previous_end
+                && end != token.span.start.offset
+            {
+                return Err(self.error_at_current("Trimtick marker must be contiguous"));
             }
             marker_width += 1;
             if marker_width > 4 {
@@ -1096,10 +1096,10 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
             }
             ']' if angle_depth == 0 && bracket_depth > 0 => {
                 bracket_depth -= 1;
-                if bracket_depth == 0 {
-                    if let Some(start) = bracket_start.take() {
-                        specs.push(&datatype[start..index]);
-                    }
+                if bracket_depth == 0
+                    && let Some(start) = bracket_start.take()
+                {
+                    specs.push(&datatype[start..index]);
                 }
             }
             '<' if bracket_depth == 0 => angle_depth += 1,

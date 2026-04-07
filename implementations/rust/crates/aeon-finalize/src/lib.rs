@@ -221,30 +221,30 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
     let mut warnings = Vec::new();
     let mut entries = Vec::new();
 
-    if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full) {
-        if let Some(header) = options.header.as_ref() {
-            for (key, value) in &header.fields {
-                let path = match options.scope {
-                    FinalizeScope::Header => format!("$.{key}"),
-                    FinalizeScope::Full => format!("$.header.{key}"),
-                    FinalizeScope::Payload => continue,
-                };
-                if !projection.includes(&path) {
-                    continue;
-                }
-                push_map_entry(
-                    &mut seen,
-                    &mut entries,
-                    &mut errors,
-                    &mut warnings,
-                    options.mode,
-                    path,
-                    value.clone(),
-                    Span::zero(),
-                    None,
-                    BTreeMap::new(),
-                );
+    if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full)
+        && let Some(header) = options.header.as_ref()
+    {
+        for (key, value) in &header.fields {
+            let path = match options.scope {
+                FinalizeScope::Header => format!("$.{key}"),
+                FinalizeScope::Full => format!("$.header.{key}"),
+                FinalizeScope::Payload => continue,
+            };
+            if !projection.includes(&path) {
+                continue;
             }
+            push_map_entry(
+                &mut seen,
+                &mut entries,
+                &mut errors,
+                &mut warnings,
+                options.mode,
+                path,
+                value.clone(),
+                Span::zero(),
+                None,
+                BTreeMap::new(),
+            );
         }
     }
 
@@ -604,18 +604,18 @@ fn value_to_json_with_active_key(
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
         Value::RadixLiteral { raw } => {
             let normalized = raw.trim_start_matches('%').replace('_', "");
-            if let Some(base) = declared_radix_base(datatype) {
-                if exceeds_declared_radix(&normalized, base) {
-                    let diag = Diagnostic::new(
-                        "FINALIZE_INVALID_RADIX_BASE",
-                        format!("Radix literal exceeds declared radix {base}: {raw}"),
-                    )
-                    .at_path(path);
-                    if matches!(mode, FinalizeMode::Strict) {
-                        errors.push(diag);
-                    } else {
-                        warnings.push(diag);
-                    }
+            if let Some(base) = declared_radix_base(datatype)
+                && exceeds_declared_radix(&normalized, base)
+            {
+                let diag = Diagnostic::new(
+                    "FINALIZE_INVALID_RADIX_BASE",
+                    format!("Radix literal exceeds declared radix {base}: {raw}"),
+                )
+                .at_path(path);
+                if matches!(mode, FinalizeMode::Strict) {
+                    errors.push(diag);
+                } else {
+                    warnings.push(diag);
                 }
             }
             JsonValue::String(normalized)
@@ -1090,23 +1090,23 @@ fn parse_number(
         }
         return json!(value);
     }
-    if let Ok(value) = normalized.parse::<f64>() {
-        if value.is_finite() {
-            if value.abs() > 9_007_199_254_740_991.0 {
-                let diag = Diagnostic::new(
-                    "FINALIZE_UNSAFE_NUMBER",
-                    format!("Numeric literal exceeds JSON safe range: {raw}"),
-                )
-                .at_path(path);
-                if matches!(mode, FinalizeMode::Strict) {
-                    errors.push(diag);
-                } else {
-                    warnings.push(diag);
-                }
-                return JsonValue::String(raw.to_owned());
+    if let Ok(value) = normalized.parse::<f64>()
+        && value.is_finite()
+    {
+        if value.abs() > 9_007_199_254_740_991.0 {
+            let diag = Diagnostic::new(
+                "FINALIZE_UNSAFE_NUMBER",
+                format!("Numeric literal exceeds JSON safe range: {raw}"),
+            )
+            .at_path(path);
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
             }
-            return json!(value);
+            return JsonValue::String(raw.to_owned());
         }
+        return json!(value);
     }
     errors.push(
         Diagnostic::new(

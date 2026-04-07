@@ -1142,13 +1142,11 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
         return Ok(code);
     }
 
-    if write_output {
-        if let Some(path) = file {
-            if source != output {
-                write_file_with_backup(&path, &output)?;
-            }
-            return Ok(ExitCode::SUCCESS);
+    if write_output && let Some(path) = file {
+        if source != output {
+            write_file_with_backup(&path, &output)?;
         }
+        return Ok(ExitCode::SUCCESS);
     }
 
     print!("{output}");
@@ -1712,27 +1710,27 @@ fn extract_header_conventions(header_block: &str) -> Vec<String> {
 }
 
 fn merge_security_conventions_into_header(header_block: &str, missing: &[&str]) -> String {
-    if let Some(start) = header_block.find("conventions") {
-        if let Some(open_rel) = header_block[start..].find('[') {
-            let open = start + open_rel;
-            if let Some(close_rel) = header_block[open..].find(']') {
-                let close = open + close_rel;
-                let body = header_block[open + 1..close].trim_end();
-                let mut next_body = String::new();
-                if !body.is_empty() {
-                    next_body.push_str(body);
-                    next_body.push('\n');
-                }
-                for convention in missing {
-                    next_body.push_str(&format!("    \"{convention}\"\n"));
-                }
-                return format!(
-                    "{}[\n{}  ]{}",
-                    &header_block[..open],
-                    next_body,
-                    &header_block[close + 1..]
-                );
+    if let Some(start) = header_block.find("conventions")
+        && let Some(open_rel) = header_block[start..].find('[')
+    {
+        let open = start + open_rel;
+        if let Some(close_rel) = header_block[open..].find(']') {
+            let close = open + close_rel;
+            let body = header_block[open + 1..close].trim_end();
+            let mut next_body = String::new();
+            if !body.is_empty() {
+                next_body.push_str(body);
+                next_body.push('\n');
             }
+            for convention in missing {
+                next_body.push_str(&format!("    \"{convention}\"\n"));
+            }
+            return format!(
+                "{}[\n{}  ]{}",
+                &header_block[..open],
+                next_body,
+                &header_block[close + 1..]
+            );
         }
     }
 
@@ -1762,7 +1760,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 }
 
 fn hex_to_bytes(value: &str) -> Result<Vec<u8>, String> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(String::from(
             "failed to decode signature hex: odd-length hex string",
         ));

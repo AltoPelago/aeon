@@ -756,23 +756,22 @@ fn validate_node_head_datatypes_in_value(
         Value::NodeLiteral {
             datatype, children, ..
         } => {
-            if matches!(mode, BehaviorMode::Strict) {
-                if let Some(datatype) = datatype {
-                    if datatype_base(datatype) != "node" {
-                        errors.push(
-                            Diagnostic::new(
-                                "INVALID_NODE_HEAD_DATATYPE",
-                                format!(
-                                    "Invalid node head datatype in strict mode at '{}': node heads must use ':node', got ':{}'",
-                                    format_path(path),
-                                    datatype
-                                ),
-                            )
-                            .at_path(format_path(path))
-                            .with_span(owner_span),
-                        );
-                    }
-                }
+            if matches!(mode, BehaviorMode::Strict)
+                && let Some(datatype) = datatype
+                && datatype_base(datatype) != "node"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "INVALID_NODE_HEAD_DATATYPE",
+                        format!(
+                            "Invalid node head datatype in strict mode at '{}': node heads must use ':node', got ':{}'",
+                            format_path(path),
+                            datatype
+                        ),
+                    )
+                    .at_path(format_path(path))
+                    .with_span(owner_span),
+                );
             }
             for (index, child) in children.iter().enumerate() {
                 validate_node_head_datatypes_in_value(
@@ -1258,10 +1257,10 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
             }
             ']' if angle_depth == 0 && bracket_depth > 0 => {
                 bracket_depth -= 1;
-                if bracket_depth == 0 {
-                    if let Some(start) = bracket_start.take() {
-                        specs.push(&datatype[start..index]);
-                    }
+                if bracket_depth == 0
+                    && let Some(start) = bracket_start.take()
+                {
+                    specs.push(&datatype[start..index]);
                 }
             }
             '<' if bracket_depth == 0 => angle_depth += 1,
@@ -1534,46 +1533,46 @@ fn validate_attribute_datatype_map(
             continue;
         };
         let attr_path = format!("{}@{}", format_path(owner_path), key);
-        if let Some(datatype) = &entry.datatype {
-            if let Some(value) = &entry.value {
-                if let Some(error) = validate_datatype_shape_light(
-                    datatype,
-                    value,
-                    max_separator_depth,
-                    max_generic_depth,
-                ) {
-                    let path_override = match error.code.as_str() {
-                        "INVALID_NUMBER"
-                        | "INVALID_SEPARATOR_CHAR"
-                        | "SEPARATOR_DEPTH_EXCEEDED"
-                        | "GENERIC_DEPTH_EXCEEDED" => "$",
-                        _ => attr_path.as_str(),
-                    };
-                    errors.push(error.at_path(path_override));
-                    continue;
-                }
-                if !is_reserved_datatype(datatype) {
-                    if datatype_policy == DatatypePolicy::ReservedOnly {
-                        errors.push(
-                            Diagnostic::new(
-                                "CUSTOM_DATATYPE_NOT_ALLOWED",
-                                format!(
-                                    "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                                    attr_path
-                                ),
-                            )
-                            .at_path(attr_path.clone()),
-                        );
-                    }
-                } else if !datatype_matches_value(datatype, value) {
+        if let Some(datatype) = &entry.datatype
+            && let Some(value) = &entry.value
+        {
+            if let Some(error) = validate_datatype_shape_light(
+                datatype,
+                value,
+                max_separator_depth,
+                max_generic_depth,
+            ) {
+                let path_override = match error.code.as_str() {
+                    "INVALID_NUMBER"
+                    | "INVALID_SEPARATOR_CHAR"
+                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "GENERIC_DEPTH_EXCEEDED" => "$",
+                    _ => attr_path.as_str(),
+                };
+                errors.push(error.at_path(path_override));
+                continue;
+            }
+            if !is_reserved_datatype(datatype) {
+                if datatype_policy == DatatypePolicy::ReservedOnly {
                     errors.push(
                         Diagnostic::new(
-                            "DATATYPE_LITERAL_MISMATCH",
-                            datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
+                            "CUSTOM_DATATYPE_NOT_ALLOWED",
+                            format!(
+                                "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
+                                attr_path
+                            ),
                         )
                         .at_path(attr_path.clone()),
                     );
                 }
+            } else if !datatype_matches_value(datatype, value) {
+                errors.push(
+                    Diagnostic::new(
+                        "DATATYPE_LITERAL_MISMATCH",
+                        datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
+                    )
+                    .at_path(attr_path.clone()),
+                );
             }
         }
         validate_attribute_datatype_map(

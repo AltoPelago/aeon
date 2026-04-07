@@ -71,15 +71,15 @@ fn strip_preamble_and_bom(source: &str) -> String {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let mut lines = source.lines();
     let mut kept = Vec::new();
-    if let Some(first) = lines.next() {
-        if !first.starts_with("#!") {
-            kept.push(first);
-        }
+    if let Some(first) = lines.next()
+        && !first.starts_with("#!")
+    {
+        kept.push(first);
     }
-    if let Some(second) = lines.next() {
-        if !(kept.is_empty() && second.starts_with("//! format:")) {
-            kept.push(second);
-        }
+    if let Some(second) = lines.next()
+        && !(kept.is_empty() && second.starts_with("//! format:"))
+    {
+        kept.push(second);
     }
     kept.extend(lines);
     kept.join("\n")

@@ -91,15 +91,15 @@ pub(crate) fn strip_preamble(input: &str) -> String {
     let mut lines = input.lines();
     let mut output = Vec::new();
 
-    if let Some(first) = lines.next() {
-        if !first.starts_with("#!") {
-            output.push(first);
-        }
+    if let Some(first) = lines.next()
+        && !first.starts_with("#!")
+    {
+        output.push(first);
     }
-    if let Some(second) = lines.next() {
-        if !(output.is_empty() && second.starts_with("//! format:")) {
-            output.push(second);
-        }
+    if let Some(second) = lines.next()
+        && !(output.is_empty() && second.starts_with("//! format:"))
+    {
+        output.push(second);
     }
     output.extend(lines);
     output.join("\n")

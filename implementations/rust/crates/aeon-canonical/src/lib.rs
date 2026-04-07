@@ -240,10 +240,10 @@ fn render_sequence(
     let mut lines = vec![format!("{left} = {open}")];
     for (index, item) in items.iter().enumerate() {
         let mut item_lines = render_value_multiline(item, indent + 2);
-        if index + 1 < items.len() {
-            if let Some(last) = item_lines.last_mut() {
-                last.push(',');
-            }
+        if index + 1 < items.len()
+            && let Some(last) = item_lines.last_mut()
+        {
+            last.push(',');
         }
         lines.append(&mut item_lines);
     }
@@ -275,10 +275,10 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
             let mut lines = vec![format!("{prefix}[")];
             for (index, item) in items.iter().enumerate() {
                 let mut item_lines = render_value_multiline(item, indent + 2);
-                if index + 1 < items.len() {
-                    if let Some(last) = item_lines.last_mut() {
-                        last.push(',');
-                    }
+                if index + 1 < items.len()
+                    && let Some(last) = item_lines.last_mut()
+                {
+                    last.push(',');
                 }
                 lines.append(&mut item_lines);
             }
@@ -289,10 +289,10 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
             let mut lines = vec![format!("{prefix}(")];
             for (index, item) in items.iter().enumerate() {
                 let mut item_lines = render_value_multiline(item, indent + 2);
-                if index + 1 < items.len() {
-                    if let Some(last) = item_lines.last_mut() {
-                        last.push(',');
-                    }
+                if index + 1 < items.len()
+                    && let Some(last) = item_lines.last_mut()
+                {
+                    last.push(',');
                 }
                 lines.append(&mut item_lines);
             }
@@ -330,10 +330,10 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
     let mut lines = vec![format!("{prefix}{head}(")];
     for (index, child) in node.children.iter().enumerate() {
         let mut child_lines = render_node_child(child, indent + 2);
-        if index + 1 < node.children.len() {
-            if let Some(last) = child_lines.last_mut() {
-                last.push(',');
-            }
+        if index + 1 < node.children.len()
+            && let Some(last) = child_lines.last_mut()
+        {
+            last.push(',');
         }
         lines.append(&mut child_lines);
     }
@@ -933,7 +933,7 @@ fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn is_valid_hour(value: u32) -> bool {
@@ -1187,15 +1187,15 @@ fn strip_preamble(input: &str) -> String {
     let mut lines = input.lines();
     let mut output = Vec::new();
 
-    if let Some(first) = lines.next() {
-        if !first.starts_with("#!") {
-            output.push(first);
-        }
+    if let Some(first) = lines.next()
+        && !first.starts_with("#!")
+    {
+        output.push(first);
     }
-    if let Some(second) = lines.next() {
-        if !(output.is_empty() && second.starts_with("//! format:")) {
-            output.push(second);
-        }
+    if let Some(second) = lines.next()
+        && !(output.is_empty() && second.starts_with("//! format:"))
+    {
+        output.push(second);
     }
     output.extend(lines);
     output.join("\n")

@@ -166,10 +166,11 @@ fn is_valid_zrut_zone_char(ch: char) -> bool {
 }
 
 fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
-    if let Some((date, rest)) = value.split_once('t') {
-        if looks_like_date_candidate(date) && !rest.is_empty() {
-            return true;
-        }
+    if let Some((date, rest)) = value.split_once('t')
+        && looks_like_date_candidate(date)
+        && !rest.is_empty()
+    {
+        return true;
     }
     if let Some((date, rest)) = value.split_once('T') {
         if !looks_like_date_candidate(date) {
@@ -178,10 +179,10 @@ fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
         if let Some(base) = rest.strip_suffix('z') {
             return looks_like_datetime_time(base);
         }
-        if let Some((base, _zone)) = rest.split_once('&') {
-            if let Some(time) = base.strip_suffix('z') {
-                return looks_like_datetime_time(time);
-            }
+        if let Some((base, _zone)) = rest.split_once('&')
+            && let Some(time) = base.strip_suffix('z')
+        {
+            return looks_like_datetime_time(time);
         }
     }
     false
@@ -276,7 +277,7 @@ fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn is_valid_hour(value: u32) -> bool {
