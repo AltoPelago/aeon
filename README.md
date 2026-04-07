@@ -71,4 +71,5 @@ Contributor guidance is tracked in [CONTRIBUTING.md](./CONTRIBUTING.md).
 Security reporting guidance is tracked in [SECURITY.md](./SECURITY.md).
 
 Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.md](./RELEASING.md).
+Branching and implementation-specific release strategy are tracked in [docs/release-strategy.md](./docs/release-strategy.md).
 Version separation across spec, CTS, and implementation packages is tracked in [VERSIONING.md](./VERSIONING.md).

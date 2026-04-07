@@ -2,6 +2,9 @@
 
 This repository is not publishing to npm yet, but the TypeScript workspace is prepared for a workspace-aware release flow when that decision is made.
 
+For cross-repo branching and per-implementation release strategy, see
+[`docs/release-strategy.md`](./docs/release-strategy.md).
+
 ## Scope
 
 The intended first npm release wave is the application-facing TypeScript implementation surface:
