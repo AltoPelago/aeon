@@ -12,6 +12,14 @@ It currently contains:
 - `stress-tests/`
 
 Script catalog and operational usage notes live in [scripts/README.md](./scripts/README.md).
+Deeper script runbooks live in [docs/scripts/README.md](./docs/scripts/README.md).
+
+Root npm workflow wrappers:
+
+- `npm run ci`: implementation CI entrypoint (delegates to TypeScript CI, including canonical cross-implementation checks).
+- `npm run ci:rust`: full Rust workspace sweep (fmt/check/clippy/test).
+- `npm run ci:full`: `ci` plus `ci:rust`.
+- `npm run tests:all`: `ci:full` plus matrix snippet combination run.
 
 This repository contains the maintained AEON implementation surface.
 

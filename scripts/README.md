@@ -9,6 +9,9 @@ This page is the operational index for:
 - stress and hardening harnesses
 - local safety and benchmarking utilities
 
+For deeper runbooks (contracts, lane semantics, and troubleshooting), see
+[`docs/scripts/README.md`](../docs/scripts/README.md).
+
 ## Shared prerequisites
 
 - Run commands from repo root unless noted.
