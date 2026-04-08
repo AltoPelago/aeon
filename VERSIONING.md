@@ -72,6 +72,8 @@ Examples:
 - Keep spec compatibility statements explicit in docs and release notes.
 - When possible, release TypeScript and Rust parity fixes together if they are
   implementing the same already-defined language behavior.
+- Use implementation-specific release tags and release branches when cutting
+  public artifacts; see [`docs/release-strategy.md`](./docs/release-strategy.md).
 
 ## Current Public Baseline
 

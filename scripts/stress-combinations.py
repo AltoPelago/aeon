@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Generate matrix-driven snippet combinations and validate outcomes.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-combinations.py --matrix stress-tests/matrices/literal-mode-combinations.toml
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Compare TypeScript and Python canonical formatter output over fixtures.
+
+Run from repo root.
+Example:
+  python3 ./scripts/compare-canonical-implementations.py
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Check canonical snippet parity across implementations.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-canonical-snippets.py --mode all --brief
+"""
+
 from __future__ import annotations
 
 import argparse

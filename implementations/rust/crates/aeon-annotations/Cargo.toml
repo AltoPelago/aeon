@@ -7,11 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aeon-core = { path = "../aeon-core" }
+aeon-core.workspace = true
 
 [lib]
 path = "src/lib.rs"
 
 [lints]
 workspace = true
-

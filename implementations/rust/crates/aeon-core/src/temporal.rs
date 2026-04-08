@@ -27,7 +27,10 @@ pub(crate) fn invalid_temporal_literal(raw: &str) -> Option<(&'static str, Strin
         return Some(("SYNTAX_ERROR", format!("Invalid datetime literal: '{raw}'")));
     }
     if has_invalid_zrut_zone(raw) {
-        return Some(("INVALID_DATETIME", format!("Invalid datetime literal: '{raw}'")));
+        return Some((
+            "INVALID_DATETIME",
+            format!("Invalid datetime literal: '{raw}'"),
+        ));
     }
     if looks_like_datetime_candidate(raw) && !looks_like_datetime(raw) {
         return Some((
@@ -106,9 +109,10 @@ fn looks_like_datetime_candidate(value: &str) -> bool {
     if let Some((date, rest)) = value.split_once('T') {
         return looks_like_date_candidate(date)
             && !rest.is_empty()
-            && rest
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'.' | b'+' | b'-' | b'/' | b'_' | b'&'));
+            && rest.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b':' | b'.' | b'+' | b'-' | b'/' | b'_' | b'&')
+            });
     }
     false
 }
@@ -162,10 +166,11 @@ fn is_valid_zrut_zone_char(ch: char) -> bool {
 }
 
 fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
-    if let Some((date, rest)) = value.split_once('t') {
-        if looks_like_date_candidate(date) && !rest.is_empty() {
-            return true;
-        }
+    if let Some((date, rest)) = value.split_once('t')
+        && looks_like_date_candidate(date)
+        && !rest.is_empty()
+    {
+        return true;
     }
     if let Some((date, rest)) = value.split_once('T') {
         if !looks_like_date_candidate(date) {
@@ -174,10 +179,10 @@ fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
         if let Some(base) = rest.strip_suffix('z') {
             return looks_like_datetime_time(base);
         }
-        if let Some((base, _zone)) = rest.split_once('&') {
-            if let Some(time) = base.strip_suffix('z') {
-                return looks_like_datetime_time(time);
-            }
+        if let Some((base, _zone)) = rest.split_once('&')
+            && let Some(time) = base.strip_suffix('z')
+        {
+            return looks_like_datetime_time(time);
         }
     }
     false
@@ -193,7 +198,8 @@ fn has_invalid_zrut_zone(value: &str) -> bool {
     let Some((base, zone)) = rest.split_once('&') else {
         return false;
     };
-    (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base)) && !is_valid_zrut_zone(zone)
+    (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
+        && !is_valid_zrut_zone(zone)
 }
 
 fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
@@ -209,7 +215,10 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
             && bytes[..2].iter().all(u8::is_ascii_digit)
             && bytes[3..5].iter().all(u8::is_ascii_digit)
             && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second);
+            && value[3..5]
+                .parse::<u32>()
+                .ok()
+                .is_some_and(is_valid_minute_or_second);
     }
     matches_hms(value)
 }
@@ -230,8 +239,14 @@ fn matches_hms(value: &str) -> bool {
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && bytes[6..8].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
-        && value[6..8].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+        && value[3..5]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
+        && value[6..8]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
 }
 
 fn matches_offset(value: &str) -> bool {
@@ -241,7 +256,10 @@ fn matches_offset(value: &str) -> bool {
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+        && value[3..5]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
 }
 
 fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
@@ -259,7 +277,7 @@ fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn is_valid_hour(value: u32) -> bool {
@@ -276,7 +294,9 @@ mod tests {
 
     #[test]
     fn accepts_zrut_with_non_empty_slash_separated_segments() {
-        assert!(classify_temporal_literal("2025-01-01T00:00:00Z&Europe/Belgium/Brussels").is_some());
+        assert!(
+            classify_temporal_literal("2025-01-01T00:00:00Z&Europe/Belgium/Brussels").is_some()
+        );
     }
 
     #[test]
@@ -320,8 +340,12 @@ mod tests {
         assert!(classify_temporal_literal("2025-01-01T09+02:00&Europe/Belgium/Brussels").is_some());
         assert!(classify_temporal_literal("2025-01-01T09:30&Europe/Belgium/Brussels").is_some());
         assert!(classify_temporal_literal("2025-01-01T09:30Z&Europe/Belgium/Brussels").is_some());
-        assert!(classify_temporal_literal("2025-01-01T09:30+02:00&Europe/Belgium/Brussels").is_some());
-        assert!(classify_temporal_literal("2025-01-01T09:+02:00&Europe/Belgium/Brussels").is_some());
+        assert!(
+            classify_temporal_literal("2025-01-01T09:30+02:00&Europe/Belgium/Brussels").is_some()
+        );
+        assert!(
+            classify_temporal_literal("2025-01-01T09:+02:00&Europe/Belgium/Brussels").is_some()
+        );
         assert!(classify_temporal_literal("2025-01-01T09:30Z&Local").is_some());
         assert!(classify_temporal_literal("2024-02-29").is_some());
         assert!(classify_temporal_literal("2024-02-29T09:30:00").is_some());

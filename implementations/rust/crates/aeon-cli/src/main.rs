@@ -5,25 +5,26 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aeon_aeos::{
-    validate, validate_cts_payload, AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, Schema,
-    SpanInput, ValidationEnvelope, ValidationOptions,
+    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, Schema, SpanInput,
+    ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
-use aeon_finalize::{
-    finalize_json, finalize_map, value_to_ast_json, FinalizeMode, FinalizeOptions, FinalizeScope, Materialization,
-};
 use aeon_core::{
-    compile, format_path, normalize_number_literal, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment,
-    ReferenceSegment, Value, VERSION,
+    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment, ReferenceSegment,
+    VERSION, Value, compile, format_path, normalize_number_literal,
+};
+use aeon_finalize::{
+    FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
+    value_to_ast_json,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 use sha2::{Digest, Sha256};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 #[derive(Debug, Clone, Deserialize)]
 struct ContractRegistryDoc {
@@ -128,10 +129,11 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
     })?;
 
     trace_check("check:read_source");
-    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let source =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     trace_check(format!("check:source_bytes={}", source.len()));
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -178,13 +180,19 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
     let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
+        )
     })?;
     let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-separator-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
+        )
     })?;
     let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-generic-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
+        )
     })?;
 
     let file = find_file(
@@ -198,9 +206,10 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         ],
     )
     .ok_or_else(|| format!("Error: No file specified\n{INSPECT_USAGE}"))?;
-    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let source =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -283,13 +292,19 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
     let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
+        )
     })?;
     let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-separator-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
+        )
     })?;
     let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-generic-depth (expected a non-negative integer)")
+        String::from(
+            "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
+        )
     })?;
     let mode = flag_value(args, "--mode").ok_or_else(|| {
         format!("Error: Missing required --mode <transport|strict|custom>\n{INSPECT_CASES_USAGE}")
@@ -312,7 +327,8 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
         ],
     )
     .ok_or_else(|| format!("Error: No file specified\n{INSPECT_CASES_USAGE}"))?;
-    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let source =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     let cases = split_case_corpus(&source);
     let datatype_policy = resolve_datatype_policy(datatype_policy.as_deref(), rich).map_err(|_| {
         format!(
@@ -346,8 +362,17 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
     const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]";
-    let file = find_file(args, &["--datatype-policy", "--scope", "--include-path", "--max-input-bytes", "--max-materialized-weight"])
-        .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
+    let file = find_file(
+        args,
+        &[
+            "--datatype-policy",
+            "--scope",
+            "--include-path",
+            "--max-input-bytes",
+            "--max-materialized-weight",
+        ],
+    )
+    .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
     let mode = resolve_finalize_mode(args)
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), false)
@@ -372,9 +397,10 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         ));
     }
 
-    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let source =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok(ExitCode::from(1));
@@ -423,7 +449,10 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
                             obj.insert(String::from("value"), value_to_ast_json(&entry.value));
                             obj.insert(String::from("span"), span_to_json(&entry.span));
                             if let Some(datatype) = &entry.datatype {
-                                obj.insert(String::from("datatype"), JsonValue::String(datatype.clone()));
+                                obj.insert(
+                                    String::from("datatype"),
+                                    JsonValue::String(datatype.clone()),
+                                );
                             }
                             if !entry.annotations.is_empty() {
                                 obj.insert(
@@ -437,7 +466,11 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
                 ),
             )])),
         );
-        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &finalized.meta.warnings);
+        let meta = merged_meta_json(
+            &result.errors,
+            &finalized.meta.errors,
+            &finalized.meta.warnings,
+        );
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -447,7 +480,11 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         has_finalize_errors = !finalized.meta.errors.is_empty();
         let mut top = Map::new();
         top.insert(String::from("document"), finalized.document);
-        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &finalized.meta.warnings);
+        let meta = merged_meta_json(
+            &result.errors,
+            &finalized.meta.errors,
+            &finalized.meta.warnings,
+        );
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -456,7 +493,8 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
 
     println!(
         "{}",
-        serde_json::to_string_pretty(&output).map_err(|error| format!("failed to render JSON: {error}"))?
+        serde_json::to_string_pretty(&output)
+            .map_err(|error| format!("failed to render JSON: {error}"))?
     );
     Ok(if result.errors.is_empty() && !has_finalize_errors {
         ExitCode::SUCCESS
@@ -498,22 +536,25 @@ fn integrity(args: &[String]) -> Result<ExitCode, String> {
 
 fn integrity_validate(args: &[String]) -> Result<ExitCode, String> {
     let mode = resolve_integrity_mode(args).map_err(|message| {
-        format!(
-            "Error: {message}\nUsage: aeon integrity validate <file> [--strict|--loose]"
-        )
+        format!("Error: {message}\nUsage: aeon integrity validate <file> [--strict|--loose]")
     })?;
     let json_output = args.iter().any(|arg| arg == "--json");
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
     let file = find_file(args, &["--max-input-bytes"]).ok_or_else(|| {
-        String::from("Error: No file specified\nUsage: aeon integrity validate <file> [--strict|--loose]")
+        String::from(
+            "Error: No file specified\nUsage: aeon integrity validate <file> [--strict|--loose]",
+        )
     })?;
-    let input = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let input =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
         let actual = input.len();
         if actual > limit {
-            return Err(format!("Input size {actual} bytes exceeds configured limit of {limit} bytes"));
+            return Err(format!(
+                "Input size {actual} bytes exceeds configured limit of {limit} bytes"
+            ));
         }
     }
 
@@ -555,11 +596,14 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
         })?;
     let explicit_receipt_path =
         resolve_receipt_path(args).map_err(|message| format!("Error: {message}\nUsage: aeon integrity verify <file> [--strict|--loose] [--public-key <path>] [--receipt <path>]"))?;
-    let input = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let input =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
         let actual = input.len();
         if actual > limit {
-            return Err(format!("Input size {actual} bytes exceeds configured limit of {limit} bytes"));
+            return Err(format!(
+                "Input size {actual} bytes exceeds configured limit of {limit} bytes"
+            ));
         }
     }
 
@@ -605,7 +649,9 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
         return output_integrity_result(json_output, &errors, &warnings, None, None);
     };
 
-    let Some(expected_hash) = read_envelope_field(&result.events, &envelope_root, &["integrity.hash", "hash"]) else {
+    let Some(expected_hash) =
+        read_envelope_field(&result.events, &envelope_root, &["integrity.hash", "hash"])
+    else {
         errors.push(EnvelopeDiagnostic {
             code: "ENVELOPE_HASH_MISSING",
             message: String::from("canonical hash is missing from the integrity envelope"),
@@ -614,9 +660,8 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
     };
     let algorithm = read_envelope_field(&result.events, &envelope_root, &["integrity.alg", "alg"])
         .unwrap_or_else(|| String::from("sha-256"));
-    let normalized_algorithm = normalize_hash_algorithm(&algorithm).ok_or_else(|| {
-        format!("Unsupported integrity hash algorithm: {algorithm}")
-    })?;
+    let normalized_algorithm = normalize_hash_algorithm(&algorithm)
+        .ok_or_else(|| format!("Unsupported integrity hash algorithm: {algorithm}"))?;
     let computed = compute_canonical_hash(&base_result.events, &normalized_algorithm);
     let synthesized_receipt = canonical_receipt_json(
         &base_input,
@@ -641,8 +686,8 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
     }
     if let Some(signature) = signature {
         if let Some(public_key_path) = public_key_path {
-            let public_key =
-                fs::read_to_string(&public_key_path).map_err(|error| format!("failed to read {public_key_path}: {error}"))?;
+            let public_key = fs::read_to_string(&public_key_path)
+                .map_err(|error| format!("failed to read {public_key_path}: {error}"))?;
             let ok = verify_string_payload_signature(&expected_hash, &signature, &public_key)?;
             signature_verified = Some(ok);
             if !ok {
@@ -654,7 +699,9 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
         } else {
             warnings.push(EnvelopeDiagnostic {
                 code: "ENVELOPE_SIGNATURE_KEY_MISSING",
-                message: String::from("sig present but no --public-key provided; signature not verified"),
+                message: String::from(
+                    "sig present but no --public-key provided; signature not verified",
+                ),
             });
         }
     }
@@ -687,7 +734,13 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
         }
     });
 
-    output_integrity_result(json_output, &errors, &warnings, Some(receipt), Some(verification))
+    output_integrity_result(
+        json_output,
+        &errors,
+        &warnings,
+        Some(receipt),
+        Some(verification),
+    )
 }
 
 fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
@@ -708,11 +761,14 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
     let private_key_path = flag_value(args, "--private-key")
         .or_else(|| flag_value(args, "--privkey"))
         .ok_or_else(|| String::from("Error: Missing --private-key\nUsage: aeon integrity sign <file> --private-key <path> [--receipt <path>]"))?;
-    let input = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let input =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
         let actual = input.len();
         if actual > limit {
-            return Err(format!("Input size {actual} bytes exceeds configured limit of {limit} bytes"));
+            return Err(format!(
+                "Input size {actual} bytes exceeds configured limit of {limit} bytes"
+            ));
         }
     }
 
@@ -744,10 +800,11 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
         return output_integrity_result(json_output, &errors, &[], None, None);
     }
 
-    let private_key =
-        fs::read_to_string(&private_key_path).map_err(|error| format!("failed to read {private_key_path}: {error}"))?;
+    let private_key = fs::read_to_string(&private_key_path)
+        .map_err(|error| format!("failed to read {private_key_path}: {error}"))?;
     let canonical = compute_canonical_hash(&parsed.events, "sha-256");
-    let receipt = canonical_receipt_json(&base_input, &canonical, parsed.header.as_ref(), None, true);
+    let receipt =
+        canonical_receipt_json(&base_input, &canonical, parsed.header.as_ref(), None, true);
     let receipt_path = explicit_receipt_path.or_else(|| {
         if write_output {
             Some(default_receipt_sidecar_path(&file))
@@ -781,7 +838,11 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
             write_receipt_sidecar(receipt_path, &receipt)?;
         }
         if json_output {
-            let integrity = render_integrity_json(&canonical.hash, bytes_hash.as_deref(), checksum_hash.as_deref());
+            let integrity = render_integrity_json(
+                &canonical.hash,
+                bytes_hash.as_deref(),
+                checksum_hash.as_deref(),
+            );
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -811,10 +872,14 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
         if let Some(receipt_path) = receipt_path.as_deref() {
             write_receipt_sidecar(receipt_path, &receipt)?;
         }
-        let integrity = render_integrity_json(&canonical.hash, bytes_hash.as_deref(), checksum_hash.as_deref());
+        let integrity = render_integrity_json(
+            &canonical.hash,
+            bytes_hash.as_deref(),
+            checksum_hash.as_deref(),
+        );
         println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
+            "{}",
+            serde_json::to_string_pretty(&json!({
                     "ok": true,
                     "receipt": receipt,
                     "envelope": {
@@ -853,12 +918,14 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             "--trailing-separator-delimiter-policy",
         ],
     )
-        .ok_or_else(|| format!("Error: No file specified\n{BIND_USAGE}"))?;
+    .ok_or_else(|| format!("Error: No file specified\n{BIND_USAGE}"))?;
     let schema_path = flag_value(args, "--schema");
     let contract_registry_path = flag_value(args, "--contract-registry");
     let has_contract_registry = contract_registry_path.is_some();
     if args.iter().any(|arg| arg == "--schema") && schema_path.is_none() {
-        return Err(format!("Error: Missing value for --schema <schema.json>\n{BIND_USAGE}"));
+        return Err(format!(
+            "Error: Missing value for --schema <schema.json>\n{BIND_USAGE}"
+        ));
     }
     if args.iter().any(|arg| arg == "--contract-registry") && contract_registry_path.is_none() {
         return Err(format!(
@@ -866,9 +933,12 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         ));
     }
     if args.iter().any(|arg| arg == "--profile") && flag_value(args, "--profile").is_none() {
-        return Err(format!("Error: Missing value for --profile <id>\n{BIND_USAGE}"));
+        return Err(format!(
+            "Error: Missing value for --profile <id>\n{BIND_USAGE}"
+        ));
     }
-    let mode = resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
+    let mode =
+        resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), rich)
         .map_err(|_| {
@@ -886,7 +956,9 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     })?;
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
-    if args.iter().any(|arg| arg == "--trailing-separator-delimiter-policy")
+    if args
+        .iter()
+        .any(|arg| arg == "--trailing-separator-delimiter-policy")
         && flag_value(args, "--trailing-separator-delimiter-policy").is_none()
     {
         return Err(format!(
@@ -898,7 +970,9 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     let profile = flag_value(args, "--profile");
     let include_paths = flag_values(args, "--include-path");
     if args.iter().any(|arg| arg == "--include-path") && include_paths.is_empty() {
-        return Err(format!("Error: Missing value for --include-path <$.path>\n{BIND_USAGE}"));
+        return Err(format!(
+            "Error: Missing value for --include-path <$.path>\n{BIND_USAGE}"
+        ));
     }
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -912,9 +986,10 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         ));
     }
 
-    let source = fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let source =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             eprintln!("Input size {actual} bytes exceeds configured limit of {limit} bytes");
             return Ok((ExitCode::from(1), json!({})));
@@ -1005,7 +1080,11 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     }
 
     let mut meta = Map::new();
-    let mut errors = result.errors.iter().map(diagnostic_to_json).collect::<Vec<_>>();
+    let mut errors = result
+        .errors
+        .iter()
+        .map(diagnostic_to_json)
+        .collect::<Vec<_>>();
     errors.extend(validation.errors.iter().map(schema_diagnostic_to_json));
     meta.insert(String::from("errors"), JsonValue::Array(errors));
     let mut warnings = validation
@@ -1041,7 +1120,9 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
         ));
     }
     let source = match file {
-        Some(ref path) => fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?,
+        Some(ref path) => {
+            fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?
+        }
         None => {
             let mut buffer = String::new();
             io::stdin()
@@ -1061,22 +1142,23 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
         return Ok(code);
     }
 
-    if write_output {
-        if let Some(path) = file {
-            if source != output {
-                write_file_with_backup(&path, &output)?;
-            }
-            return Ok(ExitCode::SUCCESS);
+    if write_output && let Some(path) = file {
+        if source != output {
+            write_file_with_backup(&path, &output)?;
         }
+        return Ok(ExitCode::SUCCESS);
     }
 
     print!("{output}");
     Ok(ExitCode::SUCCESS)
 }
 
-fn format_source_for_cli(source: &str, max_input_bytes: Option<usize>) -> Result<(ExitCode, String), String> {
+fn format_source_for_cli(
+    source: &str,
+    max_input_bytes: Option<usize>,
+) -> Result<(ExitCode, String), String> {
     if let Some(limit) = max_input_bytes {
-        let actual = source.as_bytes().len();
+        let actual = source.len();
         if actual > limit {
             return Ok((
                 ExitCode::from(1),
@@ -1109,7 +1191,7 @@ fn doctor(args: &[String]) -> Result<ExitCode, String> {
         ));
     }
 
-    let registry_path = registry_path.unwrap_or_else(|| default_contract_registry_path());
+    let registry_path = registry_path.unwrap_or_else(default_contract_registry_path);
     let result = run_doctor(&registry_path);
 
     if json_output {
@@ -1189,8 +1271,12 @@ fn specs_repo_root() -> PathBuf {
     repo_root_from_env("AEONITE_SPECS_ROOT", &["aeonite-org", "aeonite-specs"])
 }
 
+#[cfg(test)]
 fn examples_repo_root() -> PathBuf {
-    repo_root_from_env("AEON_EXAMPLES_ROOT", &["altopelago", "aeon-examples-private"])
+    repo_root_from_env(
+        "AEON_EXAMPLES_ROOT",
+        &["altopelago", "aeon-examples-private"],
+    )
 }
 
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
@@ -1253,35 +1339,37 @@ fn inspect_contract_registry(registry_path: &str) -> DoctorCheck {
                 status: "fail",
                 message: format!("Contract registry is unreadable: {registry_path}"),
                 details: None,
-            }
+            };
         }
     };
 
     let entries = registry
         .contracts
         .iter()
-        .map(|entry| match verify_contract_artifact(entry, registry_path) {
-            Ok(resolved_path) => json!({
-                "id": entry.id,
-                "kind": entry.kind,
-                "status": "pass",
-                "path": resolved_path,
-            }),
-            Err(error) => {
-                let code = if error.contains("CONTRACT_ARTIFACT_HASH_MISMATCH") {
-                    "CONTRACT_ARTIFACT_HASH_MISMATCH"
-                } else {
-                    "CONTRACT_ARTIFACT_MISSING"
-                };
-                json!({
+        .map(
+            |entry| match verify_contract_artifact(entry, registry_path) {
+                Ok(resolved_path) => json!({
                     "id": entry.id,
                     "kind": entry.kind,
-                    "status": "fail",
-                    "code": code,
-                    "error": error,
-                })
-            }
-        })
+                    "status": "pass",
+                    "path": resolved_path,
+                }),
+                Err(error) => {
+                    let code = if error.contains("CONTRACT_ARTIFACT_HASH_MISMATCH") {
+                        "CONTRACT_ARTIFACT_HASH_MISMATCH"
+                    } else {
+                        "CONTRACT_ARTIFACT_MISSING"
+                    };
+                    json!({
+                        "id": entry.id,
+                        "kind": entry.kind,
+                        "status": "fail",
+                        "code": code,
+                        "error": error,
+                    })
+                }
+            },
+        )
         .collect::<Vec<_>>();
 
     let failures = entries
@@ -1293,7 +1381,10 @@ fn inspect_contract_registry(registry_path: &str) -> DoctorCheck {
         name: "contract-registry",
         status: if failures == 0 { "pass" } else { "fail" },
         message: if failures == 0 {
-            format!("Verified {} contract artifact(s) from {registry_path}", entries.len())
+            format!(
+                "Verified {} contract artifact(s) from {registry_path}",
+                entries.len()
+            )
         } else {
             format!("Registry verification failed for {failures} contract artifact(s)")
         },
@@ -1306,9 +1397,18 @@ fn inspect_contract_registry(registry_path: &str) -> DoctorCheck {
 
 fn doctor_check_to_json(check: &DoctorCheck) -> JsonValue {
     let mut object = Map::new();
-    object.insert(String::from("name"), JsonValue::String(String::from(check.name)));
-    object.insert(String::from("status"), JsonValue::String(String::from(check.status)));
-    object.insert(String::from("message"), JsonValue::String(check.message.clone()));
+    object.insert(
+        String::from("name"),
+        JsonValue::String(String::from(check.name)),
+    );
+    object.insert(
+        String::from("status"),
+        JsonValue::String(String::from(check.status)),
+    );
+    object.insert(
+        String::from("message"),
+        JsonValue::String(check.message.clone()),
+    );
     if let Some(details) = &check.details {
         object.insert(String::from("details"), details.clone());
     }
@@ -1352,7 +1452,11 @@ fn sign_string_payload(payload: &str, private_key_pem: &str) -> Result<String, S
     Ok(bytes_to_hex(&signature.to_bytes()))
 }
 
-fn verify_string_payload_signature(payload: &str, signature_hex: &str, public_key_pem: &str) -> Result<bool, String> {
+fn verify_string_payload_signature(
+    payload: &str,
+    signature_hex: &str,
+    public_key_pem: &str,
+) -> Result<bool, String> {
     let verifying_key = VerifyingKey::from_public_key_pem(public_key_pem)
         .map_err(|error| format!("failed to parse public key: {error}"))?;
     let signature_bytes = hex_to_bytes(signature_hex)?;
@@ -1395,17 +1499,36 @@ fn render_signature_envelope(
     lines.join("\n")
 }
 
-fn render_integrity_json(hash: &str, bytes_hash: Option<&str>, checksum_hash: Option<&str>) -> JsonValue {
+fn render_integrity_json(
+    hash: &str,
+    bytes_hash: Option<&str>,
+    checksum_hash: Option<&str>,
+) -> JsonValue {
     let mut object = Map::new();
-    object.insert(String::from("alg"), JsonValue::String(String::from("sha-256")));
+    object.insert(
+        String::from("alg"),
+        JsonValue::String(String::from("sha-256")),
+    );
     object.insert(String::from("hash"), JsonValue::String(String::from(hash)));
     if let Some(bytes_hash) = bytes_hash {
-        object.insert(String::from("bytes_hash_alg"), JsonValue::String(String::from("sha-256")));
-        object.insert(String::from("bytes_hash"), JsonValue::String(String::from(bytes_hash)));
+        object.insert(
+            String::from("bytes_hash_alg"),
+            JsonValue::String(String::from("sha-256")),
+        );
+        object.insert(
+            String::from("bytes_hash"),
+            JsonValue::String(String::from(bytes_hash)),
+        );
     }
     if let Some(checksum_hash) = checksum_hash {
-        object.insert(String::from("checksum_alg"), JsonValue::String(String::from("sha-256")));
-        object.insert(String::from("checksum_value"), JsonValue::String(String::from(checksum_hash)));
+        object.insert(
+            String::from("checksum_alg"),
+            JsonValue::String(String::from("sha-256")),
+        );
+        object.insert(
+            String::from("checksum_value"),
+            JsonValue::String(String::from(checksum_hash)),
+        );
     }
     JsonValue::Object(object)
 }
@@ -1475,7 +1598,9 @@ fn ensure_gp_security_conventions(source: &str) -> SecurityConventionResult {
     let Some((start, end)) = find_structured_header_range(source) else {
         let header = render_security_header(&GP_SECURITY_CONVENTIONS);
         return SecurityConventionResult {
-            source: format!("{}\n\n{}", header, source.trim_start()).trim_end().to_string(),
+            source: format!("{}\n\n{}", header, source.trim_start())
+                .trim_end()
+                .to_string(),
             changed: true,
         };
     };
@@ -1585,22 +1710,27 @@ fn extract_header_conventions(header_block: &str) -> Vec<String> {
 }
 
 fn merge_security_conventions_into_header(header_block: &str, missing: &[&str]) -> String {
-    if let Some(start) = header_block.find("conventions") {
-        if let Some(open_rel) = header_block[start..].find('[') {
-            let open = start + open_rel;
-            if let Some(close_rel) = header_block[open..].find(']') {
-                let close = open + close_rel;
-                let body = header_block[open + 1..close].trim_end();
-                let mut next_body = String::new();
-                if !body.is_empty() {
-                    next_body.push_str(body);
-                    next_body.push('\n');
-                }
-                for convention in missing {
-                    next_body.push_str(&format!("    \"{convention}\"\n"));
-                }
-                return format!("{}[\n{}  ]{}", &header_block[..open], next_body, &header_block[close + 1..]);
+    if let Some(start) = header_block.find("conventions")
+        && let Some(open_rel) = header_block[start..].find('[')
+    {
+        let open = start + open_rel;
+        if let Some(close_rel) = header_block[open..].find(']') {
+            let close = open + close_rel;
+            let body = header_block[open + 1..close].trim_end();
+            let mut next_body = String::new();
+            if !body.is_empty() {
+                next_body.push_str(body);
+                next_body.push('\n');
             }
+            for convention in missing {
+                next_body.push_str(&format!("    \"{convention}\"\n"));
+            }
+            return format!(
+                "{}[\n{}  ]{}",
+                &header_block[..open],
+                next_body,
+                &header_block[close + 1..]
+            );
         }
     }
 
@@ -1613,7 +1743,12 @@ fn merge_security_conventions_into_header(header_block: &str, missing: &[&str]) 
             .collect::<Vec<_>>()
             .join("\n")
     );
-    format!("{}{}{}", &header_block[..insert_at], snippet, &header_block[insert_at..])
+    format!(
+        "{}{}{}",
+        &header_block[..insert_at],
+        snippet,
+        &header_block[insert_at..]
+    )
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -1625,15 +1760,19 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 }
 
 fn hex_to_bytes(value: &str) -> Result<Vec<u8>, String> {
-    if value.len() % 2 != 0 {
-        return Err(String::from("failed to decode signature hex: odd-length hex string"));
+    if !value.len().is_multiple_of(2) {
+        return Err(String::from(
+            "failed to decode signature hex: odd-length hex string",
+        ));
     }
     let mut out = Vec::with_capacity(value.len() / 2);
     let bytes = value.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
-        let hi = hex_nibble(bytes[index]).ok_or_else(|| String::from("failed to decode signature hex: invalid hex"))?;
-        let lo = hex_nibble(bytes[index + 1]).ok_or_else(|| String::from("failed to decode signature hex: invalid hex"))?;
+        let hi = hex_nibble(bytes[index])
+            .ok_or_else(|| String::from("failed to decode signature hex: invalid hex"))?;
+        let lo = hex_nibble(bytes[index + 1])
+            .ok_or_else(|| String::from("failed to decode signature hex: invalid hex"))?;
         out.push((hi << 4) | lo);
         index += 2;
     }
@@ -1685,7 +1824,10 @@ fn envelope_diagnostic_to_json(diag: &EnvelopeDiagnostic) -> JsonValue {
     })
 }
 
-fn integrity_plain_lines(errors: &[EnvelopeDiagnostic], warnings: &[EnvelopeDiagnostic]) -> Vec<String> {
+fn integrity_plain_lines(
+    errors: &[EnvelopeDiagnostic],
+    warnings: &[EnvelopeDiagnostic],
+) -> Vec<String> {
     if errors.is_empty() {
         let mut lines = warnings
             .iter()
@@ -1710,11 +1852,21 @@ fn integrity_payload(
     object.insert(String::from("ok"), JsonValue::Bool(errors.is_empty()));
     object.insert(
         String::from("errors"),
-        JsonValue::Array(errors.iter().map(envelope_diagnostic_to_json).collect::<Vec<_>>()),
+        JsonValue::Array(
+            errors
+                .iter()
+                .map(envelope_diagnostic_to_json)
+                .collect::<Vec<_>>(),
+        ),
     );
     object.insert(
         String::from("warnings"),
-        JsonValue::Array(warnings.iter().map(envelope_diagnostic_to_json).collect::<Vec<_>>()),
+        JsonValue::Array(
+            warnings
+                .iter()
+                .map(envelope_diagnostic_to_json)
+                .collect::<Vec<_>>(),
+        ),
     );
     if let Some(receipt) = receipt {
         object.insert(String::from("receipt"), receipt);
@@ -1740,23 +1892,51 @@ fn canonical_receipt_json(
     let source_hash = compute_byte_hash(source);
     let canonical_digest = digest_override.unwrap_or(&canonical.hash);
     let mut canonical_object = Map::new();
-    canonical_object.insert(String::from("format"), JsonValue::String(String::from("aeon.canonical")));
-    canonical_object.insert(String::from("spec"), JsonValue::String(String::from("AEON Core")));
-    canonical_object.insert(String::from("specRelease"), JsonValue::String(String::from("v1")));
+    canonical_object.insert(
+        String::from("format"),
+        JsonValue::String(String::from("aeon.canonical")),
+    );
+    canonical_object.insert(
+        String::from("spec"),
+        JsonValue::String(String::from("AEON Core")),
+    );
+    canonical_object.insert(
+        String::from("specRelease"),
+        JsonValue::String(String::from("v1")),
+    );
     canonical_object.insert(
         String::from("mode"),
-        JsonValue::String(header_field_value(header, "mode").unwrap_or_else(|| String::from("transport"))),
+        JsonValue::String(
+            header_field_value(header, "mode").unwrap_or_else(|| String::from("transport")),
+        ),
     );
     canonical_object.insert(
         String::from("profile"),
-        JsonValue::String(header_field_value(header, "profile").unwrap_or_else(|| String::from("core"))),
+        JsonValue::String(
+            header_field_value(header, "profile").unwrap_or_else(|| String::from("core")),
+        ),
     );
-    canonical_object.insert(String::from("outputEncoding"), JsonValue::String(String::from("utf-8")));
-    canonical_object.insert(String::from("digestAlgorithm"), JsonValue::String(String::from("sha-256")));
-    canonical_object.insert(String::from("digest"), JsonValue::String(canonical_digest.to_string()));
-    canonical_object.insert(String::from("length"), JsonValue::Number(canonical.stream.len().into()));
+    canonical_object.insert(
+        String::from("outputEncoding"),
+        JsonValue::String(String::from("utf-8")),
+    );
+    canonical_object.insert(
+        String::from("digestAlgorithm"),
+        JsonValue::String(String::from("sha-256")),
+    );
+    canonical_object.insert(
+        String::from("digest"),
+        JsonValue::String(canonical_digest.to_string()),
+    );
+    canonical_object.insert(
+        String::from("length"),
+        JsonValue::Number(canonical.stream.len().into()),
+    );
     if include_payload {
-        canonical_object.insert(String::from("payload"), JsonValue::String(canonical.stream.clone()));
+        canonical_object.insert(
+            String::from("payload"),
+            JsonValue::String(canonical.stream.clone()),
+        );
     }
     json!({
         "source": {
@@ -1809,7 +1989,13 @@ fn serialize_canonical_events(events: &[AssignmentEvent]) -> String {
     filtered.sort_by_key(|event| format_path(&event.path));
     filtered
         .into_iter()
-        .map(|event| format!("{}\t{}\n", format_path(&event.path), serialize_canonical_value(&event.value)))
+        .map(|event| {
+            format!(
+                "{}\t{}\n",
+                format_path(&event.path),
+                serialize_canonical_value(&event.value)
+            )
+        })
         .collect()
 }
 
@@ -1827,8 +2013,12 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
-        Value::CloneReference { segments, .. } => format!("\"~{}\"", render_reference_path(segments)),
-        Value::PointerReference { segments, .. } => format!("\"~>{}\"", render_reference_path(segments)),
+        Value::CloneReference { segments, .. } => {
+            format!("\"~{}\"", render_reference_path(segments))
+        }
+        Value::PointerReference { segments, .. } => {
+            format!("\"~>{}\"", render_reference_path(segments))
+        }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let rendered = items
                 .iter()
@@ -1842,7 +2032,13 @@ fn serialize_canonical_value(value: &Value) -> String {
             ordered.sort_by_key(|binding| binding.key.clone());
             let rendered = ordered
                 .into_iter()
-                .map(|binding| format!("{}:{}", binding.key, serialize_canonical_value(&binding.value)))
+                .map(|binding| {
+                    format!(
+                        "{}:{}",
+                        binding.key,
+                        serialize_canonical_value(&binding.value)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(",");
             format!("{{{rendered}}}")
@@ -1910,7 +2106,9 @@ fn envelope_unknown_fields(events: &[AssignmentEvent], envelope_root: &str) -> V
             .split('[')
             .next()
             .unwrap_or_default();
-        if !matches!(top, "integrity" | "signatures" | "bytes" | "checksum") && !unknown.iter().any(|v| v == top) {
+        if !matches!(top, "integrity" | "signatures" | "bytes" | "checksum")
+            && !unknown.iter().any(|v| v == top)
+        {
             unknown.push(String::from(top));
         }
     }
@@ -1924,7 +2122,11 @@ fn envelope_root_path(events: &[AssignmentEvent]) -> Option<String> {
         .map(|event| format_path(&event.path))
 }
 
-fn read_envelope_field(events: &[AssignmentEvent], envelope_root: &str, suffixes: &[&str]) -> Option<String> {
+fn read_envelope_field(
+    events: &[AssignmentEvent],
+    envelope_root: &str,
+    suffixes: &[&str],
+) -> Option<String> {
     for event in events {
         let path = format_path(&event.path);
         for suffix in suffixes {
@@ -1958,12 +2160,7 @@ fn is_top_level_event(event: &AssignmentEvent) -> bool {
 
 fn is_envelope_event(event: &AssignmentEvent) -> bool {
     matches!(event.path.segments.last(), Some(PathSegment::Member(_)))
-        && event
-            .datatype
-            .as_deref()
-            .map(datatype_base)
-            .as_deref()
-            == Some("envelope")
+        && event.datatype.as_deref().map(datatype_base).as_deref() == Some("envelope")
 }
 
 fn datatype_base(datatype: &str) -> String {
@@ -1989,15 +2186,29 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  version");
-    println!("  check <file> [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]");
+    println!(
+        "  check <file> [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]"
+    );
     println!("  doctor [--json] [--contract-registry <registry.json>]");
-    println!("  inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]");
-    println!("  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]");
-    println!("  finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]");
-    println!("  bind <file> (--schema <schema.json> | --contract-registry <registry.json>) [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--annotations] [--sort-annotations] [--max-input-bytes <n>]");
+    println!(
+        "  inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+    );
+    println!(
+        "  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+    );
+    println!(
+        "  finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]"
+    );
+    println!(
+        "  bind <file> (--schema <schema.json> | --contract-registry <registry.json>) [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--annotations] [--sort-annotations] [--max-input-bytes <n>]"
+    );
     println!("  integrity validate <file> [--json] [--strict|--loose]");
-    println!("  integrity verify <file> [--json] [--strict|--loose] [--public-key <path>] [--receipt <path>]");
-    println!("  integrity sign <file> --private-key <path> [--json|--write] [--replace] [--include-bytes] [--include-checksum] [--receipt <path>]");
+    println!(
+        "  integrity verify <file> [--json] [--strict|--loose] [--public-key <path>] [--receipt <path>]"
+    );
+    println!(
+        "  integrity sign <file> --private-key <path> [--json|--write] [--replace] [--include-bytes] [--include-checksum] [--receipt <path>]"
+    );
     println!("  fmt [file] [--write] [--max-input-bytes <n>]");
     println!("  cts-adapter");
 }
@@ -2103,16 +2314,33 @@ fn render_inspect_markdown(
 
     lines.push(String::from("# AEON Inspect"));
     if options.recovery {
-        lines.push(String::from("> WARNING: recovery mode enabled (tooling-only); output may be partial"));
+        lines.push(String::from(
+            "> WARNING: recovery mode enabled (tooling-only); output may be partial",
+        ));
     }
     lines.push(String::new());
     lines.push(String::from("## Summary"));
-    lines.push(format!("- File: {}", file.rsplit('/').next().unwrap_or(file)));
-    lines.push(format!("- Version: {}", options.version.unwrap_or_else(|| String::from("—"))));
+    lines.push(format!(
+        "- File: {}",
+        file.rsplit('/').next().unwrap_or(file)
+    ));
+    lines.push(format!(
+        "- Version: {}",
+        options.version.unwrap_or_else(|| String::from("—"))
+    ));
     lines.push(format!("- Mode: {}", options.mode));
-    lines.push(format!("- Profile: {}", options.profile.unwrap_or_else(|| String::from("—"))));
-    lines.push(format!("- Schema: {}", options.schema.unwrap_or_else(|| String::from("—"))));
-    lines.push(format!("- Recovery: {}", if options.recovery { "true" } else { "false" }));
+    lines.push(format!(
+        "- Profile: {}",
+        options.profile.unwrap_or_else(|| String::from("—"))
+    ));
+    lines.push(format!(
+        "- Schema: {}",
+        options.schema.unwrap_or_else(|| String::from("—"))
+    ));
+    lines.push(format!(
+        "- Recovery: {}",
+        if options.recovery { "true" } else { "false" }
+    ));
     lines.push(format!("- Events: {}", visible_events.len()));
     if options.include_annotations {
         lines.push(format!("- Annotations: {}", annotations.len()));
@@ -2162,7 +2390,10 @@ fn render_annotation_target(target: &aeon_annotations::AnnotationTarget) -> Stri
             format!("{{\"kind\":\"path\",\"path\":\"{}\"}}", escape_json(path))
         }
         aeon_annotations::AnnotationTarget::Unbound { reason } => {
-            format!("{{\"kind\":\"unbound\",\"reason\":\"{}\"}}", escape_json(reason))
+            format!(
+                "{{\"kind\":\"unbound\",\"reason\":\"{}\"}}",
+                escape_json(reason)
+            )
         }
     }
 }
@@ -2199,7 +2430,10 @@ fn render_errors(errors: &[Diagnostic]) -> String {
     let items = errors
         .iter()
         .map(|error| {
-            let mut object = diagnostic_to_json(error).as_object().cloned().unwrap_or_default();
+            let mut object = diagnostic_to_json(error)
+                .as_object()
+                .cloned()
+                .unwrap_or_default();
             object.insert(
                 String::from("path"),
                 JsonValue::String(error.path.clone().unwrap_or_else(|| String::from("$"))),
@@ -2222,14 +2456,22 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw),
             escape_json(&normalize_number_literal(raw))
         ),
-        Value::StringLiteral { value, raw, delimiter, trimticks } => {
-            let trimticks_json = trimticks.as_ref().map(|metadata| {
-                format!(
-                    ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
-                    metadata.marker_width,
-                    escape_json(&metadata.raw_value)
-                )
-            }).unwrap_or_default();
+        Value::StringLiteral {
+            value,
+            raw,
+            delimiter,
+            trimticks,
+        } => {
+            let trimticks_json = trimticks
+                .as_ref()
+                .map(|metadata| {
+                    format!(
+                        ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
+                        metadata.marker_width,
+                        escape_json(&metadata.raw_value)
+                    )
+                })
+                .unwrap_or_default();
             format!(
                 "{{\"type\":\"StringLiteral\",\"raw\":\"{}\",\"value\":\"{}\",\"delimiter\":\"{}\"{}}}",
                 escape_json(raw),
@@ -2282,16 +2524,23 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw),
             escape_json(raw)
         ),
-        Value::NodeLiteral { .. } => {
-            serde_json::to_string(&value_to_ast_json(value)).unwrap_or_else(|_| String::from("{\"type\":\"NodeLiteral\"}"))
-        }
+        Value::NodeLiteral { .. } => serde_json::to_string(&value_to_ast_json(value))
+            .unwrap_or_else(|_| String::from("{\"type\":\"NodeLiteral\"}")),
         Value::ListNode { items } => format!(
             "{{\"type\":\"ListNode\",\"elements\":[{}]}}",
-            items.iter().map(render_value_json_string).collect::<Vec<_>>().join(",")
+            items
+                .iter()
+                .map(render_value_json_string)
+                .collect::<Vec<_>>()
+                .join(",")
         ),
         Value::TupleLiteral { items } => format!(
             "{{\"type\":\"TupleLiteral\",\"elements\":[{}]}}",
-            items.iter().map(render_value_json_string).collect::<Vec<_>>().join(",")
+            items
+                .iter()
+                .map(render_value_json_string)
+                .collect::<Vec<_>>()
+                .join(",")
         ),
         Value::ObjectNode { bindings } => format!(
             "{{\"type\":\"ObjectNode\",\"bindings\":[{}]}}",
@@ -2354,7 +2603,9 @@ fn format_event_line(event: &AssignmentEvent) -> String {
 
 fn render_human_value(value: &Value) -> String {
     match value {
-        Value::StringLiteral { value, .. } => serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\"")),
+        Value::StringLiteral { value, .. } => {
+            serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
+        }
         Value::InfinityLiteral { raw } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::BooleanLiteral { raw }
@@ -2368,7 +2619,9 @@ fn render_human_value(value: &Value) -> String {
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
         Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
-        Value::PointerReference { segments, .. } => format!("~>{}", render_reference_path(segments)),
+        Value::PointerReference { segments, .. } => {
+            format!("~>{}", render_reference_path(segments))
+        }
         Value::ListNode { items } => format!(
             "[ {} ]",
             items
@@ -2395,7 +2648,11 @@ fn render_human_value(value: &Value) -> String {
                         .as_ref()
                         .map(|value| format!(":{value}"))
                         .unwrap_or_default();
-                    format!("{key}{datatype} = {value}", key = binding.key, value = render_human_value(&binding.value))
+                    format!(
+                        "{key}{datatype} = {value}",
+                        key = binding.key,
+                        value = render_human_value(&binding.value)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -2431,12 +2688,16 @@ fn find_references(events: &[AssignmentEvent]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match &event.value {
-            Value::CloneReference { segments, .. } => {
-                Some(format!("{} = ~{}", format_path(&event.path), render_reference_path(segments)))
-            }
-            Value::PointerReference { segments, .. } => {
-                Some(format!("{} = ~>{}", format_path(&event.path), render_reference_path(segments)))
-            }
+            Value::CloneReference { segments, .. } => Some(format!(
+                "{} = ~{}",
+                format_path(&event.path),
+                render_reference_path(segments)
+            )),
+            Value::PointerReference { segments, .. } => Some(format!(
+                "{} = ~>{}",
+                format_path(&event.path),
+                render_reference_path(segments)
+            )),
             _ => None,
         })
         .collect()
@@ -2469,10 +2730,7 @@ fn merged_meta_json(
         .map(diagnostic_to_json)
         .collect::<Vec<_>>();
     if !merged_errors.is_empty() {
-        obj.insert(
-            String::from("errors"),
-            JsonValue::Array(merged_errors),
-        );
+        obj.insert(String::from("errors"), JsonValue::Array(merged_errors));
     }
     if !warnings.is_empty() {
         obj.insert(
@@ -2491,7 +2749,10 @@ fn finalize_attributes_to_json(
     for (key, entry) in attributes {
         object.insert(key.clone(), finalize_attribute_entry_to_json(entry));
         if !entry.nested_attrs.is_empty() {
-            nested.insert(key.clone(), finalize_attributes_to_json(&entry.nested_attrs));
+            nested.insert(
+                key.clone(),
+                finalize_attributes_to_json(&entry.nested_attrs),
+            );
         }
     }
     if !nested.is_empty() {
@@ -2529,19 +2790,28 @@ fn phase_label_from_number(phase: u8) -> Option<&'static str> {
 fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
     match code {
         "INPUT_SIZE_EXCEEDED" => Some("Input Validation"),
-        "UNEXPECTED_CHARACTER" | "UNTERMINATED_BLOCK_COMMENT" | "UNTERMINATED_STRING"
+        "UNEXPECTED_CHARACTER"
+        | "UNTERMINATED_BLOCK_COMMENT"
+        | "UNTERMINATED_STRING"
         | "UNTERMINATED_TRIMTICK" => Some("Lexical Analysis"),
-        "SYNTAX_ERROR" | "INVALID_DATE" | "INVALID_TIME" | "INVALID_DATETIME"
-        | "INVALID_SEPARATOR_CHAR" | "SEPARATOR_DEPTH_EXCEEDED" | "GENERIC_DEPTH_EXCEEDED" => {
-            Some("Parsing")
-        }
+        "SYNTAX_ERROR"
+        | "INVALID_DATE"
+        | "INVALID_TIME"
+        | "INVALID_DATETIME"
+        | "INVALID_SEPARATOR_CHAR"
+        | "SEPARATOR_DEPTH_EXCEEDED"
+        | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
         "HEADER_CONFLICT" | "DUPLICATE_CANONICAL_PATH" | "DATATYPE_LITERAL_MISMATCH" => {
             Some("Core Validation")
         }
-        "MISSING_REFERENCE_TARGET" | "FORWARD_REFERENCE" | "SELF_REFERENCE"
+        "MISSING_REFERENCE_TARGET"
+        | "FORWARD_REFERENCE"
+        | "SELF_REFERENCE"
         | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
-        "UNTYPED_SWITCH_LITERAL" | "UNTYPED_VALUE_IN_STRICT_MODE"
-        | "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED" | "CUSTOM_DATATYPE_NOT_ALLOWED"
+        "UNTYPED_SWITCH_LITERAL"
+        | "UNTYPED_VALUE_IN_STRICT_MODE"
+        | "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"
+        | "CUSTOM_DATATYPE_NOT_ALLOWED"
         | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
         "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
         "TYPE_GUARD_FAILED" => Some("Finalization"),
@@ -2562,22 +2832,33 @@ fn diagnostic_to_json(error: &Diagnostic) -> JsonValue {
     object.insert(String::from("code"), JsonValue::String(error.code.clone()));
     object.insert(
         String::from("path"),
-        error.path
+        error
+            .path
             .as_ref()
             .map(|value| JsonValue::String(value.clone()))
             .unwrap_or(JsonValue::Null),
     );
     object.insert(
         String::from("span"),
-        error.span.as_ref().map(span_to_json).unwrap_or(JsonValue::Null),
+        error
+            .span
+            .as_ref()
+            .map(span_to_json)
+            .unwrap_or(JsonValue::Null),
     );
     if let Some(phase) = error.phase {
         object.insert(String::from("phase"), JsonValue::Number(phase.into()));
     }
     if let Some(label) = diagnostic_phase_label(error) {
-        object.insert(String::from("phaseLabel"), JsonValue::String(String::from(label)));
+        object.insert(
+            String::from("phaseLabel"),
+            JsonValue::String(String::from(label)),
+        );
     }
-    object.insert(String::from("message"), JsonValue::String(error.message.clone()));
+    object.insert(
+        String::from("message"),
+        JsonValue::String(error.message.clone()),
+    );
     JsonValue::Object(object)
 }
 
@@ -2605,7 +2886,10 @@ fn format_error_line(error: &Diagnostic) -> String {
         .unwrap_or_else(|| String::from("?:?-?:?"));
     let message = error.message.replace('\n', " ");
     if let Some(label) = diagnostic_phase_label(error) {
-        format!("{label}: {message} [{}] path={} span={}", error.code, path, span)
+        format!(
+            "{label}: {message} [{}] path={} span={}",
+            error.code, path, span
+        )
     } else {
         format!("{message} [{}] path={} span={}", error.code, path, span)
     }
@@ -2783,10 +3067,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("CloneReference"),
             raw: None,
             value: Some(JsonValue::Array(
-                segments
-                    .iter()
-                    .map(reference_segment_to_json)
-                    .collect(),
+                segments.iter().map(reference_segment_to_json).collect(),
             )),
             elements: Vec::new(),
         },
@@ -2794,10 +3075,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("PointerReference"),
             raw: None,
             value: Some(JsonValue::Array(
-                segments
-                    .iter()
-                    .map(reference_segment_to_json)
-                    .collect(),
+                segments.iter().map(reference_segment_to_json).collect(),
             )),
             elements: Vec::new(),
         },
@@ -2827,7 +3105,10 @@ fn span_to_json(span: &aeon_core::Span) -> JsonValue {
     })
 }
 
-fn resolve_datatype_policy(value: Option<&str>, rich: bool) -> Result<Option<DatatypePolicy>, String> {
+fn resolve_datatype_policy(
+    value: Option<&str>,
+    rich: bool,
+) -> Result<Option<DatatypePolicy>, String> {
     if rich && matches!(value, Some("reserved_only")) {
         return Err(String::from(
             "Invalid value for --datatype-policy: expected reserved_only or allow_custom",
@@ -2864,7 +3145,9 @@ fn resolve_finalize_scope(value: Option<&str>) -> Result<FinalizeScope, String> 
         "payload" => Ok(FinalizeScope::Payload),
         "header" => Ok(FinalizeScope::Header),
         "full" => Ok(FinalizeScope::Full),
-        _ => Err(String::from("Invalid value for --scope (expected payload, header, or full)")),
+        _ => Err(String::from(
+            "Invalid value for --scope (expected payload, header, or full)",
+        )),
     }
 }
 
@@ -2987,8 +3270,10 @@ fn resolve_receipt_path(args: &[String]) -> Result<Option<String>, String> {
 }
 
 fn read_receipt_sidecar(path: &str) -> Result<JsonValue, String> {
-    let source = fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
-    serde_json::from_str::<JsonValue>(&source).map_err(|error| format!("receipt file is not valid JSON: {path}: {error}"))
+    let source =
+        fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
+    serde_json::from_str::<JsonValue>(&source)
+        .map_err(|error| format!("receipt file is not valid JSON: {path}: {error}"))
 }
 
 fn resolve_verify_receipt(
@@ -3004,13 +3289,16 @@ fn resolve_verify_receipt(
 }
 
 fn write_receipt_sidecar(path: &str, receipt: &JsonValue) -> Result<(), String> {
-    let rendered = serde_json::to_string_pretty(receipt).map_err(|error| format!("failed to render receipt JSON: {error}"))?;
+    let rendered = serde_json::to_string_pretty(receipt)
+        .map_err(|error| format!("failed to render receipt JSON: {error}"))?;
     fs::write(path, rendered).map_err(|error| format!("failed to write {path}: {error}"))
 }
 
 fn numeric_flag_value(args: &[String], flag: &str) -> Result<usize, String> {
     match flag_value(args, flag) {
-        Some(value) => value.parse::<usize>().map_err(|_| format!("invalid value for {flag}")),
+        Some(value) => value
+            .parse::<usize>()
+            .map_err(|_| format!("invalid value for {flag}")),
         None => Ok(1),
     }
 }
@@ -3024,8 +3312,8 @@ fn resolve_bind_contracts(
     explicit_profile: Option<String>,
 ) -> Result<(Schema, Option<String>), String> {
     if let Some(schema_path) = schema_path {
-        let schema_source =
-            fs::read_to_string(&schema_path).map_err(|error| format!("failed to read {schema_path}: {error}"))?;
+        let schema_source = fs::read_to_string(&schema_path)
+            .map_err(|error| format!("failed to read {schema_path}: {error}"))?;
         let schema = normalize_schema_contract_doc(&schema_source, &schema_path)?;
         return Ok((schema, explicit_profile));
     }
@@ -3056,8 +3344,8 @@ fn resolve_bind_contracts(
 }
 
 fn normalize_schema_contract_doc(schema_source: &str, file: &str) -> Result<Schema, String> {
-    let parsed: JsonValue =
-        serde_json::from_str(schema_source).map_err(|error| format!("failed to parse schema {file}: {error}"))?;
+    let parsed: JsonValue = serde_json::from_str(schema_source)
+        .map_err(|error| format!("failed to parse schema {file}: {error}"))?;
     normalize_schema_contract_value(parsed, file)
 }
 
@@ -3082,46 +3370,75 @@ fn normalize_schema_contract_value(parsed: JsonValue, file: &str) -> Result<Sche
 
     match object.get("schema_id") {
         Some(JsonValue::String(value)) if !value.is_empty() => {}
-        _ => return Err(format!("Schema contract missing required string field 'schema_id': {file}")),
+        _ => {
+            return Err(format!(
+                "Schema contract missing required string field 'schema_id': {file}"
+            ));
+        }
     }
     match object.get("schema_version") {
         Some(JsonValue::String(value)) if !value.is_empty() => {}
-        _ => return Err(format!("Schema contract missing required string field 'schema_version': {file}")),
+        _ => {
+            return Err(format!(
+                "Schema contract missing required string field 'schema_version': {file}"
+            ));
+        }
     }
     match object.get("rules") {
         Some(JsonValue::Array(_)) => {}
-        _ => return Err(format!("Schema contract missing required array field 'rules': {file}")),
+        _ => {
+            return Err(format!(
+                "Schema contract missing required array field 'rules': {file}"
+            ));
+        }
     }
     if let Some(world) = object.get("world") {
         match world.as_str() {
             Some("open") | Some("closed") => {}
-            _ => return Err(format!("Schema contract field 'world' must be \"open\" or \"closed\": {file}")),
+            _ => {
+                return Err(format!(
+                    "Schema contract field 'world' must be \"open\" or \"closed\": {file}"
+                ));
+            }
         }
     }
     if let Some(datatype_rules) = object.get("datatype_rules") {
         let Some(map) = datatype_rules.as_object() else {
-            return Err(format!("Schema contract field 'datatype_rules' must be object: {file}"));
+            return Err(format!(
+                "Schema contract field 'datatype_rules' must be object: {file}"
+            ));
         };
         for (key, value) in map {
             if !value.is_object() {
-                return Err(format!("Schema contract datatype_rules['{key}'] must be object: {file}"));
+                return Err(format!(
+                    "Schema contract datatype_rules['{key}'] must be object: {file}"
+                ));
             }
         }
     }
     if let Some(datatype_allowlist) = object.get("datatype_allowlist") {
         let Some(items) = datatype_allowlist.as_array() else {
-            return Err(format!("Schema contract field 'datatype_allowlist' must be array<string>: {file}"));
+            return Err(format!(
+                "Schema contract field 'datatype_allowlist' must be array<string>: {file}"
+            ));
         };
         if items.iter().any(|item| !item.is_string()) {
-            return Err(format!("Schema contract field 'datatype_allowlist' must be array<string>: {file}"));
+            return Err(format!(
+                "Schema contract field 'datatype_allowlist' must be array<string>: {file}"
+            ));
         }
     }
 
-    serde_json::from_value(parsed).map_err(|error| format!("failed to parse normalized schema {file}: {error}"))
+    serde_json::from_value(parsed)
+        .map_err(|error| format!("failed to parse normalized schema {file}: {error}"))
 }
 
-fn read_schema_contract_aeon_file(file: &str, expected_schema_id: Option<&str>) -> Result<Schema, String> {
-    let source = fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
+fn read_schema_contract_aeon_file(
+    file: &str,
+    expected_schema_id: Option<&str>,
+) -> Result<Schema, String> {
+    let source =
+        fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
     let compiled = compile(
         &source,
         CompileOptions {
@@ -3135,7 +3452,9 @@ fn read_schema_contract_aeon_file(file: &str, expected_schema_id: Option<&str>) 
 
     let finalized = finalize_json(&compiled.events, FinalizeOptions::default());
     if !finalized.meta.errors.is_empty() {
-        return Err(format!("Schema contract AEON file failed to finalize: {file}"));
+        return Err(format!(
+            "Schema contract AEON file failed to finalize: {file}"
+        ));
     }
 
     let document = finalized.document;
@@ -3149,25 +3468,33 @@ fn read_schema_contract_aeon_file(file: &str, expected_schema_id: Option<&str>) 
             Some(actual) => {
                 return Err(format!(
                     "Schema contract id mismatch. Expected '{expected}', found '{actual}' in {file}"
-                ))
+                ));
             }
-            None => return Err(format!("Schema contract missing required string field 'schema_id': {file}")),
+            None => {
+                return Err(format!(
+                    "Schema contract missing required string field 'schema_id': {file}"
+                ));
+            }
         }
     }
     normalize_schema_contract_value(JsonValue::Object(object), file)
 }
 
 fn read_contract_registry_file(file: &str) -> Result<ContractRegistryDoc, String> {
-    let raw = fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
-    let registry: ContractRegistryDoc =
-        serde_json::from_str(&raw).map_err(|_| format!("Contract registry file is not valid JSON: {file}"))?;
+    let raw =
+        fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    let registry: ContractRegistryDoc = serde_json::from_str(&raw)
+        .map_err(|_| format!("Contract registry file is not valid JSON: {file}"))?;
     if registry.contracts.is_empty() && !raw.contains("\"contracts\"") {
-        return Err(format!("Contract registry JSON must contain a top-level 'contracts' array: {file}"));
+        return Err(format!(
+            "Contract registry JSON must contain a top-level 'contracts' array: {file}"
+        ));
     }
     for (index, entry) in registry.contracts.iter().enumerate() {
         let kind_ok = matches!(entry.kind.as_str(), "profile" | "schema");
         let status_ok = matches!(entry.status.as_str(), "active" | "deprecated");
-        let sha_ok = entry.sha256.len() == 64 && entry.sha256.chars().all(|ch| ch.is_ascii_hexdigit());
+        let sha_ok =
+            entry.sha256.len() == 64 && entry.sha256.chars().all(|ch| ch.is_ascii_hexdigit());
         if entry.id.is_empty()
             || !kind_ok
             || entry.version.is_empty()
@@ -3176,7 +3503,9 @@ fn read_contract_registry_file(file: &str) -> Result<ContractRegistryDoc, String
             || !sha_ok
             || !status_ok
         {
-            return Err(format!("Invalid contract registry entry shape at index {index}"));
+            return Err(format!(
+                "Invalid contract registry entry shape at index {index}"
+            ));
         }
     }
     Ok(registry)
@@ -3193,7 +3522,10 @@ fn resolve_contract_entry<'a>(
         .find(|entry| entry.id == id && entry.kind == kind && entry.status == "active")
 }
 
-fn verify_contract_artifact(entry: &ContractRegistryEntry, registry_path: &str) -> Result<String, String> {
+fn verify_contract_artifact(
+    entry: &ContractRegistryEntry,
+    registry_path: &str,
+) -> Result<String, String> {
     let base_dir = Path::new(registry_path)
         .parent()
         .map(Path::to_path_buf)
@@ -3237,7 +3569,7 @@ fn profile_processors_skipped_warning(profile_id: &str) -> JsonValue {
 mod tests {
     use super::*;
     use aeon_annotations::extract_annotations;
-    use aeon_core::{compile, CompileOptions};
+    use aeon_core::{CompileOptions, compile};
     use ed25519_dalek::pkcs8::{EncodePrivateKey, EncodePublicKey};
     use pkcs8::LineEnding;
     use std::path::Path;
@@ -3329,8 +3661,11 @@ mod tests {
 
     #[test]
     fn integrity_without_subcommand_reports_usage() {
-        let result = run(vec![String::from("aeon-rust"), String::from("integrity")]).expect_err("usage error");
-        assert!(result.contains("Usage: aeon integrity <validate|verify> <file> [--strict|--loose]"));
+        let result = run(vec![String::from("aeon-rust"), String::from("integrity")])
+            .expect_err("usage error");
+        assert!(
+            result.contains("Usage: aeon integrity <validate|verify> <file> [--strict|--loose]")
+        );
     }
 
     #[test]
@@ -3354,12 +3689,15 @@ mod tests {
         ])
         .expect_err("usage error");
         assert!(result.contains("Error: Missing value for --contract-registry <registry.json>"));
-        assert!(result.contains("Usage: aeon doctor [--json] [--contract-registry <registry.json>]"));
+        assert!(
+            result.contains("Usage: aeon doctor [--json] [--contract-registry <registry.json>]")
+        );
     }
 
     #[test]
     fn check_requires_a_file() {
-        let result = run(vec![String::from("aeon-rust"), String::from("check")]).expect_err("usage error");
+        let result =
+            run(vec![String::from("aeon-rust"), String::from("check")]).expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains("Usage: aeon check <file>"));
     }
@@ -3386,27 +3724,30 @@ mod tests {
         assert!(result.contains(
             "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)"
         ));
-        assert!(result.contains("Usage: aeon check <file> [--datatype-policy <reserved_only|allow_custom>]"));
+        assert!(
+            result.contains(
+                "Usage: aeon check <file> [--datatype-policy <reserved_only|allow_custom>]"
+            )
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn check_accepts_header_conflict_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("header-conflict.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("header-conflict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
-        assert!(result.errors.iter().any(|error| error.code == "HEADER_CONFLICT"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "HEADER_CONFLICT")
+        );
         assert!(result.events.is_empty());
     }
 
     #[test]
     fn check_invalid_document_matches_contract_error_lines() {
-        let source = fs::read_to_string(
-            fixture_path("header-conflict.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("header-conflict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let lines = result
             .errors
@@ -3414,17 +3755,16 @@ mod tests {
             .map(format_error_line)
             .collect::<Vec<_>>();
         assert!(!lines.is_empty());
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("[HEADER_CONFLICT]") && line.contains("path=$")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("[HEADER_CONFLICT]") && line.contains("path=$"))
+        );
     }
 
     #[test]
     fn inspect_duplicate_binding_is_fail_closed() {
-        let source = fs::read_to_string(
-            fixture_path("duplicate-binding.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("duplicate-binding.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
             "duplicate-binding.aeon",
@@ -3474,10 +3814,7 @@ mod tests {
 
     #[test]
     fn inspect_markdown_matches_cli_contract_for_valid_fixture() {
-        let source = fs::read_to_string(
-            fixture_path("valid.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("valid.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
             "valid.aeon",
@@ -3499,10 +3836,8 @@ mod tests {
 
     #[test]
     fn inspect_markdown_recovery_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("recovery-duplicate-binding.aeon"),
-        )
-        .expect("fixture");
+        let source =
+            fs::read_to_string(fixture_path("recovery-duplicate-binding.aeon")).expect("fixture");
         let result = compile(
             &source,
             CompileOptions {
@@ -3524,17 +3859,17 @@ mod tests {
                 schema: None,
             },
         );
-        assert!(normalize(&rendered).contains("> WARNING: recovery mode enabled (tooling-only); output may be partial"));
+        assert!(
+            normalize(&rendered)
+                .contains("> WARNING: recovery mode enabled (tooling-only); output may be partial")
+        );
         assert!(normalize(&rendered).contains("- Recovery: true"));
         assert!(normalize(&rendered).contains("## Assignment Events"));
     }
 
     #[test]
     fn inspect_markdown_typed_switch_strict_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("typed-switch-strict.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("typed-switch-strict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
             "typed-switch-strict.aeon",
@@ -3560,10 +3895,8 @@ mod tests {
 
     #[test]
     fn inspect_markdown_untyped_switch_strict_is_fail_closed() {
-        let source = fs::read_to_string(
-            fixture_path("untyped-switch-strict.aeon"),
-        )
-        .expect("fixture");
+        let source =
+            fs::read_to_string(fixture_path("untyped-switch-strict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
             "untyped-switch-strict.aeon",
@@ -3586,10 +3919,7 @@ mod tests {
 
     #[test]
     fn inspect_markdown_references_symbolic_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("references-symbolic.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("references-symbolic.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
             "references-symbolic.aeon",
@@ -3615,7 +3945,8 @@ mod tests {
 
     #[test]
     fn inspect_reports_usage_for_missing_file() {
-        let result = run(vec![String::from("aeon-rust"), String::from("inspect")]).expect_err("usage error");
+        let result =
+            run(vec![String::from("aeon-rust"), String::from("inspect")]).expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains("Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"));
     }
@@ -3686,7 +4017,9 @@ mod tests {
             String::from("invalid"),
         ])
         .expect_err("usage error");
-        assert!(result.contains("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)"));
+        assert!(result.contains(
+            "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)"
+        ));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3706,7 +4039,10 @@ mod tests {
 
     #[test]
     fn render_inspect_markdown_lists_pointer_references() {
-        let result = compile("target = { x:int32 = 1 }\nptr = ~>target.x\n", CompileOptions::default());
+        let result = compile(
+            "target = { x:int32 = 1 }\nptr = ~>target.x\n",
+            CompileOptions::default(),
+        );
         let rendered = render_inspect_markdown(
             "references-symbolic.aeon",
             &result,
@@ -3751,10 +4087,7 @@ mod tests {
 
     #[test]
     fn inspect_annotation_only_markdown_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("inspect-annotations.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("inspect-annotations.aeon")).expect("fixture");
         let annotations = extract_annotations(&source);
         let result = compile("a = 1\nb = 2\n", CompileOptions::default());
         let rendered = render_inspect_markdown(
@@ -3777,10 +4110,7 @@ mod tests {
 
     #[test]
     fn inspect_annotations_markdown_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("inspect-annotations.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("inspect-annotations.aeon")).expect("fixture");
         let annotations = extract_annotations(&source);
         let result = compile("a = 1\nb = 2\n", CompileOptions::default());
         let rendered = render_inspect_markdown(
@@ -3807,10 +4137,7 @@ mod tests {
 
     #[test]
     fn inspect_sorted_annotation_only_markdown_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("inspect-annotations.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("inspect-annotations.aeon")).expect("fixture");
         let annotations = sort_annotations(extract_annotations(&source));
         let result = compile("a = 1\nb = 2\n", CompileOptions::default());
         let rendered = render_inspect_markdown(
@@ -3833,10 +4160,7 @@ mod tests {
 
     #[test]
     fn inspect_json_matches_valid_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("valid.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("valid.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let output = json!({
             "events": serde_json::from_str::<JsonValue>(&render_events(&result.events)).expect("events json"),
@@ -3879,10 +4203,7 @@ mod tests {
 
     #[test]
     fn inspect_annotations_only_json_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("inspect-annotations.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("inspect-annotations.aeon")).expect("fixture");
         let annotations = extract_annotations(&source);
         let output = json!({
             "annotations": serde_json::from_str::<JsonValue>(&render_annotations(&annotations)).expect("annotations json"),
@@ -3890,11 +4211,20 @@ mod tests {
         let parsed = output["annotations"].as_array().expect("annotations array");
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0]["kind"], "doc");
-        assert_eq!(parsed[0]["target"], json!({ "kind": "path", "path": "$.a" }));
+        assert_eq!(
+            parsed[0]["target"],
+            json!({ "kind": "path", "path": "$.a" })
+        );
         assert_eq!(parsed[1]["kind"], "hint");
-        assert_eq!(parsed[1]["target"], json!({ "kind": "path", "path": "$.a" }));
+        assert_eq!(
+            parsed[1]["target"],
+            json!({ "kind": "path", "path": "$.a" })
+        );
         assert_eq!(parsed[2]["kind"], "annotation");
-        assert_eq!(parsed[2]["target"], json!({ "kind": "path", "path": "$.b" }));
+        assert_eq!(
+            parsed[2]["target"],
+            json!({ "kind": "path", "path": "$.b" })
+        );
         assert_eq!(output.get("events"), None);
         assert_eq!(output.get("errors"), None);
     }
@@ -3905,7 +4235,8 @@ mod tests {
             "a:int32 = 1_000_000\nb = [1_2.3_4]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
             CompileOptions::default(),
         );
-        let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
+        let parsed: JsonValue =
+            serde_json::from_str(&render_events(&result.events)).expect("valid events json");
         let events = parsed.as_array().expect("events array");
         let by_key = events
             .iter()
@@ -3926,7 +4257,10 @@ mod tests {
         assert_eq!(by_key["trim"]["value"]["delimiter"], "`");
         assert_eq!(by_key["trim"]["value"]["raw"], "\n  one\n  two\n");
         assert_eq!(by_key["trim"]["value"]["trimticks"]["markerWidth"], 1);
-        assert_eq!(by_key["trim"]["value"]["trimticks"]["rawValue"], "\n  one\n  two\n");
+        assert_eq!(
+            by_key["trim"]["value"]["trimticks"]["rawValue"],
+            "\n  one\n  two\n"
+        );
         assert_eq!(by_key["enc"]["value"]["type"], "EncodingLiteral");
         assert_eq!(by_key["enc"]["value"]["raw"], "$QmFzZTY0IQ==");
         assert_eq!(by_key["enc"]["value"]["value"], "QmFzZTY0IQ==");
@@ -3937,8 +4271,12 @@ mod tests {
 
     #[test]
     fn render_events_serializes_pointer_references() {
-        let result = compile("target = { x:int32 = 1 }\nptr = ~>target.x\n", CompileOptions::default());
-        let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
+        let result = compile(
+            "target = { x:int32 = 1 }\nptr = ~>target.x\n",
+            CompileOptions::default(),
+        );
+        let parsed: JsonValue =
+            serde_json::from_str(&render_events(&result.events)).expect("valid events json");
         let events = parsed.as_array().expect("events array");
         let by_key = events
             .iter()
@@ -3955,19 +4293,47 @@ mod tests {
             "content:node = <span@{id=\"text\", class:string=\"dark\"}(\"hello\")>\n",
             CompileOptions::default(),
         );
-        let parsed: JsonValue = serde_json::from_str(&render_events(&result.events)).expect("valid events json");
+        let parsed: JsonValue =
+            serde_json::from_str(&render_events(&result.events)).expect("valid events json");
         let events = parsed.as_array().expect("events array");
         let node = &events[0]["value"];
         assert_eq!(node["type"], "NodeLiteral");
-        assert_eq!(node["attributes"][0]["entries"]["id"]["datatype"], JsonValue::Null);
-        assert_eq!(node["attributes"][0]["entries"]["id"]["value"]["type"], "StringLiteral");
-        assert_eq!(node["attributes"][0]["entries"]["id"]["value"]["value"], "text");
-        assert_eq!(node["attributes"][0]["entries"]["id"]["value"]["raw"], "text");
-        assert_eq!(node["attributes"][0]["entries"]["id"]["value"]["delimiter"], "\"");
-        assert_eq!(node["attributes"][0]["entries"]["class"]["datatype"]["type"], "TypeAnnotation");
-        assert_eq!(node["attributes"][0]["entries"]["class"]["datatype"]["name"], "string");
-        assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["type"], "StringLiteral");
-        assert_eq!(node["attributes"][0]["entries"]["class"]["value"]["value"], "dark");
+        assert_eq!(
+            node["attributes"][0]["entries"]["id"]["datatype"],
+            JsonValue::Null
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["id"]["value"]["type"],
+            "StringLiteral"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["id"]["value"]["value"],
+            "text"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["id"]["value"]["raw"],
+            "text"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["id"]["value"]["delimiter"],
+            "\""
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["class"]["datatype"]["type"],
+            "TypeAnnotation"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["class"]["datatype"]["name"],
+            "string"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["class"]["value"]["type"],
+            "StringLiteral"
+        );
+        assert_eq!(
+            node["attributes"][0]["entries"]["class"]["value"]["value"],
+            "dark"
+        );
     }
 
     #[test]
@@ -3990,18 +4356,24 @@ mod tests {
     fn render_errors_defaults_missing_paths_to_root() {
         let mut diagnostic = Diagnostic::new("TEST_ERROR", "example");
         diagnostic.span = Some(aeon_core::Span::zero());
-        let parsed: JsonValue = serde_json::from_str(&render_errors(&[diagnostic])).expect("valid errors json");
+        let parsed: JsonValue =
+            serde_json::from_str(&render_errors(&[diagnostic])).expect("valid errors json");
         assert_eq!(parsed[0]["path"], "$");
     }
 
     #[test]
     fn render_errors_infers_phase_label_for_self_reference() {
-        let mut diagnostic = Diagnostic::new("SELF_REFERENCE", "Self reference: '$.a' references itself");
+        let mut diagnostic =
+            Diagnostic::new("SELF_REFERENCE", "Self reference: '$.a' references itself");
         diagnostic.path = Some(String::from("$.a"));
         diagnostic.span = Some(aeon_core::Span::zero());
-        let parsed: JsonValue = serde_json::from_str(&render_errors(&[diagnostic.clone()])).expect("valid errors json");
+        let parsed: JsonValue =
+            serde_json::from_str(&render_errors(&[diagnostic.clone()])).expect("valid errors json");
         assert_eq!(parsed[0]["phaseLabel"], "Reference Validation");
-        assert!(format_error_line(&diagnostic).starts_with("Reference Validation: Self reference: '$.a' references itself"));
+        assert!(
+            format_error_line(&diagnostic)
+                .starts_with("Reference Validation: Self reference: '$.a' references itself")
+        );
     }
 
     #[test]
@@ -4090,9 +4462,13 @@ mod tests {
 
     #[test]
     fn fmt_output_for_shorthand_mode_matches_positive_canonical_contract() {
-        let (code, output) = format_source_for_cli("aeon:mode = \"transport\"\na = {}\n", None).expect("fmt result");
+        let (code, output) =
+            format_source_for_cli("aeon:mode = \"transport\"\na = {}\n", None).expect("fmt result");
         assert_eq!(code, ExitCode::SUCCESS);
-        assert_eq!(output, "aeon:header = {\n  mode = \"transport\"\n}\na = {\n}\n");
+        assert_eq!(
+            output,
+            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n}\n"
+        );
     }
 
     #[test]
@@ -4134,22 +4510,33 @@ mod tests {
         .join("\n");
         let result = canonicalize(&source);
         assert!(!result.errors.is_empty());
-        assert!(result.errors.iter().any(|error| error.code == "SYNTAX_ERROR"));
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.message.contains("Structured headers must appear before body bindings")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "SYNTAX_ERROR")
+        );
+        assert!(result.errors.iter().any(|error| {
+            error
+                .message
+                .contains("Structured headers must appear before body bindings")
+        }));
     }
 
     #[test]
     fn fmt_invalid_input_emits_structured_error_lines() {
         let (code, output) = format_source_for_cli("a = {\n", None).expect("fmt result");
         assert_eq!(code, ExitCode::from(1));
-        let lines = normalize(&output).split('\n').map(str::to_string).collect::<Vec<_>>();
+        let lines = normalize(&output)
+            .split('\n')
+            .map(str::to_string)
+            .collect::<Vec<_>>();
         assert!(!lines.is_empty());
-        assert!(lines
-            .iter()
-            .all(|line| line.contains('[') && line.contains("path=$") && line.contains("span=")));
+        assert!(
+            lines.iter().all(|line| line.contains('[')
+                && line.contains("path=$")
+                && line.contains("span="))
+        );
     }
 
     #[test]
@@ -4175,7 +4562,8 @@ mod tests {
 
     #[test]
     fn finalize_reports_usage_for_missing_file() {
-        let result = run(vec![String::from("aeon-rust"), String::from("finalize")]).expect_err("usage error");
+        let result = run(vec![String::from("aeon-rust"), String::from("finalize")])
+            .expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains(
             "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
@@ -4184,10 +4572,7 @@ mod tests {
 
     #[test]
     fn finalize_json_matches_basic_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("finalize-basic.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("finalize-basic.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let finalized = finalize_json(
             &result.events,
@@ -4215,10 +4600,7 @@ mod tests {
 
     #[test]
     fn finalize_map_matches_basic_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("finalize-basic.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("finalize-basic.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let finalized = finalize_map(
             &result.events,
@@ -4264,10 +4646,7 @@ mod tests {
 
     #[test]
     fn finalize_projected_json_matches_fixture_contract() {
-        let source = fs::read_to_string(
-            fixture_path("finalize-basic.aeon"),
-        )
-        .expect("fixture");
+        let source = fs::read_to_string(fixture_path("finalize-basic.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let finalized = finalize_json(
             &result.events,
@@ -4341,7 +4720,9 @@ mod tests {
             String::from("--projected"),
         ])
         .expect_err("usage error");
-        assert!(result.contains("Error: --projected requires at least one --include-path <$.path>"));
+        assert!(
+            result.contains("Error: --projected requires at least one --include-path <$.path>")
+        );
         assert!(result.contains(
             "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
         ));
@@ -4441,9 +4822,10 @@ mod tests {
 
     #[test]
     fn bind_requires_schema_or_contract_registry() {
-        let error = execute_bind(&[fixture_path("bind-valid.aeon")])
-        .expect_err("usage error");
-        assert!(error.contains("Error: Missing required --schema <schema.json> or --contract-registry <registry.json>"));
+        let error = execute_bind(&[fixture_path("bind-valid.aeon")]).expect_err("usage error");
+        assert!(error.contains(
+            "Error: Missing required --schema <schema.json> or --contract-registry <registry.json>"
+        ));
         assert!(error.contains("Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]"));
     }
 
@@ -4462,7 +4844,11 @@ mod tests {
             r#"{"schema_id":"aeon.test.schema.v1","schema_version":"1.0.0","rules":[{"path":"$.name","constraints":{"type":"StringLiteral","required":true}},{"path":"$.port","constraints":{"type":"NumberLiteral","required":true}}]}"#,
         )
         .expect("schema");
-        fs::write(&input, "aeon:mode = \"strict\"\nname:string = \"AEON\"\nport:number = 8080\n").expect("input");
+        fs::write(
+            &input,
+            "aeon:mode = \"strict\"\nname:string = \"AEON\"\nport:number = 8080\n",
+        )
+        .expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),
@@ -4568,11 +4954,20 @@ mod tests {
         let annotations = output["annotations"].as_array().expect("annotations");
         assert_eq!(annotations.len(), 3);
         assert_eq!(annotations[0]["kind"], "doc");
-        assert_eq!(annotations[0]["target"], json!({ "kind": "path", "path": "$.app.name" }));
+        assert_eq!(
+            annotations[0]["target"],
+            json!({ "kind": "path", "path": "$.app.name" })
+        );
         assert_eq!(annotations[1]["kind"], "hint");
-        assert_eq!(annotations[1]["target"], json!({ "kind": "path", "path": "$.app.name" }));
+        assert_eq!(
+            annotations[1]["target"],
+            json!({ "kind": "path", "path": "$.app.name" })
+        );
         assert_eq!(annotations[2]["kind"], "annotation");
-        assert_eq!(annotations[2]["target"], json!({ "kind": "path", "path": "$.app.port" }));
+        assert_eq!(
+            annotations[2]["target"],
+            json!({ "kind": "path", "path": "$.app.port" })
+        );
     }
 
     #[test]
@@ -4607,7 +5002,9 @@ mod tests {
         let annotations = output["annotations"].as_array().expect("annotations array");
         let mut previous = 0u64;
         for annotation in annotations {
-            let next = annotation["span"]["start"]["offset"].as_u64().expect("offset");
+            let next = annotation["span"]["start"]["offset"]
+                .as_u64()
+                .expect("offset");
             assert!(next >= previous);
             previous = next;
         }
@@ -4624,7 +5021,11 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let schema = dir.join("schema.json");
         let input = dir.join("input.aeon");
-        fs::write(&schema, r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#).expect("schema");
+        fs::write(
+            &schema,
+            r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
+        )
+        .expect("schema");
         fs::write(&input, "line:set[|] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
@@ -4636,11 +5037,14 @@ mod tests {
         ])
         .expect("bind result");
         assert_eq!(code, ExitCode::SUCCESS);
-        assert!(output["meta"]["warnings"]
-            .as_array()
-            .expect("warnings array")
-            .iter()
-            .any(|warning| warning["code"] == "trailing_separator_delimiter" && warning["phase"] == 6));
+        assert!(
+            output["meta"]["warnings"]
+                .as_array()
+                .expect("warnings array")
+                .iter()
+                .any(|warning| warning["code"] == "trailing_separator_delimiter"
+                    && warning["phase"] == 6)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4654,7 +5058,11 @@ mod tests {
         fs::create_dir_all(&dir).expect("tmp dir");
         let schema = dir.join("schema.json");
         let input = dir.join("input.aeon");
-        fs::write(&schema, r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#).expect("schema");
+        fs::write(
+            &schema,
+            r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
+        )
+        .expect("schema");
         fs::write(&input, "line:set[|] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
@@ -4690,7 +5098,11 @@ mod tests {
             r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[{"path":"$.app.name","constraints":{"type":"StringLiteral","required":true}},{"path":"$.app.port","constraints":{"type":"NumberLiteral","required":true}}]}"#,
         )
         .expect("schema");
-        fs::write(&input, "app = { name = \"AEON\", port = 8080, debug = true }\n").expect("input");
+        fs::write(
+            &input,
+            "app = { name = \"AEON\", port = 8080, debug = true }\n",
+        )
+        .expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),
@@ -4703,7 +5115,10 @@ mod tests {
         ])
         .expect("bind result");
         assert_eq!(code, ExitCode::SUCCESS);
-        assert_eq!(output["document"], json!({ "app": { "name": "AEON", "port": 8080 } }));
+        assert_eq!(
+            output["document"],
+            json!({ "app": { "name": "AEON", "port": 8080 } })
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4733,7 +5148,13 @@ mod tests {
         .expect("bind result");
         assert_eq!(code, ExitCode::from(1));
         assert!(output.get("document").is_some());
-        assert!(output["meta"]["errors"].as_array().expect("errors array").iter().any(|error| error["phase"] == 6));
+        assert!(
+            output["meta"]["errors"]
+                .as_array()
+                .expect("errors array")
+                .iter()
+                .any(|error| error["phase"] == 6)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4774,35 +5195,43 @@ mod tests {
 
     #[test]
     fn bind_reports_usage_errors_for_missing_flag_values() {
-        assert!(execute_bind(&[
-            String::from("input.aeon"),
-            String::from("--schema"),
-            String::from("schema.json"),
-            String::from("--include-path"),
-        ])
-        .is_err());
-        assert!(execute_bind(&[
-            String::from("input.aeon"),
-            String::from("--schema"),
-            String::from("schema.json"),
-            String::from("--trailing-separator-delimiter-policy"),
-        ])
-        .is_err());
-        assert!(execute_bind(&[
-            String::from("input.aeon"),
-            String::from("--schema"),
-            String::from("schema.json"),
-            String::from("--profile"),
-        ])
-        .is_err());
-        assert!(execute_bind(&[
-            String::from("input.aeon"),
-            String::from("--schema"),
-            String::from("schema.json"),
-            String::from("--max-materialized-weight"),
-            String::from("abc"),
-        ])
-        .is_err());
+        assert!(
+            execute_bind(&[
+                String::from("input.aeon"),
+                String::from("--schema"),
+                String::from("schema.json"),
+                String::from("--include-path"),
+            ])
+            .is_err()
+        );
+        assert!(
+            execute_bind(&[
+                String::from("input.aeon"),
+                String::from("--schema"),
+                String::from("schema.json"),
+                String::from("--trailing-separator-delimiter-policy"),
+            ])
+            .is_err()
+        );
+        assert!(
+            execute_bind(&[
+                String::from("input.aeon"),
+                String::from("--schema"),
+                String::from("schema.json"),
+                String::from("--profile"),
+            ])
+            .is_err()
+        );
+        assert!(
+            execute_bind(&[
+                String::from("input.aeon"),
+                String::from("--schema"),
+                String::from("schema.json"),
+                String::from("--max-materialized-weight"),
+                String::from("abc"),
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -4897,7 +5326,11 @@ mod tests {
         ])
         .expect_err("usage error");
         assert!(result.contains("Error: Missing --private-key"));
-        assert!(result.contains("Usage: aeon integrity sign <file> --private-key <path> [--receipt <path>]"));
+        assert!(
+            result.contains(
+                "Usage: aeon integrity sign <file> --private-key <path> [--receipt <path>]"
+            )
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4914,7 +5347,11 @@ mod tests {
         ])
         .expect_err("usage error");
         assert!(result.contains("Missing value for --receipt <path>"));
-        assert!(result.contains("Usage: aeon integrity sign <file> --private-key <path> [--receipt <path>]"));
+        assert!(
+            result.contains(
+                "Usage: aeon integrity sign <file> --private-key <path> [--receipt <path>]"
+            )
+        );
     }
 
     #[test]
@@ -4945,11 +5382,14 @@ mod tests {
         .expect("bind result");
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(output["document"].is_object());
-        assert!(output["meta"]["warnings"]
-            .as_array()
-            .expect("warnings array")
-            .iter()
-            .any(|warning| warning["code"] == "PROFILE_PROCESSORS_SKIPPED" && warning["phase"] == 5));
+        assert!(
+            output["meta"]["warnings"]
+                .as_array()
+                .expect("warnings array")
+                .iter()
+                .any(|warning| warning["code"] == "PROFILE_PROCESSORS_SKIPPED"
+                    && warning["phase"] == 5)
+        );
     }
 
     #[test]
@@ -4981,7 +5421,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time ok")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("aeon-rust-bind-schema-missing-version-{unique}"));
+        let dir =
+            std::env::temp_dir().join(format!("aeon-rust-bind-schema-missing-version-{unique}"));
         fs::create_dir_all(&dir).expect("tmp dir");
         let schema = dir.join("schema.json");
         let input = dir.join("input.aeon");
@@ -5067,12 +5508,19 @@ mod tests {
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(output["document"]["app"]["name"], "AEON");
         assert_eq!(output["document"]["app"]["port"], 8080);
-        assert!(output["meta"]["errors"].as_array().expect("errors").is_empty());
-        assert!(output["meta"]["warnings"]
-            .as_array()
-            .expect("warnings")
-            .iter()
-            .any(|warning| warning["code"] == "PROFILE_PROCESSORS_SKIPPED"));
+        assert!(
+            output["meta"]["errors"]
+                .as_array()
+                .expect("errors")
+                .is_empty()
+        );
+        assert!(
+            output["meta"]["warnings"]
+                .as_array()
+                .expect("warnings")
+                .iter()
+                .any(|warning| warning["code"] == "PROFILE_PROCESSORS_SKIPPED")
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5082,7 +5530,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time ok")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("aeon-rust-bind-registry-unknown-schema-{unique}"));
+        let dir =
+            std::env::temp_dir().join(format!("aeon-rust-bind-registry-unknown-schema-{unique}"));
         fs::create_dir_all(&dir).expect("tmp dir");
         let input = dir.join("contract-bind.aeon");
         let profile = dir.join("profile.aeon");
@@ -5123,7 +5572,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time ok")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("aeon-rust-bind-registry-unknown-profile-{unique}"));
+        let dir =
+            std::env::temp_dir().join(format!("aeon-rust-bind-registry-unknown-profile-{unique}"));
         fs::create_dir_all(&dir).expect("tmp dir");
         let input = dir.join("contract-bind.aeon");
         let schema = dir.join("schema.aeon");
@@ -5206,7 +5656,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time ok")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("aeon-rust-bind-registry-missing-artifact-{unique}"));
+        let dir =
+            std::env::temp_dir().join(format!("aeon-rust-bind-registry-missing-artifact-{unique}"));
         fs::create_dir_all(&dir).expect("tmp dir");
         let input = dir.join("contract-bind.aeon");
         let profile = dir.join("profile.aeon");
@@ -5253,8 +5704,7 @@ mod tests {
             "aeon:mode = \"strict\"\naeon:profile = \"aeon.gp.profile.v1\"\naeon:schema = \"aeon.gp.schema.v1\"\nvalue:uint = -1\n",
         )
         .expect("input");
-        let registry =
-            contract_registry_path();
+        let registry = contract_registry_path();
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),
             String::from("--contract-registry"),
@@ -5264,16 +5714,18 @@ mod tests {
         .expect("bind result");
         assert_eq!(code, ExitCode::from(1));
         assert!(output.get("document").is_none());
-        assert!(output["meta"]["errors"]
-            .as_array()
-            .expect("errors")
-            .iter()
-            .any(|error| {
-                error["phase"] == 6
-                    && error["code"] == "numeric_form_violation"
-                    && error["path"] == "$.value"
-                    && error["span"].is_array()
-            }));
+        assert!(
+            output["meta"]["errors"]
+                .as_array()
+                .expect("errors")
+                .iter()
+                .any(|error| {
+                    error["phase"] == 6
+                        && error["code"] == "numeric_form_violation"
+                        && error["path"] == "$.value"
+                        && error["span"].is_array()
+                })
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5343,12 +5795,8 @@ mod tests {
     fn bind_meta_always_includes_errors_and_warnings_arrays() {
         let schema = fixture_path("bind-schema.json");
         let input = fixture_path("bind-valid.aeon");
-        let (code, output) = execute_bind(&[
-            input,
-            String::from("--schema"),
-            schema,
-        ])
-        .expect("bind result");
+        let (code, output) =
+            execute_bind(&[input, String::from("--schema"), schema]).expect("bind result");
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(output["meta"]["errors"].is_array());
         assert!(output["meta"]["warnings"].is_array());
@@ -5412,7 +5860,9 @@ mod tests {
     fn envelope_diagnostic_lines_match_cli_contract_shape() {
         let warning = EnvelopeDiagnostic {
             code: "ENVELOPE_SIGNATURE_KEY_MISSING",
-            message: String::from("sig present but no --public-key provided;\nsignature not verified"),
+            message: String::from(
+                "sig present but no --public-key provided;\nsignature not verified",
+            ),
         };
         assert_eq!(
             format_envelope_diagnostic_line("WARN", &warning),
@@ -5478,8 +5928,15 @@ mod tests {
         let (mut errors, warnings) = validate_envelope_events(&result.events, true);
         let envelope_root = envelope_root_path(&result.events).expect("envelope");
         let expected_hash =
-            read_envelope_field(&result.events, &envelope_root, &["integrity.hash", "hash"]).expect("hash");
-        let receipt = canonical_receipt_json(body, &computed, body_compile.header.as_ref(), Some(&expected_hash), false);
+            read_envelope_field(&result.events, &envelope_root, &["integrity.hash", "hash"])
+                .expect("hash");
+        let receipt = canonical_receipt_json(
+            body,
+            &computed,
+            body_compile.header.as_ref(),
+            Some(&expected_hash),
+            false,
+        );
         let verification = json!({
             "canonical": {
                 "present": true,
@@ -5504,7 +5961,12 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(receipt["source"]["mediaType"], "text/aeon");
         assert_eq!(receipt["producer"]["implementation"], "aeon-cli-rs");
-        assert!(receipt["generated"]["at"].as_str().expect("timestamp").contains('T'));
+        assert!(
+            receipt["generated"]["at"]
+                .as_str()
+                .expect("timestamp")
+                .contains('T')
+        );
         assert_eq!(receipt["canonical"]["digest"], computed.hash);
         assert_eq!(verification["canonical"]["algorithm"], "sha-256");
         assert_eq!(verification["canonical"]["expected"], computed.hash);
@@ -5520,12 +5982,26 @@ mod tests {
     #[test]
     fn doctor_reports_passing_registry_check_by_default() {
         let checks = run_doctor(&default_contract_registry_path());
-        assert!(checks.iter().any(|check| check.name == "node-version" && check.status == "pass"));
-        assert!(checks
-            .iter()
-            .any(|check| check.name == "package-availability" && check.status == "pass"));
-        assert!(checks.iter().any(|check| check.name == "contract-registry" && check.status == "pass"));
-        assert!(checks.iter().any(|check| check.name == "policy-surface" && check.status == "pass"));
+        assert!(
+            checks
+                .iter()
+                .any(|check| check.name == "node-version" && check.status == "pass")
+        );
+        assert!(
+            checks
+                .iter()
+                .any(|check| check.name == "package-availability" && check.status == "pass")
+        );
+        assert!(
+            checks
+                .iter()
+                .any(|check| check.name == "contract-registry" && check.status == "pass")
+        );
+        assert!(
+            checks
+                .iter()
+                .any(|check| check.name == "policy-surface" && check.status == "pass")
+        );
         assert!(checks.iter().all(|check| check.status != "fail"));
     }
 
@@ -5533,10 +6009,26 @@ mod tests {
     fn doctor_human_output_matches_contract_shape() {
         let checks = run_doctor(&default_contract_registry_path());
         let lines = doctor_lines(&checks);
-        assert!(lines.iter().any(|line| line.starts_with("[PASS] node-version ")));
-        assert!(lines.iter().any(|line| line.starts_with("[PASS] package-availability ")));
-        assert!(lines.iter().any(|line| line.starts_with("[PASS] contract-registry ")));
-        assert!(lines.iter().any(|line| line.starts_with("[PASS] policy-surface ")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("[PASS] node-version "))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("[PASS] package-availability "))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("[PASS] contract-registry "))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("[PASS] policy-surface "))
+        );
     }
 
     #[test]
@@ -5544,28 +6036,44 @@ mod tests {
         let checks = run_doctor(&default_contract_registry_path());
         let payload = doctor_payload(&checks);
         assert_eq!(payload["ok"], true);
-        assert!(payload["checks"]
-            .as_array()
-            .expect("checks")
-            .iter()
-            .any(|check| check["name"] == "contract-registry" && check["status"] == "pass"));
-        assert!(payload["checks"]
-            .as_array()
-            .expect("checks")
-            .iter()
-            .any(|check| check["name"] == "node-version" && check["status"] == "pass"));
-        assert!(payload["checks"]
-            .as_array()
-            .expect("checks")
-            .iter()
-            .any(|check| check["name"] == "package-availability" && check["status"] == "pass"));
+        assert!(
+            payload["checks"]
+                .as_array()
+                .expect("checks")
+                .iter()
+                .any(|check| check["name"] == "contract-registry" && check["status"] == "pass")
+        );
+        assert!(
+            payload["checks"]
+                .as_array()
+                .expect("checks")
+                .iter()
+                .any(|check| check["name"] == "node-version" && check["status"] == "pass")
+        );
+        assert!(
+            payload["checks"]
+                .as_array()
+                .expect("checks")
+                .iter()
+                .any(|check| check["name"] == "package-availability" && check["status"] == "pass")
+        );
     }
 
     #[test]
     fn doctor_fails_when_registry_path_is_missing() {
-        let missing = format!("/tmp/missing-{}.json", SystemTime::now().duration_since(UNIX_EPOCH).expect("time").as_nanos());
+        let missing = format!(
+            "/tmp/missing-{}.json",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        );
         let checks = run_doctor(&missing);
-        assert!(checks.iter().any(|check| check.name == "contract-registry" && check.status == "fail"));
+        assert!(
+            checks
+                .iter()
+                .any(|check| check.name == "contract-registry" && check.status == "fail")
+        );
     }
 
     #[test]
@@ -5591,13 +6099,15 @@ mod tests {
             .find(|check| check.name == "contract-registry")
             .expect("registry check");
         assert_eq!(registry_check.status, "fail");
-        assert!(registry_check
-            .details
-            .as_ref()
-            .and_then(|details| details["entries"].as_array())
-            .expect("entries")
-            .iter()
-            .any(|entry| entry["code"] == "CONTRACT_ARTIFACT_HASH_MISMATCH"));
+        assert!(
+            registry_check
+                .details
+                .as_ref()
+                .and_then(|details| details["entries"].as_array())
+                .expect("entries")
+                .iter()
+                .any(|entry| entry["code"] == "CONTRACT_ARTIFACT_HASH_MISMATCH")
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5639,7 +6149,8 @@ mod tests {
         let canonical = compute_canonical_hash(&compile_result.events, "sha-256");
         let private_key = test_private_key_pem();
         let signature = sign_string_payload(&canonical.hash, &private_key).expect("signature");
-        let receipt = canonical_receipt_json(body, &canonical, compile_result.header.as_ref(), None, true);
+        let receipt =
+            canonical_receipt_json(body, &canonical, compile_result.header.as_ref(), None, true);
         let payload = json!({
             "ok": true,
             "receipt": receipt,
@@ -5654,15 +6165,27 @@ mod tests {
         });
         assert_eq!(payload["ok"], true);
         assert_eq!(payload["receipt"]["source"]["mediaType"], "text/aeon");
-        assert_eq!(payload["receipt"]["producer"]["implementation"], "aeon-cli-rs");
-        assert!(payload["receipt"]["generated"]["at"].as_str().expect("timestamp").contains('T'));
+        assert_eq!(
+            payload["receipt"]["producer"]["implementation"],
+            "aeon-cli-rs"
+        );
+        assert!(
+            payload["receipt"]["generated"]["at"]
+                .as_str()
+                .expect("timestamp")
+                .contains('T')
+        );
         assert_eq!(payload["receipt"]["canonical"]["digest"], canonical.hash);
         assert!(payload["receipt"]["canonical"]["payload"].is_string());
         assert_eq!(payload["envelope"]["integrity"]["alg"], "sha-256");
         assert_eq!(payload["envelope"]["integrity"]["hash"], canonical.hash);
         assert_eq!(payload["envelope"]["signatures"][0]["alg"], "ed25519");
         assert_eq!(payload["envelope"]["signatures"][0]["kid"], "default");
-        assert!(payload["envelope"]["signatures"][0]["sig"].as_str().is_some());
+        assert!(
+            payload["envelope"]["signatures"][0]["sig"]
+                .as_str()
+                .is_some()
+        );
     }
 
     #[test]
@@ -5727,22 +6250,34 @@ mod tests {
             },
         );
         let envelope_root = envelope_root_path(&result.events).expect("envelope");
-        let signature = read_envelope_field(&result.events, &envelope_root, &["signatures[0].sig", "sig"]);
+        let signature = read_envelope_field(
+            &result.events,
+            &envelope_root,
+            &["signatures[0].sig", "sig"],
+        );
         let mut warnings = Vec::new();
         if signature.is_some() {
             warnings.push(EnvelopeDiagnostic {
                 code: "ENVELOPE_SIGNATURE_KEY_MISSING",
-                message: String::from("sig present but no --public-key provided; signature not verified"),
+                message: String::from(
+                    "sig present but no --public-key provided; signature not verified",
+                ),
             });
         }
-        assert!(warnings.iter().any(|warning| warning.code == "ENVELOPE_SIGNATURE_KEY_MISSING"));
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.code == "ENVELOPE_SIGNATURE_KEY_MISSING")
+        );
     }
 
     #[test]
     fn integrity_plain_output_includes_warning_before_ok() {
         let warnings = vec![EnvelopeDiagnostic {
             code: "ENVELOPE_SIGNATURE_KEY_MISSING",
-            message: String::from("sig present but no --public-key provided; signature not verified"),
+            message: String::from(
+                "sig present but no --public-key provided; signature not verified",
+            ),
         }];
         let lines = integrity_plain_lines(&[], &warnings);
         assert_eq!(
@@ -5940,7 +6475,11 @@ mod tests {
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
         assert_eq!(parsed["envelope"]["integrity"]["bytes_hash_alg"], "sha-256");
-        assert!(parsed["envelope"]["integrity"]["bytes_hash"].as_str().is_some());
+        assert!(
+            parsed["envelope"]["integrity"]["bytes_hash"]
+                .as_str()
+                .is_some()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5991,7 +6530,11 @@ mod tests {
         ]);
         assert!(matches!(result, Ok(code) if code == ExitCode::SUCCESS));
         assert_eq!(parsed["envelope"]["integrity"]["checksum_alg"], "sha-256");
-        assert!(parsed["envelope"]["integrity"]["checksum_value"].as_str().is_some());
+        assert!(
+            parsed["envelope"]["integrity"]["checksum_value"]
+                .as_str()
+                .is_some()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

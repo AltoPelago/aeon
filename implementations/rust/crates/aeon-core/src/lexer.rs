@@ -135,7 +135,10 @@ impl<'a> Lexer<'a> {
         self.tokens.push(Token {
             kind: TokenKind::Eof,
             text: String::new(),
-            span: Span { start: pos, end: pos },
+            span: Span {
+                start: pos,
+                end: pos,
+            },
             comment: None,
             quote: None,
         });
@@ -204,14 +207,24 @@ impl<'a> Lexer<'a> {
                 if self.peek() == '.' || self.peek() == '[' {
                     self.push_token(TokenKind::Dollar, "$", start, None, None);
                 } else if is_encoding_start_char(self.peek()) {
-                    self.scan_prefixed_literal(start, TokenKind::EncodingLiteral, is_encoding_char, is_valid_encoding_payload);
+                    self.scan_prefixed_literal(
+                        start,
+                        TokenKind::EncodingLiteral,
+                        is_encoding_char,
+                        is_valid_encoding_payload,
+                    );
                 } else {
                     self.push_token(TokenKind::Dollar, "$", start, None, None);
                 }
             }
             '%' => {
                 if is_radix_start_char(self.peek()) {
-                    self.scan_prefixed_literal(start, TokenKind::RadixLiteral, is_radix_char, is_valid_radix_payload);
+                    self.scan_prefixed_literal(
+                        start,
+                        TokenKind::RadixLiteral,
+                        is_radix_char,
+                        is_valid_radix_payload,
+                    );
                 } else {
                     self.push_token(TokenKind::Percent, "%", start, None, None);
                 }
@@ -364,7 +377,9 @@ impl<'a> Lexer<'a> {
                             '\n' | '\r' => {
                                 self.errors.push(LexError {
                                     code: String::from("UNTERMINATED_STRING"),
-                                    message: format!("Unterminated string literal (started with {quote})"),
+                                    message: format!(
+                                        "Unterminated string literal (started with {quote})"
+                                    ),
                                     span: Span {
                                         start,
                                         end: self.current_position(),
@@ -386,7 +401,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
                     }
-                    if self.is_at_end() && self.input[start.offset..self.offset].chars().last() != Some(quote) {
+                    if self.is_at_end() && !self.input[start.offset..self.offset].ends_with(quote) {
                         self.errors.push(LexError {
                             code: String::from("UNTERMINATED_STRING"),
                             message: format!("Unterminated string literal (started with {quote})"),
@@ -609,7 +624,6 @@ impl<'a> Lexer<'a> {
     fn slice_from(&self, start_offset: usize) -> String {
         self.input[start_offset..self.offset].to_owned()
     }
-
 }
 
 fn is_identifier_start(ch: char) -> bool {
@@ -645,7 +659,11 @@ fn is_valid_radix_payload(payload: &str) -> bool {
         return false;
     }
     let chars: Vec<char> = payload.chars().collect();
-    let mut index = if matches!(chars.first(), Some('+' | '-')) { 1 } else { 0 };
+    let mut index = if matches!(chars.first(), Some('+' | '-')) {
+        1
+    } else {
+        0
+    };
     if index >= chars.len() {
         return false;
     }
@@ -824,34 +842,54 @@ fn is_separator_raw_char(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{tokenize, CommentChannel, LexerOptions, TokenKind};
+    use super::{CommentChannel, LexerOptions, TokenKind, tokenize};
 
     #[test]
     fn tokenizes_basic_binding() {
         let result = tokenize("name = \"Pat\"", LexerOptions::default());
-        let kinds = result.tokens.iter().map(|token| token.kind).collect::<Vec<_>>();
+        let kinds = result
+            .tokens
+            .iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
         assert_eq!(
             kinds,
-            vec![TokenKind::Identifier, TokenKind::Equals, TokenKind::String, TokenKind::Eof]
+            vec![
+                TokenKind::Identifier,
+                TokenKind::Equals,
+                TokenKind::String,
+                TokenKind::Eof
+            ]
         );
         assert!(result.errors.is_empty());
     }
 
     #[test]
     fn includes_newlines_when_requested() {
-        let result = tokenize("a = 1\nb = 2", LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        });
-        assert!(result.tokens.iter().any(|token| token.kind == TokenKind::Newline));
+        let result = tokenize(
+            "a = 1\nb = 2",
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(
+            result
+                .tokens
+                .iter()
+                .any(|token| token.kind == TokenKind::Newline)
+        );
     }
 
     #[test]
     fn includes_comments_with_metadata_when_requested() {
-        let result = tokenize("/# doc#/", LexerOptions {
-            include_comments: true,
-            ..LexerOptions::default()
-        });
+        let result = tokenize(
+            "/# doc#/",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
         assert_eq!(result.tokens[0].kind, TokenKind::BlockComment);
         assert_eq!(
             result.tokens[0].comment.expect("comment metadata").channel,
@@ -861,10 +899,13 @@ mod tests {
 
     #[test]
     fn tracks_spans_incrementally() {
-        let result = tokenize("a = 1\nb = 2", LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        });
+        let result = tokenize(
+            "a = 1\nb = 2",
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
         let token = result
             .tokens
             .iter()
@@ -935,7 +976,11 @@ mod tests {
                 .iter()
                 .find(|token| token.kind == TokenKind::RadixLiteral)
                 .expect("radix token");
-            assert_eq!(token.text, source.split_whitespace().last().unwrap(), "{source}");
+            let expected = match source.split_whitespace().last() {
+                Some(value) => value,
+                None => panic!("missing expected radix literal token in source: {source}"),
+            };
+            assert_eq!(token.text, expected, "{source}");
         }
     }
 
@@ -963,11 +1008,10 @@ mod tests {
 
     #[test]
     fn invalid_radix_starts_fall_back_to_plain_tokens() {
-        for source in ["value = %_1"] {
-            let result = tokenize(source, LexerOptions::default());
-            assert!(result.errors.is_empty(), "{source}");
-            assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");
-        }
+        let source = "value = %_1";
+        let result = tokenize(source, LexerOptions::default());
+        assert!(result.errors.is_empty(), "{source}");
+        assert_eq!(result.tokens[2].kind, TokenKind::Percent, "{source}");
     }
 
     #[test]
@@ -1024,18 +1068,26 @@ mod tests {
     fn bare_caret_tokenizes_as_caret_before_bracket_close() {
         let result = tokenize("x:set[^] = ^1", LexerOptions::default());
         assert!(result.errors.is_empty());
-        assert!(result
-            .tokens
-            .iter()
-            .any(|token| token.kind == TokenKind::Caret && token.text == "^"));
+        assert!(
+            result
+                .tokens
+                .iter()
+                .any(|token| token.kind == TokenKind::Caret && token.text == "^")
+        );
     }
 
     #[test]
     fn separator_literals_preserve_quoted_segments_with_punctuation() {
-        let result = tokenize("^\"hello world\"|\"this, [is] fine\",tail", LexerOptions::default());
+        let result = tokenize(
+            "^\"hello world\"|\"this, [is] fine\",tail",
+            LexerOptions::default(),
+        );
         assert!(result.errors.is_empty());
         assert_eq!(result.tokens[0].kind, TokenKind::SeparatorLiteral);
-        assert_eq!(result.tokens[0].text, "^\"hello world\"|\"this, [is] fine\"");
+        assert_eq!(
+            result.tokens[0].text,
+            "^\"hello world\"|\"this, [is] fine\""
+        );
         assert_eq!(result.tokens[1].kind, TokenKind::Comma);
     }
 

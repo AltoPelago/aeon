@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+/**
+ * Shared repository path resolver for script workflows.
+ *
+ * This module is intended to be imported by scripts in this directory so they
+ * can resolve default sibling checkouts for CTS, specs, and tooling roots.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';

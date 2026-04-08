@@ -1,0 +1,19 @@
+* @AltoPelago
+
+.github/ @AltoPelago
+scripts/ @AltoPelago
+README.md @AltoPelago
+package.json @AltoPelago
+
+implementations/typescript/package.json @AltoPelago
+implementations/typescript/pnpm-lock.yaml @AltoPelago
+implementations/typescript/pnpm-workspace.yaml @AltoPelago
+implementations/typescript/.npmrc @AltoPelago
+implementations/typescript/packages/**/package.json @AltoPelago
+implementations/typescript/tools/**/package.json @AltoPelago
+
+implementations/rust/Cargo.toml @AltoPelago
+implementations/rust/Cargo.lock @AltoPelago
+implementations/rust/crates/**/Cargo.toml @AltoPelago
+
+implementations/python/pyproject.toml @AltoPelago

@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+/**
+ * Purpose: run a command with repo-path environment defaults and normalized --cts paths.
+ * Run from: repo root.
+ * Example:
+ *   node ./scripts/run-with-repo-paths.mjs node ./scripts/cts-source-lane-runner.mjs --sut ./implementations/typescript/packages/cli/dist/main.js --cts ./cts/core/v1/core-cts.v1.json --lane core
+ */
 
 import { spawn } from 'node:child_process';
 import { resolveCTSPath, withRepoPathEnv } from './repo-paths.mjs';

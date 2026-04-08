@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+/**
+ * Purpose: verify required TypeScript dist artifacts exist before CTS/test runs.
+ * Run from: repo root (or any path inside repo).
+ * Example:
+ *   node ./scripts/ensure-typescript-build.mjs
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';

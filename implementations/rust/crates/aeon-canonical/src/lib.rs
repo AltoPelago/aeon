@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 
 use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
@@ -49,12 +51,22 @@ pub fn canonicalize(source: &str) -> CanonicalResult {
     let mut parser = Parser::new(&source);
     let bindings = match parser.parse_document() {
         Ok(bindings) => bindings,
-        Err(error) => return CanonicalResult { text: String::new(), errors: vec![error] },
+        Err(error) => {
+            return CanonicalResult {
+                text: String::new(),
+                errors: vec![error],
+            };
+        }
     };
 
     let (header, body) = match split_header(bindings) {
         Ok(parts) => parts,
-        Err(error) => return CanonicalResult { text: String::new(), errors: vec![error] },
+        Err(error) => {
+            return CanonicalResult {
+                text: String::new(),
+                errors: vec![error],
+            };
+        }
     };
 
     CanonicalResult {
@@ -78,7 +90,10 @@ fn split_header(bindings: Vec<Binding>) -> Result<(Vec<Binding>, Vec<Binding>), 
                 .at_path("$"));
             }
             let Value::Object(bindings) = binding.value else {
-                return Err(Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object").at_path("$"));
+                return Err(
+                    Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object")
+                        .at_path("$"),
+                );
             };
             header = Some(bindings);
         } else if let Some(key) = shorthand_header_key(&binding.key) {
@@ -205,9 +220,19 @@ fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
     }
 }
 
-fn render_sequence(left: &str, items: &[Value], indent: usize, open: char, close: char) -> Vec<String> {
+fn render_sequence(
+    left: &str,
+    items: &[Value],
+    indent: usize,
+    open: char,
+    close: char,
+) -> Vec<String> {
     if items.iter().all(is_simple_scalar) {
-        let rendered = items.iter().map(render_value_inline).collect::<Vec<_>>().join(", ");
+        let rendered = items
+            .iter()
+            .map(render_value_inline)
+            .collect::<Vec<_>>()
+            .join(", ");
         return vec![format!("{left} = {open}{rendered}{close}")];
     }
 
@@ -215,10 +240,10 @@ fn render_sequence(left: &str, items: &[Value], indent: usize, open: char, close
     let mut lines = vec![format!("{left} = {open}")];
     for (index, item) in items.iter().enumerate() {
         let mut item_lines = render_value_multiline(item, indent + 2);
-        if index + 1 < items.len() {
-            if let Some(last) = item_lines.last_mut() {
-                last.push(',');
-            }
+        if index + 1 < items.len()
+            && let Some(last) = item_lines.last_mut()
+        {
+            last.push(',');
         }
         lines.append(&mut item_lines);
     }
@@ -250,10 +275,10 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
             let mut lines = vec![format!("{prefix}[")];
             for (index, item) in items.iter().enumerate() {
                 let mut item_lines = render_value_multiline(item, indent + 2);
-                if index + 1 < items.len() {
-                    if let Some(last) = item_lines.last_mut() {
-                        last.push(',');
-                    }
+                if index + 1 < items.len()
+                    && let Some(last) = item_lines.last_mut()
+                {
+                    last.push(',');
                 }
                 lines.append(&mut item_lines);
             }
@@ -264,10 +289,10 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
             let mut lines = vec![format!("{prefix}(")];
             for (index, item) in items.iter().enumerate() {
                 let mut item_lines = render_value_multiline(item, indent + 2);
-                if index + 1 < items.len() {
-                    if let Some(last) = item_lines.last_mut() {
-                        last.push(',');
-                    }
+                if index + 1 < items.len()
+                    && let Some(last) = item_lines.last_mut()
+                {
+                    last.push(',');
                 }
                 lines.append(&mut item_lines);
             }
@@ -293,17 +318,22 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
     }
 
     if inline_only {
-        let children = node.children.iter().map(render_value_inline).collect::<Vec<_>>().join(", ");
+        let children = node
+            .children
+            .iter()
+            .map(render_value_inline)
+            .collect::<Vec<_>>()
+            .join(", ");
         return vec![format!("{prefix}{head}({children})>")];
     }
 
     let mut lines = vec![format!("{prefix}{head}(")];
     for (index, child) in node.children.iter().enumerate() {
         let mut child_lines = render_node_child(child, indent + 2);
-        if index + 1 < node.children.len() {
-            if let Some(last) = child_lines.last_mut() {
-                last.push(',');
-            }
+        if index + 1 < node.children.len()
+            && let Some(last) = child_lines.last_mut()
+        {
+            last.push(',');
         }
         lines.append(&mut child_lines);
     }
@@ -314,13 +344,25 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
 fn render_node_child(value: &Value, indent: usize) -> Vec<String> {
     match value {
         Value::List(items) if items.iter().all(is_simple_value) => {
-            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+            vec![format!(
+                "{}{}",
+                " ".repeat(indent),
+                render_value_inline(value)
+            )]
         }
         Value::Tuple(items) if items.iter().all(is_simple_value) => {
-            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+            vec![format!(
+                "{}{}",
+                " ".repeat(indent),
+                render_value_inline(value)
+            )]
         }
         Value::Node(node) if node.children.iter().all(is_simple_value) => {
-            vec![format!("{}{}", " ".repeat(indent), render_value_inline(value))]
+            vec![format!(
+                "{}{}",
+                " ".repeat(indent),
+                render_value_inline(value)
+            )]
         }
         _ => render_value_multiline(value, indent),
     }
@@ -376,8 +418,22 @@ fn render_value_inline(value: &Value) -> String {
                     .join(", ")
             )
         }
-        Value::List(items) => format!("[{}]", items.iter().map(render_value_inline).collect::<Vec<_>>().join(", ")),
-        Value::Tuple(items) => format!("({})", items.iter().map(render_value_inline).collect::<Vec<_>>().join(", ")),
+        Value::List(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(render_value_inline)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Tuple(items) => format!(
+            "({})",
+            items
+                .iter()
+                .map(render_value_inline)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Value::Node(node) => {
             let head = format!(
                 "<{}{}{}",
@@ -390,7 +446,11 @@ fn render_value_inline(value: &Value) -> String {
             } else {
                 format!(
                     "{head}({})>",
-                    node.children.iter().map(render_value_inline).collect::<Vec<_>>().join(", ")
+                    node.children
+                        .iter()
+                        .map(render_value_inline)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
         }
@@ -576,7 +636,11 @@ fn normalize_number(raw: &str) -> String {
             exponent.remove(0);
         }
         let negative = exponent.starts_with('-');
-        let digits = if negative { &exponent[1..] } else { &exponent[..] };
+        let digits = if negative {
+            &exponent[1..]
+        } else {
+            &exponent[..]
+        };
         let trimmed = digits.trim_start_matches('0');
         let normalized = if trimmed.is_empty() { "0" } else { trimmed };
         if negative {
@@ -807,7 +871,10 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
             && bytes[..2].iter().all(u8::is_ascii_digit)
             && bytes[3..5].iter().all(u8::is_ascii_digit)
             && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second);
+            && value[3..5]
+                .parse::<u32>()
+                .ok()
+                .is_some_and(is_valid_minute_or_second);
     }
     matches_hms(value)
 }
@@ -828,8 +895,14 @@ fn matches_hms(value: &str) -> bool {
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && bytes[6..8].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
-        && value[6..8].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+        && value[3..5]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
+        && value[6..8]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
 }
 
 fn matches_offset(value: &str) -> bool {
@@ -839,7 +912,10 @@ fn matches_offset(value: &str) -> bool {
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute_or_second)
+        && value[3..5]
+            .parse::<u32>()
+            .ok()
+            .is_some_and(is_valid_minute_or_second)
 }
 
 fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
@@ -857,7 +933,7 @@ fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn is_valid_hour(value: u32) -> bool {
@@ -898,7 +974,10 @@ fn normalize_raw(raw: &str) -> String {
 }
 
 fn normalize_encoding(raw: &str) -> String {
-    raw.replace('+', "-").replace('/', "_").trim_end_matches('=').to_owned()
+    raw.replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_owned()
 }
 
 fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
@@ -1033,7 +1112,11 @@ fn looks_like_valid_radix_literal(raw: &str) -> bool {
     }
 
     let chars: Vec<char> = body.chars().collect();
-    let mut index = if matches!(chars.first(), Some('+' | '-')) { 1 } else { 0 };
+    let mut index = if matches!(chars.first(), Some('+' | '-')) {
+        1
+    } else {
+        0
+    };
     if index >= chars.len() {
         return false;
     }
@@ -1104,15 +1187,15 @@ fn strip_preamble(input: &str) -> String {
     let mut lines = input.lines();
     let mut output = Vec::new();
 
-    if let Some(first) = lines.next() {
-        if !first.starts_with("#!") {
-            output.push(first);
-        }
+    if let Some(first) = lines.next()
+        && !first.starts_with("#!")
+    {
+        output.push(first);
     }
-    if let Some(second) = lines.next() {
-        if !(output.is_empty() && second.starts_with("//! format:")) {
-            output.push(second);
-        }
+    if let Some(second) = lines.next()
+        && !(output.is_empty() && second.starts_with("//! format:"))
+    {
+        output.push(second);
     }
     output.extend(lines);
     output.join("\n")
@@ -1188,10 +1271,13 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Some('"') | Some('\'')) {
             return self.parse_quoted_string();
         }
-        let key = self.parse_identifier_like(&[':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']'])?;
+        let key = self.parse_identifier_like(&[
+            ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
+        ])?;
         if key == "aeon" && self.peek() == Some(':') {
             self.index += 1;
-            let suffix = self.parse_identifier_like(&['@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']'])?;
+            let suffix =
+                self.parse_identifier_like(&['@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']'])?;
             return Ok(format!("aeon:{suffix}"));
         }
         Ok(key)
@@ -1285,10 +1371,18 @@ impl<'a> Parser<'a> {
                     return Err(self.syntax_error("Invalid number literal"));
                 }
                 if raw.starts_with('%') && !looks_like_valid_radix_literal(&raw) {
-                    return Err(self.syntax_error_range(start, self.index, &format!("Invalid radix literal `{raw}`")));
+                    return Err(self.syntax_error_range(
+                        start,
+                        self.index,
+                        &format!("Invalid radix literal `{raw}`"),
+                    ));
                 }
                 if is_identifier(&raw) && !is_identifier_literal(&raw) {
-                    return Err(self.syntax_error_range(start, self.index, &format!("Unexpected token '{raw}'")));
+                    return Err(self.syntax_error_range(
+                        start,
+                        self.index,
+                        &format!("Unexpected token '{raw}'"),
+                    ));
                 }
                 Ok(Value::Raw(raw))
             }
@@ -1326,10 +1420,7 @@ impl<'a> Parser<'a> {
         while self.peek() != Some(terminator) {
             items.push(self.parse_value()?);
             self.skip_inline_ws();
-            if self.peek() == Some(',') {
-                self.consume_delimiter();
-                self.skip_ws(true);
-            } else if self.peek() == Some('\n') {
+            if self.peek() == Some(',') || self.peek() == Some('\n') {
                 self.consume_delimiter();
                 self.skip_ws(true);
             } else if self.peek() != Some(terminator) {
@@ -1355,7 +1446,8 @@ impl<'a> Parser<'a> {
             if self.peek() == Some(':') && datatype.is_none() {
                 self.index += 1;
                 self.skip_ws(true);
-                datatype = Some(self.parse_identifier_like(&['@', '(', '>', ' ', '\t', '\n', '\r'])?);
+                datatype =
+                    Some(self.parse_identifier_like(&['@', '(', '>', ' ', '\t', '\n', '\r'])?);
                 continue;
             }
             break;
@@ -1368,8 +1460,7 @@ impl<'a> Parser<'a> {
                 self.expect_char(')')?;
                 Vec::new()
             } else {
-                let items = self.parse_sequence(')')?;
-                items
+                self.parse_sequence(')')?
             }
         } else {
             Vec::new()
@@ -1385,7 +1476,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_quoted_string(&mut self) -> Result<String, Diagnostic> {
-        let quote = self.peek().ok_or_else(|| self.syntax_error("Expected quoted string"))?;
+        let quote = self
+            .peek()
+            .ok_or_else(|| self.syntax_error("Expected quoted string"))?;
         if !matches!(quote, '"' | '\'' | '`') {
             return Err(self.syntax_error("Expected quoted string"));
         }
@@ -1408,7 +1501,9 @@ impl<'a> Parser<'a> {
                         .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
                 );
                 self.index += 1;
-                let escaped = self.peek().ok_or_else(|| self.syntax_error("Unterminated string"))?;
+                let escaped = self
+                    .peek()
+                    .ok_or_else(|| self.syntax_error("Unterminated string"))?;
                 match escaped {
                     '\\' => value.push('\\'),
                     '"' => value.push('"'),
@@ -1430,10 +1525,10 @@ impl<'a> Parser<'a> {
                         }
                         let hex = std::str::from_utf8(&self.source[hex_start..self.index])
                             .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                        let codepoint =
-                            u32::from_str_radix(hex, 16).map_err(|_| self.syntax_error("Invalid unicode escape"))?;
-                        let decoded =
-                            char::from_u32(codepoint).ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
+                        let codepoint = u32::from_str_radix(hex, 16)
+                            .map_err(|_| self.syntax_error("Invalid unicode escape"))?;
+                        let decoded = char::from_u32(codepoint)
+                            .ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
                         value.push(decoded);
                         chunk_start = self.index;
                         continue;
@@ -1626,7 +1721,10 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if ch == '/' {
-                if matches!(self.source.get(probe + 1).map(|b| char::from(*b)), Some('/')) {
+                if matches!(
+                    self.source.get(probe + 1).map(|b| char::from(*b)),
+                    Some('/')
+                ) {
                     return None;
                 }
                 if self.source.get(probe + 1).is_some() {
@@ -1729,7 +1827,9 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_next(&self) -> Option<char> {
-        self.source.get(self.index + 1).map(|byte| char::from(*byte))
+        self.source
+            .get(self.index + 1)
+            .map(|byte| char::from(*byte))
     }
 
     fn block_comment_close(&self) -> Option<char> {
@@ -1780,7 +1880,12 @@ impl<'a> Parser<'a> {
         let mut index = self.index;
         while let Some(byte) = self.source.get(index) {
             let ch = char::from(*byte);
-            if ch.is_whitespace() || matches!(ch, ',' | '=' | ':' | '@' | '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>') {
+            if ch.is_whitespace()
+                || matches!(
+                    ch,
+                    ',' | '=' | ':' | '@' | '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>'
+                )
+            {
                 break;
             }
             index += 1;
@@ -1835,7 +1940,8 @@ mod tests {
 
     #[test]
     fn normalizes_trimtick_to_string_content() {
-        let result = canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");
+        let result =
+            canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -1873,13 +1979,22 @@ mod tests {
         for source in ["a = +Infinity\n", "a = NaN\n"] {
             let result = canonicalize(source);
             assert!(!result.errors.is_empty(), "{source}");
-            assert!(result.errors.iter().any(|error| error.code == "SYNTAX_ERROR"), "{:?}", result.errors);
+            assert!(
+                result
+                    .errors
+                    .iter()
+                    .any(|error| error.code == "SYNTAX_ERROR"),
+                "{:?}",
+                result.errors
+            );
         }
     }
 
     #[test]
     fn preserves_zrut_zone_casing_in_canonicalization() {
-        let result = canonicalize("aeon:mode = \"strict\"\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n");
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n",
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -2151,7 +2266,9 @@ mod tests {
 
     #[test]
     fn sorts_escaped_quoted_keys_by_decoded_codepoint_order() {
-        let result = canonicalize("aeon:mode = \"transport\"\n\"e\" = 0\n\"\\n\" = 0\n\" \" = 1\n\"º\" = 0\n");
+        let result = canonicalize(
+            "aeon:mode = \"transport\"\n\"e\" = 0\n\"\\n\" = 0\n\" \" = 1\n\"º\" = 0\n",
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -2171,7 +2288,9 @@ mod tests {
 
     #[test]
     fn quotes_non_identifier_node_heads_canonically() {
-        let result = canonicalize("aeon:mode = \"transport\"\na = <\"a\">\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n");
+        let result = canonicalize(
+            "aeon:mode = \"transport\"\na = <\"a\">\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n",
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -2195,7 +2314,11 @@ mod tests {
             "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    >> `\n      Click\n      Here\n    `\n  )>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
-        assert!(result.text.contains("<button@{action:lookup = ~scene[1]}:node("));
+        assert!(
+            result
+                .text
+                .contains("<button@{action:lookup = ~scene[1]}:node(")
+        );
     }
 
     #[test]
@@ -2208,7 +2331,11 @@ mod tests {
         assert!(result.text.contains("~target"));
         assert!(result.text.contains("~>target"));
         assert!(result.text.contains("<panel@{"));
-        assert!(result.text.contains("<button@{action:lookup = ~>target}:node>"));
+        assert!(
+            result
+                .text
+                .contains("<button@{action:lookup = ~>target}:node>")
+        );
     }
 
     #[test]
@@ -2253,7 +2380,11 @@ mod tests {
         assert_eq!(result.text, "");
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert!(result.errors[0].message.contains("Invalid radix literal `%3e-3`"));
+        assert!(
+            result.errors[0]
+                .message
+                .contains("Invalid radix literal `%3e-3`")
+        );
     }
 
     #[test]
@@ -2275,7 +2406,13 @@ mod tests {
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-            assert!(result.errors[0].message.starts_with("Invalid datetime literal"), "{:?}", result.errors);
+            assert!(
+                result.errors[0]
+                    .message
+                    .starts_with("Invalid datetime literal"),
+                "{:?}",
+                result.errors
+            );
         }
     }
 
@@ -2289,7 +2426,11 @@ mod tests {
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-            assert!(result.errors[0].message.starts_with("Invalid date literal"), "{:?}", result.errors);
+            assert!(
+                result.errors[0].message.starts_with("Invalid date literal"),
+                "{:?}",
+                result.errors
+            );
         }
     }
 

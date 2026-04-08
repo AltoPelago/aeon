@@ -11,6 +11,29 @@ It currently contains:
 - `scripts/`
 - `stress-tests/`
 
+Script catalog and operational usage notes live in [scripts/README.md](./scripts/README.md).
+Deeper script runbooks live in [docs/scripts/README.md](./docs/scripts/README.md).
+
+Root npm workflow wrappers:
+
+- `npm run ci`: implementation CI entrypoint (delegates to TypeScript CI, including canonical cross-implementation checks).
+- `npm run ci:rust`: full Rust workspace sweep (fmt/check/clippy/test).
+- `npm run ci:rust:verbose`: same as `ci:rust`, but keeps Rust test stdout/stderr (`--nocapture`).
+- `npm run ci:full`: `ci` plus `ci:rust`.
+- `npm run tests:all`: `ci:full` plus matrix snippet combination run.
+
+Security hardening notes:
+
+- pull requests run dependency review plus a TypeScript lockfile integrity check
+- pull requests reject unexpected TypeScript lifecycle scripts outside the reviewed allowlist
+- GitHub Actions are pinned to immutable commit SHAs rather than moving version tags
+- CODEOWNERS covers workflow, manifest, lockfile, and package publish-surface changes
+- TypeScript workspace installs prefer exact versions and frozen lockfile behavior
+- Dependabot is configured for GitHub Actions, TypeScript npm dependencies, and Rust cargo dependencies
+- Rust CI performs both RustSec advisory scanning (`cargo audit`) and policy checks (`cargo deny`)
+- central TypeScript publish-control changes and non-first-wave publish metadata changes are blocked by a dedicated PR guardrail
+- the Python implementation is currently dependency-free, so its main hardening goal is to preserve that small trust surface
+
 This repository contains the maintained AEON implementation surface.
 
 Implementation references to specs, CTS, and contracts should continue to point at their proper authority surfaces rather than relying on mixed staging-era repo layout assumptions.
@@ -48,4 +71,5 @@ Contributor guidance is tracked in [CONTRIBUTING.md](./CONTRIBUTING.md).
 Security reporting guidance is tracked in [SECURITY.md](./SECURITY.md).
 
 Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.md](./RELEASING.md).
+Branching and implementation-specific release strategy are tracked in [docs/release-strategy.md](./docs/release-strategy.md).
 Version separation across spec, CTS, and implementation packages is tracked in [VERSIONING.md](./VERSIONING.md).

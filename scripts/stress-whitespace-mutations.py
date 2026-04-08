@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Apply whitespace mutations and compare canonical/diagnostic behavior.
+
+Run from repo root.
+Example:
+  python3 ./scripts/stress-whitespace-mutations.py
+"""
+
 from __future__ import annotations
 
 import argparse

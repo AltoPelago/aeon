@@ -166,10 +166,15 @@ pub fn validate_cts_payload(payload: &str) -> Result<String, String> {
     }
 
     let result = validate(&envelope);
-    serde_json::to_string_pretty(&result).map_err(|error| format!("Failed to encode result: {error}"))
+    serde_json::to_string_pretty(&result)
+        .map_err(|error| format!("Failed to encode result: {error}"))
 }
 
-fn validate_inner(aes: &[AesEvent], schema: Option<&Schema>, options: &ValidationOptions) -> ResultEnvelope {
+fn validate_inner(
+    aes: &[AesEvent],
+    schema: Option<&Schema>,
+    options: &ValidationOptions,
+) -> ResultEnvelope {
     let mut ctx = DiagContext::default();
     let mut seen = BTreeSet::new();
     let mut bound_paths = BTreeSet::new();
@@ -215,9 +220,17 @@ fn validate_inner(aes: &[AesEvent], schema: Option<&Schema>, options: &Validatio
             },
         );
 
-        if matches!(event.value.value_type.as_str(), "TupleLiteral" | "ListLiteral" | "ListNode") {
+        if matches!(
+            event.value.value_type.as_str(),
+            "TupleLiteral" | "ListLiteral" | "ListNode"
+        ) {
             container_arity.insert(path.clone(), event.value.elements.len());
-            hydrate_indexed_fallback(&path, &event.value.elements, event.span_pair(), &mut events_by_path);
+            hydrate_indexed_fallback(
+                &path,
+                &event.value.elements,
+                event.span_pair(),
+                &mut events_by_path,
+            );
         }
     }
 
@@ -263,11 +276,17 @@ fn validate_inner(aes: &[AesEvent], schema: Option<&Schema>, options: &Validatio
     };
 
     let rule_index = build_rule_index(schema, &mut ctx);
-    let effective_rule_index = merge_datatype_rules(&rule_index, &schema.datatype_rules, &events_by_path);
+    let effective_rule_index =
+        merge_datatype_rules(&rule_index, &schema.datatype_rules, &events_by_path);
     check_presence(&rule_index, &bound_paths, &mut ctx);
     check_types(&effective_rule_index, &events_by_path, &mut ctx);
     check_reference_forms(schema, &rule_index, &events_by_path, &mut ctx);
-    check_tuple_arity(&effective_rule_index, &container_arity, &events_by_path, &mut ctx);
+    check_tuple_arity(
+        &effective_rule_index,
+        &container_arity,
+        &events_by_path,
+        &mut ctx,
+    );
     check_numeric_form(&effective_rule_index, &events_by_path, &mut ctx);
     check_string_form(&effective_rule_index, &events_by_path, &mut ctx);
     check_patterns(&effective_rule_index, &events_by_path, &mut ctx);
@@ -302,18 +321,18 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
     let mut index = BTreeMap::new();
     let allowlist = &schema.datatype_allowlist;
 
-    if let Some(reference_policy) = schema.reference_policy.as_deref() {
-        if !matches!(reference_policy, "allow" | "forbid") {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(String::from("$")),
-                    code: String::from("invalid_reference_constraint"),
-                    phase: String::from("schema_validation"),
-                    span: None,
-                },
-            );
-        }
+    if let Some(reference_policy) = schema.reference_policy.as_deref()
+        && !matches!(reference_policy, "allow" | "forbid")
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from("$")),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
     }
 
     for rule in &schema.rules {
@@ -372,18 +391,19 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
             continue;
         }
 
-        if let Some(datatype) = constraints_map.get("datatype").and_then(JsonValue::as_str) {
-            if !allowlist.is_empty() && !allowlist.iter().any(|allowed| allowed == datatype) {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("datatype_allowlist_reject"),
-                        phase: String::from("schema_validation"),
-                        span: None,
-                    },
-                );
-            }
+        if let Some(datatype) = constraints_map.get("datatype").and_then(JsonValue::as_str)
+            && !allowlist.is_empty()
+            && !allowlist.iter().any(|allowed| allowed == datatype)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("datatype_allowlist_reject"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
         }
 
         index.insert(path.clone(), constraints);
@@ -399,10 +419,14 @@ fn validate_reference_constraints(
     ctx: &mut DiagContext,
 ) -> bool {
     let reference = constraints.get("reference").and_then(JsonValue::as_str);
-    let reference_kind = constraints.get("reference_kind").and_then(JsonValue::as_str);
+    let reference_kind = constraints
+        .get("reference_kind")
+        .and_then(JsonValue::as_str);
     let expected_type = constraints.get("type").and_then(JsonValue::as_str);
 
-    if constraints.get("reference").is_some() && !matches!(reference, Some("allow" | "forbid" | "require")) {
+    if constraints.get("reference").is_some()
+        && !matches!(reference, Some("allow" | "forbid" | "require"))
+    {
         emit_error(
             ctx,
             ValidationDiagnostic {
@@ -456,7 +480,8 @@ fn validate_reference_constraints(
         return false;
     }
 
-    if reference == Some("require") && expected_type.is_some_and(|value| !is_reference_type(value)) {
+    if reference == Some("require") && expected_type.is_some_and(|value| !is_reference_type(value))
+    {
         emit_error(
             ctx,
             ValidationDiagnostic {
@@ -534,7 +559,9 @@ fn merge_datatype_rules(
         };
 
         for (key, value) in datatype_constraints {
-            effective.entry(key.clone()).or_insert_with(|| value.clone());
+            effective
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
         }
 
         merged.insert(path.clone(), JsonValue::Object(effective));
@@ -543,7 +570,11 @@ fn merge_datatype_rules(
     merged
 }
 
-fn check_presence(rule_index: &BTreeMap<String, JsonValue>, bound_paths: &BTreeSet<String>, ctx: &mut DiagContext) {
+fn check_presence(
+    rule_index: &BTreeMap<String, JsonValue>,
+    bound_paths: &BTreeSet<String>,
+    ctx: &mut DiagContext,
+) {
     for (path, constraints) in rule_index {
         if constraints
             .get("required")
@@ -593,22 +624,22 @@ fn check_types(
             }
         }
 
-        if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str) {
-            if !type_matches(expected_type, &event.value_type) {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from(if is_indexed_path(path) {
-                            "TUPLE_ELEMENT_TYPE_MISMATCH"
-                        } else {
-                            "type_mismatch"
-                        }),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
+            && !type_matches(expected_type, &event.value_type)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from(if is_indexed_path(path) {
+                        "TUPLE_ELEMENT_TYPE_MISMATCH"
+                    } else {
+                        "type_mismatch"
+                    }),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }
@@ -640,7 +671,9 @@ fn check_reference_forms(
         let Some(reference) = constraints.get("reference").and_then(JsonValue::as_str) else {
             continue;
         };
-        let reference_kind = constraints.get("reference_kind").and_then(JsonValue::as_str);
+        let reference_kind = constraints
+            .get("reference_kind")
+            .and_then(JsonValue::as_str);
         let Some(event) = events_by_path.get(path) else {
             continue;
         };
@@ -739,7 +772,9 @@ fn check_numeric_form(
             continue;
         }
 
-        if constraints.get("sign").and_then(JsonValue::as_str) == Some("unsigned") && event.raw.starts_with('-') {
+        if constraints.get("sign").and_then(JsonValue::as_str) == Some("unsigned")
+            && event.raw.starts_with('-')
+        {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -753,32 +788,32 @@ fn check_numeric_form(
         }
 
         let digit_count = count_integer_digits(&event.raw);
-        if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64) {
-            if digit_count < min_digits as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("numeric_form_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-                continue;
-            }
+        if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64)
+            && digit_count < min_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            continue;
         }
-        if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64) {
-            if digit_count > max_digits as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("numeric_form_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64)
+            && digit_count > max_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }
@@ -800,32 +835,32 @@ fn check_string_form(
         };
         let length = value.chars().count();
 
-        if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64) {
-            if length < min_length as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("string_length_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-                continue;
-            }
+        if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64)
+            && length < min_length as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("string_length_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            continue;
         }
-        if let Some(max_length) = constraints.get("max_length").and_then(JsonValue::as_u64) {
-            if length > max_length as usize {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(path.clone()),
-                        code: String::from("string_length_violation"),
-                        phase: String::from("schema_validation"),
-                        span: event.span,
-                    },
-                );
-            }
+        if let Some(max_length) = constraints.get("max_length").and_then(JsonValue::as_u64)
+            && length > max_length as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("string_length_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
     }
 }
@@ -942,13 +977,15 @@ fn hydrate_indexed_fallback(
 ) {
     for (index, element) in elements.iter().enumerate() {
         let child_path = format!("{path}[{index}]");
-        events_by_path.entry(child_path).or_insert_with(|| EventInfo {
-            value_type: element.value_type.clone(),
-            datatype: None,
-            raw: element.raw.clone().unwrap_or_default(),
-            value: element.value.clone(),
-            span: parent_span,
-        });
+        events_by_path
+            .entry(child_path)
+            .or_insert_with(|| EventInfo {
+                value_type: element.value_type.clone(),
+                datatype: None,
+                raw: element.raw.clone().unwrap_or_default(),
+                value: element.value.clone(),
+                span: parent_span,
+            });
     }
 }
 
@@ -962,7 +999,10 @@ fn emit_warning(ctx: &mut DiagContext, diag: ValidationDiagnostic) {
 
 fn type_matches(expected: &str, actual: &str) -> bool {
     match actual {
-        "NumberLiteral" => matches!(expected, "NumberLiteral" | "IntegerLiteral" | "FloatLiteral"),
+        "NumberLiteral" => matches!(
+            expected,
+            "NumberLiteral" | "IntegerLiteral" | "FloatLiteral"
+        ),
         "ListLiteral" | "ListNode" => matches!(expected, "ListLiteral" | "ListNode"),
         _ => expected == actual,
     }

@@ -1,3 +1,9 @@
+"""Shared repository path resolver for Python script workflows.
+
+This module is imported by scripts in this directory to resolve default
+sibling checkouts for CTS, specs, and tooling roots.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

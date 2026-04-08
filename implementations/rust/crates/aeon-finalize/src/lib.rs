@@ -1,12 +1,14 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use aeon_core::{
-    compile, format_path, normalize_number_literal, AssignmentEvent, AttributeValue, CompileOptions, Diagnostic,
-    HeaderFields, ReferenceSegment, Span, Value,
+    AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, ReferenceSegment,
+    Span, Value, compile, format_path, normalize_number_literal,
 };
 use serde::de::DeserializeOwned;
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinalizeMode {
@@ -109,9 +111,17 @@ pub enum MaterializeError {
 impl fmt::Display for MaterializeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Compile(errors) => write!(f, "AEON compile failed with {} error(s)", errors.len()),
-            Self::Finalize(meta) => write!(f, "AEON finalize failed with {} error(s)", meta.errors.len()),
-            Self::Deserialize(error) => write!(f, "failed to deserialize finalized AEON document: {error}"),
+            Self::Compile(errors) => {
+                write!(f, "AEON compile failed with {} error(s)", errors.len())
+            }
+            Self::Finalize(meta) => write!(
+                f,
+                "AEON finalize failed with {} error(s)",
+                meta.errors.len()
+            ),
+            Self::Deserialize(error) => {
+                write!(f, "failed to deserialize finalized AEON document: {error}")
+            }
         }
     }
 }
@@ -211,30 +221,30 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
     let mut warnings = Vec::new();
     let mut entries = Vec::new();
 
-    if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full) {
-        if let Some(header) = options.header.as_ref() {
-            for (key, value) in &header.fields {
-                let path = match options.scope {
-                    FinalizeScope::Header => format!("$.{key}"),
-                    FinalizeScope::Full => format!("$.header.{key}"),
-                    FinalizeScope::Payload => continue,
-                };
-                if !projection.includes(&path) {
-                    continue;
-                }
-                push_map_entry(
-                    &mut seen,
-                    &mut entries,
-                    &mut errors,
-                    &mut warnings,
-                    options.mode,
-                    path,
-                    value.clone(),
-                    Span::zero(),
-                    None,
-                    BTreeMap::new(),
-                );
+    if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full)
+        && let Some(header) = options.header.as_ref()
+    {
+        for (key, value) in &header.fields {
+            let path = match options.scope {
+                FinalizeScope::Header => format!("$.{key}"),
+                FinalizeScope::Full => format!("$.header.{key}"),
+                FinalizeScope::Payload => continue,
+            };
+            if !projection.includes(&path) {
+                continue;
             }
+            push_map_entry(
+                &mut seen,
+                &mut entries,
+                &mut errors,
+                &mut warnings,
+                options.mode,
+                path,
+                value.clone(),
+                Span::zero(),
+                None,
+                BTreeMap::new(),
+            );
         }
     }
 
@@ -283,12 +293,23 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "raw": raw,
             "value": raw,
         }),
-        Value::StringLiteral { value, raw, delimiter, trimticks } => {
+        Value::StringLiteral {
+            value,
+            raw,
+            delimiter,
+            trimticks,
+        } => {
             let mut object = Map::new();
-            object.insert(String::from("type"), JsonValue::String(String::from("StringLiteral")));
+            object.insert(
+                String::from("type"),
+                JsonValue::String(String::from("StringLiteral")),
+            );
             object.insert(String::from("raw"), JsonValue::String(raw.clone()));
             object.insert(String::from("value"), JsonValue::String(value.clone()));
-            object.insert(String::from("delimiter"), JsonValue::String(delimiter.to_string()));
+            object.insert(
+                String::from("delimiter"),
+                JsonValue::String(delimiter.to_string()),
+            );
             if let Some(metadata) = trimticks {
                 object.insert(
                     String::from("trimticks"),
@@ -411,7 +432,10 @@ fn header_to_json(
                 continue;
             }
             if is_reserved_key(key) {
-                errors.push(Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}")).at_path(&path));
+                errors.push(
+                    Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}"))
+                        .at_path(&path),
+                );
                 continue;
             }
             object.insert(
@@ -456,7 +480,10 @@ fn payload_to_json(
         }
         let key = &event.key;
         if is_reserved_key(key) {
-            errors.push(Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}")).at_path(&path));
+            errors.push(
+                Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}"))
+                    .at_path(&path),
+            );
             continue;
         }
         document.insert(
@@ -564,25 +591,31 @@ fn value_to_json_with_active_key(
             }
             JsonValue::String(raw.clone())
         }
-        Value::SwitchLiteral { raw } => JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true")),
+        Value::SwitchLiteral { raw } => {
+            JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true"))
+        }
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
-        Value::HexLiteral { raw } => JsonValue::String(raw.trim_start_matches('#').replace('_', "")),
-        Value::SeparatorLiteral { raw } => JsonValue::String(raw.trim_start_matches('^').to_owned()),
+        Value::HexLiteral { raw } => {
+            JsonValue::String(raw.trim_start_matches('#').replace('_', ""))
+        }
+        Value::SeparatorLiteral { raw } => {
+            JsonValue::String(raw.trim_start_matches('^').to_owned())
+        }
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
         Value::RadixLiteral { raw } => {
             let normalized = raw.trim_start_matches('%').replace('_', "");
-            if let Some(base) = declared_radix_base(datatype) {
-                if exceeds_declared_radix(&normalized, base) {
-                    let diag = Diagnostic::new(
-                        "FINALIZE_INVALID_RADIX_BASE",
-                        format!("Radix literal exceeds declared radix {base}: {raw}"),
-                    )
-                    .at_path(path);
-                    if matches!(mode, FinalizeMode::Strict) {
-                        errors.push(diag);
-                    } else {
-                        warnings.push(diag);
-                    }
+            if let Some(base) = declared_radix_base(datatype)
+                && exceeds_declared_radix(&normalized, base)
+            {
+                let diag = Diagnostic::new(
+                    "FINALIZE_INVALID_RADIX_BASE",
+                    format!("Radix literal exceeds declared radix {base}: {raw}"),
+                )
+                .at_path(path);
+                if matches!(mode, FinalizeMode::Strict) {
+                    errors.push(diag);
+                } else {
+                    warnings.push(diag);
                 }
             }
             JsonValue::String(normalized)
@@ -723,24 +756,30 @@ fn value_to_json_with_active_key(
                     )
                     .at_path(path));
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
+                } else if !consume_clone_budget(
+                    &target,
+                    resolved,
+                    path,
+                    segments,
+                    path_values,
+                    errors,
+                    tracker,
+                ) {
+                    JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else {
-                    if !consume_clone_budget(&target, resolved, path, segments, path_values, errors, tracker) {
-                        JsonValue::String(format!("~{}", render_reference_segments(segments)))
-                    } else {
-                        value_to_json_with_active_key(
-                            resolved,
-                            path,
-                            &target,
-                            projection,
-                            path_values,
-                            mode,
-                            errors,
-                            warnings,
-                            datatype,
-                            active_paths,
-                            tracker,
-                        )
-                    }
+                    value_to_json_with_active_key(
+                        resolved,
+                        path,
+                        &target,
+                        projection,
+                        path_values,
+                        mode,
+                        errors,
+                        warnings,
+                        datatype,
+                        active_paths,
+                        tracker,
+                    )
                 }
             } else {
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
@@ -767,7 +806,13 @@ fn consume_clone_budget(
         return true;
     };
 
-    let weight = measure_materialized_weight(value, target_path, path_values, tracker, &mut BTreeSet::new());
+    let weight = measure_materialized_weight(
+        value,
+        target_path,
+        path_values,
+        tracker,
+        &mut BTreeSet::new(),
+    );
     let next_weight = tracker.materialized_weight.saturating_add(weight);
     if next_weight <= limit {
         tracker.materialized_weight = next_weight;
@@ -821,8 +866,13 @@ fn measure_materialized_weight(
             };
             let mut next_stack = stack.clone();
             next_stack.insert(String::from(current_path));
-            let weight =
-                measure_materialized_weight(resolved, &target_path, path_values, tracker, &mut next_stack);
+            let weight = measure_materialized_weight(
+                resolved,
+                &target_path,
+                path_values,
+                tracker,
+                &mut next_stack,
+            );
             tracker
                 .materialized_weight_cache
                 .insert(target_path, weight);
@@ -832,8 +882,19 @@ fn measure_materialized_weight(
             .iter()
             .map(|binding| {
                 let child_path = format!("{current_path}.{}", render_member_segment(&binding.key));
-                measure_materialized_weight(&binding.value, &child_path, path_values, tracker, stack)
-                    + measure_attribute_weight(&binding.attributes, &child_path, path_values, tracker, stack)
+                measure_materialized_weight(
+                    &binding.value,
+                    &child_path,
+                    path_values,
+                    tracker,
+                    stack,
+                ) + measure_attribute_weight(
+                    &binding.attributes,
+                    &child_path,
+                    path_values,
+                    tracker,
+                    stack,
+                )
             })
             .sum(),
         Value::ListNode { items } | Value::TupleLiteral { items } => items
@@ -851,7 +912,15 @@ fn measure_materialized_weight(
         } => {
             let attributes_weight: usize = attributes
                 .iter()
-                .map(|block| measure_attribute_weight(block, &format!("{current_path}@"), path_values, tracker, stack))
+                .map(|block| {
+                    measure_attribute_weight(
+                        block,
+                        &format!("{current_path}@"),
+                        path_values,
+                        tracker,
+                        stack,
+                    )
+                })
                 .sum();
             1 + attributes_weight
                 + children
@@ -920,7 +989,10 @@ fn render_reference_segments(segments: &[ReferenceSegment]) -> String {
                     out.push('.');
                     out.push_str(key);
                 } else {
-                    out.push_str(&format!("[\"{}\"]", key.replace('\\', "\\\\").replace('"', "\\\"")));
+                    out.push_str(&format!(
+                        "[\"{}\"]",
+                        key.replace('\\', "\\\\").replace('"', "\\\"")
+                    ));
                 }
             }
             ReferenceSegment::Index(index) => out.push_str(&format!("[{index}]")),
@@ -1018,23 +1090,23 @@ fn parse_number(
         }
         return json!(value);
     }
-    if let Ok(value) = normalized.parse::<f64>() {
-        if value.is_finite() {
-            if value.abs() > 9_007_199_254_740_991.0 {
-                let diag = Diagnostic::new(
-                    "FINALIZE_UNSAFE_NUMBER",
-                    format!("Numeric literal exceeds JSON safe range: {raw}"),
-                )
-                .at_path(path);
-                if matches!(mode, FinalizeMode::Strict) {
-                    errors.push(diag);
-                } else {
-                    warnings.push(diag);
-                }
-                return JsonValue::String(raw.to_owned());
+    if let Ok(value) = normalized.parse::<f64>()
+        && value.is_finite()
+    {
+        if value.abs() > 9_007_199_254_740_991.0 {
+            let diag = Diagnostic::new(
+                "FINALIZE_UNSAFE_NUMBER",
+                format!("Numeric literal exceeds JSON safe range: {raw}"),
+            )
+            .at_path(path);
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
             }
-            return json!(value);
+            return JsonValue::String(raw.to_owned());
         }
+        return json!(value);
     }
     errors.push(
         Diagnostic::new(
@@ -1068,7 +1140,10 @@ fn is_identifier(value: &str) -> bool {
 }
 
 fn is_reserved_key(key: &str) -> bool {
-    matches!(key, "@" | "$" | "$node" | "$children" | "__proto__" | "constructor")
+    matches!(
+        key,
+        "@" | "$" | "$node" | "$children" | "__proto__" | "constructor"
+    )
 }
 
 fn index_event_values(events: &[AssignmentEvent]) -> BTreeMap<String, Value> {
@@ -1368,7 +1443,12 @@ impl Projection {
 
 fn has_path_prefix(path: &str, prefix: &str) -> bool {
     path.strip_prefix(prefix)
-        .map(|rest| rest.starts_with('.') || rest.starts_with('[') || rest.starts_with('@') || rest.starts_with('<'))
+        .map(|rest| {
+            rest.starts_with('.')
+                || rest.starts_with('[')
+                || rest.starts_with('@')
+                || rest.starts_with('<')
+        })
         .unwrap_or(false)
 }
 
@@ -1406,7 +1486,11 @@ fn normalize_projection_path(path: &str) -> String {
                 key.push(ch);
                 cursor += 1;
             }
-            if cursor + 1 < bytes.len() && bytes[cursor] == b'"' && bytes[cursor + 1] == b']' && is_identifier(&key) {
+            if cursor + 1 < bytes.len()
+                && bytes[cursor] == b'"'
+                && bytes[cursor + 1] == b']'
+                && is_identifier(&key)
+            {
                 if current == '$' {
                     out.push_str("$.");
                 } else {
@@ -1427,7 +1511,7 @@ fn normalize_projection_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aeon_core::{compile, CompileOptions};
+    use aeon_core::{CompileOptions, compile};
     use serde::Deserialize;
 
     #[test]
@@ -1444,10 +1528,14 @@ mod tests {
         let source = "a:o = {\n  a:n = 2\n  c:list = [2, 2]\n  b:n = 3\n}\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
-        let rendered = serde_json::to_string_pretty(&finalized.document).expect("serialize finalized json");
+        let rendered =
+            serde_json::to_string_pretty(&finalized.document).expect("serialize finalized json");
         let c_index = rendered.find("\"c\"").expect("c key present");
         let b_index = rendered.find("\"b\"").expect("b key present");
-        assert!(c_index < b_index, "expected source order to keep c before b, got: {rendered}");
+        assert!(
+            c_index < b_index,
+            "expected source order to keep c before b, got: {rendered}"
+        );
     }
 
     #[test]
@@ -1462,7 +1550,10 @@ mod tests {
                 ..FinalizeOptions::default()
             },
         );
-        assert_eq!(finalized.document, json!({ "config": { "host": "localhost" } }));
+        assert_eq!(
+            finalized.document,
+            json!({ "config": { "host": "localhost" } })
+        );
     }
 
     #[test]
@@ -1492,7 +1583,8 @@ mod tests {
 
     #[test]
     fn projected_json_keeps_attribute_descendants_without_leaking_siblings() {
-        let source = "card = { title@{meta = { keep = 2, \"x.y\" = 1 }, tone = \"warm\"} = \"Hello\" }\n";
+        let source =
+            "card = { title@{meta = { keep = 2, \"x.y\" = 1 }, tone = \"warm\"} = \"Hello\" }\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(
             &result.events,
@@ -1554,12 +1646,20 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.title@lang"), String::from("$.title@meta.keep")],
+                include_paths: vec![
+                    String::from("$.title@lang"),
+                    String::from("$.title@meta.keep"),
+                ],
                 ..FinalizeOptions::default()
             },
         );
         assert_eq!(
-            top_level.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            top_level
+                .document
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
             vec!["$.title"]
         );
 
@@ -1567,12 +1667,20 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.card.label@meta.keep"), String::from("$.card.label@meta.[\"x.y\"]")],
+                include_paths: vec![
+                    String::from("$.card.label@meta.keep"),
+                    String::from("$.card.label@meta.[\"x.y\"]"),
+                ],
                 ..FinalizeOptions::default()
             },
         );
         assert_eq!(
-            nested.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            nested
+                .document
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
             vec!["$.card", "$.card.label"]
         );
 
@@ -1580,12 +1688,19 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.rich@@id"), String::from("$.rich@@meta.keep")],
+                include_paths: vec![
+                    String::from("$.rich@@id"),
+                    String::from("$.rich@@meta.keep"),
+                ],
                 ..FinalizeOptions::default()
             },
         );
         assert_eq!(
-            node.document.entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            node.document
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
             vec!["$.rich"]
         );
     }
@@ -1611,7 +1726,10 @@ mod tests {
         assert_eq!(by_path["$.trim"]["delimiter"], "`");
         assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
         assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
-        assert_eq!(by_path["$.trim"]["trimticks"]["rawValue"], "\n  one\n  two\n");
+        assert_eq!(
+            by_path["$.trim"]["trimticks"]["rawValue"],
+            "\n  one\n  two\n"
+        );
     }
 
     #[test]
@@ -1644,7 +1762,10 @@ mod tests {
         let source = "target = 99\nptr = ~>target\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
-        assert_eq!(finalized.document, json!({ "ptr": "~>target", "target": 99 }));
+        assert_eq!(
+            finalized.document,
+            json!({ "ptr": "~>target", "target": 99 })
+        );
     }
 
     #[test]
@@ -1905,7 +2026,11 @@ mod tests {
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "mask": "1A" }));
         assert_eq!(finalized.meta.errors.len(), 1);
-        assert!(finalized.meta.errors[0].message.contains("declared radix 10"));
+        assert!(
+            finalized.meta.errors[0]
+                .message
+                .contains("declared radix 10")
+        );
     }
 
     #[test]
@@ -1925,7 +2050,10 @@ mod tests {
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "limit": "Infinity" }));
         assert_eq!(finalized.meta.errors.len(), 1);
-        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_INFINITY");
+        assert_eq!(
+            finalized.meta.errors[0].code,
+            "FINALIZE_JSON_PROFILE_INFINITY"
+        );
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

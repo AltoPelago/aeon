@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Purpose: run canonical conformance checks across TS/Rust plus parity snippets.
+# Run from: repo root.
+# Example: bash ./scripts/canonical-cts.sh --mode all --brief
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

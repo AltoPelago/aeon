@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 mod flatten;
 mod header;
 mod lexer;
@@ -11,18 +13,18 @@ use std::env;
 use std::fmt;
 
 use flatten::{flatten_document, flatten_validation_document};
+pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
+pub use pathing::format_path;
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
     validate_datatypes_light, validate_duplicate_canonical_paths, validate_header_typing,
     validate_reference_steps, validate_typed_mode_rules,
 };
-pub use header::strip_leading_bom;
-pub use pathing::format_path;
 
 pub use lexer::{
-    tokenize, CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
-    ReservedCommentSubtype, Token, TokenKind,
+    CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
+    ReservedCommentSubtype, Token, TokenKind, tokenize,
 };
 #[cfg(test)]
 use validation::datatype_has_generic_args;
@@ -203,23 +205,45 @@ pub enum ReferenceSegment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
-    NumberLiteral { raw: String },
-    InfinityLiteral { raw: String },
+    NumberLiteral {
+        raw: String,
+    },
+    InfinityLiteral {
+        raw: String,
+    },
     StringLiteral {
         value: String,
         raw: String,
         delimiter: char,
         trimticks: Option<TrimtickMetadata>,
     },
-    SwitchLiteral { raw: String },
-    BooleanLiteral { raw: String },
-    HexLiteral { raw: String },
-    SeparatorLiteral { raw: String },
-    EncodingLiteral { raw: String },
-    RadixLiteral { raw: String },
-    DateLiteral { raw: String },
-    DateTimeLiteral { raw: String },
-    TimeLiteral { raw: String },
+    SwitchLiteral {
+        raw: String,
+    },
+    BooleanLiteral {
+        raw: String,
+    },
+    HexLiteral {
+        raw: String,
+    },
+    SeparatorLiteral {
+        raw: String,
+    },
+    EncodingLiteral {
+        raw: String,
+    },
+    RadixLiteral {
+        raw: String,
+    },
+    DateLiteral {
+        raw: String,
+    },
+    DateTimeLiteral {
+        raw: String,
+    },
+    TimeLiteral {
+        raw: String,
+    },
     NodeLiteral {
         raw: String,
         tag: String,
@@ -227,11 +251,23 @@ pub enum Value {
         datatype: Option<String>,
         children: Vec<Value>,
     },
-    ListNode { items: Vec<Value> },
-    TupleLiteral { items: Vec<Value> },
-    ObjectNode { bindings: Vec<Binding> },
-    CloneReference { segments: Vec<ReferenceSegment>, span: Span },
-    PointerReference { segments: Vec<ReferenceSegment>, span: Span },
+    ListNode {
+        items: Vec<Value>,
+    },
+    TupleLiteral {
+        items: Vec<Value>,
+    },
+    ObjectNode {
+        bindings: Vec<Binding>,
+    },
+    CloneReference {
+        segments: Vec<ReferenceSegment>,
+        span: Span,
+    },
+    PointerReference {
+        segments: Vec<ReferenceSegment>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -443,7 +479,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = source.as_bytes().len();
+        let actual_bytes = source.len();
         if actual_bytes > max_bytes {
             return CompileResult {
                 source,
@@ -463,7 +499,11 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    match parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth) {
+    match parse_document_tokens(
+        &source,
+        options.max_nesting_depth,
+        options.max_attribute_depth,
+    ) {
         Ok(bindings) => {
             trace_compile(format!("compile:parsed bindings={}", bindings.len()));
             finalize_compile(source, bindings, options)
@@ -471,21 +511,27 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         Err(error) => {
             trace_compile(format!("compile:parse_error code={}", error.code));
             CompileResult {
-            source,
-            events: Vec::new(),
-            errors: vec![error],
-            bindings: Vec::new(),
-            header: None,
-        }
+                source,
+                events: Vec::new(),
+                errors: vec![error],
+                bindings: Vec::new(),
+                header: None,
+            }
         }
     }
 }
 
-#[must_use]
-pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Result<PhaseTiming, Diagnostic> {
+pub fn benchmark_validation_phases(
+    input: &str,
+    options: CompileOptions,
+) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(&source, options.max_nesting_depth, options.max_attribute_depth)?;
+    let parsed = parse_document_tokens(
+        &source,
+        options.max_nesting_depth,
+        options.max_attribute_depth,
+    )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
     let lower_header_start = std::time::Instant::now();
@@ -493,7 +539,11 @@ pub fn benchmark_validation_phases(input: &str, options: CompileOptions) -> Resu
     let lower_header_ns = lower_header_start.elapsed().as_nanos();
 
     let flatten_start = std::time::Instant::now();
-    let flattened = flatten_validation_document(&lowered, &CanonicalPath::root(), options.shallow_event_values);
+    let flattened = flatten_validation_document(
+        &lowered,
+        &CanonicalPath::root(),
+        options.shallow_event_values,
+    );
     let mut datatype_errors = Vec::new();
     let event_lookup = build_validation_event_lookup(&flattened.events, &mut datatype_errors);
     let flatten_ns = flatten_start.elapsed().as_nanos();
@@ -554,7 +604,11 @@ fn parse_document_tokens(
     token_parser::parse_document_from_tokens(source, max_nesting_depth, max_attribute_depth)
 }
 
-fn finalize_compile(source: String, bindings: Vec<Binding>, options: CompileOptions) -> CompileResult {
+fn finalize_compile(
+    source: String,
+    bindings: Vec<Binding>,
+    options: CompileOptions,
+) -> CompileResult {
     trace_compile("compile:finalize:start");
     let bindings = match lower_header(bindings) {
         Ok(bindings) => bindings,
@@ -566,7 +620,7 @@ fn finalize_compile(source: String, bindings: Vec<Binding>, options: CompileOpti
                 errors: vec![error],
                 bindings: Vec::new(),
                 header: None,
-            }
+            };
         }
     };
     let mut errors = Vec::new();
@@ -716,7 +770,10 @@ mod tests {
 
     #[test]
     fn formats_root_member_and_index_segments() {
-        let path = CanonicalPath::root().member("users").index(0).member("full.name");
+        let path = CanonicalPath::root()
+            .member("users")
+            .index(0)
+            .member("full.name");
         assert_eq!(format_path(&path), "$.users[0].[\"full.name\"]");
     }
 
@@ -750,10 +807,12 @@ mod tests {
             "aeon:mode = \"custom\"\nwidget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "SELF_REFERENCE"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "SELF_REFERENCE")
+        );
     }
 
     #[test]
@@ -768,7 +827,11 @@ mod tests {
             "items = [{ email = \"a@example.com\" }, ~items[0].email]\n",
             CompileOptions::default(),
         );
-        assert!(backward_member.errors.is_empty(), "{:?}", backward_member.errors);
+        assert!(
+            backward_member.errors.is_empty(),
+            "{:?}",
+            backward_member.errors
+        );
 
         let forward = compile("items = [~items[1], 1]\n", CompileOptions::default());
         assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
@@ -846,7 +909,11 @@ mod tests {
             "a@{\"z.y\" = 1, \"x.y\" = ~a@[\"z.y\"]} = 1\n",
             CompileOptions::default(),
         );
-        assert!(quoted_backward.errors.is_empty(), "{:?}", quoted_backward.errors);
+        assert!(
+            quoted_backward.errors.is_empty(),
+            "{:?}",
+            quoted_backward.errors
+        );
 
         let forward = compile("a@{x = ~a@y, y = 1} = 1\n", CompileOptions::default());
         assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
@@ -905,20 +972,31 @@ mod tests {
 
     #[test]
     fn transport_mode_allows_custom_datatypes_without_explicit_override() {
-        let result = compile("aeon:mode = \"transport\"\ncolor:stroke = #ff00ff\n", CompileOptions::default());
+        let result = compile(
+            "aeon:mode = \"transport\"\ncolor:stroke = #ff00ff\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty());
     }
 
     #[test]
     fn custom_mode_requires_types_and_allows_custom_datatypes() {
-        let ok = compile("aeon:mode = \"custom\"\ncolor:stroke = #ff00ff\n", CompileOptions::default());
+        let ok = compile(
+            "aeon:mode = \"custom\"\ncolor:stroke = #ff00ff\n",
+            CompileOptions::default(),
+        );
         assert!(ok.errors.is_empty());
 
-        let fail = compile("aeon:mode = \"custom\"\ncolor = #ff00ff\n", CompileOptions::default());
-        assert!(fail
-            .errors
-            .iter()
-            .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE" && error.path.as_deref() == Some("$.color")));
+        let fail = compile(
+            "aeon:mode = \"custom\"\ncolor = #ff00ff\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            fail.errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.color"))
+        );
     }
 
     #[test]
@@ -942,14 +1020,20 @@ mod tests {
 
     #[test]
     fn custom_mode_allows_custom_switch_aliases() {
-        let result = compile("aeon:mode = \"custom\"\ns:toggle = on\n", CompileOptions::default());
+        let result = compile(
+            "aeon:mode = \"custom\"\ns:toggle = on\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
     }
 
     #[test]
     fn typed_clone_reference_uses_target_value_kind_for_datatype_checking() {
-        let result = compile("source:number = 99\ncopy:number = ~source", CompileOptions::default());
+        let result = compile(
+            "source:number = 99\ncopy:number = ~source",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
     }
@@ -980,7 +1064,10 @@ mod tests {
         for source in invalid_number_cases {
             let result = compile(source, CompileOptions::default());
             assert!(
-                result.errors.iter().any(|error| error.code == "INVALID_NUMBER"),
+                result
+                    .errors
+                    .iter()
+                    .any(|error| error.code == "INVALID_NUMBER"),
                 "expected INVALID_NUMBER for {source:?}, got {:?}",
                 result.errors
             );
@@ -989,7 +1076,10 @@ mod tests {
         let malformed_boundary_cases = ["a:number = 3e_3\n"];
         for source in malformed_boundary_cases {
             let result = compile(source, CompileOptions::default());
-            assert!(!result.errors.is_empty(), "expected an error for {source:?}");
+            assert!(
+                !result.errors.is_empty(),
+                "expected an error for {source:?}"
+            );
         }
     }
 
@@ -1011,16 +1101,25 @@ mod tests {
 
     #[test]
     fn rejects_malformed_transport_number_before_finalize() {
-        let result = compile("aeon:mode = \"transport\"\na = 1-1\n", CompileOptions::default());
+        let result = compile(
+            "aeon:mode = \"transport\"\na = 1-1\n",
+            CompileOptions::default(),
+        );
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "INVALID_NUMBER");
-        assert_eq!(result.errors[0].message, "Number literal `1-1` is not valid");
+        assert_eq!(
+            result.errors[0].message,
+            "Number literal `1-1` is not valid"
+        );
     }
 
     #[test]
     fn accepts_valid_untyped_transport_dates() {
-        let result = compile("aeon:mode = \"transport\"\nd:date = 2012-06-13\n", CompileOptions::default());
+        let result = compile(
+            "aeon:mode = \"transport\"\nd:date = 2012-06-13\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].value.value_kind(), "DateLiteral");
@@ -1036,13 +1135,20 @@ mod tests {
             let result = compile(source, CompileOptions::default());
             assert!(result.events.is_empty(), "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
-            assert_eq!(result.errors[0].code, "INVALID_NUMBER", "{:?}", result.errors);
+            assert_eq!(
+                result.errors[0].code, "INVALID_NUMBER",
+                "{:?}",
+                result.errors
+            );
         }
     }
 
     #[test]
     fn accepts_leading_dot_radix_literals() {
-        let result = compile("a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1\n", CompileOptions::default());
+        let result = compile(
+            "a:radix = %-.3\nb:radix = %+.1\nc:radix = %.1\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 3);
     }
@@ -1068,11 +1174,17 @@ mod tests {
 
     #[test]
     fn reports_missing_reference_target_with_path_and_span_details() {
-        let result = compile("a@{ ns = \"alto.v1\" } = 1\nb = ~a@missing\n", CompileOptions::default());
+        let result = compile(
+            "a@{ ns = \"alto.v1\" } = 1\nb = ~a@missing\n",
+            CompileOptions::default(),
+        );
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
-        assert_eq!(result.errors[0].message, "Missing reference target: '$.a@missing'");
+        assert_eq!(
+            result.errors[0].message,
+            "Missing reference target: '$.a@missing'"
+        );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
         let span = result.errors[0].span.as_ref().expect("span");
         assert_eq!(span.start.line, 2);
@@ -1089,7 +1201,10 @@ mod tests {
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
-        assert_eq!(result.errors[0].message, "Missing reference target: '$.a@missing'");
+        assert_eq!(
+            result.errors[0].message,
+            "Missing reference target: '$.a@missing'"
+        );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
     }
 
@@ -1135,11 +1250,17 @@ mod tests {
 
         for (source, expected_code, expected_message) in cases {
             let result = compile(source, CompileOptions::default());
-            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert!(
+                result.events.is_empty(),
+                "expected no events for {source:?}"
+            );
             assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
             assert_eq!(result.errors[0].code, expected_code);
             assert_eq!(result.errors[0].message, expected_message);
-            assert!(result.errors[0].span.is_some(), "expected span for {source:?}");
+            assert!(
+                result.errors[0].span.is_some(),
+                "expected span for {source:?}"
+            );
         }
     }
 
@@ -1150,12 +1271,19 @@ mod tests {
             "a:zrut = 2007-01-02T10:10:25z&Australia/Melbourne\n",
         ] {
             let result = compile(source, CompileOptions::default());
-            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert!(
+                result.events.is_empty(),
+                "expected no events for {source:?}"
+            );
             assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-            assert!(result.errors[0]
-                .message
-                .starts_with("Invalid datetime literal:"), "{:?}", result.errors);
+            assert!(
+                result.errors[0]
+                    .message
+                    .starts_with("Invalid datetime literal:"),
+                "{:?}",
+                result.errors
+            );
         }
     }
 
@@ -1173,7 +1301,10 @@ mod tests {
             "z:zrut = 2025-01-01T09Z&Europe/Brussels&Local\n",
         ] {
             let result = compile(source, CompileOptions::default());
-            assert!(result.events.is_empty(), "expected no events for {source:?}");
+            assert!(
+                result.events.is_empty(),
+                "expected no events for {source:?}"
+            );
             assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
             assert_eq!(result.errors[0].code, "INVALID_DATETIME");
         }
@@ -1196,7 +1327,10 @@ mod tests {
     fn parses_pointer_references() {
         let result = compile("target = 1\nptr = ~>target\n", CompileOptions::default());
         assert!(result.errors.is_empty());
-        assert!(matches!(result.events[1].value, Value::PointerReference { .. }));
+        assert!(matches!(
+            result.events[1].value,
+            Value::PointerReference { .. }
+        ));
     }
 
     #[test]
@@ -1227,7 +1361,10 @@ mod tests {
 
     #[test]
     fn skips_structured_comments_during_parse() {
-        let result = compile("//# doc title\na = 1 //? inline\n/@ meta @/\nb = 2\n", CompileOptions::default());
+        let result = compile(
+            "//# doc title\na = 1 //? inline\n/@ meta @/\nb = 2\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
         assert_eq!(format_path(&result.events[0].path), "$.a");
@@ -1257,14 +1394,20 @@ mod tests {
             "aeon:mode = \"custom\"\ndebug = yes\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE" && error.path.as_deref() == Some("$.debug")));
-        assert!(!result
-            .errors
-            .iter()
-            .any(|error| error.code == "UNTYPED_SWITCH_LITERAL" && error.path.as_deref() == Some("$.debug")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.debug"))
+        );
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_SWITCH_LITERAL"
+                    && error.path.as_deref() == Some("$.debug"))
+        );
         assert!(result.events.is_empty());
     }
 
@@ -1303,10 +1446,12 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "DUPLICATE_CANONICAL_PATH"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "DUPLICATE_CANONICAL_PATH")
+        );
         assert_eq!(result.events.len(), 1);
         assert_eq!(format_path(&result.events[0].path), "$.a");
     }
@@ -1344,7 +1489,10 @@ mod tests {
 
     #[test]
     fn supports_datatype_after_attribute_block() {
-        let result = compile("a@{ ns = \"alto.v1\" }:int32 = 3\n", CompileOptions::default());
+        let result = compile(
+            "a@{ ns = \"alto.v1\" }:int32 = 3\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].datatype.as_deref(), Some("int32"));
@@ -1361,7 +1509,10 @@ mod tests {
 
     #[test]
     fn supports_single_quoted_keys_and_references() {
-        let result = compile("'single\\'quote':int32 = 2\nref = ~['single\\'quote']\n", CompileOptions::default());
+        let result = compile(
+            "'single\\'quote':int32 = 2\nref = ~['single\\'quote']\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
     }
@@ -1369,46 +1520,58 @@ mod tests {
     #[test]
     fn rejects_backtick_quoted_keys() {
         let result = compile("`hello`:number = 2\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Backtick strings are not valid keys")));
+        assert!(result.errors.iter().any(|error| {
+            error.code == "SYNTAX_ERROR"
+                && error
+                    .message
+                    .contains("Backtick strings are not valid keys")
+        }));
     }
 
     #[test]
     fn rejects_duplicate_top_level_datatype_annotations() {
         let result = compile("c:number:number = 2\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected '=' after key 'c'")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "SYNTAX_ERROR"
+                    && error.message.contains("Expected '=' after key 'c'"))
+        );
     }
 
     #[test]
     fn rejects_multiple_bindings_in_single_datatype_slot() {
         let result = compile("c:number, b:number = 2\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Expected '=' after key 'c'")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "SYNTAX_ERROR"
+                    && error.message.contains("Expected '=' after key 'c'"))
+        );
     }
 
     #[test]
     fn rejects_reserved_comma_separator_datatypes() {
         let result = compile("badSepType2:set[,] = ^0,0,0,\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+        );
     }
 
     #[test]
     fn rejects_reserved_slash_separator_datatypes() {
         let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+        );
     }
 
     #[test]
@@ -1437,12 +1600,16 @@ mod tests {
         );
         assert!(result.errors.iter().any(|error| {
             error.code == "SYNTAX_ERROR"
-                && error.message.contains("Radix base must be an integer from 2 to 64")
+                && error
+                    .message
+                    .contains("Radix base must be an integer from 2 to 64")
         }));
-        assert!(!result
-            .errors
-            .iter()
-            .any(|error| error.code == "INVALID_SEPARATOR_CHAR"));
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+        );
     }
 
     #[test]
@@ -1457,10 +1624,12 @@ mod tests {
     #[test]
     fn rejects_quoted_type_names() {
         let result = compile("a:'string' = 'hello world'\n", CompileOptions::default());
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "SYNTAX_ERROR" && error.message.contains("Quoted type names are not supported")));
+        assert!(result.errors.iter().any(|error| {
+            error.code == "SYNTAX_ERROR"
+                && error
+                    .message
+                    .contains("Quoted type names are not supported")
+        }));
     }
 
     #[test]
@@ -1508,7 +1677,11 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+        assert!(
+            separator_result.errors.is_empty(),
+            "{:?}",
+            separator_result.errors
+        );
 
         let radix_result = compile(
             "aeon:mode = \"strict\"\nb:custom[2] = %0101\n",
@@ -1526,10 +1699,12 @@ mod tests {
             "aeon:mode = \"custom\"\na:custom<custom> = 0\n",
             CompileOptions::default(),
         );
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+        );
     }
 
     #[test]
@@ -1553,19 +1728,23 @@ mod tests {
             "aeon:mode = \"custom\"\nd:custom[3] = 3\n",
             CompileOptions::default(),
         );
-        assert!(radix_like_result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+        assert!(
+            radix_like_result
+                .errors
+                .iter()
+                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+        );
 
         let separator_like_result = compile(
             "aeon:mode = \"custom\"\ne:custom[.] = 3\n",
             CompileOptions::default(),
         );
-        assert!(separator_like_result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+        assert!(
+            separator_like_result
+                .errors
+                .iter()
+                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+        );
     }
 
     #[test]
@@ -1580,13 +1759,21 @@ mod tests {
             "aeon:mode = \"custom\"\ng:custom[.] = ^1.1.1\n",
             CompileOptions::default(),
         );
-        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+        assert!(
+            separator_result.errors.is_empty(),
+            "{:?}",
+            separator_result.errors
+        );
 
         let ambiguous_result = compile(
             "aeon:mode = \"custom\"\nh:custom[1] = ^1.1.1\n",
             CompileOptions::default(),
         );
-        assert!(ambiguous_result.errors.is_empty(), "{:?}", ambiguous_result.errors);
+        assert!(
+            ambiguous_result.errors.is_empty(),
+            "{:?}",
+            ambiguous_result.errors
+        );
     }
 
     #[test]
@@ -1597,9 +1784,11 @@ mod tests {
         );
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-        assert!(result.errors[0]
-            .message
-            .contains("combines incompatible generic and bracket constraints"));
+        assert!(
+            result.errors[0]
+                .message
+                .contains("combines incompatible generic and bracket constraints")
+        );
     }
 
     #[test]
@@ -1617,10 +1806,12 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert!(separator_result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+        assert!(
+            separator_result
+                .errors
+                .iter()
+                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+        );
 
         let radix_result = compile(
             "aeon:mode = \"strict\"\nb:test[22] = %0101\n",
@@ -1641,7 +1832,11 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert!(separator_result.errors.is_empty(), "{:?}", separator_result.errors);
+        assert!(
+            separator_result.errors.is_empty(),
+            "{:?}",
+            separator_result.errors
+        );
 
         let radix_result = compile(
             "aeon:mode = \"strict\"\nb:custom[.] = %0101\n",
@@ -1650,10 +1845,12 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert!(radix_result
-            .errors
-            .iter()
-            .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH"));
+        assert!(
+            radix_result
+                .errors
+                .iter()
+                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+        );
     }
 
     #[test]
@@ -1714,7 +1911,10 @@ mod tests {
         );
         assert!(result.errors.is_empty());
         assert_eq!(result.events.len(), 2);
-        assert!(matches!(result.events[0].value, Value::StringLiteral { .. }));
+        assert!(matches!(
+            result.events[0].value,
+            Value::StringLiteral { .. }
+        ));
         assert!(matches!(result.events[1].value, Value::NodeLiteral { .. }));
     }
 
@@ -1862,14 +2062,19 @@ mod tests {
 
     #[test]
     fn accepts_root_quoted_member_reference_after_dollar_dot() {
-        let result = compile("\"a.b\" = 1\nv = ~$. [\"a.b\"]\n", CompileOptions::default());
+        let result = compile(
+            "\"a.b\" = 1\nv = ~$. [\"a.b\"]\n",
+            CompileOptions::default(),
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
     fn fails_closed_on_deep_valid_nesting() {
-        let mut options = CompileOptions::default();
-        options.max_nesting_depth = 32;
+        let options = CompileOptions {
+            max_nesting_depth: 32,
+            ..CompileOptions::default()
+        };
         let source = format!("v = {}0{}\n", "[".repeat(40), "]".repeat(40));
         let result = compile(&source, options);
         assert!(result.events.is_empty());
@@ -1975,9 +2180,10 @@ mod tests {
         let result = compile(&fixture, CompileOptions::default());
         assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert!(result.errors[0]
-            .message
-            .contains("Invalid encoding literal"));
+        assert!(
+            result.errors[0]
+                .message
+                .contains("Invalid encoding literal")
+        );
     }
-
 }
