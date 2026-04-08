@@ -26,6 +26,6 @@
   "description": "Annotation stream conformance test runner for AEON (annotations-only CTS lane)",
   "keywords": ["aeon","cts","annotations","conformance","runner"],
   "devDependencies": {
-    "@types/node": "^20.11.30"
+    "@types/node": "^25.5.2"
   }
 }

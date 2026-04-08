@@ -27,7 +27,7 @@
     "@aeon/parser": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^20.11.30"
+    "@types/node": "^25.5.2"
   },
   "engines": {
     "node": ">=20"

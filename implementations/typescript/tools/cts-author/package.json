@@ -17,6 +17,6 @@
     "test": "node --test dist/*.test.js"
   },
   "devDependencies": {
-    "@types/node": "^20.11.30"
+    "@types/node": "^25.5.2"
   }
 }
