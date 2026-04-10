@@ -66,6 +66,15 @@ FIXTURES: tuple[FixtureCase, ...] = (
     FixtureCase("domain/literals/inline-array-literals-pass.aeon", "stress-tests/domain/literals/inline-array-literals-pass.aeon", 0, '"errors": []', ("--json",)),
     FixtureCase("domain/literals/leading-dot-decimals.aeon", "stress-tests/domain/literals/leading-dot-decimals.aeon", 0, '"errors": []', ("--json",)),
     FixtureCase("domain/literals/trimticks-mixed-whitespace.aeon", "stress-tests/domain/literals/trimticks-mixed-whitespace.aeon", 0, '"errors": []', ("--json",)),
+    FixtureCase(
+        "domain/literals/unicode-escape-pair.aeon",
+        "stress-tests/domain/literals/unicode-escape-pair.aeon",
+        0,
+        '"errors": []',
+        ("--json",),
+        known_red=True,
+        note="Rust still rejects quoted Unicode escape forms that TypeScript and Python decode successfully.",
+    ),
     FixtureCase("edge/comment-stress-unterminated.aeon", "stress-tests/edge/comment-stress-unterminated.aeon", 1, "UNTERMINATED_BLOCK_COMMENT", ("--json", "--annotations")),
     FixtureCase(
         "edge/escaped-decoded-identity-duplicate.aeon",
@@ -97,6 +106,9 @@ FIXTURES: tuple[FixtureCase, ...] = (
     ),
     FixtureCase("edge/unicode-word-joiner-structural.aeon", "stress-tests/edge/unicode-word-joiner-structural.aeon", 1, None, ("--json",)),
     FixtureCase("edge/unicode-line-separator-structural.aeon", "stress-tests/edge/unicode-line-separator-structural.aeon", 1, None, ("--json",)),
+    FixtureCase("edge/trailing-garbage-after-number.aeon", "stress-tests/edge/trailing-garbage-after-number.aeon", 1, "SYNTAX_ERROR", ("--json",)),
+    FixtureCase("edge/trailing-garbage-after-string.aeon", "stress-tests/edge/trailing-garbage-after-string.aeon", 1, "SYNTAX_ERROR", ("--json",)),
+    FixtureCase("edge/trailing-garbage-after-node.aeon", "stress-tests/edge/trailing-garbage-after-node.aeon", 1, "SYNTAX_ERROR", ("--json",)),
 )
 
 

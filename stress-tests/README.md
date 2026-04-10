@@ -103,6 +103,15 @@ Notes:
 - `edge/unicode-line-separator-structural.aeon`
   - Negative fixture expecting `UNEXPECTED_CHARACTER` for a disallowed structural line separator.
 
+- `edge/trailing-garbage-after-number.aeon`
+  - Negative fixture proving a valid numeric binding plus stray trailing text fails closed.
+
+- `edge/trailing-garbage-after-string.aeon`
+  - Negative fixture proving a valid string binding plus stray trailing text fails closed.
+
+- `edge/trailing-garbage-after-node.aeon`
+  - Negative fixture proving a valid node binding plus stray trailing text fails closed.
+
 - `domain/addressing/nesting-addressing.aeon`
   - Nested list/object addressing with indexed paths.
 
@@ -127,6 +136,9 @@ Notes:
 
 - `domain/literals/leading-dot-decimals.aeon`
   - Leading-dot decimal acceptance and normalization coverage.
+
+- `domain/literals/unicode-escape-pair.aeon`
+  - Quoted Unicode escape coverage for basic escapes and supplementary-codepoint surrogate pairs.
 
 - `canonical/node-introducer-singleline.aeon`
   - Single-line node introducer fixture.
