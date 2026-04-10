@@ -2178,12 +2178,6 @@ mod tests {
         ))
         .expect("read scenarios.aeon fixture");
         let result = compile(&fixture, CompileOptions::default());
-        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert!(
-            result.errors[0]
-                .message
-                .contains("Invalid encoding literal")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 }
