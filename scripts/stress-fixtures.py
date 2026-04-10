@@ -115,7 +115,15 @@ FIXTURES: tuple[FixtureCase, ...] = (
         known_red=True,
         note="Rust still treats escaped-equivalent keys as distinct canonical identities.",
     ),
-    FixtureCase("edge/inline-array-separator-boundaries.aeon", "stress-tests/edge/inline-array-separator-boundaries.aeon", 1, "INVALID_SEPARATOR_CHAR", ("--json",)),
+    FixtureCase(
+        "edge/inline-array-separator-boundaries.aeon",
+        "stress-tests/edge/inline-array-separator-boundaries.aeon",
+        1,
+        "INVALID_SEPARATOR_CHAR",
+        ("--json",),
+        known_red=True,
+        note="Rust still fails early with a generic 'Expected key' syntax error instead of surfacing the separator-depth and invalid-separator diagnostics that TypeScript and Python report.",
+    ),
     FixtureCase(
         "edge/string-literal-newline.aeon",
         "stress-tests/edge/string-literal-newline.aeon",

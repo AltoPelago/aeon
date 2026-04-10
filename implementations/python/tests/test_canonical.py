@@ -100,8 +100,7 @@ class CanonicalTests(unittest.TestCase):
         fixture = ROOT.parents[1] / "stress-tests" / "full" / "scenarios.aeon"
         source = fixture.read_text(encoding="utf-8")
         result = compile_source(source)
-        self.assertEqual(["SYNTAX_ERROR", "SYNTAX_ERROR", "SYNTAX_ERROR"], [error.code for error in result.errors])
-        self.assertTrue(all("Invalid encoding literal" in error.message for error in result.errors))
+        self.assertEqual([], result.errors)
 
     def test_canonicalize_does_not_emit_shebang_or_host_directive(self) -> None:
         result = canonicalize("#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1")

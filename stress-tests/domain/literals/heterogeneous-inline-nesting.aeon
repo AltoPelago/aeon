@@ -15,7 +15,7 @@ mixed:list = [
       {
         c:dim[|] = ^3|4
       }
-      <y@{kind:string="swatch"}(#00FF00, "ok")
+      <y@{kind:string="swatch"}(#00FF00, "ok")>
     ]
   }
 ]
