@@ -7,6 +7,7 @@ from .errors import (
     AeonError,
     InvalidDateError,
     InvalidDateTimeError,
+    InvalidEscapeError,
     InvalidNumberError,
     InvalidTimeError,
     SyntaxError,
@@ -210,7 +211,7 @@ class Lexer:
             if char == "\\":
                 self.advance()
                 if self.is_at_end():
-                    self.errors.append(SyntaxError("Invalid escape sequence", self.make_span(start)))
+                    self.errors.append(InvalidEscapeError("Invalid escape sequence", self.make_span(start)))
                     return
                 escaped = self.advance()
                 mapping = {
@@ -233,56 +234,56 @@ class Lexer:
                         while self.peek() not in {"}", "\0"}:
                             hex_digits.append(self.advance())
                         if not self.match("}") or not 1 <= len(hex_digits) <= 6:
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         if any(not self.is_hex_digit(c) for c in hex_digits):
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         codepoint = int("".join(hex_digits), 16)
                         if codepoint > 0x10FFFF:
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         value_parts.append(chr(codepoint))
                         continue
                     hex_digits = "".join(self.advance() for _ in range(4) if not self.is_at_end())
                     if len(hex_digits) != 4 or any(not self.is_hex_digit(c) for c in hex_digits):
-                        self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                        self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                         self.consume_invalid_string_tail(delimiter, is_raw)
                         return
                     codepoint = int(hex_digits, 16)
                     if 0xD800 <= codepoint <= 0xDBFF:
                         if self.is_at_end() or self.peek() != "\\":
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         self.advance()
                         if self.is_at_end() or self.advance() != "u":
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         low_hex = "".join(self.advance() for _ in range(4) if not self.is_at_end())
                         if len(low_hex) != 4 or any(not self.is_hex_digit(c) for c in low_hex):
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         low_codepoint = int(low_hex, 16)
                         if not (0xDC00 <= low_codepoint <= 0xDFFF):
-                            self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                            self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         combined = 0x10000 + ((codepoint - 0xD800) << 10) + (low_codepoint - 0xDC00)
                         value_parts.append(chr(combined))
                         continue
                     if 0xDC00 <= codepoint <= 0xDFFF:
-                        self.errors.append(SyntaxError("Invalid unicode escape", self.make_span(start)))
+                        self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                         self.consume_invalid_string_tail(delimiter, is_raw)
                         return
                     value_parts.append(chr(codepoint))
                     continue
-                self.errors.append(SyntaxError("Invalid escape sequence", self.make_span(start)))
+                self.errors.append(InvalidEscapeError("Invalid escape sequence", self.make_span(start)))
                 self.consume_invalid_string_tail(delimiter, is_raw)
                 return
             value_parts.append(self.advance())

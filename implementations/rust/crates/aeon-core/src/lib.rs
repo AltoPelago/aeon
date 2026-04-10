@@ -1564,6 +1564,20 @@ mod tests {
     }
 
     #[test]
+    fn recovers_past_comma_split_separator_literals_to_report_separator_datatype_errors() {
+        let result = compile(
+            "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:set[,] = ^0,0,0,\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+        );
+    }
+
+    #[test]
     fn rejects_reserved_slash_separator_datatypes() {
         let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
         assert!(

@@ -57,7 +57,15 @@ impl<'a> TokenParser<'a> {
         let mut bindings = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
-            bindings.push(self.parse_binding()?);
+            match self.parse_binding() {
+                Ok(binding) => bindings.push(binding),
+                Err(error) if error.code == "SYNTAX_ERROR" && error.message == "Expected key" => {
+                    self.synchronize_to_next_binding();
+                    self.skip_newlines();
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
             self.consume_separator()?;
             self.skip_newlines();
         }
@@ -945,6 +953,18 @@ impl<'a> TokenParser<'a> {
         while self.match_kind(TokenKind::Newline) {}
     }
 
+    fn synchronize_to_next_binding(&mut self) {
+        while !self.is_at_end() {
+            if self.peek().kind == TokenKind::Identifier {
+                let next = self.peek_next();
+                if matches!(next.kind, TokenKind::Equals | TokenKind::Colon | TokenKind::At) {
+                    return;
+                }
+            }
+            self.advance();
+        }
+    }
+
     fn consume(&mut self, kind: TokenKind, message: &str) -> Result<&'a Token, Diagnostic> {
         if self.peek().kind == kind {
             Ok(self.advance())
@@ -1165,8 +1185,15 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
 }
 
 fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
+    if token.text.starts_with('"') && token.text[1..token.text.len() - 1].contains(['\n', '\r']) {
+        return Err(
+            Diagnostic::new("UNTERMINATED_STRING", "Unterminated string")
+                .at_path("$")
+                .with_span(token.span),
+        );
+    }
     decode_quoted_text(&token.text).map_err(|message| {
-        Diagnostic::new("SYNTAX_ERROR", message)
+        Diagnostic::new("INVALID_ESCAPE", message)
             .at_path("$")
             .with_span(token.span)
     })
@@ -1539,9 +1566,16 @@ mod tests {
             ("tag:node = <\"a\\q\">\n", "Invalid escape sequence"),
         ] {
             let error = parse(source).expect_err("expected syntax error");
-            assert_eq!(error.code, "SYNTAX_ERROR");
+            assert_eq!(error.code, "INVALID_ESCAPE");
             assert_eq!(error.message, message);
         }
+    }
+
+    #[test]
+    fn rejects_literal_newlines_inside_quoted_strings() {
+        let error = parse("value = \"line1\nline2\"\n").expect_err("expected unterminated string");
+        assert_eq!(error.code, "UNTERMINATED_STRING");
+        assert_eq!(error.message, "Unterminated string");
     }
 
     #[test]
