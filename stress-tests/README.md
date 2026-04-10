@@ -88,6 +88,18 @@ Notes:
 - `edge/inline-array-separator-boundaries.aeon`
   - Negative fixture documenting separator-literal greediness and separator-char collisions.
 
+- `edge/string-literal-newline.aeon`
+  - Negative fixture expecting quoted strings to fail closed when a literal newline appears before the closing delimiter.
+
+- `edge/unicode-braced-incomplete.aeon`
+  - Negative fixture expecting `INVALID_ESCAPE` for an incomplete braced Unicode escape introducer.
+
+- `edge/unicode-braced-missing-close.aeon`
+  - Negative fixture expecting `INVALID_ESCAPE` for a braced Unicode escape missing its closing `}`.
+
+- `edge/unicode-braced-nonhex.aeon`
+  - Negative fixture proving a braced Unicode escape with non-hex digits fails closed.
+
 - `edge/escaped-decoded-identity-duplicate.aeon`
   - Negative fixture proving escaped and literal equivalent keys collide at one canonical path.
 
@@ -112,6 +124,15 @@ Notes:
 - `edge/trailing-garbage-after-node.aeon`
   - Negative fixture proving a valid node binding plus stray trailing text fails closed.
 
+- `edge/trailing-garbage-after-object.aeon`
+  - Negative fixture proving a valid object binding plus stray trailing text fails closed.
+
+- `edge/trailing-garbage-after-list.aeon`
+  - Negative fixture proving a valid list binding plus stray trailing text fails closed.
+
+- `edge/trailing-garbage-after-reference.aeon`
+  - Negative fixture proving a valid reference binding plus stray trailing text fails closed.
+
 - `domain/addressing/nesting-addressing.aeon`
   - Nested list/object addressing with indexed paths.
 
@@ -124,6 +145,15 @@ Notes:
 - `domain/addressing/escaped-decoded-identity.aeon`
   - Escaped Unicode spellings that must resolve to the same decoded key,
     selector, and node-tag identity as their literal equivalents.
+
+- `domain/addressing/escaped-decoded-identity-pointers.aeon`
+  - Escaped Unicode spellings that must resolve to the same decoded key and attribute identities for pointer references.
+
+- `domain/addressing/escaped-decoded-identity-rooted.aeon`
+  - Escaped Unicode spellings that must resolve to the same decoded identities through rooted and chained clone references.
+
+- `domain/addressing/escaped-normalization-distinct-keys.aeon`
+  - Escaped Unicode spellings that decode to NFC- and NFD-distinct keys and must remain separate canonical identities.
 
 - `domain/literals/inline-array-literals-pass.aeon`
   - Inline array pass coverage for literal families that should delimit safely.
@@ -139,6 +169,9 @@ Notes:
 
 - `domain/literals/unicode-escape-pair.aeon`
   - Quoted Unicode escape coverage for basic escapes and supplementary-codepoint surrogate pairs.
+
+- `domain/literals/unicode-unpaired-surrogates.aeon`
+  - Quoted Unicode escape coverage for lone high and low surrogate escape spellings.
 
 - `canonical/node-introducer-singleline.aeon`
   - Single-line node introducer fixture.
