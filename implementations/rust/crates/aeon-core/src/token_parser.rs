@@ -1178,7 +1178,7 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
     }
     let inner = &text[1..text.len() - 1];
     let mut output = String::with_capacity(inner.len());
-    let mut chars = inner.chars();
+    let mut chars = inner.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\\' {
             let escaped = chars.next().ok_or("Invalid escape sequence")?;
@@ -1223,8 +1223,33 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                         }
                         let codepoint = u32::from_str_radix(&hex_digits, 16)
                             .map_err(|_| "Invalid unicode escape")?;
-                        let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
-                        output.push(decoded);
+                        if (0xD800..=0xDBFF).contains(&codepoint) {
+                            if chars.next() != Some('\\') || chars.next() != Some('u') {
+                                return Err("Invalid unicode escape");
+                            }
+                            let mut low_hex_digits = String::with_capacity(4);
+                            for _ in 0..4 {
+                                low_hex_digits.push(chars.next().ok_or("Invalid unicode escape")?);
+                            }
+                            if !low_hex_digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
+                                return Err("Invalid unicode escape");
+                            }
+                            let low_codepoint = u32::from_str_radix(&low_hex_digits, 16)
+                                .map_err(|_| "Invalid unicode escape")?;
+                            if !(0xDC00..=0xDFFF).contains(&low_codepoint) {
+                                return Err("Invalid unicode escape");
+                            }
+                            let combined = 0x10000
+                                + ((codepoint - 0xD800) << 10)
+                                + (low_codepoint - 0xDC00);
+                            let decoded = char::from_u32(combined).ok_or("Invalid unicode escape")?;
+                            output.push(decoded);
+                        } else if (0xDC00..=0xDFFF).contains(&codepoint) {
+                            return Err("Invalid unicode escape");
+                        } else {
+                            let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                            output.push(decoded);
+                        }
                     }
                 }
                 _ => return Err("Invalid escape sequence"),
@@ -1477,7 +1502,9 @@ mod tests {
 
     #[test]
     fn decodes_standard_and_unicode_quoted_escapes() {
-        let bindings = parse("\"a\\n\" = 1\nvalue = \"x\\u0041\"\ntag:node = <\"a\\u{41}\">\n")
+        let bindings = parse(
+            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\nemoji = \"\\uD83D\\uDE00\"\ntag:node = <\"a\\u{41}\">\n",
+        )
             .expect("token parse");
         assert_eq!(bindings[0].key, "a\n");
         assert_eq!(
@@ -1489,7 +1516,16 @@ mod tests {
                 trimticks: None,
             }
         );
-        match &bindings[2].value {
+        assert_eq!(
+            bindings[2].value,
+            Value::StringLiteral {
+                value: String::from("😀"),
+                raw: String::from("\\uD83D\\uDE00"),
+                delimiter: '"',
+                trimticks: None,
+            }
+        );
+        match &bindings[3].value {
             Value::NodeLiteral { tag, .. } => assert_eq!(tag, "aA"),
             other => panic!("expected node literal, got {other:?}"),
         }
