@@ -88,6 +88,21 @@ Notes:
 - `edge/inline-array-separator-boundaries.aeon`
   - Negative fixture documenting separator-literal greediness and separator-char collisions.
 
+- `edge/escaped-decoded-identity-duplicate.aeon`
+  - Negative fixture proving escaped and literal equivalent keys collide at one canonical path.
+
+- `edge/unicode-invalid-escape.aeon`
+  - Negative fixture expecting `INVALID_ESCAPE` for malformed quoted escapes.
+
+- `edge/unicode-out-of-range-escape.aeon`
+  - Negative fixture expecting `INVALID_ESCAPE` for out-of-range braced Unicode escapes.
+
+- `edge/unicode-word-joiner-structural.aeon`
+  - Negative fixture expecting `UNEXPECTED_CHARACTER` for a disallowed structural word joiner.
+
+- `edge/unicode-line-separator-structural.aeon`
+  - Negative fixture expecting `UNEXPECTED_CHARACTER` for a disallowed structural line separator.
+
 - `domain/addressing/nesting-addressing.aeon`
   - Nested list/object addressing with indexed paths.
 
@@ -96,6 +111,10 @@ Notes:
 
 - `domain/addressing/escaped-quoted-keys.aeon`
   - Escaping behavior for quoted keys/segments.
+
+- `domain/addressing/escaped-decoded-identity.aeon`
+  - Escaped Unicode spellings that must resolve to the same decoded key,
+    selector, and node-tag identity as their literal equivalents.
 
 - `domain/literals/inline-array-literals-pass.aeon`
   - Inline array pass coverage for literal families that should delimit safely.

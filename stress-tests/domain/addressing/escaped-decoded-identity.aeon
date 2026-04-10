@@ -1,0 +1,23 @@
+//!/bin/aeon --profile=ts.object.v1
+
+//# Escaped decoded-identity stress
+aeon:header = {
+  version = "1.0"
+  mode = "transport"
+  profile = "ts.object.v1"
+}
+
+"aA":int32 = 1
+refTop = ~["a\u0041"]
+
+obj = {
+  "bA":int32 = 2
+}
+refNested = ~obj.["b\u0041"]
+
+host@{
+  "xA":int32 = 3
+} = 4
+refAttr = ~host@["x\u0041"]
+
+n = <"a\u0041">
