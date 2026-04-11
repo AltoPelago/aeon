@@ -31,6 +31,73 @@ Rule of thumb:
   reduce it into `aeonite-cts`
 - if a fixture is primarily implementation hardening, keep it here
 
+## Classification Model
+
+The stress tree keeps its current shape-oriented directories, but fixtures can
+also be classified by the surface they stress.
+
+Primary classes:
+
+- `parse`
+  - source acceptance and rejection, lexical rules, escapes, addressing,
+    canonical-path legality, and fail-closed source behavior
+- `aes`
+  - AES event emission, path rendering, value-surface preservation, and
+    pre-materialization legality
+- `canonical`
+  - canonical formatting and canonicalization determinism
+- `finalize`
+  - finalized JSON or map output, projection, materialization, and output-shape
+    constraints
+- `profile`
+  - mode or profile-sensitive behavior where the same source is handled
+    differently under an explicit policy surface
+- `diagnostic`
+  - diagnostic contract behavior such as codes, phases, paths, spans, and
+    multi-error recovery
+
+Secondary facets:
+
+- `positive`
+- `negative`
+- `mixed`
+- `stress-only`
+- `cts-ready`
+- `promotion-candidate`
+- `diagnostic`
+
+Notes:
+
+- classes identify the primary stressed surface
+- facets provide secondary intent and triage hints
+- a fixture may still live under `edge/`, `domain/`, or `canonical/` even when
+  its class is something else
+- most current curated fixtures are still `parse`; the classification model is
+  there so later AES, finalize, profile, and diagnostic-heavy corpora do not
+  get flattened into one generic bucket
+
+Current examples:
+
+- `edge/unicode-invalid-escape.aeon`
+  - class: `parse`
+  - facets: `negative`, `diagnostic`, `promotion-candidate`
+- `domain/addressing/escaped-decoded-identity-rooted.aeon`
+  - class: `parse`
+  - facets: `positive`, `promotion-candidate`
+- `canonical/node-introducer-singleline.aeon`
+  - class: `canonical`
+  - facets: `positive`, `promotion-candidate`
+
+The shared fixture harness exposes this metadata through filters:
+
+```bash
+python3 ./scripts/stress-fixtures.py --class parse
+python3 ./scripts/stress-fixtures.py --facet diagnostic
+python3 ./scripts/stress-fixtures.py --facet promotion-candidate --cts-lane core
+python3 ./scripts/stress-fixtures.py --class canonical --impl typescript
+python3 ./scripts/stress-fixtures.py --cts-ready
+```
+
 ## Current Baseline
 
 | Lane | Command | Current expectation |
@@ -203,6 +270,8 @@ python3 ./scripts/stress-fixtures.py --impl rust
 `stress-smoke.sh` stays intentionally small and fast. `stress-fixtures.py` runs the broader shared fixture
 matrix, including domain fixtures and per-fixture options such as `--datatype-policy allow_custom`.
 Known-red fixtures are reported separately so they stay visible without masking implementation-specific regressions.
+The fixture runner also understands classification metadata through `--class`,
+`--facet`, `--cts-lane`, and `--cts-ready`.
 
 Run the editable negative-snippet corpus:
 
