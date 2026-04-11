@@ -62,7 +62,7 @@ function normalizeCoreBindings(events) {
   if (!Array.isArray(events)) return [];
   return events.map((e) => ({
     path: normalizePath(String(e?.path ?? '')),
-    datatype: typeof e?.datatype === 'string' ? e.datatype : null,
+    datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
     kind: 'binding',
   }));
 }
@@ -71,7 +71,7 @@ function normalizeAesEvents(events) {
   if (!Array.isArray(events)) return [];
   return events.map((e) => ({
     path: normalizePath(String(e?.path ?? '')),
-    datatype: typeof e?.datatype === 'string' ? e.datatype : null,
+    datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
     value_kind: typeof e?.value?.type === 'string' ? e.value.type : null,
     reference:
       e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
@@ -83,19 +83,37 @@ function normalizeAesEvents(events) {
 function normalizePath(value) {
   let normalized = value.trim();
   normalized = normalized.replace(/\$\.\[/g, '$[');
-  normalized = normalized.replace(/\[\$"([^"\\]*(?:\\.[^"\\]*)*)"\]/g, '["$1"]');
+  normalized = normalized.replace(/\[\$"([^"\\]*(?:\\.[^"\\]*)*)"\]/g, (_m, key) => `["${encodeQuotedPathKey(decodeQuotedPathKey(key))}"]`);
   normalized = normalized.replace(/\$\["([^"\\]*(?:\\.[^"\\]*)*)"\]/g, (_m, key) => {
-    return isIdentifier(key) ? `$.${key}` : `$["${key}"]`;
+    const decoded = decodeQuotedPathKey(key);
+    return isIdentifier(decoded) ? `$.${decoded}` : `$["${encodeQuotedPathKey(decoded)}"]`;
   });
   normalized = normalized.replace(/\.\["([^"\\]*(?:\\.[^"\\]*)*)"\]/g, (_m, key) => {
-    return isIdentifier(key) ? `.${key}` : `.["${key}"]`;
+    const decoded = decodeQuotedPathKey(key);
+    return isIdentifier(decoded) ? `.${decoded}` : `.["${encodeQuotedPathKey(decoded)}"]`;
   });
   normalized = normalized.replace(/\[(\d+)\]/g, (_m, digits) => `[${String(Number(digits))}]`);
   return normalized;
 }
 
+function normalizeDatatype(value) {
+  return String(value).replace(/\s+/g, '');
+}
+
 function isIdentifier(value) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+function decodeQuotedPathKey(value) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return value;
+  }
+}
+
+function encodeQuotedPathKey(value) {
+  return JSON.stringify(value).slice(1, -1);
 }
 
 function compareExpectedDiagnostics(expected, actual) {
@@ -140,9 +158,13 @@ function compareExpectedArray(expected, actual, label) {
     for (const k of Object.keys(exp)) {
       const ev = (k === 'path' || k === 'reference') && typeof exp[k] === 'string'
         ? normalizePath(exp[k])
+        : k === 'datatype' && typeof exp[k] === 'string'
+          ? normalizeDatatype(exp[k])
         : exp[k];
       const gv = (k === 'path' || k === 'reference') && typeof got?.[k] === 'string'
         ? normalizePath(got[k])
+        : k === 'datatype' && typeof got?.[k] === 'string'
+          ? normalizeDatatype(got[k])
         : got?.[k];
       if (JSON.stringify(ev) !== JSON.stringify(gv)) {
         failures.push(`${label}[${i}].${k} mismatch: expected ${JSON.stringify(ev)}, got ${JSON.stringify(gv)}`);

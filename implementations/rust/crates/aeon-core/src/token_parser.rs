@@ -14,6 +14,8 @@ pub(crate) fn parse_document_from_tokens(
     input: &str,
     max_nesting_depth: usize,
     max_attribute_depth: usize,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
@@ -31,7 +33,59 @@ pub(crate) fn parse_document_from_tokens(
             message: error.message.clone(),
         });
     }
-    TokenParser::new(&lexed.tokens, max_nesting_depth, max_attribute_depth).parse_document()
+    TokenParser::new(
+        &lexed.tokens,
+        max_nesting_depth,
+        max_attribute_depth,
+        max_separator_depth,
+        max_generic_depth,
+    )
+    .parse_document()
+}
+
+pub(crate) struct ParseRecoveryResult {
+    pub bindings: Vec<Binding>,
+    pub errors: Vec<Diagnostic>,
+}
+
+pub(crate) fn parse_document_from_tokens_recovery(
+    input: &str,
+    max_nesting_depth: usize,
+    max_attribute_depth: usize,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> ParseRecoveryResult {
+    let lexed = tokenize(
+        input,
+        LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        },
+    );
+    if !lexed.errors.is_empty() {
+        return ParseRecoveryResult {
+            bindings: Vec::new(),
+            errors: lexed
+                .errors
+                .into_iter()
+                .map(|error| Diagnostic {
+                    code: error.code,
+                    path: Some(String::from("$")),
+                    span: Some(error.span),
+                    phase: None,
+                    message: error.message,
+                })
+                .collect(),
+        };
+    }
+    TokenParser::new(
+        &lexed.tokens,
+        max_nesting_depth,
+        max_attribute_depth,
+        max_separator_depth,
+        max_generic_depth,
+    )
+    .parse_document_recovery()
 }
 
 struct TokenParser<'a> {
@@ -40,16 +94,26 @@ struct TokenParser<'a> {
     max_nesting_depth: usize,
     current_nesting_depth: usize,
     max_attribute_depth: usize,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: &'a [Token], max_nesting_depth: usize, max_attribute_depth: usize) -> Self {
+    fn new(
+        tokens: &'a [Token],
+        max_nesting_depth: usize,
+        max_attribute_depth: usize,
+        max_separator_depth: usize,
+        max_generic_depth: usize,
+    ) -> Self {
         Self {
             tokens,
             current: 0,
             max_nesting_depth,
             current_nesting_depth: 0,
             max_attribute_depth,
+            max_separator_depth,
+            max_generic_depth,
         }
     }
 
@@ -60,9 +124,11 @@ impl<'a> TokenParser<'a> {
             match self.parse_binding() {
                 Ok(binding) => bindings.push(binding),
                 Err(error) if error.code == "SYNTAX_ERROR" && error.message == "Expected key" => {
-                    self.synchronize_to_next_binding();
-                    self.skip_newlines();
-                    continue;
+                    if self.synchronize_to_next_binding() {
+                        self.skip_newlines();
+                        continue;
+                    }
+                    return Err(error);
                 }
                 Err(error) => return Err(error),
             }
@@ -70,6 +136,33 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
         }
         Ok(bindings)
+    }
+
+    fn parse_document_recovery(&mut self) -> ParseRecoveryResult {
+        let mut bindings = Vec::new();
+        let mut errors = Vec::new();
+        self.skip_newlines();
+        while !self.is_at_end() {
+            match self.parse_binding() {
+                Ok(binding) => bindings.push(binding),
+                Err(error) => {
+                    errors.push(error);
+                    if !self.synchronize_to_next_binding() {
+                        break;
+                    }
+                    self.skip_newlines();
+                    continue;
+                }
+            }
+            if let Err(error) = self.consume_separator() {
+                errors.push(error);
+                if !self.synchronize_to_next_binding() {
+                    break;
+                }
+            }
+            self.skip_newlines();
+        }
+        ParseRecoveryResult { bindings, errors }
     }
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
@@ -95,6 +188,19 @@ impl<'a> TokenParser<'a> {
                 return Err(self.error_at_current("Expected datatype annotation"));
             }
             datatype = Some(self.parse_simple_datatype()?);
+            if let Some(ref parsed_datatype) = datatype
+                && datatype_bracket_specs(parsed_datatype).len() > self.max_separator_depth
+            {
+                return Err(Diagnostic {
+                    code: String::from("SEPARATOR_DEPTH_EXCEEDED"),
+                    path: Some(String::from("$")),
+                    span: Some(self.previous().span),
+                    phase: None,
+                    message: format!(
+                        "Datatype `{parsed_datatype}` exceeds separator depth limit"
+                    ),
+                });
+            }
         }
         self.skip_newlines();
         let equals_message = format!("Expected '=' after key '{key}'");
@@ -148,13 +254,17 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_datatype_annotation(&mut self, generic_depth: usize) -> Result<String, Diagnostic> {
-        if generic_depth > 1 {
+        if generic_depth > self.max_generic_depth {
             return Err(Diagnostic {
                 code: String::from("GENERIC_DEPTH_EXCEEDED"),
                 path: Some(String::from("$")),
                 span: Some(self.peek().span),
                 phase: None,
-                message: String::from("Generic depth 2 exceeds max_generic_depth 1"),
+                message: format!(
+                    "Generic depth {} exceeds max_generic_depth {}",
+                    generic_depth + 1,
+                    self.max_generic_depth
+                ),
             });
         }
 
@@ -244,8 +354,16 @@ impl<'a> TokenParser<'a> {
                     || token.kind != TokenKind::Number
                     || !is_valid_radix_base_token(&token.text)
                 {
+                    let code = if token.kind == TokenKind::Number
+                        && token.text.len() > 1
+                        && token.text.starts_with('0')
+                    {
+                        "INVALID_NUMBER"
+                    } else {
+                        "SYNTAX_ERROR"
+                    };
                     return Err(Diagnostic {
-                        code: String::from("SYNTAX_ERROR"),
+                        code: String::from(code),
                         path: Some(String::from("$")),
                         span: Some(token.span),
                         phase: None,
@@ -922,6 +1040,21 @@ impl<'a> TokenParser<'a> {
             saw_newline = true;
         }
         if self.match_kind(TokenKind::Comma) {
+            let comma = self.previous();
+            let previous_value = self.current.checked_sub(2).and_then(|index| self.tokens.get(index));
+            let next_token = self.tokens.get(self.current);
+            if previous_value.is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
+                && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset)
+                && next_token.is_some_and(|token| token.span.start.offset == comma.span.end.offset)
+            {
+                return Err(Diagnostic {
+                    code: String::from("INVALID_SEPARATOR_CHAR"),
+                    path: Some(String::from("$")),
+                    span: Some(comma.span),
+                    phase: None,
+                    message: String::from("Invalid separator character `,`"),
+                });
+            }
             self.skip_newlines();
             return Ok(());
         }
@@ -953,16 +1086,17 @@ impl<'a> TokenParser<'a> {
         while self.match_kind(TokenKind::Newline) {}
     }
 
-    fn synchronize_to_next_binding(&mut self) {
+    fn synchronize_to_next_binding(&mut self) -> bool {
         while !self.is_at_end() {
             if self.peek().kind == TokenKind::Identifier {
                 let next = self.peek_next();
                 if matches!(next.kind, TokenKind::Equals | TokenKind::Colon | TokenKind::At) {
-                    return;
+                    return true;
                 }
             }
             self.advance();
         }
+        false
     }
 
     fn consume(&mut self, kind: TokenKind, message: &str) -> Result<&'a Token, Diagnostic> {
@@ -1378,7 +1512,7 @@ mod tests {
     use crate::{TrimtickMetadata, Value};
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
-        parse_document_from_tokens(input, 256, 1)
+        parse_document_from_tokens(input, 256, 1, 1, 1)
     }
 
     #[test]
@@ -1679,9 +1813,34 @@ mod tests {
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
         let error =
-            parse_document_from_tokens(&source, 256, 1).expect_err("expected nesting error");
+            parse_document_from_tokens(&source, 256, 1, 1, 1)
+                .expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
         assert!(error.message.contains("max_nesting_depth 256"));
+    }
+
+    #[test]
+    fn honors_configured_generic_depth_limit() {
+        let source = "v:tuple<tuple<number>> = ((1))\n";
+        let bindings =
+            parse_document_from_tokens(source, 256, 1, 1, 2)
+                .expect("expected generic depth pass");
+        assert_eq!(bindings[0].datatype.as_deref(), Some("tuple<tuple<number>>"));
+    }
+
+    #[test]
+    fn rejects_trailing_garbage_when_no_later_binding_exists() {
+        let error = parse("coords:sep[|] = ^1,2,3\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected key");
+    }
+
+    #[test]
+    fn rejects_late_shebang_when_no_later_binding_exists() {
+        let error =
+            parse("value:number = 1\n#!/usr/bin/env aeon\n").expect_err("expected syntax error");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected key");
     }
 
     #[test]

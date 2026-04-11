@@ -1,3 +1,4 @@
+use crate::temporal::invalid_temporal_literal;
 use crate::{Position, Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +283,17 @@ impl<'a> Lexer<'a> {
             if matches!(self.peek(), '-' | ':') {
                 self.scan_temporal_tail();
                 let text = self.slice_from(start.offset);
+                if let Some((code, message)) = invalid_temporal_literal(&text) {
+                    self.errors.push(LexError {
+                        code: String::from(code),
+                        message,
+                        span: Span {
+                            start,
+                            end: self.current_position(),
+                        },
+                    });
+                    return;
+                }
                 self.push_token(TokenKind::Number, &text, start, None, None);
                 return;
             }
