@@ -85,6 +85,10 @@ pnpm -r \
 ## Notes
 
 - If version bumps are needed, do them before the build and dry-run pass.
+- If the workspace-root TypeScript toolchain baseline changes, such as
+  `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
+  explicit publish-surface review point and record the change in this document,
+  `VERSIONING.md`, `README.md`, or `docs/release-strategy.md`.
 - If public package names or the first-wave package set changes, update this document first.
 - Specs and CTS remain authoritative in sibling repos:
   - [aeonite-specs](https://github.com/aeonite-org/aeonite-specs)
