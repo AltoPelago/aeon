@@ -22,9 +22,9 @@ function parseArgs(args: string[]): ParsedArgs {
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         if (arg === '--sut' && i + 1 < args.length) {
-            result.sut = args[++i];
+            result.sut = args[++i]!;
         } else if (arg === '--cts' && i + 1 < args.length) {
-            result.cts = args[++i];
+            result.cts = args[++i]!;
         } else if (arg === '--strict-spans') {
             result.strictSpans = true;
         } else if (arg === '--help' || arg === '-h') {
