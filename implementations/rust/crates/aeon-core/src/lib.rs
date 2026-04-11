@@ -1649,6 +1649,20 @@ mod tests {
     }
 
     #[test]
+    fn recovers_to_quoted_key_bindings_after_parse_errors() {
+        let result = compile("a = { \"\" = 1 }\n\"\" = 2\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
+        assert!(
+            result
+                .errors
+                .iter()
+                .all(|error| error.code == "SYNTAX_ERROR"),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
     fn rejects_oversized_radix_base_with_specific_radix_base_error() {
         let result = compile(
             "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",

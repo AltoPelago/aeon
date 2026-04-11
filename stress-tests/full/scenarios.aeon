@@ -285,7 +285,7 @@ test010:o = {
 }
 
 /#
-	Seperators
+		Separators
 
 	Field: Names
 	Type: sep

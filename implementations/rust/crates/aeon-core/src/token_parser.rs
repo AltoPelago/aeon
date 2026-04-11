@@ -260,8 +260,7 @@ impl<'a> TokenParser<'a> {
                 phase: None,
                 message: format!(
                     "Generic depth {} exceeds max_generic_depth {}",
-                    generic_depth + 1,
-                    self.max_generic_depth
+                    generic_depth, self.max_generic_depth
                 ),
             });
         }
@@ -1119,7 +1118,10 @@ impl<'a> TokenParser<'a> {
 
     fn synchronize_to_next_binding(&mut self) -> bool {
         while !self.is_at_end() {
-            if self.peek().kind == TokenKind::Identifier {
+            let token = self.peek();
+            let is_binding_key = token.kind == TokenKind::Identifier
+                || (token.kind == TokenKind::String && token.quote != Some('`'));
+            if is_binding_key {
                 let next = self.peek_next();
                 if matches!(
                     next.kind,
@@ -1865,6 +1867,15 @@ mod tests {
             bindings[0].datatype.as_deref(),
             Some("tuple<tuple<number>>")
         );
+    }
+
+    #[test]
+    fn reports_generic_depth_without_off_by_one_message() {
+        let source = "v:tuple<tuple<number>> = ((1))\n";
+        let error =
+            parse_document_from_tokens(source, 256, 1, 1, 1).expect_err("expected depth error");
+        assert_eq!(error.code, "GENERIC_DEPTH_EXCEEDED");
+        assert_eq!(error.message, "Generic depth 2 exceeds max_generic_depth 1");
     }
 
     #[test]
