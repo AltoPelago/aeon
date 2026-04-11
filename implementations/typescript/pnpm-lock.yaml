@@ -12,8 +12,8 @@ importers:
         specifier: 25.5.2
         version: 25.5.2
       typescript:
-        specifier: 5.3.3
-        version: 5.3.3
+        specifier: 6.0.2
+        version: 6.0.2
 
   packages/aeos:
     devDependencies:
@@ -271,8 +271,8 @@ packages:
       undici-types: 7.18.2
     dev: true
 
-  /typescript@5.3.3:
-    resolution: {integrity: sha512-pXWcraxM0uxAS+tN0AG/BF2TyqmHO014Z070UsJ+pFvYuRSq8KH8DmWpnbXe0pEPDHXZV3FcAbJkijJ5oNEnWw==}
+  /typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
     engines: {node: '>=14.17'}
     hasBin: true
     dev: true
