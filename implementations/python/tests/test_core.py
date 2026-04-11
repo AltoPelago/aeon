@@ -366,7 +366,7 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_out_of_range_braced_unicode_escape_fails_closed(self) -> None:
         result = compile_source(r'value = "\u{110000}"')
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
         self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
     def test_strict_mode_untyped_switch_uses_aligned_message(self) -> None:

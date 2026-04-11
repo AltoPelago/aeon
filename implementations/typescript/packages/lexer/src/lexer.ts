@@ -360,12 +360,16 @@ export class Lexer {
     private scanString(delimiter: string, start: Position): void {
         const isMultiline = delimiter === '`';
         let value = '';
+        const initialErrorCount = this.errors.length;
 
         while (!this.isAtEnd()) {
             const c = this.peek();
 
             if (c === delimiter) {
                 this.advance();
+                if (this.errors.length > initialErrorCount) {
+                    return;
+                }
                 const end = this.currentPosition();
                 this.tokens.push({
                     type: TokenType.String,
@@ -480,7 +484,55 @@ export class Lexer {
             }
             hex += this.advance();
         }
-        return String.fromCharCode(parseInt(hex, 16));
+        const codeUnit = parseInt(hex, 16);
+        if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
+            if (this.peek() !== '\\') {
+                this.errors.push(new InvalidEscapeSequenceError(
+                    `\\u${hex}`,
+                    createSpan(start, this.currentPosition())
+                ));
+                return null;
+            }
+            const slashPos = this.currentPosition();
+            this.advance();
+            if (this.isAtEnd() || this.peek() !== 'u') {
+                this.errors.push(new InvalidEscapeSequenceError(
+                    `\\u${hex}`,
+                    createSpan(start, slashPos)
+                ));
+                return null;
+            }
+            this.advance();
+            let lowHex = '';
+            for (let i = 0; i < 4; i++) {
+                if (this.isAtEnd() || !isHexDigit(this.peek())) {
+                    this.errors.push(new InvalidEscapeSequenceError(
+                        `\\u${hex}`,
+                        createSpan(start, this.currentPosition())
+                    ));
+                    return null;
+                }
+                lowHex += this.advance();
+            }
+            const lowCodeUnit = parseInt(lowHex, 16);
+            if (lowCodeUnit < 0xDC00 || lowCodeUnit > 0xDFFF) {
+                this.errors.push(new InvalidEscapeSequenceError(
+                    `\\u${hex}\\u${lowHex}`,
+                    createSpan(start, this.currentPosition())
+                ));
+                return null;
+            }
+            const codePoint = 0x10000 + ((codeUnit - 0xD800) << 10) + (lowCodeUnit - 0xDC00);
+            return String.fromCodePoint(codePoint);
+        }
+        if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
+            this.errors.push(new InvalidEscapeSequenceError(
+                `\\u${hex}`,
+                createSpan(start, this.currentPosition())
+            ));
+            return null;
+        }
+        return String.fromCharCode(codeUnit);
     }
 
     private scanNumber(first: string, start: Position): void {

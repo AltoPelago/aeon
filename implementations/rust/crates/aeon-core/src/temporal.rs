@@ -28,7 +28,11 @@ pub(crate) fn invalid_temporal_literal(raw: &str) -> Option<(&'static str, Strin
     }
     if has_invalid_zrut_zone(raw) {
         return Some((
-            "INVALID_DATETIME",
+            if has_invalid_zrut_zone_punctuation(raw) {
+                "SYNTAX_ERROR"
+            } else {
+                "INVALID_DATETIME"
+            },
             format!("Invalid datetime literal: '{raw}'"),
         ));
     }
@@ -200,6 +204,17 @@ fn has_invalid_zrut_zone(value: &str) -> bool {
     };
     (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
         && !is_valid_zrut_zone(zone)
+}
+
+fn has_invalid_zrut_zone_punctuation(value: &str) -> bool {
+    let Some((_date, rest)) = value.split_once('T') else {
+        return false;
+    };
+    let Some((_base, zone)) = rest.split_once('&') else {
+        return false;
+    };
+    zone.chars()
+        .any(|ch| !matches!(ch, '/' | '_' | '-' | '+') && !ch.is_ascii_alphanumeric())
 }
 
 fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {

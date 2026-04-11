@@ -36,6 +36,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         return "Lexical Analysis"
     if code in {
         "SYNTAX_ERROR",
+        "INVALID_ESCAPE",
         "INVALID_DATE",
         "INVALID_TIME",
         "INVALID_DATETIME",
@@ -66,6 +67,11 @@ def infer_phase_label_from_code(code: str) -> str | None:
 class SyntaxError(AeonError):
     def __init__(self, message: str, span: Span, path: str | None = None) -> None:
         super().__init__(message=message, span=span, code="SYNTAX_ERROR", path=path)
+
+
+class InvalidEscapeError(AeonError):
+    def __init__(self, message: str, span: Span, path: str | None = None) -> None:
+        super().__init__(message=message, span=span, code="INVALID_ESCAPE", path=path)
 
 
 class UnterminatedStringError(AeonError):

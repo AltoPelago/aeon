@@ -1,0 +1,22 @@
+#!/bin/aeon --profile=ts.object.v1
+
+//# Escaped decoded-identity pointer stress
+aeon:header = {
+  version = "1.0"
+  mode = "transport"
+  profile = "ts.object.v1"
+}
+
+"aA":int32 = 1
+ptrTop = ~>["a\u0041"]
+
+obj = {
+  "bA":int32 = 2
+}
+ptrNested = ~>obj.["b\u0041"]
+
+host@{
+  "xA":int32 = 3
+} = 4
+ptrAttr = ~>host@["x\u0041"]
+

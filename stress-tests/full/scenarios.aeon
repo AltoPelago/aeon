@@ -38,15 +38,14 @@ test001:o = {
 
 }
 
-/*
+/#
 	Boolean
 
-	| Field             | Names     |
-	| ----------------- | --------- |
-	| Type              | `boolean` |
-	| Alternative names | `bool`    |
-	| Reserved          | none      |
-*/
+	Field: Names
+	Type: boolean
+	Alternative names: bool
+	Reserved: none
+#/
 
 test002:o = {
 
@@ -163,16 +162,15 @@ test005:o = {
 }
 
 
-/*
+/#
 	Numbers
 
-	| Field             | Names                                                               |
-	| ----------------- | ------------------------------------------------------------------- |
-	| Type              | `number`                                                            |
-	| Alternative names | `n`                                                                 |
-	| Reserved          | `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16` |
-	|                   | `uint32`, `uint64`, `float`, `float32`, `float64`                   |
-*/
+	Field: Names
+	Type: number
+	Alternative names: n
+	Reserved: int, int8, int16, int32, int64, uint, uint8, uint16,
+	  uint32, uint64, float, float32, float64
+#/
 
 test006:o ={
 	count1:number = 293499429234
@@ -215,15 +213,14 @@ test006:o ={
 }
 
 
-/*
+/#
 	Hex
 
-	| Field             | Names |
-	| ----------------- | ----- |
-	| Type              | `hex` |
-	| Alternative names | none  |
-	| Reserved          | none  |
-*/
+	Field: Names
+	Type: hex
+	Alternative names: none
+	Reserved: none
+#/
 
 test007:o = {
 	hex01:hex = #FF00AA
@@ -238,25 +235,26 @@ test007:o = {
 	hex12:hex = #00_00_00
 }
 
-/*
+/#
 	Radix
 
-	| Field             | Names                                   |
-	| ----------------- | --------------------------------------- |
-	| Type              | `radix`                                 |
-	| Alternative names | none                                    |
-	| Reserved          | `radix2`, `radix6`, `radix8`, `radix12` |
-*/
+	Field: Names
+	Type: radix
+	Alternative names: none
+	Reserved: radix2, radix6, radix8, radix12
+#/
 
 test008:o = {
 	radix1:radix = %FF00FF
 	radix2:radix2 = %10101010101
 	radix6:radix6 = %33233242
-	radix8:radix8 = %28476273872
+	radix8:radix8 = %247627372
 	radix12:radix12 = %23423492344
-	radix14:radix12 = %23423492344, radix15:radix12 = %23423492344, radix16:radix12 = %23423_49234/.4-+=, 
-	radix17:radix =%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
-	radix18:radix2 = %101_010_101_012
+	radix14:radix[14] = %19A3
+	radix15:radix[15] = %1AE4
+	radix16:radix[16] = %FF00FF
+	radix17:radix[17] = %1AG5
+	radix18:radix2 = %101_010_101_010
 }
 
 /*
@@ -264,9 +262,9 @@ test008:o = {
 */
 
 test009:o = {
-	encoding:encoding =$ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
-	base64:base64 =$ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
-	encoding001:base64 =$ABC_DEF_GHI_JKL_MNO_PQR_STU_VWX_YZa_bcd_efghijklmnopqrstuvwxyz1234567890=+/.+-==
+	encoding:encoding = $QmFzZTY0IQ==
+	base64:base64 = $abc-_+/==
+	encoding001:base64 = $FF_FF_FF_
 }
 
 /*
@@ -286,15 +284,14 @@ test010:o = {
 	t1:date = 2025-01-01, t2:time = 09:30:00, t3:time = 09:30:00+02:40, t4:datetime = 2025-01-01T09:30:00Z, t5:zrut = 2025-01-01T00:00:00Z&Australia/Sydney, t6:zrut = 2025-01-01T00:00:00&Local 
 }
 
-/*
-	Seperators
+/#
+		Separators
 
-	| Field             | Names |
-	| ----------------- | ----- |
-	| Type              | `sep` |
-	| Alternative names | none  |
-	| Reserved          | `set` |
-*/
+	Field: Names
+	Type: sep
+	Alternative names: none
+	Reserved: set
+#/
 
 test011:o = {
 	sep1:sep = ^93.2.3.3
@@ -310,9 +307,9 @@ test011:o = {
 	sep13:set[x] = ^100x200y300z
 
 	sep14:set[|] = ^"one"|"two"|"three"|"four"
-	sep15:set[|] = ^"one"|"two"|"threefour"|"five",
+		sep15:set[|] = ^"one"|"two"|"threefour"|"five"
 
-	sep16:set[|] = ^one|two|three|four\ five
+	sep16:set[|] = ^one|two|three|"four five"
 
 }
 
@@ -320,15 +317,14 @@ test011:o = {
 
 
 
-/*
+/#
 	Objects
 
-	| Field             | Names      |
-	| ----------------- | ---------- |
-	| Type              | `object`   |
-	| Alternative names | `obj`, `o` |
-	| Reserved          | `envelope` |
-*/
+	Field: Names
+	Type: object
+	Alternative names: obj, o
+	Reserved: envelope
+#/
 
 test012:o = {
 	o1:o = {}
@@ -375,15 +371,14 @@ test013:o = {
 	}
 }
 
-/*
+/#
 	Lists
 
-	| Field             | Names  |
-	| ----------------- | ------ |
-	| Type              | `list` |
-	| Alternative names | none   |
-	| Reserved          | none   |
-*/
+	Field: Names
+	Type: list
+	Alternative names: none
+	Reserved: none
+#/
 
 test014:o = {
 	list001:list = []
@@ -424,15 +419,14 @@ test014:o = {
 		]
 }
 
-/*
+/#
 	Tuples
 
-	| Field             | Names   |
-	| ----------------- | ------- |
-	| Type              | `tuple` |
-	| Alternative names | none    |
-	| Reserved          | none    |
-*/
+	Field: Names
+	Type: tuple
+	Alternative names: none
+	Reserved: none
+#/
 
 
 test015:o = {
@@ -527,17 +521,17 @@ test016:o = {
 	)>
 }
 
-/*	Null
+/#
+	Null
 
-	| Field             | Names  |
-	| ----------------- | ------ |
-	| Type              | `null` |
-	| Alternative names | none   |
-	| Reserved          | none   |
+	Field: Names
+	Type: null
+	Alternative names: none
+	Reserved: none
 
 	Null is listed as a reserved datatype name but is not a distinct
 	parser value kind in Core v1. No literal form exists.
-*/
+#/
 
 
 /*

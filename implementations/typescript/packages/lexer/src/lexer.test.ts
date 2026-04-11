@@ -119,6 +119,18 @@ describe('Lexer', () => {
             const result = tokenize('"\\u{1F600}"');
             assert.strictEqual(result.tokens[0]!.value, '😀');
         });
+
+        it('should handle surrogate-pair unicode escapes', () => {
+            const result = tokenize('"\\uD83D\\uDE00"');
+            assert.strictEqual(result.tokens[0]!.value, '😀');
+        });
+
+        it('should reject unpaired surrogate unicode escapes', () => {
+            const result = tokenize(String.raw`"\uD800"`);
+            const nonEofTokens = result.tokens.filter(token => token.type !== TokenType.EOF);
+            assert.strictEqual(nonEofTokens.length, 0);
+            assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
+        });
     });
 
     describe('numeric literals', () => {

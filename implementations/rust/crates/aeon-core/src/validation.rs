@@ -158,7 +158,7 @@ fn validate_value_reference(
                         "ATTRIBUTE_DEPTH_EXCEEDED",
                         format!("Reference at {current_path} exceeds max attribute depth"),
                     )
-                    .at_path(current_path.to_owned())
+                    .at_path("$")
                     .with_span(reference_span),
                 );
                 return;
@@ -173,7 +173,7 @@ fn validate_value_reference(
                         "SELF_REFERENCE",
                         format!("Self reference: '{current_path}' references itself"),
                     )
-                    .at_path(current_path.to_owned())
+                    .at_path("$")
                     .with_span(reference_span),
                 );
                 return;
@@ -184,7 +184,7 @@ fn validate_value_reference(
                         "MISSING_REFERENCE_TARGET",
                         format!("Missing reference target: '{target}'"),
                     )
-                    .at_path(current_path.to_owned())
+                    .at_path("$")
                     .with_span(reference_span),
                 );
                 return;
@@ -204,7 +204,7 @@ fn validate_value_reference(
                         "FORWARD_REFERENCE",
                         format!("Forward reference: '{current_path}' references '{target}' defined later"),
                     )
-                    .at_path(current_path.to_owned())
+                    .at_path("$")
                     .with_span(reference_span),
                 );
             }

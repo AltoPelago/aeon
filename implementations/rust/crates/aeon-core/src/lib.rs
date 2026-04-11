@@ -26,6 +26,7 @@ pub use lexer::{
     CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
     ReservedCommentSubtype, Token, TokenKind, tokenize,
 };
+use token_parser::parse_document_from_tokens_recovery;
 #[cfg(test)]
 use validation::datatype_has_generic_args;
 
@@ -499,26 +500,24 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    match parse_document_tokens(
+    let parsed = parse_document_from_tokens_recovery(
         &source,
         options.max_nesting_depth,
         options.max_attribute_depth,
-    ) {
-        Ok(bindings) => {
-            trace_compile(format!("compile:parsed bindings={}", bindings.len()));
-            finalize_compile(source, bindings, options)
-        }
-        Err(error) => {
-            trace_compile(format!("compile:parse_error code={}", error.code));
-            CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![error],
-                bindings: Vec::new(),
-                header: None,
-            }
-        }
+        options.max_separator_depth,
+        options.max_generic_depth,
+    );
+    if !parsed.errors.is_empty() {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: parsed.errors,
+            bindings: Vec::new(),
+            header: None,
+        };
     }
+    trace_compile(format!("compile:parsed bindings={}", parsed.bindings.len()));
+    finalize_compile(source, parsed.bindings, options)
 }
 
 pub fn benchmark_validation_phases(
@@ -531,6 +530,8 @@ pub fn benchmark_validation_phases(
         &source,
         options.max_nesting_depth,
         options.max_attribute_depth,
+        options.max_separator_depth,
+        options.max_generic_depth,
     )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
@@ -592,6 +593,8 @@ pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
         &source,
         CompileOptions::default().max_nesting_depth,
         CompileOptions::default().max_attribute_depth,
+        CompileOptions::default().max_separator_depth,
+        CompileOptions::default().max_generic_depth,
     )
     .map(|_| ())
 }
@@ -600,8 +603,16 @@ fn parse_document_tokens(
     source: &str,
     max_nesting_depth: usize,
     max_attribute_depth: usize,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(source, max_nesting_depth, max_attribute_depth)
+    token_parser::parse_document_from_tokens(
+        source,
+        max_nesting_depth,
+        max_attribute_depth,
+        max_separator_depth,
+        max_generic_depth,
+    )
 }
 
 fn finalize_compile(
@@ -1185,7 +1196,7 @@ mod tests {
             result.errors[0].message,
             "Missing reference target: '$.a@missing'"
         );
-        assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
+        assert_eq!(result.errors[0].path.as_deref(), Some("$"));
         let span = result.errors[0].span.as_ref().expect("span");
         assert_eq!(span.start.line, 2);
         assert_eq!(span.start.column, 5);
@@ -1205,7 +1216,7 @@ mod tests {
             result.errors[0].message,
             "Missing reference target: '$.a@missing'"
         );
-        assert_eq!(result.errors[0].path.as_deref(), Some("$.b"));
+        assert_eq!(result.errors[0].path.as_deref(), Some("$"));
     }
 
     #[test]
@@ -1306,7 +1317,7 @@ mod tests {
                 "expected no events for {source:?}"
             );
             assert_eq!(result.errors.len(), 1, "expected one error for {source:?}");
-            assert_eq!(result.errors[0].code, "INVALID_DATETIME");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
     }
 
@@ -1564,6 +1575,20 @@ mod tests {
     }
 
     #[test]
+    fn recovers_past_comma_split_separator_literals_to_report_separator_datatype_errors() {
+        let result = compile(
+            "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:set[,] = ^0,0,0,\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+        );
+    }
+
+    #[test]
     fn rejects_reserved_slash_separator_datatypes() {
         let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
         assert!(
@@ -1590,6 +1615,51 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn rejects_inline_separator_boundary_collisions_in_lists() {
+        let result = compile(
+            "badInline1 = [ ^0,0 , 0,1 ]\nbadInline2 = [ ^0,0,0,1 ]\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "INVALID_SEPARATOR_CHAR"),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn collects_multiple_parse_errors_for_empty_quoted_keys() {
+        let result = compile(
+            "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
+        assert!(
+            result
+                .errors
+                .iter()
+                .all(|error| error.code == "SYNTAX_ERROR")
+        );
+    }
+
+    #[test]
+    fn recovers_to_quoted_key_bindings_after_parse_errors() {
+        let result = compile("a = { \"\" = 1 }\n\"\" = 2\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
+        assert!(
+            result
+                .errors
+                .iter()
+                .all(|error| error.code == "SYNTAX_ERROR"),
+            "{:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -2056,8 +2126,15 @@ mod tests {
     #[test]
     fn rejects_nested_attribute_heads_at_default_depth() {
         let result = compile("a@{b@{c=3}=2} = 1\n", CompileOptions::default());
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "ATTRIBUTE_DEPTH_EXCEEDED");
+        assert!(!result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "ATTRIBUTE_DEPTH_EXCEEDED"),
+            "{:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -2178,12 +2255,6 @@ mod tests {
         ))
         .expect("read scenarios.aeon fixture");
         let result = compile(&fixture, CompileOptions::default());
-        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert!(
-            result.errors[0]
-                .message
-                .contains("Invalid encoding literal")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 }

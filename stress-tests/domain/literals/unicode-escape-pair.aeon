@@ -1,0 +1,5 @@
+greeting = "\u0041"
+emoji = "\uD83D\uDE00"
+named = {
+  "emoji\u0041" = "\uD83D\uDE00"
+}
