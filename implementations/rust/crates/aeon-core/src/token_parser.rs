@@ -462,6 +462,20 @@ impl<'a> TokenParser<'a> {
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         self.current_nesting_depth += 1;
+        if let Some(projected_depth) = self.projected_opening_container_depth() {
+            let span = self.peek().span;
+            self.current_nesting_depth -= 1;
+            return Err(Diagnostic {
+                code: String::from("NESTING_DEPTH_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Value nesting depth {} exceeds max_nesting_depth {}",
+                    projected_depth, self.max_nesting_depth
+                ),
+            });
+        }
         if self.current_nesting_depth > self.max_nesting_depth {
             let span = self.peek().span;
             self.current_nesting_depth -= 1;
@@ -480,6 +494,21 @@ impl<'a> TokenParser<'a> {
         let result = self.do_parse_value();
         self.current_nesting_depth -= 1;
         result
+    }
+
+    fn projected_opening_container_depth(&self) -> Option<usize> {
+        let mut extra_depth = 0usize;
+        for token in &self.tokens[self.current..] {
+            match token.kind {
+                TokenKind::LeftBracket
+                | TokenKind::LeftParen
+                | TokenKind::LeftBrace
+                | TokenKind::LeftAngle => extra_depth += 1,
+                _ => break,
+            }
+        }
+        let projected_depth = self.current_nesting_depth + extra_depth.saturating_sub(1);
+        (projected_depth > self.max_nesting_depth).then_some(projected_depth)
     }
 
     fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {

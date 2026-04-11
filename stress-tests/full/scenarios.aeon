@@ -307,7 +307,7 @@ test011:o = {
 	sep13:set[x] = ^100x200y300z
 
 	sep14:set[|] = ^"one"|"two"|"three"|"four"
-	sep15:set[|] = ^"one"|"two"|"threefour"|"five",
+		sep15:set[|] = ^"one"|"two"|"threefour"|"five"
 
 	sep16:set[|] = ^one|two|three|"four five"
 
