@@ -126,8 +126,9 @@ describe('Lexer', () => {
         });
 
         it('should reject unpaired surrogate unicode escapes', () => {
-            const result = tokenize('"\\uD800"');
-            assert.strictEqual(result.tokens.length, 0);
+            const result = tokenize(String.raw`"\uD800"`);
+            const nonEofTokens = result.tokens.filter(token => token.type !== TokenType.EOF);
+            assert.strictEqual(nonEofTokens.length, 0);
             assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
         });
     });

@@ -360,12 +360,16 @@ export class Lexer {
     private scanString(delimiter: string, start: Position): void {
         const isMultiline = delimiter === '`';
         let value = '';
+        const initialErrorCount = this.errors.length;
 
         while (!this.isAtEnd()) {
             const c = this.peek();
 
             if (c === delimiter) {
                 this.advance();
+                if (this.errors.length > initialErrorCount) {
+                    return;
+                }
                 const end = this.currentPosition();
                 this.tokens.push({
                     type: TokenType.String,
