@@ -1580,7 +1580,7 @@ fn count_char(value: &str, ch: char) -> usize {
 fn compute_byte_hash(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
-    format!("{:x}", hasher.finalize())
+    bytes_to_hex(&hasher.finalize())
 }
 
 struct SecurityConventionResult {
@@ -1966,7 +1966,7 @@ fn compute_canonical_hash(events: &[AssignmentEvent], algorithm: &str) -> Canoni
     let stream = serialize_canonical_events(events);
     let mut hasher = Sha256::new();
     hasher.update(stream.as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
+    let hash = bytes_to_hex(&hasher.finalize());
     let _ = algorithm;
     CanonicalHashResult { hash, stream }
 }
@@ -3552,7 +3552,7 @@ fn verify_contract_artifact(
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    bytes_to_hex(&hasher.finalize())
 }
 
 fn profile_processors_skipped_warning(profile_id: &str) -> JsonValue {
