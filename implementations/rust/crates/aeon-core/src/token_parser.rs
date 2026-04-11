@@ -196,9 +196,7 @@ impl<'a> TokenParser<'a> {
                     path: Some(String::from("$")),
                     span: Some(self.previous().span),
                     phase: None,
-                    message: format!(
-                        "Datatype `{parsed_datatype}` exceeds separator depth limit"
-                    ),
+                    message: format!("Datatype `{parsed_datatype}` exceeds separator depth limit"),
                 });
             }
         }
@@ -1041,10 +1039,14 @@ impl<'a> TokenParser<'a> {
         }
         if self.match_kind(TokenKind::Comma) {
             let comma = self.previous();
-            let previous_value = self.current.checked_sub(2).and_then(|index| self.tokens.get(index));
+            let previous_value = self
+                .current
+                .checked_sub(2)
+                .and_then(|index| self.tokens.get(index));
             let next_token = self.tokens.get(self.current);
             if previous_value.is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
-                && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset)
+                && previous_value
+                    .is_some_and(|token| token.span.end.offset == comma.span.start.offset)
                 && next_token.is_some_and(|token| token.span.start.offset == comma.span.end.offset)
             {
                 return Err(Diagnostic {
@@ -1090,7 +1092,10 @@ impl<'a> TokenParser<'a> {
         while !self.is_at_end() {
             if self.peek().kind == TokenKind::Identifier {
                 let next = self.peek_next();
-                if matches!(next.kind, TokenKind::Equals | TokenKind::Colon | TokenKind::At) {
+                if matches!(
+                    next.kind,
+                    TokenKind::Equals | TokenKind::Colon | TokenKind::At
+                ) {
                     return true;
                 }
             }
@@ -1392,7 +1397,10 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                             for _ in 0..4 {
                                 low_hex_digits.push(chars.next().ok_or("Invalid unicode escape")?);
                             }
-                            if !low_hex_digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
+                            if !low_hex_digits
+                                .chars()
+                                .all(|digit| digit.is_ascii_hexdigit())
+                            {
                                 return Err("Invalid unicode escape");
                             }
                             let low_codepoint = u32::from_str_radix(&low_hex_digits, 16)
@@ -1400,15 +1408,16 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                             if !(0xDC00..=0xDFFF).contains(&low_codepoint) {
                                 return Err("Invalid unicode escape");
                             }
-                            let combined = 0x10000
-                                + ((codepoint - 0xD800) << 10)
-                                + (low_codepoint - 0xDC00);
-                            let decoded = char::from_u32(combined).ok_or("Invalid unicode escape")?;
+                            let combined =
+                                0x10000 + ((codepoint - 0xD800) << 10) + (low_codepoint - 0xDC00);
+                            let decoded =
+                                char::from_u32(combined).ok_or("Invalid unicode escape")?;
                             output.push(decoded);
                         } else if (0xDC00..=0xDFFF).contains(&codepoint) {
                             return Err("Invalid unicode escape");
                         } else {
-                            let decoded = char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
+                            let decoded =
+                                char::from_u32(codepoint).ok_or("Invalid unicode escape")?;
                             output.push(decoded);
                         }
                     }
@@ -1813,8 +1822,7 @@ mod tests {
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
         let error =
-            parse_document_from_tokens(&source, 256, 1, 1, 1)
-                .expect_err("expected nesting error");
+            parse_document_from_tokens(&source, 256, 1, 1, 1).expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
         assert!(error.message.contains("max_nesting_depth 256"));
     }
@@ -1823,9 +1831,11 @@ mod tests {
     fn honors_configured_generic_depth_limit() {
         let source = "v:tuple<tuple<number>> = ((1))\n";
         let bindings =
-            parse_document_from_tokens(source, 256, 1, 1, 2)
-                .expect("expected generic depth pass");
-        assert_eq!(bindings[0].datatype.as_deref(), Some("tuple<tuple<number>>"));
+            parse_document_from_tokens(source, 256, 1, 1, 2).expect("expected generic depth pass");
+        assert_eq!(
+            bindings[0].datatype.as_deref(),
+            Some("tuple<tuple<number>>")
+        );
     }
 
     #[test]

@@ -1635,9 +1635,17 @@ mod tests {
 
     #[test]
     fn collects_multiple_parse_errors_for_empty_quoted_keys() {
-        let result = compile("a = { \"\" = 1 }\nv = ~a.[\"\"]\n", CompileOptions::default());
+        let result = compile(
+            "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
+            CompileOptions::default(),
+        );
         assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
-        assert!(result.errors.iter().all(|error| error.code == "SYNTAX_ERROR"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .all(|error| error.code == "SYNTAX_ERROR")
+        );
     }
 
     #[test]
