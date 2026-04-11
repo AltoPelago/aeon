@@ -89,6 +89,9 @@ pnpm -r \
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,
   `VERSIONING.md`, `README.md`, or `docs/release-strategy.md`.
+- The current `typescript 6.0.2` uplift is one such intentional workspace
+  toolchain baseline change and should be reviewed as publish-surface policy,
+  even though it is a developer-tooling update.
 - If public package names or the first-wave package set changes, update this document first.
 - Specs and CTS remain authoritative in sibling repos:
   - [aeonite-specs](https://github.com/aeonite-org/aeonite-specs)
