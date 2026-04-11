@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { AnnotationRecord } from './types.js';
 
+function toUint8Array(chunk: string | Buffer): Uint8Array {
+    return typeof chunk === 'string' ? Buffer.from(chunk) : new Uint8Array(chunk);
+}
+
 interface InvokeInspectOptions {
     readonly sortAnnotations: boolean;
 }
@@ -41,8 +45,8 @@ export async function invokeInspectAnnotations(
         const stdoutChunks: Uint8Array[] = [];
         const stderrChunks: Uint8Array[] = [];
 
-        child.stdout.on('data', (chunk) => stdoutChunks.push(new Uint8Array(chunk)));
-        child.stderr.on('data', (chunk) => stderrChunks.push(new Uint8Array(chunk)));
+        child.stdout.on('data', (chunk: string | Buffer) => stdoutChunks.push(toUint8Array(chunk)));
+        child.stderr.on('data', (chunk: string | Buffer) => stderrChunks.push(toUint8Array(chunk)));
 
         const code: number | null = await new Promise((resolve) => {
             child.on('close', resolve);
@@ -93,7 +97,7 @@ export async function readStdInIfProvided(): Promise<string | null> {
     }
     const chunks: Uint8Array[] = [];
     for await (const chunk of process.stdin) {
-        chunks.push(new Uint8Array(chunk));
+        chunks.push(toUint8Array(chunk));
     }
     if (chunks.length === 0) {
         return null;

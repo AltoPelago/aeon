@@ -73,7 +73,7 @@ export function finalizeNode(
             rootEntries.set('payload', {
                 type: 'Object',
                 entries: payloadEntries,
-                span: payloadEntries.size > 0 ? payloadEntries.values().next().value.span as Span : emptySpan(),
+                span: firstNodeSpan(payloadEntries) ?? emptySpan(),
             });
         } else {
             for (const [key, value] of payloadEntries) {

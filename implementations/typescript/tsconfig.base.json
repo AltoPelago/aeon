@@ -6,6 +6,9 @@
 		"lib": [
 			"ES2022"
 		],
+		"types": [
+			"node"
+		],
 		"strict": true,
 		"noImplicitAny": true,
 		"exactOptionalPropertyTypes": true,
