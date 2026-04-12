@@ -73,9 +73,33 @@ a = Infinity
 ---
 a = -Infinity
 ---
+a = NaN
+---
+a = -NaN
+---
+a = !none
+---
+a = !notSet
+---
+a = !"postponed"
+---
 a:infinity = Infinity
 ---
 a:infinity = -Infinity
+---
+n1:null = !none
+---
+n2:null = !notSet
+---
+n3:null = !"postponed"
+---
+n4:null = !none// comment
+---
+n5:null = !notSet/* comment */
+---
+n6:nan = NaN// comment
+---
+n7:nan = -NaN/# comment #/
 ---
 z5:zrut = 2025-01-01T00:00:00&l
 ---

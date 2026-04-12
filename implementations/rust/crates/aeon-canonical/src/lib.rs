@@ -1672,6 +1672,11 @@ impl<'a> Parser<'a> {
                     bracket_depth -= 1;
                     self.index += 1;
                 }
+                '/' if bracket_depth == 0
+                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
+                {
+                    break;
+                }
                 ' ' | '\t' | ',' | '\n' | '\r' | '}' | ')' if bracket_depth == 0 => break,
                 _ => self.index += 1,
             }
@@ -2119,6 +2124,16 @@ mod tests {
     }
 
     #[test]
+    fn strips_trailing_line_comments_from_reserved_null_literals_in_canonicalization() {
+        let result = canonicalize("aeon:mode = \"strict\"\nn10:null = !none//Null\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nn10:null = !none\n"
+        );
+    }
+
+    #[test]
     fn canonicalizes_hex_literals_to_lowercase_without_underscores() {
         let result = canonicalize("aeon:mode = \"transport\"\na = #F_Ff\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2144,7 +2159,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-\n"
         );
     }
 

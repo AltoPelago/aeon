@@ -77,6 +77,18 @@ a:infinity = +Infinity
 ---
 a:infinity = NaN
 ---
+a:null = !""
+---
+a:null = !"   "
+---
+a:null = !"none"
+---
+a:null = !"notSet"
+---
+a:null = !uninitialised
+---
+a:null = !uninitialized
+---
 a:'string' = 'hello world'
 ---
 z5:zrut = 2025-01-01T00:00:00z&l
