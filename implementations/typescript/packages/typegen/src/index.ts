@@ -163,6 +163,8 @@ function resolveScalarType(
             return 'number';
         case 'InfinityLiteral':
             return "'Infinity' | '-Infinity'";
+        case 'NaNLiteral':
+            return "'NaN' | '-NaN'";
         case 'BooleanLiteral':
             return 'boolean';
         case 'NullLiteral':

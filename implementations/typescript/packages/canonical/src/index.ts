@@ -268,6 +268,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'NumberLiteral':
             return [formatNumber(value.raw)];
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return [value.raw];
         case 'BooleanLiteral':
             return [formatBoolean(value)];
@@ -421,6 +422,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'NumberLiteral':
             return formatNumber(value.raw);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return value.raw;
         case 'BooleanLiteral':
             return formatBoolean(value);
@@ -778,6 +780,7 @@ function isSimpleValue(value: Value): boolean {
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':
+        case 'NaNLiteral':
         case 'BooleanLiteral':
         case 'SwitchLiteral':
         case 'HexLiteral':

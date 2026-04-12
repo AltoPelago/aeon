@@ -637,6 +637,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
     match value {
         Value::NumberLiteral { raw } => Value::NumberLiteral { raw: raw.clone() },
         Value::InfinityLiteral { raw } => Value::InfinityLiteral { raw: raw.clone() },
+        Value::NaNLiteral { raw } => Value::NaNLiteral { raw: raw.clone() },
         Value::StringLiteral {
             delimiter,
             trimticks,

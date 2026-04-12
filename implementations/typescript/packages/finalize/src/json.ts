@@ -266,6 +266,17 @@ function valueToJson(
                 code: 'FINALIZE_JSON_PROFILE_INFINITY',
             });
             return value.value;
+        case 'NaNLiteral':
+            ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                ...toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `NaN literal is not representable in the strict JSON profile: ${value.value}`,
+                    path,
+                    value.span
+                ),
+                code: 'FINALIZE_JSON_PROFILE_NAN',
+            });
+            return value.value;
         case 'BooleanLiteral':
             return value.value;
         case 'SwitchLiteral':
@@ -507,6 +518,7 @@ function measureMaterializedWeight(
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':
+        case 'NaNLiteral':
         case 'BooleanLiteral':
         case 'SwitchLiteral':
         case 'HexLiteral':

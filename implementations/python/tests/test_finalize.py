@@ -185,6 +185,12 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertTrue(result["meta"]["errors"])
         self.assertEqual("FINALIZE_JSON_PROFILE_INFINITY", result["meta"]["errors"][0]["code"])
 
+    def test_reports_nan_as_outside_strict_json_profile(self) -> None:
+        result = finalize_json(compile_events("limit:nan = NaN"), FinalizeOptions(mode="strict"))
+        self.assertEqual("NaN", result["document"]["limit"])
+        self.assertTrue(result["meta"]["errors"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_NAN", result["meta"]["errors"][0]["code"])
+
     def test_preserves_hex_case_while_stripping_visual_separators(self) -> None:
         result = finalize_json(compile_events("color:hex = #Ff_00_Aa"), FinalizeOptions(mode="strict"))
         self.assertEqual("Ff00Aa", result["document"]["color"])

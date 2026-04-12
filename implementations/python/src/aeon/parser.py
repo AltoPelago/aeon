@@ -16,6 +16,7 @@ from .ast import (
     Document,
     EncodingLiteral,
     InfinityLiteral,
+    NaNLiteral,
     Header,
     HexLiteral,
     ListNode,
@@ -53,7 +54,7 @@ RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "float", "float32", "float64",
-    "string", "trimtick", "boolean", "bool", "switch", "infinity",
+    "string", "trimtick", "boolean", "bool", "switch", "infinity", "nan",
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
@@ -650,10 +651,17 @@ class Parser:
         if token.kind == "IDENT" and token.value == "Infinity":
             self.advance()
             return InfinityLiteral(value="Infinity", raw="Infinity", span=token.span)
+        if token.kind == "IDENT" and token.value == "NaN":
+            self.advance()
+            return NaNLiteral(value="NaN", raw="NaN", span=token.span)
         if token.kind == "SYMBOL" and token.value == "-" and self.check_next("IDENT") and self.tokens[self.current + 1].value == "Infinity":
             start = self.advance().span.start
             infinity = self.advance()
             return InfinityLiteral(value="-Infinity", raw="-Infinity", span=Span(start=start, end=infinity.span.end))
+        if token.kind == "SYMBOL" and token.value == "-" and self.check_next("IDENT") and self.tokens[self.current + 1].value == "NaN":
+            start = self.advance().span.start
+            nan = self.advance()
+            return NaNLiteral(value="-NaN", raw="-NaN", span=Span(start=start, end=nan.span.end))
         if token.kind == "STRING":
             self.advance()
             return StringLiteral(value=token.value, raw=token.value, delimiter=cast(str, token.quote), span=token.span)

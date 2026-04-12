@@ -93,6 +93,7 @@ RESERVED_KIND_MAP = {
     "bool": ("BooleanLiteral",),
     "switch": ("SwitchLiteral",),
     "infinity": ("InfinityLiteral",),
+    "nan": ("NaNLiteral",),
     "hex": ("HexLiteral",),
     "date": ("DateLiteral",),
     "time": ("TimeLiteral",),

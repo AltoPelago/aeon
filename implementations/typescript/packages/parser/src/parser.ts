@@ -14,6 +14,7 @@ import type {
     StringLiteral,
     NumberLiteral,
     InfinityLiteral,
+    NaNLiteral,
     BooleanLiteral,
     SwitchLiteral,
     HexLiteral,
@@ -892,6 +893,10 @@ class Parser {
                     this.advance();
                     return this.createInfinityLiteral(token.value as 'Infinity');
                 }
+                if (token.value === 'NaN') {
+                    this.advance();
+                    return this.createNaNLiteral(token.value as 'NaN');
+                }
                 throw new SyntaxError(
                     `Unexpected token '${token.value}'`,
                     token.span,
@@ -904,6 +909,11 @@ class Parser {
                     const minus = this.advance();
                     const infinity = this.advance();
                     return this.createInfinityLiteral('-Infinity', createSpan(minus.span.start, infinity.span.end));
+                }
+                if (token.value === '-' && this.peekNext()?.type === TokenType.Identifier && this.peekNext()?.value === 'NaN') {
+                    const minus = this.advance();
+                    const nan = this.advance();
+                    return this.createNaNLiteral('-NaN', createSpan(minus.span.start, nan.span.end));
                 }
                 throw new SyntaxError(
                     `Unexpected token '${token.value}'`,
@@ -1054,6 +1064,15 @@ class Parser {
     private createInfinityLiteral(raw: 'Infinity' | '-Infinity', span?: Span): InfinityLiteral {
         return {
             type: 'InfinityLiteral',
+            value: raw,
+            raw,
+            span: span ?? this.previous().span,
+        };
+    }
+
+    private createNaNLiteral(raw: 'NaN' | '-NaN', span?: Span): NaNLiteral {
+        return {
+            type: 'NaNLiteral',
             value: raw,
             raw,
             span: span ?? this.previous().span,
@@ -1539,7 +1558,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',
     'float', 'float32', 'float64',
-    'string', 'trimtick', 'boolean', 'bool', 'switch', 'infinity',
+    'string', 'trimtick', 'boolean', 'bool', 'switch', 'infinity', 'nan',
     'hex', 'date', 'time', 'datetime', 'zrut',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',

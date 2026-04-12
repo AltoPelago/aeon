@@ -175,6 +175,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
         case 'NumberLiteral':
             return scalarNode('Number', value.value, value.raw, meta);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return scalarNode('String', value.value, value.raw, meta);
         case 'BooleanLiteral':
             return scalarNode('Boolean', value.value, value.raw, meta);

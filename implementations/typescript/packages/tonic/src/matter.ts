@@ -470,6 +470,7 @@ function valueToMatterNode(
         case 'NumberLiteral':
             return new MatterScalarNode(owner, parseNumericString(value.value), value.span);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return new MatterScalarNode(owner, value.value, value.span);
         case 'BooleanLiteral':
             return new MatterScalarNode(owner, value.value, value.span);
@@ -684,6 +685,7 @@ function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
         case 'NumberLiteral':
             return parseNumericString(value.value);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return value.value;
         case 'BooleanLiteral':
             return value.value;

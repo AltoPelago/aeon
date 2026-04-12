@@ -269,6 +269,15 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.meta?.errors?.[0]?.message, 'Infinity literal is not representable in the strict JSON profile: Infinity');
     });
 
+    it('reports nan as outside strict JSON profile', () => {
+        const events = compileToEvents('limit:nan = NaN');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, 'NaN');
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.strictEqual(result.meta?.errors?.[0]?.message, 'NaN literal is not representable in the strict JSON profile: NaN');
+    });
+
     it('preserves hex case while stripping underscore separators', () => {
         const events = compileToEvents('color:hex = #Ff_00_Aa');
         const result = finalizeJson(events, { mode: 'strict' });

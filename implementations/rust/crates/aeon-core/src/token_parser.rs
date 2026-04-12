@@ -550,6 +550,9 @@ impl<'a> TokenParser<'a> {
             TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::Identifier if token.text == "NaN" => Ok(Value::NaNLiteral {
+                raw: self.advance().text.clone(),
+            }),
             TokenKind::Symbol
                 if token.text == "-"
                     && self.peek_next().kind == TokenKind::Identifier
@@ -559,6 +562,17 @@ impl<'a> TokenParser<'a> {
                 self.advance();
                 Ok(Value::InfinityLiteral {
                     raw: String::from("-Infinity"),
+                })
+            }
+            TokenKind::Symbol
+                if token.text == "-"
+                    && self.peek_next().kind == TokenKind::Identifier
+                    && self.peek_next().text == "NaN" =>
+            {
+                self.advance();
+                self.advance();
+                Ok(Value::NaNLiteral {
+                    raw: String::from("-NaN"),
                 })
             }
             TokenKind::True | TokenKind::False => Ok(Value::BooleanLiteral {
@@ -1327,6 +1341,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "bool"
             | "switch"
             | "infinity"
+            | "nan"
             | "hex"
             | "date"
             | "time"

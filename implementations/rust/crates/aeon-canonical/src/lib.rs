@@ -1346,6 +1346,9 @@ impl<'a> Parser<'a> {
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
                 }
+                if matches!(raw.as_str(), "NaN" | "-NaN") {
+                    return Ok(Value::Raw(raw));
+                }
                 if let Some(message) = invalid_temporal_literal(&raw) {
                     return Err(self.syntax_error_range(start, self.index, &message));
                 }
@@ -1362,6 +1365,9 @@ impl<'a> Parser<'a> {
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
+                }
+                if matches!(raw.as_str(), "NaN" | "-NaN") {
+                    return Ok(Value::Raw(raw));
                 }
                 if let Some(message) = invalid_temporal_literal(&raw) {
                     return Err(self.syntax_error_range(start, self.index, &message));
@@ -1997,8 +2003,18 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_nan_literals() {
+        let result = canonicalize("top:nan = NaN\nbottom:nan = -NaN\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:nan = -NaN\ntop:nan = NaN\n"
+        );
+    }
+
+    #[test]
     fn rejects_invalid_infinity_spellings_in_canonicalization() {
-        for source in ["a = +Infinity\n", "a = NaN\n"] {
+        for source in ["a = +Infinity\n", "a = +NaN\n"] {
             let result = canonicalize(source);
             assert!(!result.errors.is_empty(), "{source}");
             assert!(

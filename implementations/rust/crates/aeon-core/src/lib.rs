@@ -212,6 +212,9 @@ pub enum Value {
     InfinityLiteral {
         raw: String,
     },
+    NaNLiteral {
+        raw: String,
+    },
     StringLiteral {
         value: String,
         raw: String,
@@ -322,6 +325,7 @@ impl Value {
         match self {
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
+            Self::NaNLiteral { .. } => "NaNLiteral",
             Self::StringLiteral { trimticks, .. } => {
                 if trimticks.is_some() {
                     "TrimtickStringLiteral"

@@ -2428,6 +2428,7 @@ function readLiteralString(value: Value): string | null {
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return String(value.raw);
         case 'NumberLiteral':
         case 'BooleanLiteral':
@@ -2737,6 +2738,7 @@ function renderValue(value: Record<string, unknown>): string {
         case 'StringLiteral':
             return JSON.stringify(String(value.value ?? ''));
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return String(value.raw ?? value.value ?? '');
         case 'NumberLiteral':
             return String(value.raw ?? value.value ?? '');

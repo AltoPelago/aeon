@@ -767,6 +767,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     // Custom datatypes intentionally remain unconstrained.
     if (NUMERIC_TYPES.has(base)) return ['NumberLiteral'];
     if (base === 'infinity') return ['InfinityLiteral'];
+    if (base === 'nan') return ['NaNLiteral'];
     if (base === 'string') return ['StringLiteral'];
     if (base === 'trimtick') return ['TrimtickStringLiteral'];
     if (base === 'boolean' || base === 'bool') return ['BooleanLiteral'];

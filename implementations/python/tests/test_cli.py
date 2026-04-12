@@ -238,6 +238,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual({"limit": "Infinity"}, payload["document"])
         self.assertEqual("FINALIZE_JSON_PROFILE_INFINITY", payload["meta"]["errors"][0]["code"])
 
+    def test_finalize_json_reports_nan_as_strict_json_profile_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "nan.aeon"
+            fixture.write_text("limit:nan = NaN\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"limit": "NaN"}, payload["document"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_NAN", payload["meta"]["errors"][0]["code"])
+
     def test_finalize_json_supports_projected_payload_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "projection.aeon"

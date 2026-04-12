@@ -156,6 +156,12 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should accept typed nan literal in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nvalue:nan = NaN');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should accept embed and inline as reserved encoding aliases in strict mode', () => {
             for (const datatype of ['embed', 'inline']) {
                 const result = enforce(`aeon:mode = "strict"\npayload:${datatype} = $QmFzZTY0IQ==`);
@@ -165,6 +171,12 @@ describe('Mode Enforcement', () => {
 
         it('should reject infinity literal bound to number in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\nlimit:number = Infinity');
+
+            assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should reject nan literal bound to number in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nvalue:number = NaN');
 
             assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
         });

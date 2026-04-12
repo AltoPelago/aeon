@@ -433,6 +433,7 @@ export function serializeCanonicalValue(value: Value): string {
         case 'NumberLiteral':
             return normalizeNumber(value.raw);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return `"${escapeString(value.raw)}"`;
         case 'BooleanLiteral':
             return value.value ? 'true' : 'false';

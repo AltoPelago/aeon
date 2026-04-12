@@ -293,6 +293,11 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "raw": raw,
             "value": raw,
         }),
+        Value::NaNLiteral { raw } => json!({
+            "type": "NaNLiteral",
+            "raw": raw,
+            "value": raw,
+        }),
         Value::StringLiteral {
             value,
             raw,
@@ -591,6 +596,19 @@ fn value_to_json_with_active_key(
             }
             JsonValue::String(raw.clone())
         }
+        Value::NaNLiteral { raw } => {
+            let diag = Diagnostic::new(
+                "FINALIZE_JSON_PROFILE_NAN",
+                format!("NaN literal is not representable in the strict JSON profile: {raw}"),
+            )
+            .at_path(path);
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
+            }
+            JsonValue::String(raw.clone())
+        }
         Value::SwitchLiteral { raw } => {
             JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true"))
         }
@@ -846,6 +864,7 @@ fn measure_materialized_weight(
         Value::StringLiteral { .. }
         | Value::NumberLiteral { .. }
         | Value::InfinityLiteral { .. }
+        | Value::NaNLiteral { .. }
         | Value::SwitchLiteral { .. }
         | Value::BooleanLiteral { .. }
         | Value::HexLiteral { .. }
@@ -2054,6 +2073,16 @@ mod tests {
             finalized.meta.errors[0].code,
             "FINALIZE_JSON_PROFILE_INFINITY"
         );
+    }
+
+    #[test]
+    fn reports_nan_as_outside_strict_json_profile() {
+        let source = "limit:nan = NaN\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "limit": "NaN" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_NAN");
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

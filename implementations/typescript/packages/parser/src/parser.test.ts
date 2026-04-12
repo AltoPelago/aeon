@@ -741,6 +741,15 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[1]!.value.type, 'InfinityLiteral');
         });
 
+        it('should parse nan literals', () => {
+            const tokens = tokenize('top = NaN\nbottom = -NaN').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.value.type, 'NaNLiteral');
+            assert.strictEqual(result.document!.bindings[1]!.value.type, 'NaNLiteral');
+        });
+
         it('should parse nested attribute heads when maxAttributeDepth allows it', () => {
             const tokens = tokenize('f@{ns@{origin:string = "core"}:string = "aeon"}:string = "fractal"').tokens;
             const result = parse(tokens, { maxAttributeDepth: 8 });
