@@ -410,8 +410,13 @@ def format_number(raw: str) -> str:
             mantissa = f"{int_part}.{frac_part}"
     if exponent is not None:
         exponent = re.sub(r"^\+", "", exponent)
-        exponent = re.sub(r"^(-?)0+(\d)", r"\1\2", exponent)
-        return f"{mantissa}e{exponent}"
+        negative = exponent.startswith("-")
+        digits = exponent[1:] if negative else exponent
+        normalized = digits.lstrip("0") or "0"
+        if normalized == "0":
+            return f"{mantissa}e0"
+        sign = "-" if negative else ""
+        return f"{mantissa}e{sign}{normalized}"
     return mantissa
 
 
