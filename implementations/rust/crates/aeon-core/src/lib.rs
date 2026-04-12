@@ -1763,6 +1763,19 @@ mod tests {
     }
 
     #[test]
+    fn accepts_not_set_null_sentinel() {
+        let ok = compile("value:null = !notSet\n", CompileOptions::default());
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        match &ok.events[0].value {
+            Value::NullLiteral { mode, value, .. } => {
+                assert_eq!(mode, &NullLiteralMode::Reserved);
+                assert_eq!(value, "notSet");
+            }
+            other => panic!("expected NullLiteral, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn custom_bracket_specs_allow_single_digit_for_separator_and_radix_literals() {
         let separator_result = compile(
             "aeon:mode = \"strict\"\na:custom[2] = ^a2a\n",

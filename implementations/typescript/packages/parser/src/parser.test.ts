@@ -761,6 +761,16 @@ describe('Parser', () => {
             assert.strictEqual((result.document!.bindings[1]!.value as { mode: string }).mode, 'reason');
         });
 
+        it('should accept notSet as a reserved null sentinel', () => {
+            const tokens = tokenize('value = !notSet').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.value.type, 'NullLiteral');
+            assert.strictEqual((result.document!.bindings[0]!.value as { mode: string }).mode, 'reserved');
+            assert.strictEqual((result.document!.bindings[0]!.value as { value: string }).value, 'notSet');
+        });
+
         it('should reject colliding null reasons', () => {
             const tokens = tokenize('value = !"none"').tokens;
             const result = parse(tokens);

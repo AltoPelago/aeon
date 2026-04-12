@@ -1616,7 +1616,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
-const RESERVED_NULL_SENTINELS = new Set(['none', 'uninitialised', 'notApplicable', 'tombstone']);
+const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',

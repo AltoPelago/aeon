@@ -90,6 +90,16 @@ string = "|KEY||TYPE| = |0|NaN// Not a Number"
 outcome = "pass"
 
 [[stress]]
+description = "Null"
+key = "a"
+type = { strict = ":null", custom = ":problem", transport = "" }
+value = [
+  ["none", "notSet", "tombstone", "notApplicable", "'promised'", "\"out of stock\""],
+]
+string = "|KEY||TYPE| = !|0|// null"
+outcome = "pass"
+
+[[stress]]
 description = "Radix"
 key = "a"
 type = { strict = ":radix", custom = ":mm", transport = "" }

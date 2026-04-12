@@ -1466,7 +1466,7 @@ fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
 }
 
 fn is_reserved_null_sentinel(value: &str) -> bool {
-    matches!(value, "none" | "uninitialised" | "notApplicable" | "tombstone")
+    matches!(value, "none" | "notSet" | "notApplicable" | "tombstone")
 }
 
 fn is_ascii_whitespace_only(value: &str) -> bool {

@@ -64,7 +64,7 @@ RESERVED_V1_DATATYPES = {
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
 
-RESERVED_NULL_SENTINELS = {"none", "uninitialised", "notApplicable", "tombstone"}
+RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 

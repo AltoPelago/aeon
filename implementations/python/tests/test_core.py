@@ -187,6 +187,12 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("NullLiteral", result.events[0]["value"]["type"])
         self.assertEqual("NullLiteral", result.events[1]["value"]["type"])
 
+    def test_not_set_null_sentinel_is_allowed_in_typed_modes(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nvalue:null = !notSet')
+        self.assertEqual([], result.errors)
+        self.assertEqual("NullLiteral", result.events[0]["value"]["type"])
+        self.assertEqual("notSet", result.events[0]["value"]["value"])
+
     def test_number_datatype_rejects_infinity_literal(self) -> None:
         result = compile_source('aeon:mode = "strict"\nlimit:number = Infinity')
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])

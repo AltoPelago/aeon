@@ -671,7 +671,7 @@ fn is_rejected_nonfinite_literal(raw: &str) -> bool {
 }
 
 fn is_reserved_null_sentinel(value: &str) -> bool {
-    matches!(value, "none" | "uninitialised" | "notApplicable" | "tombstone")
+    matches!(value, "none" | "notSet" | "notApplicable" | "tombstone")
 }
 
 fn is_ascii_whitespace_only(value: &str) -> bool {
