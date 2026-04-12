@@ -2122,7 +2122,11 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "limit": null }));
-        assert!(finalized.meta.errors.is_empty(), "{:?}", finalized.meta.errors);
+        assert!(
+            finalized.meta.errors.is_empty(),
+            "{:?}",
+            finalized.meta.errors
+        );
     }
 
     #[test]

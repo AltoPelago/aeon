@@ -616,14 +616,12 @@ impl<'a> TokenParser<'a> {
                     end: token.span.end,
                 };
                 if !is_reserved_null_sentinel(&token.text) {
-                    return Err(
-                        Diagnostic::new(
-                            "INVALID_NULL_SENTINEL",
-                            format!("Invalid null sentinel '{}'", token.text),
-                        )
-                        .at_path("$")
-                        .with_span(span),
-                    );
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_SENTINEL",
+                        format!("Invalid null sentinel '{}'", token.text),
+                    )
+                    .at_path("$")
+                    .with_span(span));
                 }
                 let ident = self.advance().text.clone();
                 Ok(Value::NullLiteral {
@@ -640,34 +638,28 @@ impl<'a> TokenParser<'a> {
                     end: token.span.end,
                 };
                 if decoded.is_empty() {
-                    return Err(
-                        Diagnostic::new(
-                            "INVALID_NULL_REASON_EMPTY",
-                            "Null reason must not be empty",
-                        )
-                        .at_path("$")
-                        .with_span(span),
-                    );
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_EMPTY",
+                        "Null reason must not be empty",
+                    )
+                    .at_path("$")
+                    .with_span(span));
                 }
                 if is_ascii_whitespace_only(&decoded) {
-                    return Err(
-                        Diagnostic::new(
-                            "INVALID_NULL_REASON_WHITESPACE",
-                            "Null reason must not be ASCII-whitespace-only",
-                        )
-                        .at_path("$")
-                        .with_span(span),
-                    );
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_WHITESPACE",
+                        "Null reason must not be ASCII-whitespace-only",
+                    )
+                    .at_path("$")
+                    .with_span(span));
                 }
                 if is_reserved_null_sentinel(&decoded) {
-                    return Err(
-                        Diagnostic::new(
-                            "INVALID_NULL_REASON_COLLISION",
-                            format!("Null reason collides with reserved sentinel '{decoded}'"),
-                        )
-                        .at_path("$")
-                        .with_span(span),
-                    );
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_COLLISION",
+                        format!("Null reason collides with reserved sentinel '{decoded}'"),
+                    )
+                    .at_path("$")
+                    .with_span(span));
                 }
                 Ok(Value::NullLiteral {
                     mode: NullLiteralMode::Reason,
@@ -675,14 +667,12 @@ impl<'a> TokenParser<'a> {
                     value: decoded,
                 })
             }
-            _ => Err(
-                Diagnostic::new(
-                    "INVALID_NULL_LITERAL",
-                    "Null literal must be followed by a reserved sentinel or quoted reason",
-                )
-                .at_path("$")
-                .with_span(bang),
-            ),
+            _ => Err(Diagnostic::new(
+                "INVALID_NULL_LITERAL",
+                "Null literal must be followed by a reserved sentinel or quoted reason",
+            )
+            .at_path("$")
+            .with_span(bang)),
         }
     }
 

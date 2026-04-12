@@ -173,11 +173,9 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             raw.clone(),
             JsonValue::String(raw.clone()),
         ),
-        Value::NaNLiteral { raw } => scalar_value(
-            "NaNLiteral",
-            raw.clone(),
-            JsonValue::String(raw.clone()),
-        ),
+        Value::NaNLiteral { raw } => {
+            scalar_value("NaNLiteral", raw.clone(), JsonValue::String(raw.clone()))
+        }
         Value::NullLiteral { mode, value, raw } => scalar_value(
             "NullLiteral",
             raw.clone(),

@@ -1450,7 +1450,9 @@ impl<'a> Parser<'a> {
                     value: raw,
                 })
             }
-            None => Err(self.syntax_error("Null literal must be followed by a reserved sentinel or quoted reason")),
+            None => Err(self.syntax_error(
+                "Null literal must be followed by a reserved sentinel or quoted reason",
+            )),
         }
     }
 
