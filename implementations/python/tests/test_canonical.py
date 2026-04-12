@@ -59,6 +59,29 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertIn('r:radix[2] = %0101', result.text)
 
+    def test_canonicalizes_number_families_without_collapsing_radix_representation(self) -> None:
+        result = canonicalize(
+            'plain:number = +10\n'
+            'fraction:number = 10.00\n'
+            'half:number = +.5\n'
+            'scientific:number = 1.0E+03\n'
+            'zeroInt:number = +0\n'
+            'zeroDec:number = -.0\n'
+            'zeroExp:number = -0.0E-0\n'
+            'mask:radix[10] = %10.00\n'
+            'width:radix[10] = %0010.00'
+        )
+        self.assertEqual([], result.errors)
+        self.assertIn('plain:number = 10', result.text)
+        self.assertIn('fraction:number = 10.0', result.text)
+        self.assertIn('half:number = 0.5', result.text)
+        self.assertIn('scientific:number = 1e3', result.text)
+        self.assertIn('zeroInt:number = 0', result.text)
+        self.assertIn('zeroDec:number = -0.0', result.text)
+        self.assertIn('zeroExp:number = -0e0', result.text)
+        self.assertIn('mask:radix[10] = %10.00', result.text)
+        self.assertIn('width:radix[10] = %0010.00', result.text)
+
     def test_canonicalizes_numeric_separator_specs(self) -> None:
         result = canonicalize('aeon:mode = "custom"\ns:set[2] = ^o2o2o')
         self.assertEqual([], result.errors)

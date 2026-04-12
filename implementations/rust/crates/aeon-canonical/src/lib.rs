@@ -643,7 +643,9 @@ fn normalize_number(raw: &str) -> String {
         };
         let trimmed = digits.trim_start_matches('0');
         let normalized = if trimmed.is_empty() { "0" } else { trimmed };
-        if negative {
+        if normalized == "0" {
+            format!("{mantissa}e0")
+        } else if negative {
             format!("{mantissa}e-{normalized}")
         } else {
             format!("{mantissa}e{normalized}")
@@ -1961,6 +1963,26 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[x] = ^1920x1080\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_number_families_without_collapsing_radix_representation() {
+        let result = canonicalize(
+            "plain:number = +10\n\
+             fraction:number = 10.00\n\
+             half:number = +.5\n\
+             scientific:number = 1.0E+03\n\
+             zero_int:number = +0\n\
+             zero_dec:number = -.0\n\
+             zero_exp:number = -0.0E-0\n\
+             mask:radix[10] = %10.00\n\
+             width:radix[10] = %0010.00\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_int:number = 0\n"
         );
     }
 

@@ -62,6 +62,28 @@ test('drops redundant leading plus signs in canonical numbers', () => {
     assert.ok(result.text.includes('scientific = 1000.25e3'));
 });
 
+test('canonicalizes number families without collapsing exponent or decimal intent', () => {
+    const input = 'plain:number = +10\nfraction:number = 10.00\nhalf:number = +.5\nscientific:number = 1.0E+03';
+    const result = canonicalize(input);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('plain:number = 10'));
+    assert.ok(result.text.includes('fraction:number = 10.0'));
+    assert.ok(result.text.includes('half:number = 0.5'));
+    assert.ok(result.text.includes('scientific:number = 1e3'));
+});
+
+test('preserves radix representation while canonicalizing number zero families', () => {
+    const input = 'a:number = +0\nb:number = -.0\nc:number = 0.0e+0\nd:number = -0.0E-0\nmask:radix[10] = %10.00\nwidth:radix[10] = %0010.00';
+    const result = canonicalize(input);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('a:number = 0'));
+    assert.ok(result.text.includes('b:number = -0.0'));
+    assert.ok(result.text.includes('c:number = 0e0'));
+    assert.ok(result.text.includes('d:number = -0e0'));
+    assert.ok(result.text.includes('mask:radix[10] = %10.00'));
+    assert.ok(result.text.includes('width:radix[10] = %0010.00'));
+});
+
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',

@@ -746,8 +746,12 @@ function formatNumber(raw: string): string {
 
     if (exponent !== undefined) {
         exponent = exponent.replace(/^\+/, '');
-        exponent = exponent.replace(/^(-?)0+(\d)/, '$1$2');
-        value = `${mantissa}e${exponent}`;
+        const negative = exponent.startsWith('-');
+        const digits = negative ? exponent.slice(1) : exponent;
+        const normalized = digits.replace(/^0+/, '') || '0';
+        value = normalized === '0'
+            ? `${mantissa}e0`
+            : `${mantissa}e${negative ? '-' : ''}${normalized}`;
     } else {
         value = mantissa;
     }
