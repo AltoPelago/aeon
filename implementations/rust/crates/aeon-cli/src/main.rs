@@ -11,8 +11,8 @@ use aeon_aeos::{
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, PathSegment, ReferenceSegment,
-    VERSION, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
+    ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -2004,6 +2004,7 @@ fn serialize_canonical_value(value: &Value) -> String {
         Value::StringLiteral { value, .. } => format!("\"{}\"", escape_json(value)),
         Value::InfinityLiteral { raw } => raw.clone(),
         Value::NaNLiteral { raw } => raw.clone(),
+        Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::SwitchLiteral { raw }
         | Value::BooleanLiteral { raw }
@@ -2457,6 +2458,15 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw),
             escape_json(raw)
         ),
+        Value::NullLiteral { mode, value, raw } => format!(
+            "{{\"type\":\"NullLiteral\",\"mode\":\"{}\",\"raw\":\"{}\",\"value\":\"{}\"}}",
+            match mode {
+                NullLiteralMode::Reserved => "reserved",
+                NullLiteralMode::Reason => "reason",
+            },
+            escape_json(raw),
+            escape_json(value)
+        ),
         Value::NumberLiteral { raw } => format!(
             "{{\"type\":\"NumberLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
@@ -2614,6 +2624,7 @@ fn render_human_value(value: &Value) -> String {
         }
         Value::InfinityLiteral { raw } => raw.clone(),
         Value::NaNLiteral { raw } => raw.clone(),
+        Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::BooleanLiteral { raw }
         | Value::SwitchLiteral { raw }
@@ -2984,6 +2995,18 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("NaNLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            elements: Vec::new(),
+        },
+        Value::NullLiteral { mode, value, raw } => EventValue {
+            value_type: String::from("NullLiteral"),
+            raw: Some(raw.clone()),
+            value: Some(json!({
+                "mode": match mode {
+                    NullLiteralMode::Reserved => "reserved",
+                    NullLiteralMode::Reason => "reason",
+                },
+                "value": value,
+            })),
             elements: Vec::new(),
         },
         Value::NumberLiteral { raw } => EventValue {

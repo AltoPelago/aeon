@@ -92,6 +92,14 @@ test('canonicalizes nan literals exactly', () => {
     assert.ok(result.text.includes('bottom:nan = -NaN'));
 });
 
+test('canonicalizes null literals without collapsing reserved and reason forms', () => {
+    const input = "top:null = !none\nbottom:null = !'postponed'";
+    const result = canonicalize(input);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('top:null = !none'));
+    assert.ok(result.text.includes('bottom:null = !"postponed"'));
+});
+
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',

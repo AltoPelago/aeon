@@ -89,6 +89,15 @@ class NaNLiteral:
 
 
 @dataclass(slots=True)
+class NullLiteral:
+    type: Literal["NullLiteral"] = "NullLiteral"
+    mode: Literal["reserved", "reason"] = "reserved"
+    value: str = ""
+    raw: str = ""
+    span: Span | None = None
+
+
+@dataclass(slots=True)
 class BooleanLiteral:
     type: Literal["BooleanLiteral"] = "BooleanLiteral"
     value: bool = False
@@ -223,6 +232,7 @@ Value = (
     | NumberLiteral
     | InfinityLiteral
     | NaNLiteral
+    | NullLiteral
     | BooleanLiteral
     | SwitchLiteral
     | HexLiteral

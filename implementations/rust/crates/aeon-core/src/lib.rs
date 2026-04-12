@@ -205,6 +205,12 @@ pub enum ReferenceSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NullLiteralMode {
+    Reserved,
+    Reason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     NumberLiteral {
         raw: String,
@@ -213,6 +219,11 @@ pub enum Value {
         raw: String,
     },
     NaNLiteral {
+        raw: String,
+    },
+    NullLiteral {
+        mode: NullLiteralMode,
+        value: String,
         raw: String,
     },
     StringLiteral {
@@ -326,6 +337,7 @@ impl Value {
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
             Self::NaNLiteral { .. } => "NaNLiteral",
+            Self::NullLiteral { .. } => "NullLiteral",
             Self::StringLiteral { trimticks, .. } => {
                 if trimticks.is_some() {
                     "TrimtickStringLiteral"
@@ -1731,13 +1743,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_null_datatype_with_non_literal_kind_wording() {
+    fn accepts_typed_null_literals_and_rejects_number_for_null_datatype() {
+        let ok = compile(
+            "value:null = !none\nreason:null = !\"postponed\"\n",
+            CompileOptions::default(),
+        );
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        assert_eq!(ok.events[0].value.value_kind(), "NullLiteral");
+        assert_eq!(ok.events[1].value.value_kind(), "NullLiteral");
+
         let result = compile("value:null = 0\n", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
         assert_eq!(
             result.errors[0].message,
-            "Datatype/literal mismatch at '$.value': datatype ':null' is not supported for literal matching, got NumberLiteral"
+            "Datatype/literal mismatch at '$.value': datatype ':null' expects NullLiteral, got NumberLiteral"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.value"));
     }

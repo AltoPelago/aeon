@@ -181,12 +181,22 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("NaNLiteral", result.events[0]["value"]["type"])
 
+    def test_null_datatype_is_allowed_in_typed_modes(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nvalue:null = !none\nreason:null = !"postponed"')
+        self.assertEqual([], result.errors)
+        self.assertEqual("NullLiteral", result.events[0]["value"]["type"])
+        self.assertEqual("NullLiteral", result.events[1]["value"]["type"])
+
     def test_number_datatype_rejects_infinity_literal(self) -> None:
         result = compile_source('aeon:mode = "strict"\nlimit:number = Infinity')
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
     def test_number_datatype_rejects_nan_literal(self) -> None:
         result = compile_source('aeon:mode = "strict"\nvalue:number = NaN')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_null_datatype_rejects_number_literal(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nvalue:null = 0')
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
     def test_removed_reserved_aliases_are_rejected_in_strict_mode(self) -> None:

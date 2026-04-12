@@ -750,6 +750,25 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[1]!.value.type, 'NaNLiteral');
         });
 
+        it('should parse reserved and reason-bearing null literals', () => {
+            const tokens = tokenize('top = !none\nbottom = !"postponed"').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.value.type, 'NullLiteral');
+            assert.strictEqual((result.document!.bindings[0]!.value as { mode: string }).mode, 'reserved');
+            assert.strictEqual(result.document!.bindings[1]!.value.type, 'NullLiteral');
+            assert.strictEqual((result.document!.bindings[1]!.value as { mode: string }).mode, 'reason');
+        });
+
+        it('should reject colliding null reasons', () => {
+            const tokens = tokenize('value = !"none"').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NULL_REASON_COLLISION');
+        });
+
         it('should parse nested attribute heads when maxAttributeDepth allows it', () => {
             const tokens = tokenize('f@{ns@{origin:string = "core"}:string = "aeon"}:string = "fractal"').tokens;
             const result = parse(tokens, { maxAttributeDepth: 8 });

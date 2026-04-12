@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use aeon_core::{
-    AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, ReferenceSegment,
-    Span, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, NullLiteralMode,
+    ReferenceSegment, Span, Value, compile, format_path, normalize_number_literal,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
@@ -297,6 +297,15 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "type": "NaNLiteral",
             "raw": raw,
             "value": raw,
+        }),
+        Value::NullLiteral { mode, value, raw } => json!({
+            "type": "NullLiteral",
+            "mode": match mode {
+                NullLiteralMode::Reserved => "reserved",
+                NullLiteralMode::Reason => "reason",
+            },
+            "raw": raw,
+            "value": value,
         }),
         Value::StringLiteral {
             value,
@@ -609,6 +618,27 @@ fn value_to_json_with_active_key(
             }
             JsonValue::String(raw.clone())
         }
+        Value::NullLiteral {
+            mode: literal_mode,
+            value,
+            raw,
+        } => {
+            if matches!(literal_mode, NullLiteralMode::Reserved) && value == "none" {
+                JsonValue::Null
+            } else {
+                let diag = Diagnostic::new(
+                    "FINALIZE_JSON_PROFILE_NULL",
+                    format!("Null literal is not losslessly representable in the strict JSON profile: {raw}"),
+                )
+                .at_path(path);
+                if matches!(mode, FinalizeMode::Strict) {
+                    errors.push(diag);
+                } else {
+                    warnings.push(diag);
+                }
+                JsonValue::String(raw.clone())
+            }
+        }
         Value::SwitchLiteral { raw } => {
             JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true"))
         }
@@ -865,6 +895,7 @@ fn measure_materialized_weight(
         | Value::NumberLiteral { .. }
         | Value::InfinityLiteral { .. }
         | Value::NaNLiteral { .. }
+        | Value::NullLiteral { .. }
         | Value::SwitchLiteral { .. }
         | Value::BooleanLiteral { .. }
         | Value::HexLiteral { .. }
@@ -2083,6 +2114,25 @@ mod tests {
         assert_eq!(finalized.document, json!({ "limit": "NaN" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_NAN");
+    }
+
+    #[test]
+    fn materializes_none_null_literal_as_json_null() {
+        let source = "limit:null = !none\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "limit": null }));
+        assert!(finalized.meta.errors.is_empty(), "{:?}", finalized.meta.errors);
+    }
+
+    #[test]
+    fn reports_non_none_null_literal_as_outside_strict_json_profile() {
+        let source = "limit:null = !\"postponed\"\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "limit": "!\"postponed\"" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_NULL");
     }
 
     #[derive(Debug, Deserialize, PartialEq)]

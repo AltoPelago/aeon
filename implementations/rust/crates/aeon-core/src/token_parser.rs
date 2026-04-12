@@ -6,8 +6,8 @@ use crate::header::apply_trimticks;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
-    AttributeValue, Binding, Diagnostic, LexerOptions, ReferenceSegment, Span, Token, TokenKind,
-    TrimtickMetadata, Value, tokenize,
+    AttributeValue, Binding, Diagnostic, LexerOptions, NullLiteralMode, ReferenceSegment, Span,
+    Token, TokenKind, TrimtickMetadata, Value, tokenize,
 };
 
 pub(crate) fn parse_document_from_tokens(
@@ -575,6 +575,7 @@ impl<'a> TokenParser<'a> {
                     raw: String::from("-NaN"),
                 })
             }
+            TokenKind::Symbol if token.text == "!" => self.parse_null_literal(),
             TokenKind::True | TokenKind::False => Ok(Value::BooleanLiteral {
                 raw: self.advance().text.clone(),
             }),
@@ -602,6 +603,86 @@ impl<'a> TokenParser<'a> {
             TokenKind::RightAngle => self.parse_trimtick(),
             TokenKind::Tilde | TokenKind::TildeArrow => self.parse_reference(),
             _ => Err(self.error_at_current(&format!("Unexpected token '{}'", token.text))),
+        }
+    }
+
+    fn parse_null_literal(&mut self) -> Result<Value, Diagnostic> {
+        let bang = self.advance().span;
+        let token = self.peek();
+        match token.kind {
+            TokenKind::Identifier => {
+                let span = Span {
+                    start: bang.start,
+                    end: token.span.end,
+                };
+                if !is_reserved_null_sentinel(&token.text) {
+                    return Err(
+                        Diagnostic::new(
+                            "INVALID_NULL_SENTINEL",
+                            format!("Invalid null sentinel '{}'", token.text),
+                        )
+                        .at_path("$")
+                        .with_span(span),
+                    );
+                }
+                let ident = self.advance().text.clone();
+                Ok(Value::NullLiteral {
+                    mode: NullLiteralMode::Reserved,
+                    raw: format!("!{ident}"),
+                    value: ident,
+                })
+            }
+            TokenKind::String => {
+                let token = self.advance();
+                let decoded = decode_quoted_token(token)?;
+                let span = Span {
+                    start: bang.start,
+                    end: token.span.end,
+                };
+                if decoded.is_empty() {
+                    return Err(
+                        Diagnostic::new(
+                            "INVALID_NULL_REASON_EMPTY",
+                            "Null reason must not be empty",
+                        )
+                        .at_path("$")
+                        .with_span(span),
+                    );
+                }
+                if is_ascii_whitespace_only(&decoded) {
+                    return Err(
+                        Diagnostic::new(
+                            "INVALID_NULL_REASON_WHITESPACE",
+                            "Null reason must not be ASCII-whitespace-only",
+                        )
+                        .at_path("$")
+                        .with_span(span),
+                    );
+                }
+                if is_reserved_null_sentinel(&decoded) {
+                    return Err(
+                        Diagnostic::new(
+                            "INVALID_NULL_REASON_COLLISION",
+                            format!("Null reason collides with reserved sentinel '{decoded}'"),
+                        )
+                        .at_path("$")
+                        .with_span(span),
+                    );
+                }
+                Ok(Value::NullLiteral {
+                    mode: NullLiteralMode::Reason,
+                    raw: format!("!{}", render_quoted_string(&decoded)),
+                    value: decoded,
+                })
+            }
+            _ => Err(
+                Diagnostic::new(
+                    "INVALID_NULL_LITERAL",
+                    "Null literal must be followed by a reserved sentinel or quoted reason",
+                )
+                .at_path("$")
+                .with_span(bang),
+            ),
         }
     }
 
@@ -1382,6 +1463,35 @@ fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
             .at_path("$")
             .with_span(token.span)
     })
+}
+
+fn is_reserved_null_sentinel(value: &str) -> bool {
+    matches!(value, "none" | "uninitialised" | "notApplicable" | "tombstone")
+}
+
+fn is_ascii_whitespace_only(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r'))
+}
+
+fn render_quoted_string(value: &str) -> String {
+    let mut output = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0C}' => output.push_str("\\f"),
+            _ => output.push(ch),
+        }
+    }
+    output.push('"');
+    output
 }
 
 fn decode_quoted_text(text: &str) -> Result<String, &'static str> {

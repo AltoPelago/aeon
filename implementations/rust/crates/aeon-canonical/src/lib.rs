@@ -38,11 +38,18 @@ enum Value {
     String(String),
     Number(String),
     Infinity(String),
+    Null { mode: NullMode, value: String },
     Object(Vec<Binding>),
     List(Vec<Value>),
     Tuple(Vec<Value>),
     Node(NodeValue),
     Raw(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NullMode {
+    Reserved,
+    Reason,
 }
 
 #[must_use]
@@ -395,6 +402,10 @@ fn render_value_inline(value: &Value) -> String {
         Value::String(value) => format!("\"{}\"", escape_string(value)),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
+        Value::Null { mode, value } => match mode {
+            NullMode::Reserved => format!("!{value}"),
+            NullMode::Reason => format!("!\"{}\"", escape_string(value)),
+        },
         Value::Object(bindings) => {
             if bindings.is_empty() {
                 return String::from("{}");
@@ -475,7 +486,7 @@ fn render_datatype(datatype: Option<&str>) -> String {
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
+        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -483,7 +494,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
+        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -657,6 +668,17 @@ fn normalize_number(raw: &str) -> String {
 
 fn is_rejected_nonfinite_literal(raw: &str) -> bool {
     matches!(raw, "+Infinity" | "NaN" | "-NaN" | "+NaN")
+}
+
+fn is_reserved_null_sentinel(value: &str) -> bool {
+    matches!(value, "none" | "uninitialised" | "notApplicable" | "tombstone")
+}
+
+fn is_ascii_whitespace_only(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r'))
 }
 
 fn looks_like_number_literal(raw: &str) -> bool {
@@ -1340,6 +1362,7 @@ impl<'a> Parser<'a> {
             Some('[') => self.parse_list(),
             Some('(') => self.parse_tuple(),
             Some('<') => self.parse_node(),
+            Some('!') => self.parse_null_literal(),
             Some(ch) if ch.is_ascii_digit() || matches!(ch, '-' | '+') => {
                 let start = self.index;
                 let raw = self.parse_bare_value()?;
@@ -1395,6 +1418,39 @@ impl<'a> Parser<'a> {
                 Ok(Value::Raw(raw))
             }
             None => Err(self.syntax_error("Missing value")),
+        }
+    }
+
+    fn parse_null_literal(&mut self) -> Result<Value, Diagnostic> {
+        self.expect_char('!')?;
+        match self.peek() {
+            Some('"') | Some('\'') | Some('`') => {
+                let value = self.parse_quoted_string()?;
+                if value.is_empty() {
+                    return Err(self.syntax_error("Null reason must not be empty"));
+                }
+                if is_ascii_whitespace_only(&value) {
+                    return Err(self.syntax_error("Null reason must not be ASCII-whitespace-only"));
+                }
+                if is_reserved_null_sentinel(&value) {
+                    return Err(self.syntax_error("Null reason collides with reserved sentinel"));
+                }
+                Ok(Value::Null {
+                    mode: NullMode::Reason,
+                    value,
+                })
+            }
+            Some(_) => {
+                let raw = self.parse_bare_value()?;
+                if !is_reserved_null_sentinel(&raw) {
+                    return Err(self.syntax_error("Invalid null sentinel"));
+                }
+                Ok(Value::Null {
+                    mode: NullMode::Reserved,
+                    value: raw,
+                })
+            }
+            None => Err(self.syntax_error("Null literal must be followed by a reserved sentinel or quoted reason")),
         }
     }
 
@@ -2009,6 +2065,16 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:nan = -NaN\ntop:nan = NaN\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_null_literals() {
+        let result = canonicalize("top:null = !none\nbottom:null = !'postponed'\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:null = !\"postponed\"\ntop:null = !none\n"
         );
     }
 

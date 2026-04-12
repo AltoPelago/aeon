@@ -7,8 +7,8 @@ use aeon_aeos::{
     SpanInput, ValidationEnvelope, ValidationOptions, validate,
 };
 use aeon_core::{
-    AssignmentEvent, CompileOptions, Diagnostic, PathSegment, ReferenceSegment, Value, compile,
-    normalize_number_literal,
+    AssignmentEvent, CompileOptions, Diagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
+    Value, compile, normalize_number_literal,
 };
 use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
 use serde::de::DeserializeOwned;
@@ -177,6 +177,17 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             "NaNLiteral",
             raw.clone(),
             JsonValue::String(raw.clone()),
+        ),
+        Value::NullLiteral { mode, value, raw } => scalar_value(
+            "NullLiteral",
+            raw.clone(),
+            json!({
+                "mode": match mode {
+                    NullLiteralMode::Reserved => "reserved",
+                    NullLiteralMode::Reason => "reason",
+                },
+                "value": value,
+            }),
         ),
         Value::NumberLiteral { raw } => scalar_value(
             "NumberLiteral",

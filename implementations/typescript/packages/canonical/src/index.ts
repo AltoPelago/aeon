@@ -270,6 +270,8 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'InfinityLiteral':
         case 'NaNLiteral':
             return [value.raw];
+        case 'NullLiteral':
+            return [formatNullLiteral(value)];
         case 'BooleanLiteral':
             return [formatBoolean(value)];
         case 'SwitchLiteral':
@@ -424,6 +426,8 @@ function renderCompactInlineValue(value: Value): string {
         case 'InfinityLiteral':
         case 'NaNLiteral':
             return value.raw;
+        case 'NullLiteral':
+            return formatNullLiteral(value);
         case 'BooleanLiteral':
             return formatBoolean(value);
         case 'SwitchLiteral':
@@ -722,6 +726,10 @@ function formatBoolean(value: Extract<Value, { type: 'BooleanLiteral' }>): strin
         : value.value ? 'true' : 'false';
 }
 
+function formatNullLiteral(value: Extract<Value, { type: 'NullLiteral' }>): string {
+    return value.mode === 'reserved' ? `!${value.value}` : `!${formatString(value.value)}`;
+}
+
 function formatNumber(raw: string): string {
     let value = raw.replace(/_/g, '');
     value = value.replace(/E/g, 'e');
@@ -781,6 +789,7 @@ function isSimpleValue(value: Value): boolean {
         case 'NumberLiteral':
         case 'InfinityLiteral':
         case 'NaNLiteral':
+        case 'NullLiteral':
         case 'BooleanLiteral':
         case 'SwitchLiteral':
         case 'HexLiteral':
