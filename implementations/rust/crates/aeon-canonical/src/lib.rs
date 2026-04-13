@@ -1362,6 +1362,7 @@ impl<'a> Parser<'a> {
             Some('[') => self.parse_list(),
             Some('(') => self.parse_tuple(),
             Some('<') => self.parse_node(),
+            Some('~') => Ok(Value::Raw(self.parse_reference_literal()?)),
             Some('!') => self.parse_null_literal(),
             Some(ch) if ch.is_ascii_digit() || matches!(ch, '-' | '+') => {
                 let start = self.index;
@@ -1419,6 +1420,23 @@ impl<'a> Parser<'a> {
             }
             None => Err(self.syntax_error("Missing value")),
         }
+    }
+
+    fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
+        self.expect_char('~')?;
+        let is_pointer = if self.peek() == Some('>') {
+            self.index += 1;
+            true
+        } else {
+            false
+        };
+        self.skip_ws(true);
+        let path = self.parse_bare_value()?;
+        Ok(if is_pointer {
+            format!("~>{path}")
+        } else {
+            format!("~{path}")
+        })
     }
 
     fn parse_null_literal(&mut self) -> Result<Value, Diagnostic> {
@@ -1582,17 +1600,35 @@ impl<'a> Parser<'a> {
                     'f' => value.push('\u{000c}'),
                     'u' => {
                         self.index += 1;
-                        let hex_start = self.index;
-                        for _ in 0..4 {
-                            if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                        let codepoint = if self.peek() == Some('{') {
+                            self.index += 1;
+                            let hex_start = self.index;
+                            let mut hex_digits = 0usize;
+                            while matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                self.index += 1;
+                                hex_digits += 1;
+                            }
+                            if hex_digits == 0 || hex_digits > 6 || self.peek() != Some('}') {
                                 return Err(self.syntax_error("Invalid unicode escape"));
                             }
+                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
                             self.index += 1;
-                        }
-                        let hex = std::str::from_utf8(&self.source[hex_start..self.index])
-                            .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                        let codepoint = u32::from_str_radix(hex, 16)
-                            .map_err(|_| self.syntax_error("Invalid unicode escape"))?;
+                            u32::from_str_radix(hex, 16)
+                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                        } else {
+                            let hex_start = self.index;
+                            for _ in 0..4 {
+                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                    return Err(self.syntax_error("Invalid unicode escape"));
+                                }
+                                self.index += 1;
+                            }
+                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                            u32::from_str_radix(hex, 16)
+                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                        };
                         let decoded = char::from_u32(codepoint)
                             .ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
                         value.push(decoded);
@@ -2130,6 +2166,38 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\nn10:null = !none\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_braced_unicode_escapes_in_all_string_delimiters() {
+        let result = canonicalize(
+            "string014:string = '\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}'\nstring015:string = \"\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}\"\nstring016:string = `\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}`\n"
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nstring014:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring015:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring016:string = \"⭢ 𐤈 ⮕ ⮑\"\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_references_with_whitespace_after_clone_sigil() {
+        let result = canonicalize("order:o = {\n  total:n = 2\n}\nmixed:n = ~ order.total\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~order.total\norder:o = {\n  total:n = 2\n}\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_references_with_whitespace_after_pointer_sigil() {
+        let result = canonicalize("order:o = {\n  total:n = 2\n}\nmixed:n = ~> order.total\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~>order.total\norder:o = {\n  total:n = 2\n}\n"
         );
     }
 

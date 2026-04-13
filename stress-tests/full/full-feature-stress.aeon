@@ -1,4 +1,5 @@
-//!/bin/aeon --profile=ts.object.v1
+#!/bin/aeon --profile=ts.object.v1
+//! format:custom.test
 
 //# AEON Core v1 Feature Stress File (current-passable subset)
 aeon:header = {
@@ -16,6 +17,7 @@ toggle:switch = on
 count:n = 123
 ratio:float64 = 3.14159
 big:int64 = 9223372036854775807
+version:sep = ^2.2.1
 
 color:hex = #FF00AA
 binary:radix2 = %101101
