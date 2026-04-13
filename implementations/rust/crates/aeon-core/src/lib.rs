@@ -2011,6 +2011,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_asterisk_delimited_preprocessor_placeholders() {
+        let result = compile("password = *secret-key*\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
     fn supports_backtick_strings_and_multiline_node_introducers() {
         let result = compile(
             "text:string = `hello`\ncontent:node = <div(\n  <span@{id=\"text\"}:node(\n    `world`\n  )>\n)>\n",

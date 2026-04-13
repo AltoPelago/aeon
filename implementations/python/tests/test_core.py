@@ -553,6 +553,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("payload = $QmF.zZTY0IQ==")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_asterisk_delimited_preprocessor_placeholder_is_rejected(self) -> None:
+        result = compile_source("password = *secret-key*")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
 
 if __name__ == "__main__":
     unittest.main()

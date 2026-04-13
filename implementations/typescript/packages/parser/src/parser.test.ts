@@ -1041,6 +1041,14 @@ describe('Parser', () => {
             assert.ok(result.errors.length > 0);
         });
 
+        it('should reject unresolved asterisk-delimited preprocessor placeholders', () => {
+            const tokens = tokenize('password = *secret-key*').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
         it('should error on unterminated object', () => {
             const tokens = tokenize('config = { name = "test"').tokens;
             const result = parse(tokens);
