@@ -69,7 +69,7 @@ beta = ~alpha
 
 threshold:float64 = 0.75
 
-endless:infinity = infinity
+endless:infinity = Infinity
 aString:nan = NaN
 
 finance = {

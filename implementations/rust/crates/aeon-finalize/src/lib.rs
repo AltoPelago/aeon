@@ -1848,11 +1848,13 @@ mod tests {
             finalized.document,
             json!({ "ptr": "~>target", "target": 99 })
         );
-        assert!(finalized
-            .meta
-            .errors
-            .iter()
-            .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE"));
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+        );
     }
 
     #[test]

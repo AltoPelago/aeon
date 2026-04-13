@@ -2172,7 +2172,7 @@ mod tests {
     #[test]
     fn canonicalizes_braced_unicode_escapes_in_all_string_delimiters() {
         let result = canonicalize(
-            "string014:string = '\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}'\nstring015:string = \"\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}\"\nstring016:string = `\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}`\n"
+            "string014:string = '\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}'\nstring015:string = \"\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}\"\nstring016:string = `\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}`\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
