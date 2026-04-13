@@ -830,15 +830,47 @@ fn value_to_json_with_active_key(
                     )
                 }
             } else {
+                push_unresolved_reference_diagnostic(
+                    mode,
+                    errors,
+                    warnings,
+                    path,
+                    &format!("~{}", render_reference_segments(segments)),
+                );
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
         }
         Value::PointerReference { segments, .. } => {
+            push_unresolved_reference_diagnostic(
+                mode,
+                errors,
+                warnings,
+                path,
+                &format!("~>{}", render_reference_segments(segments)),
+            );
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
     };
     active_paths.remove(active_key);
     result
+}
+
+fn push_unresolved_reference_diagnostic(
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    path: &str,
+    token: &str,
+) {
+    let diagnostic = Diagnostic::new(
+        "FINALIZE_UNRESOLVED_REFERENCE",
+        format!("Reference left unresolved during JSON finalization: {token}"),
+    )
+    .at_path(path);
+    match mode {
+        FinalizeMode::Strict => errors.push(diagnostic),
+        FinalizeMode::Loose => warnings.push(diagnostic),
+    }
 }
 
 fn consume_clone_budget(
@@ -1816,6 +1848,11 @@ mod tests {
             finalized.document,
             json!({ "ptr": "~>target", "target": 99 })
         );
+        assert!(finalized
+            .meta
+            .errors
+            .iter()
+            .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE"));
     }
 
     #[test]

@@ -59,6 +59,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const events = compileToEvents('a = 1\nb = ~>a');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_UNRESOLVED_REFERENCE'));
         assert.strictEqual(result.document.b, '~>a');
     });
 
@@ -371,6 +372,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const result = finalizeJson(events, { mode: 'strict' });
 
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_UNRESOLVED_REFERENCE'));
         assert.strictEqual(result.document.second, '~>items[1]');
     });
 

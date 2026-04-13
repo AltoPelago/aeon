@@ -4,7 +4,8 @@
 aeon:header = {
   version = "2.1"
   mode = "transport"
-  profile = "ts.object.v1"
+  profile:string = "aeon.gp.profile.v1"
+  schema:string = "aeon.gp.schema.v1"
 }
 
 //# line doc

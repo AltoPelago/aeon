@@ -442,8 +442,9 @@ function referenceToJson(
         path,
         span
     );
-    if (ctx.strict) ctx.errors.push(diag);
-    else ctx.warnings.push(diag);
+    const coded = { ...diag, code: 'FINALIZE_UNRESOLVED_REFERENCE' };
+    if (ctx.strict) ctx.errors.push(coded);
+    else ctx.warnings.push(coded);
     return token;
 }
 
