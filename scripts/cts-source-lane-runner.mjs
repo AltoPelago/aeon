@@ -314,9 +314,10 @@ async function runFmt({ sutPath, source }) {
         .filter(Boolean)
         .map((line) => {
           const match = /^(.*?)(?:\s+\[([A-Z0-9_]+)\])(?:\s+path=(\S+))?(?:\s+span=(\S+))?$/u.exec(line);
+          const bracketPrefix = /^\[([A-Z0-9_]+)\]\s+(.*)$/u.exec(line);
           return {
-            code: match?.[2] ?? '',
-            message: match?.[1]?.trim() ?? line,
+            code: match?.[2] ?? bracketPrefix?.[1] ?? '',
+            message: match?.[1]?.trim() ?? bracketPrefix?.[2]?.trim() ?? line,
             path: match?.[3] ?? '$',
             span: parseCliSpan(source, match?.[4]),
           };

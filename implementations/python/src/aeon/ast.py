@@ -81,6 +81,23 @@ class InfinityLiteral:
 
 
 @dataclass(slots=True)
+class NaNLiteral:
+    type: Literal["NaNLiteral"] = "NaNLiteral"
+    value: Literal["NaN", "-NaN"] = "NaN"
+    raw: Literal["NaN", "-NaN"] = "NaN"
+    span: Span | None = None
+
+
+@dataclass(slots=True)
+class NullLiteral:
+    type: Literal["NullLiteral"] = "NullLiteral"
+    mode: Literal["reserved", "reason"] = "reserved"
+    value: str = ""
+    raw: str = ""
+    span: Span | None = None
+
+
+@dataclass(slots=True)
 class BooleanLiteral:
     type: Literal["BooleanLiteral"] = "BooleanLiteral"
     value: bool = False
@@ -214,6 +231,8 @@ Value = (
     StringLiteral
     | NumberLiteral
     | InfinityLiteral
+    | NaNLiteral
+    | NullLiteral
     | BooleanLiteral
     | SwitchLiteral
     | HexLiteral

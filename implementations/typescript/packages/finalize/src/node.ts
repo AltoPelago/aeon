@@ -175,7 +175,12 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
         case 'NumberLiteral':
             return scalarNode('Number', value.value, value.raw, meta);
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return scalarNode('String', value.value, value.raw, meta);
+        case 'NullLiteral':
+            return value.mode === 'reserved' && value.value === 'none'
+                ? scalarNode('Null', null, value.raw, meta)
+                : scalarNode('String', value.raw, value.raw, meta);
         case 'BooleanLiteral':
             return scalarNode('Boolean', value.value, value.raw, meta);
         case 'SwitchLiteral':
@@ -265,7 +270,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
 
 function scalarNode(
     type: FinalizedScalarNode['type'],
-    value: string | number | boolean,
+    value: null | string | number | boolean,
     raw: string,
     meta: NodeMeta
 ): FinalizedScalarNode {

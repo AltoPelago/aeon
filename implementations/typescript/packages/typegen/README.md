@@ -88,6 +88,7 @@ Common diagnostic cases include:
 
 - Generated scalar types are intended to match the default typed runtime contract, which operates on JSON finalization output.
 - `InfinityLiteral` therefore emits as `'Infinity' | '-Infinity'` rather than `number`, because JSON finalization materializes infinity values as strings to remain JSON-safe.
+- `NaNLiteral` likewise emits as `'NaN' | '-NaN'` rather than `number`, because JSON finalization materializes NaN values as strings to remain JSON-safe.
 
 ## API
 

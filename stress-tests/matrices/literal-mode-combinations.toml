@@ -70,6 +70,36 @@ string = "|KEY||TYPE| = |0|// infinity"
 outcome = "pass"
 
 [[stress]]
+description = "Infinity"
+key = "a"
+type = { strict = ":infinity", custom = ":impossible", transport = "" }
+value = [
+  ["-", ""],
+]
+string = "|KEY||TYPE| = |0|Infinity// infinity"
+outcome = "pass"
+
+[[stress]]
+description = "NaN"
+key = "a"
+type = { strict = ":nan", custom = ":notanumber", transport = "" }
+value = [
+  ["-", ""],
+]
+string = "|KEY||TYPE| = |0|NaN// Not a Number"
+outcome = "pass"
+
+[[stress]]
+description = "Null"
+key = "a"
+type = { strict = ":null", custom = ":problem", transport = "" }
+value = [
+  ["none", "notSet", "tombstone", "notApplicable", "'promised'", "\"out of stock\""],
+]
+string = "|KEY||TYPE| = !|0|// null"
+outcome = "pass"
+
+[[stress]]
 description = "Radix"
 key = "a"
 type = { strict = ":radix", custom = ":mm", transport = "" }

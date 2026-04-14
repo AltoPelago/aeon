@@ -84,6 +84,22 @@ test('preserves radix representation while canonicalizing number zero families',
     assert.ok(result.text.includes('width:radix[10] = %0010.00'));
 });
 
+test('canonicalizes nan literals exactly', () => {
+    const input = 'top:nan = NaN\nbottom:nan = -NaN';
+    const result = canonicalize(input);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('top:nan = NaN'));
+    assert.ok(result.text.includes('bottom:nan = -NaN'));
+});
+
+test('canonicalizes null literals without collapsing reserved and reason forms', () => {
+    const input = "top:null = !none\nbottom:null = !'postponed'";
+    const result = canonicalize(input);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('top:null = !none'));
+    assert.ok(result.text.includes('bottom:null = !"postponed"'));
+});
+
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',

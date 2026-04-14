@@ -1007,6 +1007,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "float32"
             | "float64"
             | "infinity"
+            | "nan"
             | "string"
             | "trimtick"
             | "boolean"
@@ -1046,6 +1047,8 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
             Some(vec!["NumberLiteral"])
         }
         "infinity" => Some(vec!["InfinityLiteral"]),
+        "nan" => Some(vec!["NaNLiteral"]),
+        "null" => Some(vec!["NullLiteral"]),
         "string" => Some(vec!["StringLiteral"]),
         "trimtick" => Some(vec!["TrimtickStringLiteral"]),
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
@@ -1185,6 +1188,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             matches!(value, Value::NumberLiteral { .. })
         }
         "infinity" => matches!(value, Value::InfinityLiteral { .. }),
+        "nan" => matches!(value, Value::NaNLiteral { .. }),
         "string" => matches!(
             value,
             Value::StringLiteral {
@@ -1218,7 +1222,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
-        "null" => false,
+        "null" => matches!(value, Value::NullLiteral { .. }),
         _ if custom_expected.is_some() => {
             let expected = custom_expected.as_ref().expect("checked is_some");
             expected.contains(&value.value_kind())

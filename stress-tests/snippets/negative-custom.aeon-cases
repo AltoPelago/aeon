@@ -46,3 +46,7 @@ s:custom[11] = ^111
 s:custom[.] = %111 
 ---
 s:custom[1][2] = %111 
+---
+a:address = @home
+---
+age:age = *age*

@@ -97,6 +97,7 @@ export interface FinalizedListNode extends FinalizedNodeBase {
 
 export interface FinalizedScalarNode extends FinalizedNodeBase {
     readonly type:
+        | 'Null'
         | 'String'
         | 'Number'
         | 'Boolean'
@@ -108,7 +109,7 @@ export interface FinalizedScalarNode extends FinalizedNodeBase {
         | 'Date'
         | 'DateTime'
         | 'Time';
-    readonly value: string | number | boolean;
+    readonly value: null | string | number | boolean;
     readonly raw: string;
 }
 

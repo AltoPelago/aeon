@@ -1398,8 +1398,8 @@ function mergeDiagnostics(finalized: { meta?: FinalizeMeta }, errors: readonly A
     const mergedErrors: Diagnostic[] = [];
     const mergedWarnings: Diagnostic[] = [];
 
-    if (finalized.meta?.errors) mergedErrors.push(...finalized.meta.errors);
-    if (finalized.meta?.warnings) mergedWarnings.push(...finalized.meta.warnings);
+    if (finalized.meta?.errors) mergedErrors.push(...finalized.meta.errors.map(toOutputDiagnostic));
+    if (finalized.meta?.warnings) mergedWarnings.push(...finalized.meta.warnings.map(toOutputDiagnostic));
 
     for (const error of errors) {
         mergedErrors.push(toDiagnosticFromError(error));
@@ -1409,6 +1409,14 @@ function mergeDiagnostics(finalized: { meta?: FinalizeMeta }, errors: readonly A
     if (mergedErrors.length > 0) meta.errors = mergedErrors;
     if (mergedWarnings.length > 0) meta.warnings = mergedWarnings;
     return meta;
+}
+
+function toOutputDiagnostic(diagnostic: Diagnostic): Diagnostic {
+    const phaseLabel = getPhaseLabel(diagnostic as { code?: string; phase?: unknown });
+    return {
+        ...diagnostic,
+        ...(phaseLabel ? { phaseLabel } : {}),
+    };
 }
 
 function finalizeJsonOutput(result: CompileResult, options: FinalizeOptions) {
@@ -2428,6 +2436,8 @@ function readLiteralString(value: Value): string | null {
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'InfinityLiteral':
+        case 'NaNLiteral':
+        case 'NullLiteral':
             return String(value.raw);
         case 'NumberLiteral':
         case 'BooleanLiteral':
@@ -2737,7 +2747,10 @@ function renderValue(value: Record<string, unknown>): string {
         case 'StringLiteral':
             return JSON.stringify(String(value.value ?? ''));
         case 'InfinityLiteral':
+        case 'NaNLiteral':
             return String(value.raw ?? value.value ?? '');
+        case 'NullLiteral':
+            return String(value.raw ?? '');
         case 'NumberLiteral':
             return String(value.raw ?? value.value ?? '');
         case 'BooleanLiteral':

@@ -38,11 +38,18 @@ enum Value {
     String(String),
     Number(String),
     Infinity(String),
+    Null { mode: NullMode, value: String },
     Object(Vec<Binding>),
     List(Vec<Value>),
     Tuple(Vec<Value>),
     Node(NodeValue),
     Raw(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NullMode {
+    Reserved,
+    Reason,
 }
 
 #[must_use]
@@ -395,6 +402,10 @@ fn render_value_inline(value: &Value) -> String {
         Value::String(value) => format!("\"{}\"", escape_string(value)),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
+        Value::Null { mode, value } => match mode {
+            NullMode::Reserved => format!("!{value}"),
+            NullMode::Reason => format!("!\"{}\"", escape_string(value)),
+        },
         Value::Object(bindings) => {
             if bindings.is_empty() {
                 return String::from("{}");
@@ -475,7 +486,7 @@ fn render_datatype(datatype: Option<&str>) -> String {
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
+        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -483,7 +494,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Raw(_) => true,
+        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -656,7 +667,18 @@ fn normalize_number(raw: &str) -> String {
 }
 
 fn is_rejected_nonfinite_literal(raw: &str) -> bool {
-    matches!(raw, "+Infinity" | "NaN" | "-NaN" | "+NaN")
+    matches!(raw, "+Infinity" | "+NaN")
+}
+
+fn is_reserved_null_sentinel(value: &str) -> bool {
+    matches!(value, "none" | "notSet" | "notApplicable" | "tombstone")
+}
+
+fn is_ascii_whitespace_only(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r'))
 }
 
 fn looks_like_number_literal(raw: &str) -> bool {
@@ -1340,11 +1362,16 @@ impl<'a> Parser<'a> {
             Some('[') => self.parse_list(),
             Some('(') => self.parse_tuple(),
             Some('<') => self.parse_node(),
+            Some('~') => Ok(Value::Raw(self.parse_reference_literal()?)),
+            Some('!') => self.parse_null_literal(),
             Some(ch) if ch.is_ascii_digit() || matches!(ch, '-' | '+') => {
                 let start = self.index;
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
+                }
+                if matches!(raw.as_str(), "NaN" | "-NaN") {
+                    return Ok(Value::Raw(raw));
                 }
                 if let Some(message) = invalid_temporal_literal(&raw) {
                     return Err(self.syntax_error_range(start, self.index, &message));
@@ -1362,6 +1389,9 @@ impl<'a> Parser<'a> {
                 let raw = self.parse_bare_value()?;
                 if matches!(raw.as_str(), "Infinity" | "-Infinity") {
                     return Ok(Value::Infinity(raw));
+                }
+                if matches!(raw.as_str(), "NaN" | "-NaN") {
+                    return Ok(Value::Raw(raw));
                 }
                 if let Some(message) = invalid_temporal_literal(&raw) {
                     return Err(self.syntax_error_range(start, self.index, &message));
@@ -1389,6 +1419,58 @@ impl<'a> Parser<'a> {
                 Ok(Value::Raw(raw))
             }
             None => Err(self.syntax_error("Missing value")),
+        }
+    }
+
+    fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
+        self.expect_char('~')?;
+        let is_pointer = if self.peek() == Some('>') {
+            self.index += 1;
+            true
+        } else {
+            false
+        };
+        self.skip_ws(true);
+        let path = self.parse_bare_value()?;
+        Ok(if is_pointer {
+            format!("~>{path}")
+        } else {
+            format!("~{path}")
+        })
+    }
+
+    fn parse_null_literal(&mut self) -> Result<Value, Diagnostic> {
+        self.expect_char('!')?;
+        match self.peek() {
+            Some('"') | Some('\'') | Some('`') => {
+                let value = self.parse_quoted_string()?;
+                if value.is_empty() {
+                    return Err(self.syntax_error("Null reason must not be empty"));
+                }
+                if is_ascii_whitespace_only(&value) {
+                    return Err(self.syntax_error("Null reason must not be ASCII-whitespace-only"));
+                }
+                if is_reserved_null_sentinel(&value) {
+                    return Err(self.syntax_error("Null reason collides with reserved sentinel"));
+                }
+                Ok(Value::Null {
+                    mode: NullMode::Reason,
+                    value,
+                })
+            }
+            Some(_) => {
+                let raw = self.parse_bare_value()?;
+                if !is_reserved_null_sentinel(&raw) {
+                    return Err(self.syntax_error("Invalid null sentinel"));
+                }
+                Ok(Value::Null {
+                    mode: NullMode::Reserved,
+                    value: raw,
+                })
+            }
+            None => Err(self.syntax_error(
+                "Null literal must be followed by a reserved sentinel or quoted reason",
+            )),
         }
     }
 
@@ -1518,17 +1600,35 @@ impl<'a> Parser<'a> {
                     'f' => value.push('\u{000c}'),
                     'u' => {
                         self.index += 1;
-                        let hex_start = self.index;
-                        for _ in 0..4 {
-                            if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                        let codepoint = if self.peek() == Some('{') {
+                            self.index += 1;
+                            let hex_start = self.index;
+                            let mut hex_digits = 0usize;
+                            while matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                self.index += 1;
+                                hex_digits += 1;
+                            }
+                            if hex_digits == 0 || hex_digits > 6 || self.peek() != Some('}') {
                                 return Err(self.syntax_error("Invalid unicode escape"));
                             }
+                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
                             self.index += 1;
-                        }
-                        let hex = std::str::from_utf8(&self.source[hex_start..self.index])
-                            .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                        let codepoint = u32::from_str_radix(hex, 16)
-                            .map_err(|_| self.syntax_error("Invalid unicode escape"))?;
+                            u32::from_str_radix(hex, 16)
+                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                        } else {
+                            let hex_start = self.index;
+                            for _ in 0..4 {
+                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                    return Err(self.syntax_error("Invalid unicode escape"));
+                                }
+                                self.index += 1;
+                            }
+                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                            u32::from_str_radix(hex, 16)
+                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                        };
                         let decoded = char::from_u32(codepoint)
                             .ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
                         value.push(decoded);
@@ -1607,6 +1707,11 @@ impl<'a> Parser<'a> {
                     }
                     bracket_depth -= 1;
                     self.index += 1;
+                }
+                '/' if bracket_depth == 0
+                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
+                {
+                    break;
                 }
                 ' ' | '\t' | ',' | '\n' | '\r' | '}' | ')' if bracket_depth == 0 => break,
                 _ => self.index += 1,
@@ -1997,8 +2102,28 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_nan_literals() {
+        let result = canonicalize("top:nan = NaN\nbottom:nan = -NaN\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:nan = -NaN\ntop:nan = NaN\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_null_literals() {
+        let result = canonicalize("top:null = !none\nbottom:null = !'postponed'\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:null = !\"postponed\"\ntop:null = !none\n"
+        );
+    }
+
+    #[test]
     fn rejects_invalid_infinity_spellings_in_canonicalization() {
-        for source in ["a = +Infinity\n", "a = NaN\n"] {
+        for source in ["a = +Infinity\n", "a = +NaN\n"] {
             let result = canonicalize(source);
             assert!(!result.errors.is_empty(), "{source}");
             assert!(
@@ -2035,6 +2160,48 @@ mod tests {
     }
 
     #[test]
+    fn strips_trailing_line_comments_from_reserved_null_literals_in_canonicalization() {
+        let result = canonicalize("aeon:mode = \"strict\"\nn10:null = !none//Null\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nn10:null = !none\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_braced_unicode_escapes_in_all_string_delimiters() {
+        let result = canonicalize(
+            "string014:string = '\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}'\nstring015:string = \"\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}\"\nstring016:string = `\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}`\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nstring014:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring015:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring016:string = \"⭢ 𐤈 ⮕ ⮑\"\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_references_with_whitespace_after_clone_sigil() {
+        let result = canonicalize("order:o = {\n  total:n = 2\n}\nmixed:n = ~ order.total\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~order.total\norder:o = {\n  total:n = 2\n}\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_references_with_whitespace_after_pointer_sigil() {
+        let result = canonicalize("order:o = {\n  total:n = 2\n}\nmixed:n = ~> order.total\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~>order.total\norder:o = {\n  total:n = 2\n}\n"
+        );
+    }
+
+    #[test]
     fn canonicalizes_hex_literals_to_lowercase_without_underscores() {
         let result = canonicalize("aeon:mode = \"transport\"\na = #F_Ff\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2060,7 +2227,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-\n"
         );
     }
 

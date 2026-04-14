@@ -14,6 +14,8 @@ import type {
     StringLiteral,
     NumberLiteral,
     InfinityLiteral,
+    NaNLiteral,
+    NullLiteral,
     BooleanLiteral,
     SwitchLiteral,
     HexLiteral,
@@ -892,6 +894,10 @@ class Parser {
                     this.advance();
                     return this.createInfinityLiteral(token.value as 'Infinity');
                 }
+                if (token.value === 'NaN') {
+                    this.advance();
+                    return this.createNaNLiteral(token.value as 'NaN');
+                }
                 throw new SyntaxError(
                     `Unexpected token '${token.value}'`,
                     token.span,
@@ -904,6 +910,14 @@ class Parser {
                     const minus = this.advance();
                     const infinity = this.advance();
                     return this.createInfinityLiteral('-Infinity', createSpan(minus.span.start, infinity.span.end));
+                }
+                if (token.value === '-' && this.peekNext()?.type === TokenType.Identifier && this.peekNext()?.value === 'NaN') {
+                    const minus = this.advance();
+                    const nan = this.advance();
+                    return this.createNaNLiteral('-NaN', createSpan(minus.span.start, nan.span.end));
+                }
+                if (token.value === '!') {
+                    return this.parseNullLiteral();
                 }
                 throw new SyntaxError(
                     `Unexpected token '${token.value}'`,
@@ -1058,6 +1072,73 @@ class Parser {
             raw,
             span: span ?? this.previous().span,
         };
+    }
+
+    private createNaNLiteral(raw: 'NaN' | '-NaN', span?: Span): NaNLiteral {
+        return {
+            type: 'NaNLiteral',
+            value: raw,
+            raw,
+            span: span ?? this.previous().span,
+        };
+    }
+
+    private parseNullLiteral(): NullLiteral {
+        const bang = this.advance();
+        const next = this.peek();
+
+        if (next.type === TokenType.Identifier) {
+            if (!RESERVED_NULL_SENTINELS.has(next.value)) {
+                throw new ParserError(
+                    `Invalid null sentinel '${next.value}'`,
+                    createSpan(bang.span.start, next.span.end),
+                    'INVALID_NULL_SENTINEL'
+                );
+            }
+            const ident = this.advance();
+            return {
+                type: 'NullLiteral',
+                mode: 'reserved',
+                value: ident.value,
+                raw: `!${ident.value}`,
+                span: createSpan(bang.span.start, ident.span.end),
+            };
+        }
+
+        if (next.type === TokenType.String) {
+            const string = this.advance();
+            const span = createSpan(bang.span.start, string.span.end);
+            if (string.value.length === 0) {
+                throw new ParserError('Null reason must not be empty', span, 'INVALID_NULL_REASON_EMPTY');
+            }
+            if (isAsciiWhitespaceOnly(string.value)) {
+                throw new ParserError(
+                    'Null reason must not be ASCII-whitespace-only',
+                    span,
+                    'INVALID_NULL_REASON_WHITESPACE'
+                );
+            }
+            if (RESERVED_NULL_SENTINELS.has(string.value)) {
+                throw new ParserError(
+                    `Null reason collides with reserved sentinel '${string.value}'`,
+                    span,
+                    'INVALID_NULL_REASON_COLLISION'
+                );
+            }
+            return {
+                type: 'NullLiteral',
+                mode: 'reason',
+                value: string.value,
+                raw: `!${JSON.stringify(string.value)}`,
+                span,
+            };
+        }
+
+        throw new ParserError(
+            'Null literal must be followed by a reserved sentinel or quoted reason',
+            bang.span,
+            'INVALID_NULL_LITERAL'
+        );
     }
 
     private createBooleanLiteral(token: Token): BooleanLiteral {
@@ -1535,11 +1616,12 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
+const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',
     'float', 'float32', 'float64',
-    'string', 'trimtick', 'boolean', 'bool', 'switch', 'infinity',
+    'string', 'trimtick', 'boolean', 'bool', 'switch', 'infinity', 'nan',
     'hex', 'date', 'time', 'datetime', 'zrut',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',
@@ -1553,4 +1635,8 @@ const RESERVED_V1_DATATYPES = new Set([
 export function parse(tokens: readonly Token[], options?: ParserOptions): ParseResult {
     const parser = new Parser(tokens, options);
     return parser.parse();
+}
+
+function isAsciiWhitespaceOnly(value: string): boolean {
+    return /^[ \t\r\n]+$/.test(value);
 }

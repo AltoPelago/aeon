@@ -1,11 +1,12 @@
-//!/bin/aeon --profile=ts.object.v1
+#!/bin/aeon --aeon.gp.profile.v1
+//! format:custom.test
 
 //# AEON Core v1 Feature Stress File (current-passable subset)
 aeon:header = {
   version = "1.0"
   mode = "transport"
-  profile = "ts.object.v1"
-  schema = "com.example.full.v1"
+  profile = "aeon.gp.profile.v1"
+  schema = "aeon.gp.schema.v1"
 }
 
 environment:string = "dev" //@env(selected=true)
@@ -16,6 +17,7 @@ toggle:switch = on
 count:n = 123
 ratio:float64 = 3.14159
 big:int64 = 9223372036854775807
+version:sep = ^2.2.1
 
 color:hex = #FF00AA
 binary:radix2 = %101101
@@ -66,6 +68,9 @@ alpha:int32 = 1
 beta = ~alpha
 
 threshold:float64 = 0.75
+
+endless:infinity = Infinity
+aString:nan = NaN
 
 finance = {
   revenue:int32 = 100000

@@ -232,25 +232,27 @@ function valueToJson(
             const normalized = value.value.replace(/_/g, '');
             const numeric = Number(normalized);
             if (Number.isNaN(numeric)) {
-                const diag = toDiagnostic(
-                    ctx.strict ? 'error' : 'warning',
-                    `Invalid numeric literal for JSON output: ${value.value}`,
-                    path,
-                    value.span
-                );
-                if (ctx.strict) ctx.errors.push(diag);
-                else ctx.warnings.push(diag);
+                ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                    ...toDiagnostic(
+                        ctx.strict ? 'error' : 'warning',
+                        `Invalid numeric literal for JSON output: ${value.value}`,
+                        path,
+                        value.span
+                    ),
+                    code: 'FINALIZE_UNSAFE_NUMBER',
+                });
                 return value.value;
             }
             if (!Number.isFinite(numeric) || Math.abs(numeric) > Number.MAX_SAFE_INTEGER) {
-                const diag = toDiagnostic(
-                    ctx.strict ? 'error' : 'warning',
-                    `Numeric literal exceeds JSON safe range: ${value.value}`,
-                    path,
-                    value.span
-                );
-                if (ctx.strict) ctx.errors.push(diag);
-                else ctx.warnings.push(diag);
+                ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                    ...toDiagnostic(
+                        ctx.strict ? 'error' : 'warning',
+                        `Numeric literal exceeds JSON safe range: ${value.value}`,
+                        path,
+                        value.span
+                    ),
+                    code: 'FINALIZE_UNSAFE_NUMBER',
+                });
                 return value.value;
             }
             return numeric;
@@ -266,6 +268,31 @@ function valueToJson(
                 code: 'FINALIZE_JSON_PROFILE_INFINITY',
             });
             return value.value;
+        case 'NaNLiteral':
+            ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                ...toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `NaN literal is not representable in the strict JSON profile: ${value.value}`,
+                    path,
+                    value.span
+                ),
+                code: 'FINALIZE_JSON_PROFILE_NAN',
+            });
+            return value.value;
+        case 'NullLiteral':
+            if (value.mode === 'reserved' && value.value === 'none') {
+                return null;
+            }
+            ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                ...toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `Null literal is not losslessly representable in the strict JSON profile: ${value.raw}`,
+                    path,
+                    value.span
+                ),
+                code: 'FINALIZE_JSON_PROFILE_NULL',
+            });
+            return value.raw;
         case 'BooleanLiteral':
             return value.value;
         case 'SwitchLiteral':
@@ -276,14 +303,15 @@ function valueToJson(
             const normalized = value.value.replace(/_/g, '');
             const radixBase = declaredRadixBase(datatype ?? datatypeForPath(path, ctx));
             if (radixBase != null && exceedsDeclaredRadix(normalized, radixBase)) {
-                const diag = toDiagnostic(
-                    ctx.strict ? 'error' : 'warning',
-                    `Radix literal exceeds declared radix ${radixBase}: %${value.value}`,
-                    path,
-                    value.span
-                );
-                if (ctx.strict) ctx.errors.push(diag);
-                else ctx.warnings.push(diag);
+                ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                    ...toDiagnostic(
+                        ctx.strict ? 'error' : 'warning',
+                        `Radix literal exceeds declared radix ${radixBase}: %${value.value}`,
+                        path,
+                        value.span
+                    ),
+                    code: 'FINALIZE_INVALID_RADIX_BASE',
+                });
             }
             return normalized;
         }
@@ -414,8 +442,9 @@ function referenceToJson(
         path,
         span
     );
-    if (ctx.strict) ctx.errors.push(diag);
-    else ctx.warnings.push(diag);
+    const coded = { ...diag, code: 'FINALIZE_UNRESOLVED_REFERENCE' };
+    if (ctx.strict) ctx.errors.push(coded);
+    else ctx.warnings.push(coded);
     return token;
 }
 
@@ -507,6 +536,8 @@ function measureMaterializedWeight(
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':
+        case 'NaNLiteral':
+        case 'NullLiteral':
         case 'BooleanLiteral':
         case 'SwitchLiteral':
         case 'HexLiteral':

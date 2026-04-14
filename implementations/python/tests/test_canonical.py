@@ -49,6 +49,18 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('top:infinity = Infinity', result.text)
         self.assertIn('bottom:infinity = -Infinity', result.text)
 
+    def test_canonicalizes_nan_literals(self) -> None:
+        result = canonicalize('top:nan = NaN\nbottom:nan = -NaN')
+        self.assertEqual([], result.errors)
+        self.assertIn('top:nan = NaN', result.text)
+        self.assertIn('bottom:nan = -NaN', result.text)
+
+    def test_canonicalizes_null_literals(self) -> None:
+        result = canonicalize("top:null = !none\nbottom:null = !'postponed'")
+        self.assertEqual([], result.errors)
+        self.assertIn('top:null = !none', result.text)
+        self.assertIn('bottom:null = !"postponed"', result.text)
+
     def test_canonicalizes_encoding_literals_to_url_safe_base64_without_padding(self) -> None:
         result = canonicalize('payload:base64 = $abc-_+/==')
         self.assertEqual([], result.errors)

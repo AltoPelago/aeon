@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import cast
 
@@ -16,6 +17,8 @@ from .ast import (
     Document,
     EncodingLiteral,
     InfinityLiteral,
+    NaNLiteral,
+    NullLiteral,
     Header,
     HexLiteral,
     ListNode,
@@ -53,13 +56,15 @@ RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "float", "float32", "float64",
-    "string", "trimtick", "boolean", "bool", "switch", "infinity",
+    "string", "trimtick", "boolean", "bool", "switch", "infinity", "nan",
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
     "sep", "set",
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
+
+RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
@@ -650,10 +655,19 @@ class Parser:
         if token.kind == "IDENT" and token.value == "Infinity":
             self.advance()
             return InfinityLiteral(value="Infinity", raw="Infinity", span=token.span)
+        if token.kind == "IDENT" and token.value == "NaN":
+            self.advance()
+            return NaNLiteral(value="NaN", raw="NaN", span=token.span)
         if token.kind == "SYMBOL" and token.value == "-" and self.check_next("IDENT") and self.tokens[self.current + 1].value == "Infinity":
             start = self.advance().span.start
             infinity = self.advance()
             return InfinityLiteral(value="-Infinity", raw="-Infinity", span=Span(start=start, end=infinity.span.end))
+        if token.kind == "SYMBOL" and token.value == "-" and self.check_next("IDENT") and self.tokens[self.current + 1].value == "NaN":
+            start = self.advance().span.start
+            nan = self.advance()
+            return NaNLiteral(value="-NaN", raw="-NaN", span=Span(start=start, end=nan.span.end))
+        if token.kind == "SYMBOL" and token.value == "!":
+            return self.parse_null_literal()
         if token.kind == "STRING":
             self.advance()
             return StringLiteral(value=token.value, raw=token.value, delimiter=cast(str, token.quote), span=token.span)
@@ -688,6 +702,51 @@ class Parser:
             self.advance()
             return SeparatorLiteral(value=token.value[1:], raw=token.value, span=token.span)
         raise SyntaxError(f"Unexpected token '{token.value}'", token.span)
+
+    def parse_null_literal(self) -> NullLiteral:
+        bang = self.advance()
+        token = self.peek()
+
+        if token.kind == "IDENT":
+            span = Span(start=bang.span.start, end=token.span.end)
+            if token.value not in RESERVED_NULL_SENTINELS:
+                raise AeonError(
+                    message=f"Invalid null sentinel '{token.value}'",
+                    span=span,
+                    code="INVALID_NULL_SENTINEL",
+                )
+            self.advance()
+            return NullLiteral(mode="reserved", value=token.value, raw=f"!{token.value}", span=span)
+
+        if token.kind == "STRING":
+            span = Span(start=bang.span.start, end=token.span.end)
+            value = token.value
+            if value == "":
+                raise AeonError(
+                    message="Null reason must not be empty",
+                    span=span,
+                    code="INVALID_NULL_REASON_EMPTY",
+                )
+            if is_ascii_whitespace_only(value):
+                raise AeonError(
+                    message="Null reason must not be ASCII-whitespace-only",
+                    span=span,
+                    code="INVALID_NULL_REASON_WHITESPACE",
+                )
+            if value in RESERVED_NULL_SENTINELS:
+                raise AeonError(
+                    message=f"Null reason collides with reserved sentinel '{value}'",
+                    span=span,
+                    code="INVALID_NULL_REASON_COLLISION",
+                )
+            self.advance()
+            return NullLiteral(mode="reason", value=value, raw=f"!{json.dumps(value)}", span=span)
+
+        raise AeonError(
+            message="Null literal must be followed by a reserved sentinel or quoted reason",
+            span=bang.span,
+            code="INVALID_NULL_LITERAL",
+        )
 
     def parse_trimtick_string(self) -> StringLiteral:
         start_token = self.peek()
@@ -860,3 +919,7 @@ def normalize_leading_indent(line: str, tab_width: int) -> str:
             continue
         break
     return "".join(prefix) + line[index:]
+
+
+def is_ascii_whitespace_only(value: str) -> bool:
+    return bool(value) and all(char in {" ", "\t", "\n", "\r"} for char in value)

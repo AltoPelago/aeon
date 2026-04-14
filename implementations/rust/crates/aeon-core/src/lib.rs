@@ -205,11 +205,25 @@ pub enum ReferenceSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NullLiteralMode {
+    Reserved,
+    Reason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     NumberLiteral {
         raw: String,
     },
     InfinityLiteral {
+        raw: String,
+    },
+    NaNLiteral {
+        raw: String,
+    },
+    NullLiteral {
+        mode: NullLiteralMode,
+        value: String,
         raw: String,
     },
     StringLiteral {
@@ -322,6 +336,8 @@ impl Value {
         match self {
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
+            Self::NaNLiteral { .. } => "NaNLiteral",
+            Self::NullLiteral { .. } => "NullLiteral",
             Self::StringLiteral { trimticks, .. } => {
                 if trimticks.is_some() {
                     "TrimtickStringLiteral"
@@ -1727,15 +1743,36 @@ mod tests {
     }
 
     #[test]
-    fn rejects_null_datatype_with_non_literal_kind_wording() {
+    fn accepts_typed_null_literals_and_rejects_number_for_null_datatype() {
+        let ok = compile(
+            "value:null = !none\nreason:null = !\"postponed\"\n",
+            CompileOptions::default(),
+        );
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        assert_eq!(ok.events[0].value.value_kind(), "NullLiteral");
+        assert_eq!(ok.events[1].value.value_kind(), "NullLiteral");
+
         let result = compile("value:null = 0\n", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
         assert_eq!(
             result.errors[0].message,
-            "Datatype/literal mismatch at '$.value': datatype ':null' is not supported for literal matching, got NumberLiteral"
+            "Datatype/literal mismatch at '$.value': datatype ':null' expects NullLiteral, got NumberLiteral"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.value"));
+    }
+
+    #[test]
+    fn accepts_not_set_null_sentinel() {
+        let ok = compile("value:null = !notSet\n", CompileOptions::default());
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        match &ok.events[0].value {
+            Value::NullLiteral { mode, value, .. } => {
+                assert_eq!(mode, &NullLiteralMode::Reserved);
+                assert_eq!(value, "notSet");
+            }
+            other => panic!("expected NullLiteral, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1970,6 +2007,13 @@ mod tests {
     fn rejects_untyped_hex_literals_with_double_underscore() {
         let result = compile("blue = #F__f\n", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn rejects_asterisk_delimited_preprocessor_placeholders() {
+        let result = compile("password = *secret-key*\n", CompileOptions::default());
+        assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
     }
 

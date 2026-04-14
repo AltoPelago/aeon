@@ -71,6 +71,48 @@ test('maps infinity literals to the finalized string union', () => {
     );
 });
 
+test('maps nan literals to the finalized string union', () => {
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.value', constraints: { type: 'NaNLiteral', required: true } },
+        ],
+    };
+
+    const result = generateTypes(schema, { rootName: 'NaNDoc' });
+
+    assert.equal(result.diagnostics.length, 0);
+    assert.equal(
+        result.code,
+        [
+            'export interface NaNDoc {',
+            "  value: 'NaN' | '-NaN';",
+            '}',
+            '',
+        ].join('\n')
+    );
+});
+
+test('maps null literals to the finalized null-or-string union', () => {
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.value', constraints: { type: 'NullLiteral', required: true } },
+        ],
+    };
+
+    const result = generateTypes(schema, { rootName: 'NullDoc' });
+
+    assert.equal(result.diagnostics.length, 0);
+    assert.equal(
+        result.code,
+        [
+            'export interface NullDoc {',
+            '  value: null | string;',
+            '}',
+            '',
+        ].join('\n')
+    );
+});
+
 test('reports invalid schema paths', () => {
     const schema: SchemaV1 = {
         rules: [

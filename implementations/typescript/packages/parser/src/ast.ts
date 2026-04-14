@@ -87,6 +87,8 @@ export type Value =
     | StringLiteral
     | NumberLiteral
     | InfinityLiteral
+    | NaNLiteral
+    | NullLiteral
     | BooleanLiteral
     | SwitchLiteral
     | HexLiteral
@@ -130,6 +132,25 @@ export interface InfinityLiteral extends ASTNode {
     readonly type: 'InfinityLiteral';
     readonly value: 'Infinity' | '-Infinity';
     readonly raw: 'Infinity' | '-Infinity';
+}
+
+/**
+ * NaN literal
+ */
+export interface NaNLiteral extends ASTNode {
+    readonly type: 'NaNLiteral';
+    readonly value: 'NaN' | '-NaN';
+    readonly raw: 'NaN' | '-NaN';
+}
+
+/**
+ * Null literal
+ */
+export interface NullLiteral extends ASTNode {
+    readonly type: 'NullLiteral';
+    readonly mode: 'reserved' | 'reason';
+    readonly value: string;
+    readonly raw: string;
 }
 
 /**

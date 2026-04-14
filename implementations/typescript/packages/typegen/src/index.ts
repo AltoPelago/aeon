@@ -163,10 +163,12 @@ function resolveScalarType(
             return 'number';
         case 'InfinityLiteral':
             return "'Infinity' | '-Infinity'";
+        case 'NaNLiteral':
+            return "'NaN' | '-NaN'";
+        case 'NullLiteral':
+            return 'null | string';
         case 'BooleanLiteral':
             return 'boolean';
-        case 'NullLiteral':
-            return 'null';
         case 'ListNode':
             return 'unknown[]';
         case 'ObjectNode':

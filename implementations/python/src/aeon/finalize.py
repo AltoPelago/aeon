@@ -215,6 +215,10 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
             return number_to_json(value, ctx, path)
         if value_type == "InfinityLiteral":
             return infinity_to_json(value, ctx, path)
+        if value_type == "NaNLiteral":
+            return nan_to_json(value, ctx, path)
+        if value_type == "NullLiteral":
+            return null_to_json(value, ctx, path)
         if value_type == "BooleanLiteral":
             return value.get("value")
         if value_type == "SwitchLiteral":
@@ -288,6 +292,34 @@ def infinity_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> s
         "error" if ctx.strict else "warning",
         "FINALIZE_JSON_PROFILE_INFINITY",
         f"Infinity literal is not representable in the strict JSON profile: {raw}",
+        path,
+        value.get("span"),
+    )
+    return raw
+
+
+def nan_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> str:
+    raw = str(value.get("value", ""))
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_JSON_PROFILE_NAN",
+        f"NaN literal is not representable in the strict JSON profile: {raw}",
+        path,
+        value.get("span"),
+    )
+    return raw
+
+
+def null_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> object:
+    mode = str(value.get("mode", ""))
+    null_value = str(value.get("value", ""))
+    raw = str(value.get("raw", ""))
+    if mode == "reserved" and null_value == "none":
+        return None
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_JSON_PROFILE_NULL",
+        f"Null literal is not losslessly representable in the strict JSON profile: {raw}",
         path,
         value.get("span"),
     )
@@ -455,6 +487,8 @@ def measure_materialized_weight(
         "StringLiteral",
         "NumberLiteral",
         "InfinityLiteral",
+        "NaNLiteral",
+        "NullLiteral",
         "BooleanLiteral",
         "SwitchLiteral",
         "HexLiteral",

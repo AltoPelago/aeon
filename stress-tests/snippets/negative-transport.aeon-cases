@@ -67,8 +67,6 @@ a = 1e-
 ---
 a = +Infinity
 ---
-a = NaN
----
 a = inf
 ---
 a:number = Infinity
@@ -78,6 +76,18 @@ a:number = -Infinity
 a:infinity = +Infinity
 ---
 a:infinity = NaN
+---
+a:null = !""
+---
+a:null = !"   "
+---
+a:null = !"none"
+---
+a:null = !"notSet"
+---
+a:null = !uninitialised
+---
+a:null = !uninitialized
 ---
 a:'string' = 'hello world'
 ---
@@ -217,8 +227,6 @@ t:time[2] = 10:10:35
 z:zrut[2] = 2007-01-02T10:10:25Z&Australia/Melbourne
 ---
 s:sep[22] = ^300x200
----
-s:set[.] = ^00.00;00
 ---
 o:o[2] = { n:n = 0 }
 ---

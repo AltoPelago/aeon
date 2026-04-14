@@ -59,6 +59,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const events = compileToEvents('a = 1\nb = ~>a');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_UNRESOLVED_REFERENCE'));
         assert.strictEqual(result.document.b, '~>a');
     });
 
@@ -269,6 +270,32 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.meta?.errors?.[0]?.message, 'Infinity literal is not representable in the strict JSON profile: Infinity');
     });
 
+    it('reports nan as outside strict JSON profile', () => {
+        const events = compileToEvents('limit:nan = NaN');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, 'NaN');
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.strictEqual(result.meta?.errors?.[0]?.message, 'NaN literal is not representable in the strict JSON profile: NaN');
+    });
+
+    it('materializes !none as JSON null', () => {
+        const events = compileToEvents('limit:null = !none');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, null);
+        assert.deepStrictEqual(result.meta?.errors ?? [], []);
+    });
+
+    it('reports non-none null literals as outside strict JSON profile', () => {
+        const events = compileToEvents('limit:null = !"postponed"');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.limit, '!"postponed"');
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.strictEqual(result.meta?.errors?.[0]?.code, 'FINALIZE_JSON_PROFILE_NULL');
+    });
+
     it('preserves hex case while stripping underscore separators', () => {
         const events = compileToEvents('color:hex = #Ff_00_Aa');
         const result = finalizeJson(events, { mode: 'strict' });
@@ -345,6 +372,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const result = finalizeJson(events, { mode: 'strict' });
 
         assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_UNRESOLVED_REFERENCE'));
         assert.strictEqual(result.document.second, '~>items[1]');
     });
 

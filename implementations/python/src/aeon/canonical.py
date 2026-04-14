@@ -14,6 +14,8 @@ from .ast import (
     Document,
     EncodingLiteral,
     InfinityLiteral,
+    NullLiteral,
+    NaNLiteral,
     Header,
     HexLiteral,
     ListNode,
@@ -164,6 +166,10 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
         return [format_number(value.raw or value.value)]
     if isinstance(value, InfinityLiteral):
         return [value.raw]
+    if isinstance(value, NaNLiteral):
+        return [value.raw]
+    if isinstance(value, NullLiteral):
+        return [format_null_literal(value)]
     if isinstance(value, BooleanLiteral):
         return ["true" if value.value else "false"]
     if isinstance(value, SwitchLiteral):
@@ -287,6 +293,10 @@ def render_compact_inline_value(value: Value) -> str:
         return format_number(value.raw or value.value)
     if isinstance(value, InfinityLiteral):
         return value.raw
+    if isinstance(value, NaNLiteral):
+        return value.raw
+    if isinstance(value, NullLiteral):
+        return format_null_literal(value)
     if isinstance(value, BooleanLiteral):
         return "true" if value.value else "false"
     if isinstance(value, SwitchLiteral):
@@ -353,6 +363,10 @@ def format_encoding_literal(value: str) -> str:
 
 def format_binding_key(key: str) -> str:
     return key if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key) else format_string(key)
+
+
+def format_null_literal(value: NullLiteral) -> str:
+    return f"!{value.value}" if value.mode == "reserved" else f"!{format_string(value.value)}"
 
 
 def format_string(value: str) -> str:
@@ -433,6 +447,8 @@ def is_simple_value(value: Value) -> bool:
         StringLiteral,
         NumberLiteral,
         InfinityLiteral,
+        NaNLiteral,
+        NullLiteral,
         BooleanLiteral,
             SwitchLiteral,
             HexLiteral,
