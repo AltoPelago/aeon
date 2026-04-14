@@ -123,6 +123,12 @@ cd implementations/rust
 cargo test
 ```
 
+For parser hardening work, a local `cargo-fuzz` workspace now lives under:
+
+- `implementations/rust/fuzz`
+
+See [`fuzz/README.md`](./fuzz/README.md) for the current fuzz targets and run instructions.
+
 For direct CLI benchmarking, prefer the built release binary over `cargo run`.
 The repository benchmark helper is:
 

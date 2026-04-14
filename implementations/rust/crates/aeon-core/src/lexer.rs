@@ -105,6 +105,8 @@ pub fn tokenize(input: &str, options: LexerOptions) -> LexResult {
     Lexer::new(input, options).tokenize()
 }
 
+const MAX_LEX_ERRORS: usize = 256;
+
 struct Lexer<'a> {
     input: &'a str,
     options: LexerOptions,
@@ -246,7 +248,7 @@ impl<'a> Lexer<'a> {
                 let text = self.slice_from(start.offset);
                 self.push_token(TokenKind::Symbol, &text, start, None, None);
             }
-            _ => self.errors.push(LexError {
+            _ => self.push_error(LexError {
                 code: String::from("UNEXPECTED_CHARACTER"),
                 message: format!("Unexpected character `{ch}`"),
                 span: Span {
@@ -284,7 +286,7 @@ impl<'a> Lexer<'a> {
                 self.scan_temporal_tail();
                 let text = self.slice_from(start.offset);
                 if let Some((code, message)) = invalid_temporal_literal(&text) {
-                    self.errors.push(LexError {
+                    self.push_error(LexError {
                         code: String::from(code),
                         message,
                         span: Span {
@@ -324,7 +326,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 let text = self.slice_from(start.offset);
-                self.errors.push(LexError {
+                self.push_error(LexError {
                     code: String::from("INVALID_NUMBER"),
                     message: format!("Invalid number literal `{text}`"),
                     span: Span {
@@ -369,7 +371,7 @@ impl<'a> Lexer<'a> {
             }
             self.advance();
         }
-        self.errors.push(LexError {
+        self.push_error(LexError {
             code: String::from("UNTERMINATED_STRING"),
             message: format!("Unterminated string literal (started with {quote})"),
             span: Span {
@@ -387,7 +389,7 @@ impl<'a> Lexer<'a> {
                     while !self.is_at_end() {
                         match self.peek() {
                             '\n' | '\r' => {
-                                self.errors.push(LexError {
+                                self.push_error(LexError {
                                     code: String::from("UNTERMINATED_STRING"),
                                     message: format!(
                                         "Unterminated string literal (started with {quote})"
@@ -414,7 +416,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     if self.is_at_end() && !self.input[start.offset..self.offset].ends_with(quote) {
-                        self.errors.push(LexError {
+                        self.push_error(LexError {
                             code: String::from("UNTERMINATED_STRING"),
                             message: format!("Unterminated string literal (started with {quote})"),
                             span: Span {
@@ -437,7 +439,7 @@ impl<'a> Lexer<'a> {
             return;
         }
         if !is_valid_separator_payload(&text[1..]) {
-            self.errors.push(LexError {
+            self.push_error(LexError {
                 code: String::from("SYNTAX_ERROR"),
                 message: format!("Invalid separator literal `{text}`"),
                 span: Span {
@@ -456,7 +458,7 @@ impl<'a> Lexer<'a> {
         }
         let text = self.slice_from(start.offset);
         if text.len() == 1 || !has_valid_literal_underscores(&text) {
-            self.errors.push(LexError {
+            self.push_error(LexError {
                 code: String::from("SYNTAX_ERROR"),
                 message: format!("Invalid hex literal `{text}`"),
                 span: Span {
@@ -486,7 +488,7 @@ impl<'a> Lexer<'a> {
             } else {
                 "SYNTAX_ERROR"
             };
-            self.errors.push(LexError {
+            self.push_error(LexError {
                 code: String::from(code),
                 message: format!(
                     "Invalid {} `{text}`",
@@ -543,7 +545,7 @@ impl<'a> Lexer<'a> {
                     }
                     self.advance();
                 }
-                self.errors.push(LexError {
+                self.push_error(LexError {
                     code: String::from("UNTERMINATED_BLOCK_COMMENT"),
                     message: String::from("Unterminated block comment"),
                     span: Span {
@@ -586,6 +588,24 @@ impl<'a> Lexer<'a> {
             comment,
             quote,
         });
+    }
+
+    fn push_error(&mut self, error: LexError) {
+        let span = error.span;
+        if self.errors.len() < MAX_LEX_ERRORS {
+            self.errors.push(error);
+        }
+
+        if self.errors.len() == MAX_LEX_ERRORS {
+            self.errors.push(LexError {
+                code: String::from("LEX_ERROR_LIMIT_EXCEEDED"),
+                message: format!(
+                    "Lexer aborted after reaching the error limit of {MAX_LEX_ERRORS} diagnostics"
+                ),
+                span,
+            });
+            self.offset = self.input.len();
+        }
     }
 
     fn is_at_end(&self) -> bool {
@@ -1125,5 +1145,17 @@ mod tests {
         assert_eq!(result.tokens[0].text, "^aaa");
         assert_eq!(result.tokens[1].kind, TokenKind::Identifier);
         assert_eq!(result.tokens[1].text, "bbb");
+    }
+
+    #[test]
+    fn lexer_caps_unexpected_character_diagnostics() {
+        let payload = "\u{00a8}".repeat(super::MAX_LEX_ERRORS + 32);
+        let result = tokenize(&payload, LexerOptions::default());
+
+        assert_eq!(result.errors.len(), super::MAX_LEX_ERRORS + 1);
+        assert_eq!(
+            result.errors.last().map(|error| error.code.as_str()),
+            Some("LEX_ERROR_LIMIT_EXCEEDED")
+        );
     }
 }

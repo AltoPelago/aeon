@@ -1,0 +1,31 @@
+[package]
+name = "aeon-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.aeon-core]
+path = "../crates/aeon-core"
+
+[[bin]]
+name = "compile"
+path = "fuzz_targets/compile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "token_parse"
+path = "fuzz_targets/token_parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
