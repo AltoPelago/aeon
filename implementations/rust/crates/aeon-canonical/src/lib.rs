@@ -667,7 +667,7 @@ fn normalize_number(raw: &str) -> String {
 }
 
 fn is_rejected_nonfinite_literal(raw: &str) -> bool {
-    matches!(raw, "+Infinity" | "NaN" | "-NaN" | "+NaN")
+    matches!(raw, "+Infinity" | "+NaN")
 }
 
 fn is_reserved_null_sentinel(value: &str) -> bool {
