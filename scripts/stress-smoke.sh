@@ -180,7 +180,7 @@ for impl in "${implementations[@]}"; do
     "stress-tests/full/full-feature-stress.aeon" \
     0 \
     '"errors"[[:space:]]*:[[:space:]]*\[\]' \
-    --json
+    --json --max-nesting-depth 2
 
   run_case "$impl" \
     "full/comment-stress-pass.aeon" \
@@ -201,14 +201,14 @@ for impl in "${implementations[@]}"; do
     "stress-tests/canonical/node-introducer-multiline.aeon" \
     0 \
     '"errors"[[:space:]]*:[[:space:]]*\[\]' \
-    --json
+    --json --max-nesting-depth 3
 
   run_case "$impl" \
     "canonical/node-trailing-separator.aeon" \
     "stress-tests/canonical/node-trailing-separator.aeon" \
     0 \
     '"errors"[[:space:]]*:[[:space:]]*\[\]' \
-    --json
+    --json --max-nesting-depth 3
 
   run_case "$impl" \
     "canonical/node-legacy-reject.aeon" \

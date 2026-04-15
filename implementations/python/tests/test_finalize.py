@@ -413,6 +413,7 @@ class FinalizeJsonTests(unittest.TestCase):
             warnings=[],
             path_values={},
             max_materialized_weight=None,
+            max_reference_depth=None,
             materialized_weight=0,
             materialized_weight_cache={},
             active_clone_paths=[],

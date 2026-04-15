@@ -99,7 +99,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.deepStrictEqual(result.document.big, { a: 1, b: 2, c: 3 });
         assert.deepStrictEqual(result.document.copy1, { a: 1, b: 2, c: 3 });
         assert.strictEqual(result.document.copy2, '~big');
-        assert.ok(result.meta?.errors?.some((error) => error.code === 'REFERENCE_BUDGET_EXCEEDED'));
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
     });
 
     it('enforces maxMaterializedWeight for transitive clone chains', () => {
@@ -113,7 +113,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.deepStrictEqual(result.document.base, { a: 1, b: 2 });
         assert.deepStrictEqual(result.document.copy1, { a: 1, b: 2 });
         assert.strictEqual(result.document.copy2, '~copy1');
-        assert.ok(result.meta?.errors?.some((error) => error.code === 'REFERENCE_BUDGET_EXCEEDED'));
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
     });
 
     it('enforces maxReferenceDepth for transitive clone chains', () => {
