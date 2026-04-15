@@ -369,6 +369,7 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
@@ -384,13 +385,13 @@ function inspect(args: string[]): void {
 
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]');
+        console.error(inspectUsage);
         process.exit(2);
     }
 
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]');
+        console.error(inspectUsage);
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -456,8 +457,8 @@ function inspect(args: string[]): void {
  * Purpose: finalize AES into JSON output
  */
 function finalize(args: string[]): void {
-    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
-    const file = findFile(args);
+    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
     const outputMap = args.includes('--map');

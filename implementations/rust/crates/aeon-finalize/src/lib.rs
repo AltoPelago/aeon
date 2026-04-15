@@ -92,6 +92,7 @@ struct MaterializationTracker {
     max_reference_depth: Option<usize>,
     materialized_weight: usize,
     materialized_weight_cache: BTreeMap<String, usize>,
+    active_clone_paths: Vec<String>,
 }
 
 impl MaterializationTracker {
@@ -101,6 +102,7 @@ impl MaterializationTracker {
             max_reference_depth,
             materialized_weight: 0,
             materialized_weight_cache: BTreeMap::new(),
+            active_clone_paths: Vec::new(),
         }
     }
 }
@@ -813,15 +815,16 @@ fn value_to_json_with_active_key(
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else if tracker
                     .max_reference_depth
-                    .is_some_and(|limit| active_paths.len() > limit)
+                    .is_some_and(|limit| tracker.active_clone_paths.len() + 1 > limit)
                 {
                     let limit = tracker.max_reference_depth.expect("checked above");
+                    let observed_depth = tracker.active_clone_paths.len() + 1;
                     errors.push(
                         Diagnostic::new(
                             "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
                             format!(
                                 "Reference materialization depth {} exceeds max_reference_depth {}",
-                                active_paths.len(),
+                                observed_depth,
                                 limit
                             ),
                         )
@@ -839,7 +842,8 @@ fn value_to_json_with_active_key(
                 ) {
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else {
-                    value_to_json_with_active_key(
+                    tracker.active_clone_paths.push(target.clone());
+                    let result = value_to_json_with_active_key(
                         resolved,
                         path,
                         &target,
@@ -851,7 +855,9 @@ fn value_to_json_with_active_key(
                         datatype,
                         active_paths,
                         tracker,
-                    )
+                    );
+                    tracker.active_clone_paths.pop();
+                    result
                 }
             } else {
                 push_unresolved_reference_diagnostic(
@@ -1980,6 +1986,36 @@ mod tests {
         );
         assert!(
             finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_DEPTH_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
+    fn finalize_json_does_not_treat_container_nesting_as_reference_depth() {
+        let source = "base = { value = { nested = 1 } }\nwrapper = { copy = ~base }\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_reference_depth: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "base": { "value": { "nested": 1 } },
+                "wrapper": { "copy": { "value": { "nested": 1 } } }
+            })
+        );
+        assert!(
+            !finalized
                 .meta
                 .errors
                 .iter()
