@@ -116,6 +116,20 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.ok(result.meta?.errors?.some((error) => error.code === 'REFERENCE_BUDGET_EXCEEDED'));
     });
 
+    it('enforces maxReferenceDepth for transitive clone chains', () => {
+        const events = compileToEvents([
+            'base = { a = 1, b = 2 }',
+            'copy1 = ~base',
+            'copy2 = ~copy1',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict', maxReferenceDepth: 1 });
+
+        assert.deepStrictEqual(result.document.base, { a: 1, b: 2 });
+        assert.deepStrictEqual(result.document.copy1, { a: 1, b: 2 });
+        assert.strictEqual(result.document.copy2, '~base');
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'FINALIZE_REFERENCE_DEPTH_EXCEEDED'));
+    });
+
     it('links pointer references as live aliases in linked JSON output', () => {
         const events = compileToEvents('a = 2\nb = ~>a');
         const result = finalizeLinkedJson(events, { mode: 'strict' });

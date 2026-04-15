@@ -44,6 +44,12 @@ describe('API Surface', () => {
         assert.ok(result);
     });
 
+    it('should accept maxNestingDepth in CompileOptions', () => {
+        const options: CompileOptions = { maxNestingDepth: 64 };
+        const result = compile('a = 1', options);
+        assert.ok(result);
+    });
+
     it('should inspect file preamble without parsing the full document', () => {
         const result = inspectFilePreamble('#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue = {');
 
@@ -455,6 +461,20 @@ describe('Core - compile()', () => {
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t'));
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t[0]'));
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t[1]'));
+        });
+    });
+
+    describe('nesting depth policy', () => {
+        it('should allow deep valid nesting when max_nesting_depth is raised to the conformance floor', () => {
+            const result = compile(`v = ${'['.repeat(64)}0${']'.repeat(64)}`, { maxNestingDepth: 64 });
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => formatPath(event.path) === '$.v'));
+        });
+
+        it('should fail closed when valid nesting exceeds the configured max_nesting_depth', () => {
+            const result = compile(`v = ${'['.repeat(64)}0${']'.repeat(64)}`, { maxNestingDepth: 63 });
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'NESTING_DEPTH_EXCEEDED'));
         });
     });
 

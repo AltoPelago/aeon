@@ -44,6 +44,7 @@ type JsonContext = {
     aes: readonly AssignmentEvent[];
     pathToIndex: ReadonlyMap<string, number>;
     maxMaterializedWeight?: number;
+    maxReferenceDepth?: number;
     materializedWeight: number;
     materializedWeightCache: Map<string, number>;
     activeClonePaths: string[];
@@ -109,6 +110,7 @@ function finalizeJsonInternal(
         aes,
         pathToIndex,
         ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
+        ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         materializedWeight: 0,
         materializedWeightCache: new Map<string, number>(),
         activeClonePaths: [],
@@ -358,6 +360,17 @@ function valueToJson(
                     );
                     return referenceToJson('~', value.path, ctx, path, value.span, false);
                 }
+                const observedDepth = ctx.activeClonePaths.length + 1;
+                if (ctx.maxReferenceDepth !== undefined && observedDepth > ctx.maxReferenceDepth) {
+                    pushReferenceDiagnostic(
+                        ctx,
+                        `Reference materialization depth ${observedDepth} exceeds maxReferenceDepth ${ctx.maxReferenceDepth}`,
+                        'FINALIZE_REFERENCE_DEPTH_EXCEEDED',
+                        path,
+                        value.span
+                    );
+                    return referenceToJson('~', value.path, ctx, path, value.span, false);
+                }
 
                 if (!consumeCloneBudget(resolved.targetPath, resolved.value, ctx, path, value.span)) {
                     return referenceToJson('~', value.path, ctx, path, value.span, false);
@@ -515,7 +528,7 @@ function consumeCloneBudget(
     pushReferenceDiagnostic(
         ctx,
         `Reference materialization budget exceeded for '${targetPath}' (budget=maxMaterializedWeight, observed=${nextWeight}, limit=${ctx.maxMaterializedWeight})`,
-        'REFERENCE_BUDGET_EXCEEDED',
+        'FINALIZE_REFERENCE_BUDGET_EXCEEDED',
         path,
         span
     );

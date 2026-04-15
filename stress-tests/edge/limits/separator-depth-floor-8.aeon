@@ -1,0 +1,2 @@
+//# Conformance floor: repeatable separator specs that require max_separator_depth 8
+a:grid[a][b][c][d][e][f][g][h] = ^1a2b3c4d5e6f7g8h9

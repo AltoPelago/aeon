@@ -1,0 +1,4 @@
+//# Finalize runtime-budget stress: repeated clone expansion for max_materialized_weight
+big = { a = 1, b = 2, c = 3 }
+copy1 = ~big
+copy2 = ~big

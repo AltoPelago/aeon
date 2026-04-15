@@ -37,6 +37,7 @@ pub struct FinalizeOptions {
     pub scope: FinalizeScope,
     pub header: Option<HeaderFields>,
     pub max_materialized_weight: Option<usize>,
+    pub max_reference_depth: Option<usize>,
 }
 
 impl Default for FinalizeOptions {
@@ -48,6 +49,7 @@ impl Default for FinalizeOptions {
             scope: FinalizeScope::Payload,
             header: None,
             max_materialized_weight: None,
+            max_reference_depth: None,
         }
     }
 }
@@ -87,14 +89,16 @@ pub struct FinalizeMapResult {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct MaterializationTracker {
     max_materialized_weight: Option<usize>,
+    max_reference_depth: Option<usize>,
     materialized_weight: usize,
     materialized_weight_cache: BTreeMap<String, usize>,
 }
 
 impl MaterializationTracker {
-    fn new(max_materialized_weight: Option<usize>) -> Self {
+    fn new(max_materialized_weight: Option<usize>, max_reference_depth: Option<usize>) -> Self {
         Self {
             max_materialized_weight,
+            max_reference_depth,
             materialized_weight: 0,
             materialized_weight_cache: BTreeMap::new(),
         }
@@ -163,7 +167,10 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut active_paths = BTreeSet::new();
-    let mut tracker = MaterializationTracker::new(options.max_materialized_weight);
+    let mut tracker = MaterializationTracker::new(
+        options.max_materialized_weight,
+        options.max_reference_depth,
+    );
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
@@ -803,6 +810,23 @@ fn value_to_json_with_active_key(
                         format!("Reference cycle during finalization: '{path}' resolves through '{target}'"),
                     )
                     .at_path(path));
+                    JsonValue::String(format!("~{}", render_reference_segments(segments)))
+                } else if tracker
+                    .max_reference_depth
+                    .is_some_and(|limit| active_paths.len() > limit)
+                {
+                    let limit = tracker.max_reference_depth.expect("checked above");
+                    errors.push(
+                        Diagnostic::new(
+                            "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+                            format!(
+                                "Reference materialization depth {} exceeds max_reference_depth {}",
+                                active_paths.len(),
+                                limit
+                            ),
+                        )
+                        .at_path(path),
+                    );
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else if !consume_clone_budget(
                     &target,
@@ -1929,6 +1953,37 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
+    fn finalize_json_enforces_max_reference_depth_for_transitive_clone_chains() {
+        let source = "base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_reference_depth: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "base": { "a": 1, "b": 2 },
+                "copy1": { "a": 1, "b": 2 },
+                "copy2": "~base"
+            })
+        );
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_DEPTH_EXCEEDED"),
             "{:?}",
             finalized.meta.errors
         );

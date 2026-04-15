@@ -1,0 +1,2 @@
+//# Resource-limit stress: nested generic datatype depth beyond the default limit
+t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))

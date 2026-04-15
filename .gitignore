@@ -7,3 +7,4 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.pyc
+/implementations/rust/fuzz/corpus/compile

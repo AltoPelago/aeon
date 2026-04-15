@@ -444,10 +444,13 @@ class Parser:
         return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", value))
 
     def parse_value(self) -> Value:
-        self.current_nesting_depth += 1
-        if self.current_nesting_depth > self.max_nesting_depth:
-            self.current_nesting_depth -= 1
-            raise NestingDepthExceededError(self.current_nesting_depth + 1, self.max_nesting_depth, self.peek().span)
+        counts_toward_nesting = self.check("LANGLE") or self.check("LBRACE") or self.check("LBRACKET") or self.check("LPAREN")
+        if counts_toward_nesting:
+            self.current_nesting_depth += 1
+            if self.current_nesting_depth > self.max_nesting_depth:
+                observed_depth = self.current_nesting_depth
+                self.current_nesting_depth -= 1
+                raise NestingDepthExceededError(observed_depth, self.max_nesting_depth, self.peek().span)
         try:
             if self.check("LANGLE"):
                 return self.parse_node()
@@ -468,7 +471,8 @@ class Parser:
                 return self.parse_clone_reference()
             return self.parse_literal()
         finally:
-            self.current_nesting_depth -= 1
+            if counts_toward_nesting:
+                self.current_nesting_depth -= 1
 
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start

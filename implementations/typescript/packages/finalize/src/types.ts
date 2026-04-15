@@ -36,6 +36,7 @@ export interface FinalizeOptions {
     readonly scope?: FinalizeScope;
     readonly header?: FinalizeHeader;
     readonly maxMaterializedWeight?: number;
+    readonly maxReferenceDepth?: number;
 }
 
 export type FinalizeScope = 'full' | 'header' | 'payload';

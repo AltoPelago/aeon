@@ -369,6 +369,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("Invalid value for --max-materialized-weight", result.stderr)
 
+    def test_finalize_respects_max_reference_depth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "clone-depth.aeon"
+            fixture.write_text("base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "finalize",
+                    str(fixture),
+                    "--json",
+                    "--max-reference-depth",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual({"a": 1, "b": 2}, payload["document"]["copy1"])
+        self.assertEqual("~base", payload["document"]["copy2"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_DEPTH_EXCEEDED" for error in payload["meta"]["errors"]))
+
     def test_finalize_map_supports_projected_attribute_path_chains(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "map-projection.aeon"

@@ -1,0 +1,2 @@
+//# Resource-limit stress: nested attribute heads beyond the default depth
+a@{b@{c=3}=2} = 1

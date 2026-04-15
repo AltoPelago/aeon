@@ -98,6 +98,8 @@ export interface CompileOptions {
     readonly maxSeparatorDepth?: number;
     /** Maximum nesting depth for nested generic type annotations (default: 1). */
     readonly maxGenericDepth?: number;
+    /** Maximum container nesting depth for objects, lists, tuples, and nodes (default: 256). */
+    readonly maxNestingDepth?: number;
     /** Emit structured annotation stream records. Default: true. */
     readonly emitAnnotations?: boolean;
     /** Datatype policy in strict mode. Default: reserved_only */
@@ -137,6 +139,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const maxAttributeDepth = options.maxAttributeDepth ?? 1;
     const maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
     const maxGenericDepth = options.maxGenericDepth ?? 1;
+    const maxNestingDepth = options.maxNestingDepth ?? 256;
     const emitAnnotations = options.emitAnnotations ?? true;
     const datatypePolicy = options.datatypePolicy;
     const maxInputBytes = options.maxInputBytes;
@@ -159,7 +162,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     }
 
     // Phase 2: Parsing
-    const parseResult = parse(lexResult.tokens, { maxAttributeDepth, maxSeparatorDepth, maxGenericDepth });
+    const parseResult = parse(lexResult.tokens, { maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxNestingDepth });
     allErrors.push(...parseResult.errors);
     if (parseResult.errors.length > 0 && !recovery) {
         return { events: [], errors: allErrors };
