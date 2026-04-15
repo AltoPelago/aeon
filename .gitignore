@@ -8,3 +8,4 @@ __pycache__/
 .ruff_cache/
 *.pyc
 /implementations/rust/fuzz/corpus/compile
+/implementations/rust/fuzz/corpus/token_parse
