@@ -30,6 +30,9 @@
  * - --max-attribute-depth  Maximum attribute selector depth
  * - --max-separator-depth  Maximum separator-spec depth
  * - --max-generic-depth  Maximum nested generic type depth
+ * - --max-nesting-depth  Maximum container nesting depth
+ * - --max-materialized-weight  Maximum cumulative clone materialization weight
+ * - --max-reference-depth  Maximum clone resolution depth
  * - --schema       Schema JSON path (bind only)
  * - --profile      Profile id (bind only)
  * - --contract-registry Trusted contract registry JSON path (bind only)
@@ -177,6 +180,7 @@ Options:
   --max-attribute-depth  Maximum attribute selector depth
   --max-separator-depth  Maximum separator-spec depth
   --max-generic-depth  Maximum nested generic type depth
+  --max-nesting-depth  Maximum container nesting depth
   --schema           Schema JSON path (bind only)
   --profile          Profile id (bind only)
   --contract-registry Trusted contract registry JSON path (bind only)
@@ -365,7 +369,8 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth']);
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
@@ -376,16 +381,17 @@ function inspect(args: string[]): void {
     const maxAttributeDepth = resolveDepthOption(args, '--max-attribute-depth');
     const maxSeparatorDepth = resolveDepthOption(args, '--max-separator-depth');
     const maxGenericDepth = resolveDepthOption(args, '--max-generic-depth');
+    const maxNestingDepth = resolveDepthOption(args, '--max-nesting-depth');
 
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]');
+        console.error(inspectUsage);
         process.exit(2);
     }
 
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]');
+        console.error(inspectUsage);
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -404,6 +410,10 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-generic-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxNestingDepth === null) {
+        console.error('Error: Invalid value for --max-nesting-depth (expected a non-negative integer)');
+        process.exit(2);
+    }
 
     const input = readFile(file);
     enforceInputByteLimitOrExit(input, maxInputBytes);
@@ -415,6 +425,7 @@ function inspect(args: string[]): void {
         ...(maxAttributeDepth !== undefined ? { maxAttributeDepth } : {}),
         ...(maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
         ...(maxGenericDepth !== undefined ? { maxGenericDepth } : {}),
+        ...(maxNestingDepth !== undefined ? { maxNestingDepth } : {}),
     });
 
     const headerInfo = extractHeaderInfo(input);
@@ -446,31 +457,34 @@ function inspect(args: string[]): void {
  * Purpose: finalize AES into JSON output
  */
 function finalize(args: string[]): void {
-    const file = findFile(args);
+    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
     const outputMap = args.includes('--map');
     const datatypePolicy = resolveDatatypePolicy(args);
     const scope = resolveFinalizeScope(args);
     const maxInputBytes = resolveMaxInputBytes(args);
+    const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
+    const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
     const includePaths = getFlagValues(args, '--include-path');
     const projected = args.includes('--projected') || includePaths.length > 0;
 
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error(finalizeUsage);
         process.exit(2);
     }
 
     if (!mode) {
         console.error('Error: Cannot use both --strict and --loose');
-        console.error('Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error(finalizeUsage);
         process.exit(2);
     }
 
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error(finalizeUsage);
         process.exit(2);
     }
     if (!scope) {
@@ -481,16 +495,24 @@ function finalize(args: string[]): void {
         console.error('Error: Invalid value for --max-input-bytes (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxMaterializedWeight === null) {
+        console.error('Error: Invalid value for --max-materialized-weight (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxReferenceDepth === null) {
+        console.error('Error: Invalid value for --max-reference-depth (expected a non-negative integer)');
+        process.exit(2);
+    }
 
     if (args.includes('--include-path') && includePaths.length === 0) {
         console.error('Error: Missing value for --include-path <$.path>');
-        console.error('Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error(finalizeUsage);
         process.exit(2);
     }
 
     if (projected && includePaths.length === 0) {
         console.error('Error: --projected requires at least one --include-path <$.path>');
-        console.error('Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error(finalizeUsage);
         process.exit(2);
     }
 
@@ -506,6 +528,8 @@ function finalize(args: string[]): void {
         scope,
         ...(result.header ? { header: result.header } : {}),
         ...(projected ? { materialization: 'projected', includePaths } : {}),
+        ...(maxMaterializedWeight !== undefined ? { maxMaterializedWeight } : {}),
+        ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
     };
     const output = outputMap
         ? finalizeMapOutput(result, finalizeOptions)

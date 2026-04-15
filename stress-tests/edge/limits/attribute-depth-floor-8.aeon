@@ -1,0 +1,2 @@
+//# Conformance floor: nested attribute heads that require max_attribute_depth 8
+a@{b@{c@{d@{e@{f@{g@{h@{i=9}=8}=7}=6}=5}=4}=3}=2} = 1

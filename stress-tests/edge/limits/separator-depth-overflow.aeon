@@ -1,0 +1,2 @@
+//# Resource-limit stress: chained separator specs beyond the default depth
+a:grid[|][x] = ^1|2x3

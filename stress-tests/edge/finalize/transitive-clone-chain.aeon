@@ -1,0 +1,4 @@
+//# Finalize runtime-budget stress: transitive clone chains for max_reference_depth
+base = { a = 1, b = 2 }
+copy1 = ~base
+copy2 = ~copy1

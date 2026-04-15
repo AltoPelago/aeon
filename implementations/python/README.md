@@ -43,6 +43,7 @@ Implementation note:
 
 - AEOS reference-form behavior is part of shared conformance.
 - `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
+- `max_reference_depth` and `--max-reference-depth` are processor controls, not AEON Core or AEOS conformance requirements.
 
 Current mode semantics:
 
@@ -83,6 +84,23 @@ from aeon.finalize import FinalizeOptions
 loaded = load_text(
     'big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big',
     LoadOptions(finalize=FinalizeOptions(max_materialized_weight=4)),
+)
+print(loaded.document)
+print(loaded.finalized["meta"]["errors"][0]["code"])
+PY
+```
+
+Cap transitive clone resolution depth during materialization:
+
+```bash
+cd implementations/python
+python3 - <<'PY'
+from aeon import load_text, LoadOptions
+from aeon.finalize import FinalizeOptions
+
+loaded = load_text(
+    'base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1',
+    LoadOptions(finalize=FinalizeOptions(max_reference_depth=1)),
 )
 print(loaded.document)
 print(loaded.finalized["meta"]["errors"][0]["code"])

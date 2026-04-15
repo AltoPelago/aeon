@@ -65,6 +65,9 @@ Secondary facets:
 - `cts-ready`
 - `promotion-candidate`
 - `diagnostic`
+- `resource-limit`
+- `conformance-floor`
+- `runtime-budget`
 
 Notes:
 
@@ -93,6 +96,9 @@ The shared fixture harness exposes this metadata through filters:
 ```bash
 python3 ./scripts/stress-fixtures.py --class parse
 python3 ./scripts/stress-fixtures.py --facet diagnostic
+python3 ./scripts/stress-fixtures.py --facet resource-limit
+python3 ./scripts/stress-fixtures.py --class finalize --facet runtime-budget
+python3 ./scripts/stress-fixtures.py --facet conformance-floor
 python3 ./scripts/stress-fixtures.py --facet promotion-candidate --cts-lane core
 python3 ./scripts/stress-fixtures.py --class canonical --impl typescript
 python3 ./scripts/stress-fixtures.py --cts-ready
@@ -104,6 +110,7 @@ python3 ./scripts/stress-fixtures.py --cts-ready
 |---|---|---|
 | Smoke fixtures | `bash ./scripts/stress-smoke.sh` | portable repo-level smoke run across available TypeScript/Python/Rust CLIs |
 | Full fixture matrix | `python3 ./scripts/stress-fixtures.py --impl rust` | broader shared fixture run with per-fixture options and known-red reporting |
+| Fuzz artifact triage | `python3 ./scripts/stress-fuzz-artifacts.py --only-interesting` | run Rust fuzz artifacts through the tri-implementation inspect surface and flag disagreement before promotion |
 | Positive snippets | `python3 ./scripts/stress-positive-snippets.py` | editable corpus of mini fixtures that must pass |
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
 | Combination corpora | `python3 ./scripts/stress-combinations.py --run both` | expands mode-aware combination matrices into generated positive/negative snippet corpora and can immediately run them |
@@ -151,6 +158,36 @@ Notes:
 
 - `edge/comment-stress-unterminated.aeon`
   - Negative fixture expecting `UNTERMINATED_BLOCK_COMMENT`.
+
+- `edge/limits/input-bytes-overflow.aeon`
+  - Resource-limit fixture for `INPUT_SIZE_EXCEEDED` and raised-limit pass behavior.
+
+- `edge/limits/attribute-depth-overflow.aeon`
+  - Resource-limit fixture for default attribute-depth rejection and raised-limit acceptance.
+
+- `edge/limits/separator-depth-overflow.aeon`
+  - Resource-limit fixture for default separator-depth rejection and raised-limit acceptance.
+
+- `edge/limits/generic-depth-overflow.aeon`
+  - Resource-limit fixture for default generic-depth rejection and raised-limit acceptance.
+
+- `edge/limits/attribute-depth-floor-8.aeon`
+  - Conformance-floor fixture proving `max_attribute_depth` capability at `8`.
+
+- `edge/limits/separator-depth-floor-8.aeon`
+  - Conformance-floor fixture proving `max_separator_depth` capability at `8`.
+
+- `edge/limits/generic-depth-floor-8.aeon`
+  - Conformance-floor fixture proving `max_generic_depth` capability at `8`.
+
+- `edge/limits/nesting-depth-floor-64.aeon`
+  - Conformance-floor fixture proving container nesting support at `64`.
+
+- `edge/finalize/transitive-clone-chain.aeon`
+  - Finalize runtime-budget fixture proving `max_reference_depth` rejection, raised-limit success, and zero-lock behavior.
+
+- `edge/finalize/repeated-clone-fanout.aeon`
+  - Finalize runtime-budget fixture proving `max_materialized_weight` rejection, raised-limit success, and zero-lock behavior.
 
 - `edge/inline-array-separator-boundaries.aeon`
   - Negative fixture documenting separator-literal greediness and separator-char collisions.
@@ -370,6 +407,27 @@ python3 ./scripts/stress-whitespace-mutations.py
 python3 ./scripts/stress-whitespace-mutations.py --depth 2
 python3 ./scripts/stress-whitespace-mutations.py --brief
 ```
+
+Run Rust fuzz artifacts across the shared implementation surface before deciding
+whether to reduce and promote them into `stress-tests/`:
+
+```bash
+python3 ./scripts/stress-fuzz-artifacts.py
+python3 ./scripts/stress-fuzz-artifacts.py --only-interesting
+python3 ./scripts/stress-fuzz-artifacts.py --artifact implementations/rust/fuzz/artifacts/token_parse/oom-...
+```
+
+Stage a reviewed artifact into the promotion inbox:
+
+```bash
+python3 ./scripts/stress-promote-artifact.py \
+  --artifact implementations/rust/fuzz/artifacts/token_parse/oom-... \
+  --slug token-parse-oom-2026-04-15
+```
+
+The staging area for these cases lives under:
+
+- `stress-tests/inbox/fuzz-artifacts/`
 
 Run the full canonical conformance lane:
 

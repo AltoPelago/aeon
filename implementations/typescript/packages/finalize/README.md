@@ -94,6 +94,7 @@ export interface FinalizeOptions {
   readonly scope?: 'payload' | 'header' | 'full';
   readonly header?: { readonly fields: ReadonlyMap<string, Value> };
   readonly maxMaterializedWeight?: number;
+  readonly maxReferenceDepth?: number;
 }
 
 export interface FinalizeResult {
@@ -121,9 +122,10 @@ export interface FinalizedEntry {
 - Map/node finalization preserves symbolic references; JSON finalization may materialize clone references and linked JSON may materialize pointer aliases.
 - JSON output converts AEON values into JSON-compatible primitives and containers.
 - References (`~` / `~>`) emit diagnostics and are preserved as string tokens.
-- `finalizeJson(...)` materializes clone references into concrete JSON values and can enforce `maxMaterializedWeight` to fail closed on clone-amplification growth.
+- `finalizeJson(...)` materializes clone references into concrete JSON values and can enforce `maxMaterializedWeight` and `maxReferenceDepth` to fail closed on clone-amplification growth.
 - `finalizeLinkedJson(...)` is the opt-in live materialization variant for `~>` pointer aliases.
 - `maxMaterializedWeight` is an implementation-facing budget control, not a Core or AEOS conformance surface.
+- `maxReferenceDepth` is an implementation-facing budget control, not a Core or AEOS conformance surface.
 - Binding attributes project under reserved `@` objects in JSON output.
 - Exact keys `@`, `$`, `$node`, and `$children` are reserved in JSON/node materialization and produce deterministic errors on collision.
 - Node values project with reserved `$node`, optional `@`, and `$children` members.

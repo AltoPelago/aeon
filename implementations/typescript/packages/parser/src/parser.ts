@@ -527,15 +527,57 @@ class Parser {
     // ============================================
 
     private parseValue(): Value {
-        this.currentNestingDepth++;
-        if (this.currentNestingDepth > this.maxNestingDepth) {
-            throw new NestingDepthExceededError(this.currentNestingDepth, this.maxNestingDepth, this.peek().span);
+        const countsTowardNesting =
+            this.check(TokenType.LeftAngle)
+            || this.check(TokenType.LeftBrace)
+            || this.check(TokenType.LeftBracket)
+            || this.check(TokenType.LeftParen);
+        if (countsTowardNesting) {
+            this.currentNestingDepth++;
+            const projectedDepth = this.projectedOpeningContainerDepth();
+            if (projectedDepth !== null) {
+                this.currentNestingDepth--;
+                throw new NestingDepthExceededError(projectedDepth, this.maxNestingDepth, this.peek().span);
+            }
+            if (this.currentNestingDepth > this.maxNestingDepth) {
+                const observedDepth = this.currentNestingDepth;
+                this.currentNestingDepth--;
+                throw new NestingDepthExceededError(observedDepth, this.maxNestingDepth, this.peek().span);
+            }
         }
         try {
             return this.doParseValue();
         } finally {
-            this.currentNestingDepth--;
+            if (countsTowardNesting) {
+                this.currentNestingDepth--;
+            }
         }
+    }
+
+    private projectedOpeningContainerDepth(): number | null {
+        let extraDepth = 0;
+        for (let index = this.current; index < this.tokens.length; index++) {
+            switch (this.tokens[index]?.type) {
+                case TokenType.LeftBracket:
+                case TokenType.LeftParen:
+                case TokenType.LeftBrace:
+                case TokenType.LeftAngle:
+                    extraDepth++;
+                    break;
+                default:
+                    return this.toProjectedOpeningContainerDepth(extraDepth) > this.maxNestingDepth
+                        ? this.toProjectedOpeningContainerDepth(extraDepth)
+                        : null;
+            }
+        }
+        const projectedDepth = this.toProjectedOpeningContainerDepth(extraDepth);
+        return projectedDepth > this.maxNestingDepth
+            ? projectedDepth
+            : null;
+    }
+
+    private toProjectedOpeningContainerDepth(extraDepth: number): number {
+        return this.currentNestingDepth + Math.max(extraDepth - 1, 0);
     }
 
     private doParseValue(): Value {

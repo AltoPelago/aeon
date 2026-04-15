@@ -162,11 +162,15 @@ def finalize(args: list[str]) -> int:
         return 2
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
     max_materialized_weight = numeric_flag_value(args, "--max-materialized-weight")
+    max_reference_depth = numeric_flag_value(args, "--max-reference-depth")
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
         return 2
     if max_materialized_weight is None and "--max-materialized-weight" in args:
         print("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_reference_depth is None and "--max-reference-depth" in args:
+        print("Error: Invalid value for --max-reference-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
@@ -188,6 +192,7 @@ def finalize(args: list[str]) -> int:
         include_paths=include_paths or None,
         scope=scope,
         max_materialized_weight=max_materialized_weight,
+        max_reference_depth=max_reference_depth,
     )
     finalized = finalize_map(result, finalize_options) if map_output else finalize_json(result, finalize_options)
     print(json.dumps(finalized, indent=2))
@@ -235,12 +240,12 @@ def first_non_flag(args: list[str]) -> str | None:
         if skip_next:
             skip_next = False
             continue
-        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--scope", "--include-path"}:
+        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             skip_next = True
             continue
         if item.startswith("--"):
             continue
-        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--scope", "--include-path"}:
+        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             continue
         return item
     return None
@@ -257,7 +262,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 

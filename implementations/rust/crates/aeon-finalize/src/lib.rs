@@ -37,6 +37,7 @@ pub struct FinalizeOptions {
     pub scope: FinalizeScope,
     pub header: Option<HeaderFields>,
     pub max_materialized_weight: Option<usize>,
+    pub max_reference_depth: Option<usize>,
 }
 
 impl Default for FinalizeOptions {
@@ -48,6 +49,7 @@ impl Default for FinalizeOptions {
             scope: FinalizeScope::Payload,
             header: None,
             max_materialized_weight: None,
+            max_reference_depth: None,
         }
     }
 }
@@ -87,16 +89,20 @@ pub struct FinalizeMapResult {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct MaterializationTracker {
     max_materialized_weight: Option<usize>,
+    max_reference_depth: Option<usize>,
     materialized_weight: usize,
     materialized_weight_cache: BTreeMap<String, usize>,
+    active_clone_paths: Vec<String>,
 }
 
 impl MaterializationTracker {
-    fn new(max_materialized_weight: Option<usize>) -> Self {
+    fn new(max_materialized_weight: Option<usize>, max_reference_depth: Option<usize>) -> Self {
         Self {
             max_materialized_weight,
+            max_reference_depth,
             materialized_weight: 0,
             materialized_weight_cache: BTreeMap::new(),
+            active_clone_paths: Vec::new(),
         }
     }
 }
@@ -163,7 +169,10 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut active_paths = BTreeSet::new();
-    let mut tracker = MaterializationTracker::new(options.max_materialized_weight);
+    let mut tracker = MaterializationTracker::new(
+        options.max_materialized_weight,
+        options.max_reference_depth,
+    );
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
@@ -804,6 +813,24 @@ fn value_to_json_with_active_key(
                     )
                     .at_path(path));
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
+                } else if tracker
+                    .max_reference_depth
+                    .is_some_and(|limit| tracker.active_clone_paths.len() + 1 > limit)
+                {
+                    let limit = tracker.max_reference_depth.expect("checked above");
+                    let observed_depth = tracker.active_clone_paths.len() + 1;
+                    errors.push(
+                        Diagnostic::new(
+                            "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+                            format!(
+                                "Reference materialization depth {} exceeds max_reference_depth {}",
+                                observed_depth,
+                                limit
+                            ),
+                        )
+                        .at_path(path),
+                    );
+                    JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else if !consume_clone_budget(
                     &target,
                     resolved,
@@ -815,7 +842,8 @@ fn value_to_json_with_active_key(
                 ) {
                     JsonValue::String(format!("~{}", render_reference_segments(segments)))
                 } else {
-                    value_to_json_with_active_key(
+                    tracker.active_clone_paths.push(target.clone());
+                    let result = value_to_json_with_active_key(
                         resolved,
                         path,
                         &target,
@@ -827,7 +855,9 @@ fn value_to_json_with_active_key(
                         datatype,
                         active_paths,
                         tracker,
-                    )
+                    );
+                    tracker.active_clone_paths.pop();
+                    result
                 }
             } else {
                 push_unresolved_reference_diagnostic(
@@ -1929,6 +1959,67 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
+    fn finalize_json_enforces_max_reference_depth_for_transitive_clone_chains() {
+        let source = "base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_reference_depth: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "base": { "a": 1, "b": 2 },
+                "copy1": { "a": 1, "b": 2 },
+                "copy2": "~base"
+            })
+        );
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_DEPTH_EXCEEDED"),
+            "{:?}",
+            finalized.meta.errors
+        );
+    }
+
+    #[test]
+    fn finalize_json_does_not_treat_container_nesting_as_reference_depth() {
+        let source = "base = { value = { nested = 1 } }\nwrapper = { copy = ~base }\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                max_reference_depth: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+
+        assert_eq!(
+            finalized.document,
+            json!({
+                "base": { "value": { "nested": 1 } },
+                "wrapper": { "copy": { "value": { "nested": 1 } } }
+            })
+        );
+        assert!(
+            !finalized
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_DEPTH_EXCEEDED"),
             "{:?}",
             finalized.meta.errors
         );

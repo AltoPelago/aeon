@@ -17,6 +17,7 @@ class FinalizeOptions:
     scope: str = "payload"
     header: dict[str, object] | None = None
     max_materialized_weight: int | None = None
+    max_reference_depth: int | None = None
 
 
 def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[str, object]:
@@ -40,6 +41,7 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
         warnings=warnings,
         path_values=path_values,
         max_materialized_weight=opts.max_materialized_weight,
+        max_reference_depth=opts.max_reference_depth,
         materialized_weight=0,
         materialized_weight_cache={},
         active_clone_paths=[],
@@ -123,6 +125,7 @@ class JsonContext:
     warnings: list[dict[str, object]]
     path_values: dict[str, dict[str, object]]
     max_materialized_weight: int | None
+    max_reference_depth: int | None
     materialized_weight: int
     materialized_weight_cache: dict[str, int]
     active_clone_paths: list[str]
@@ -253,6 +256,16 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
                         "error",
                         "FINALIZE_REFERENCE_CYCLE",
                         f"Reference cycle during finalization: '{path}' resolves through '{target_path}'",
+                        path,
+                        value.get("span"),
+                    )
+                    return reference_to_json("~", value, ctx, path, emit_diagnostic=False)
+                observed_depth = len(ctx.active_clone_paths) + 1
+                if ctx.max_reference_depth is not None and observed_depth > ctx.max_reference_depth:
+                    ctx.emit(
+                        "error",
+                        "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+                        f"Reference materialization depth {observed_depth} exceeds max_reference_depth {ctx.max_reference_depth}",
                         path,
                         value.get("span"),
                     )

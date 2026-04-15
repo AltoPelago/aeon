@@ -850,6 +850,29 @@ describe('AEON CLI output contract', () => {
             assert.deepStrictEqual(JSON.parse(stdout), expected);
         });
 
+        it('supports max materialized weight limits', async () => {
+            const input = 'big = { a = 1, b = 2, c = 3 }\ncopy1 = ~big\ncopy2 = ~big\n';
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-finalize-budget-'));
+            const inputPath = path.join(tmpDir, 'input.aeon');
+            fs.writeFileSync(inputPath, input, 'utf-8');
+            const { code, stdout, stderr } = await runCli([
+                'finalize',
+                inputPath,
+                '--json',
+                '--max-materialized-weight',
+                '4',
+            ]);
+            assert.strictEqual(code, 1);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout);
+            assert.deepStrictEqual(parsed.document.big, { a: 1, b: 2, c: 3 });
+            assert.deepStrictEqual(parsed.document.copy1, { a: 1, b: 2, c: 3 });
+            assert.strictEqual(parsed.document.copy2, '~big');
+            assert.ok(
+                parsed.meta?.errors?.some((error: { code?: string }) => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'),
+            );
+        });
+
         it('exits 2 and prints usage error on stderr when file missing', async () => {
             const { code, stdout, stderr } = await runCli(['finalize']);
             assert.strictEqual(code, 2);

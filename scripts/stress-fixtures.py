@@ -17,9 +17,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TS_CMD = ["node", str(ROOT / "implementations" / "typescript" / "packages" / "cli" / "dist" / "main.js"), "inspect"]
-PY_CMD = [str(ROOT / "implementations" / "python" / "bin" / "aeon-python"), "inspect"]
-RUST_CMD = [str(ROOT / "implementations" / "rust" / "target" / "debug" / "aeon-rust"), "inspect"]
+TS_CMD = ["node", str(ROOT / "implementations" / "typescript" / "packages" / "cli" / "dist" / "main.js")]
+PY_CMD = [str(ROOT / "implementations" / "python" / "bin" / "aeon-python")]
+RUST_CMD = [str(ROOT / "implementations" / "rust" / "target" / "debug" / "aeon-rust")]
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,240 @@ FIXTURES: tuple[FixtureCase, ...] = (
     FixtureCase("domain/literals/unicode-escape-pair.aeon", "stress-tests/domain/literals/unicode-escape-pair.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive", "stress-only")),
     FixtureCase("domain/literals/unicode-unpaired-surrogates.aeon", "stress-tests/domain/literals/unicode-unpaired-surrogates.aeon", 1, "INVALID_ESCAPE", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/comment-stress-unterminated.aeon", "stress-tests/edge/comment-stress-unterminated.aeon", 1, "UNTERMINATED_BLOCK_COMMENT", ("--json", "--annotations"), fixture_class="parse", facets=("negative", "diagnostic")),
+    FixtureCase(
+        "edge/limits/input-bytes-overflow.aeon",
+        "stress-tests/edge/limits/input-bytes-overflow.aeon",
+        1,
+        "configured limit",
+        ("--json", "--max-input-bytes", "8"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/input-bytes-overflow.aeon (raised limit)",
+        "stress-tests/edge/limits/input-bytes-overflow.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-input-bytes", "64"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/attribute-depth-overflow.aeon",
+        "stress-tests/edge/limits/attribute-depth-overflow.aeon",
+        1,
+        "ATTRIBUTE_DEPTH_EXCEEDED",
+        ("--json",),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/attribute-depth-overflow.aeon (raised limit)",
+        "stress-tests/edge/limits/attribute-depth-overflow.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-attribute-depth", "2"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/separator-depth-overflow.aeon",
+        "stress-tests/edge/limits/separator-depth-overflow.aeon",
+        1,
+        "SEPARATOR_DEPTH_EXCEEDED",
+        ("--json",),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/separator-depth-overflow.aeon (raised limit)",
+        "stress-tests/edge/limits/separator-depth-overflow.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-separator-depth", "2"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/generic-depth-overflow.aeon",
+        "stress-tests/edge/limits/generic-depth-overflow.aeon",
+        1,
+        "GENERIC_DEPTH_EXCEEDED",
+        ("--json",),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/generic-depth-overflow.aeon (raised limit)",
+        "stress-tests/edge/limits/generic-depth-overflow.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-generic-depth", "2", "--max-nesting-depth", "2"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/limits/attribute-depth-floor-8.aeon (floor fail at 7)",
+        "stress-tests/edge/limits/attribute-depth-floor-8.aeon",
+        1,
+        "ATTRIBUTE_DEPTH_EXCEEDED",
+        ("--json", "--max-attribute-depth", "7"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/attribute-depth-floor-8.aeon (floor pass at 8)",
+        "stress-tests/edge/limits/attribute-depth-floor-8.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-attribute-depth", "8"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/attribute-depth-floor-8.aeon (zero lock)",
+        "stress-tests/edge/limits/attribute-depth-floor-8.aeon",
+        1,
+        "ATTRIBUTE_DEPTH_EXCEEDED",
+        ("--json", "--max-attribute-depth", "0"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "zero-lock"),
+    ),
+    FixtureCase(
+        "edge/limits/separator-depth-floor-8.aeon (floor fail at 7)",
+        "stress-tests/edge/limits/separator-depth-floor-8.aeon",
+        1,
+        "SEPARATOR_DEPTH_EXCEEDED",
+        ("--json", "--max-separator-depth", "7"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/separator-depth-floor-8.aeon (floor pass at 8)",
+        "stress-tests/edge/limits/separator-depth-floor-8.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-separator-depth", "8"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/separator-depth-floor-8.aeon (zero lock)",
+        "stress-tests/edge/limits/separator-depth-floor-8.aeon",
+        1,
+        "SEPARATOR_DEPTH_EXCEEDED",
+        ("--json", "--max-separator-depth", "0"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "zero-lock"),
+    ),
+    FixtureCase(
+        "edge/limits/generic-depth-floor-8.aeon (floor fail at 7)",
+        "stress-tests/edge/limits/generic-depth-floor-8.aeon",
+        1,
+        "GENERIC_DEPTH_EXCEEDED",
+        ("--json", "--max-generic-depth", "7"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/generic-depth-floor-8.aeon (floor pass at 8)",
+        "stress-tests/edge/limits/generic-depth-floor-8.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-generic-depth", "8", "--max-nesting-depth", "8"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/generic-depth-floor-8.aeon (zero lock)",
+        "stress-tests/edge/limits/generic-depth-floor-8.aeon",
+        1,
+        "GENERIC_DEPTH_EXCEEDED",
+        ("--json", "--max-generic-depth", "0", "--max-nesting-depth", "8"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "zero-lock"),
+    ),
+    FixtureCase(
+        "edge/limits/nesting-depth-floor-64.aeon (floor fail at 63)",
+        "stress-tests/edge/limits/nesting-depth-floor-64.aeon",
+        1,
+        "NESTING_DEPTH_EXCEEDED",
+        ("--json", "--max-nesting-depth", "63"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/nesting-depth-floor-64.aeon (floor pass at 64)",
+        "stress-tests/edge/limits/nesting-depth-floor-64.aeon",
+        0,
+        '"errors": []',
+        ("--json", "--max-nesting-depth", "64"),
+        fixture_class="parse",
+        facets=("positive", "resource-limit", "conformance-floor"),
+    ),
+    FixtureCase(
+        "edge/limits/nesting-depth-floor-64.aeon (zero lock)",
+        "stress-tests/edge/limits/nesting-depth-floor-64.aeon",
+        1,
+        "NESTING_DEPTH_EXCEEDED",
+        ("--json", "--max-nesting-depth", "0"),
+        fixture_class="parse",
+        facets=("negative", "resource-limit", "zero-lock"),
+    ),
+    FixtureCase(
+        "edge/finalize/transitive-clone-chain.aeon (reference depth exceeded)",
+        "stress-tests/edge/finalize/transitive-clone-chain.aeon",
+        1,
+        "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+        ("--json", "--max-reference-depth", "1"),
+        fixture_class="finalize",
+        facets=("negative", "resource-limit", "runtime-budget", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/finalize/transitive-clone-chain.aeon (reference depth raised)",
+        "stress-tests/edge/finalize/transitive-clone-chain.aeon",
+        0,
+        '"copy2": {',
+        ("--json", "--max-reference-depth", "2"),
+        fixture_class="finalize",
+        facets=("positive", "resource-limit", "runtime-budget", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/finalize/transitive-clone-chain.aeon (reference depth zero lock)",
+        "stress-tests/edge/finalize/transitive-clone-chain.aeon",
+        1,
+        "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+        ("--json", "--max-reference-depth", "0"),
+        fixture_class="finalize",
+        facets=("negative", "resource-limit", "runtime-budget", "zero-lock"),
+    ),
+    FixtureCase(
+        "edge/finalize/repeated-clone-fanout.aeon (materialized weight exceeded)",
+        "stress-tests/edge/finalize/repeated-clone-fanout.aeon",
+        1,
+        "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+        ("--json", "--max-materialized-weight", "4"),
+        fixture_class="finalize",
+        facets=("negative", "resource-limit", "runtime-budget", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/finalize/repeated-clone-fanout.aeon (materialized weight raised)",
+        "stress-tests/edge/finalize/repeated-clone-fanout.aeon",
+        0,
+        '"copy2": {',
+        ("--json", "--max-materialized-weight", "9"),
+        fixture_class="finalize",
+        facets=("positive", "resource-limit", "runtime-budget", "stress-only"),
+    ),
+    FixtureCase(
+        "edge/finalize/repeated-clone-fanout.aeon (materialized weight zero lock)",
+        "stress-tests/edge/finalize/repeated-clone-fanout.aeon",
+        1,
+        "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+        ("--json", "--max-materialized-weight", "0"),
+        fixture_class="finalize",
+        facets=("negative", "resource-limit", "runtime-budget", "zero-lock"),
+    ),
     FixtureCase("edge/escaped-decoded-identity-duplicate.aeon", "stress-tests/edge/escaped-decoded-identity-duplicate.aeon", 1, "DUPLICATE_CANONICAL_PATH", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/inline-array-separator-boundaries.aeon", "stress-tests/edge/inline-array-separator-boundaries.aeon", 1, "INVALID_SEPARATOR_CHAR", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/string-literal-newline.aeon", "stress-tests/edge/string-literal-newline.aeon", 1, "UNTERMINATED_STRING", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
@@ -180,18 +414,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def implementation_command(name: str) -> list[str]:
+def implementation_command(name: str, fixture_class: str) -> list[str]:
     if name == "typescript":
-        return TS_CMD
-    if name == "python":
-        return PY_CMD
-    if name == "rust":
-        return RUST_CMD
-    raise ValueError(f"unknown implementation: {name}")
+        base = TS_CMD
+    elif name == "python":
+        base = PY_CMD
+    elif name == "rust":
+        base = RUST_CMD
+    else:
+        raise ValueError(f"unknown implementation: {name}")
+    subcommand = "finalize" if fixture_class == "finalize" else "inspect"
+    return [*base, subcommand]
 
 
 def implementation_available(name: str) -> bool:
-    command = implementation_command(name)
+    command = implementation_command(name, "parse")
     target = Path(command[1]) if name == "typescript" else Path(command[0])
     return target.is_file() and (name == "typescript" or target.stat().st_mode & 0o111 != 0)
 
@@ -215,7 +452,7 @@ def run_case(impl: str, case: FixtureCase, timeout_override: float | None) -> tu
     timeout = timeout_override if timeout_override is not None else case.timeout_seconds
     try:
         completed = subprocess.run(
-            [*implementation_command(impl), str(fixture), *case.extra_args],
+            [*implementation_command(impl, case.fixture_class), str(fixture), *case.extra_args],
             cwd=str(ROOT),
             capture_output=True,
             text=True,

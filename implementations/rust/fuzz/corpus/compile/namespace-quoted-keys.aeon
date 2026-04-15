@@ -1,0 +1,28 @@
+//!/bin/aeon --profile=ts.object.v1
+
+//# Namespace + quoted-key stress (current candidate)
+aeon:header = {
+  version = "1.0"
+  mode = "transport"
+  profile = "ts.object.v1"
+}
+
+// namespace-convention attribute on key
+a@{ ns = "alto.v1" }:int32 = 3
+
+// quoted key carrying namespace-like text
+"alto.v1#a":int32 = 4
+
+// disambiguation target: this is one key, not traversal
+"a.b":int32 = 2
+
+obj = {
+  "key with space" = {
+    "inner.dot" = 7
+  }
+}
+
+viaQuoted = ~["a.b"]
+viaTraversal = ~obj["key with space"]["inner.dot"]
+viaNamespaceAttr = ~a@ns
+viaNamespaceAttrPtr = ~>a@ns

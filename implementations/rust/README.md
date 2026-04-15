@@ -90,6 +90,7 @@ Current CLI status:
 - `finalize --json`
 - `finalize --map`
 - `finalize --max-materialized-weight <n>` for clone-expansion budgets
+- `finalize --max-reference-depth <n>` for clone-resolution depth budgets
 - minimal `bind --schema <schema.json>`
 - direct schema JSON validation for canonical metadata keys and required fields
 - `bind --annotations` and `--sort-annotations`
@@ -109,12 +110,14 @@ Current CLI status:
 - `doctor [--json] [--contract-registry <registry.json>]`
 - projected and loose-mode `bind` behavior
 - `bind --max-materialized-weight <n>` for clone-expansion budgets
+- `bind --max-reference-depth <n>` for clone-resolution depth budgets
 - AEOS CTS adapter via `--cts-validate`
 
 Implementation note:
 
 - AEOS reference-form behavior is part of shared conformance.
 - `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
+- `--max-reference-depth` is an implementation/runtime control, not a Core or AEOS language guarantee.
 
 Run the starter test suite with:
 
@@ -122,6 +125,12 @@ Run the starter test suite with:
 cd implementations/rust
 cargo test
 ```
+
+For parser hardening work, a local `cargo-fuzz` workspace now lives under:
+
+- `implementations/rust/fuzz`
+
+See [`fuzz/README.md`](./fuzz/README.md) for the current fuzz targets and run instructions.
 
 For direct CLI benchmarking, prefer the built release binary over `cargo run`.
 The repository benchmark helper is:

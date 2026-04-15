@@ -168,7 +168,7 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
@@ -194,6 +194,11 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
+    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+        String::from(
+            "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+        )
+    })?;
 
     let file = find_file(
         args,
@@ -203,6 +208,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "--max-attribute-depth",
             "--max-separator-depth",
             "--max-generic-depth",
+            "--max-nesting-depth",
         ],
     )
     .ok_or_else(|| format!("Error: No file specified\n{INSPECT_USAGE}"))?;
@@ -228,6 +234,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             max_attribute_depth,
             max_separator_depth,
             max_generic_depth,
+            max_nesting_depth,
             ..CompileOptions::default()
         },
     );
@@ -284,7 +291,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_CASES_USAGE: &str = "Usage: aeon inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]";
+    const INSPECT_CASES_USAGE: &str = "Usage: aeon inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
     let rich = args.iter().any(|arg| arg == "--rich");
     let recovery = args.iter().any(|arg| arg == "--recovery");
     let datatype_policy = flag_value(args, "--datatype-policy");
@@ -306,6 +313,11 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
+    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+        String::from(
+            "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+        )
+    })?;
     let mode = flag_value(args, "--mode").ok_or_else(|| {
         format!("Error: Missing required --mode <transport|strict|custom>\n{INSPECT_CASES_USAGE}")
     })?;
@@ -324,6 +336,7 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
             "--max-attribute-depth",
             "--max-separator-depth",
             "--max-generic-depth",
+            "--max-nesting-depth",
         ],
     )
     .ok_or_else(|| format!("Error: No file specified\n{INSPECT_CASES_USAGE}"))?;
@@ -346,6 +359,7 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
             max_attribute_depth,
             max_separator_depth,
             max_generic_depth,
+            max_nesting_depth,
             ..CompileOptions::default()
         },
     );
@@ -361,7 +375,7 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
-    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]";
+    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
     let file = find_file(
         args,
         &[
@@ -370,6 +384,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
             "--include-path",
             "--max-input-bytes",
             "--max-materialized-weight",
+            "--max-reference-depth",
         ],
     )
     .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
@@ -388,6 +403,9 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     })?;
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
+    })?;
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
     })?;
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
@@ -427,6 +445,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         scope,
         header: result.header.clone(),
         max_materialized_weight,
+        max_reference_depth,
     };
 
     let has_finalize_errors;
@@ -903,7 +922,7 @@ fn integrity_sign(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
-    const BIND_USAGE: &str = "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--annotations] [--sort-annotations] [--max-input-bytes <n>] [--max-materialized-weight <n>]";
+    const BIND_USAGE: &str = "Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--annotations] [--sort-annotations] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
     let file = find_file(
         args,
         &[
@@ -915,6 +934,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             "--profile",
             "--max-input-bytes",
             "--max-materialized-weight",
+            "--max-reference-depth",
             "--trailing-separator-delimiter-policy",
         ],
     )
@@ -953,6 +973,9 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     })?;
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
+    })?;
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
     })?;
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
@@ -1065,6 +1088,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
                 scope,
                 header: result.header.clone(),
                 max_materialized_weight,
+                max_reference_depth,
             },
         );
         if result.errors.is_empty() || matches!(mode, FinalizeMode::Loose) {

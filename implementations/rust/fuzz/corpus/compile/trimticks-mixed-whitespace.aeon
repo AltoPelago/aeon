@@ -1,0 +1,18 @@
+class:o = {
+  text1:trimtick = >>`
+		Whenever I am here,
+	  I can do whatever I want
+    because this is such a cool feature
+		right?
+	`
+  text2:string = `
+		Whenever I am here,
+	  I can do whatever I want
+    because this is such a cool feature
+		right?
+	`
+  text3:string = `Whenever I am here,
+I can do whatever I want
+because this is such a cool feature
+right?`
+}

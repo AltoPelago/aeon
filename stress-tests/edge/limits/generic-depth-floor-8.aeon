@@ -1,0 +1,2 @@
+//# Conformance floor: nested generic datatype depth that requires max_generic_depth 8
+value:list<list<list<list<list<list<list<list<n>>>>>>>> = [[[[[[[[1]]]]]]]]

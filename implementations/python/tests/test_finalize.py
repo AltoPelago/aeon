@@ -149,6 +149,14 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertEqual("~copy1", result["document"]["copy2"])
         self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_BUDGET_EXCEEDED" for error in result["meta"]["errors"]))
 
+    def test_enforces_max_reference_depth_for_transitive_clone_chains(self) -> None:
+        events = compile_events("base = { a = 1, b = 2 }\ncopy1 = ~base\ncopy2 = ~copy1")
+        result = finalize_json(events, FinalizeOptions(mode="strict", max_reference_depth=1))
+        self.assertEqual({"a": 1, "b": 2}, result["document"]["base"])
+        self.assertEqual({"a": 1, "b": 2}, result["document"]["copy1"])
+        self.assertEqual("~base", result["document"]["copy2"])
+        self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_DEPTH_EXCEEDED" for error in result["meta"]["errors"]))
+
     def test_reports_reference_cycles_without_recursing(self) -> None:
         events = [
             {
@@ -405,6 +413,7 @@ class FinalizeJsonTests(unittest.TestCase):
             warnings=[],
             path_values={},
             max_materialized_weight=None,
+            max_reference_depth=None,
             materialized_weight=0,
             materialized_weight_cache={},
             active_clone_paths=[],

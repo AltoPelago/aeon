@@ -2204,6 +2204,31 @@ mod tests {
     }
 
     #[test]
+    fn honors_nesting_depth_conformance_floor() {
+        let source = format!("v = {}0{}\n", "[".repeat(64), "]".repeat(64));
+
+        let passing = compile(
+            &source,
+            CompileOptions {
+                max_nesting_depth: 64,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(passing.errors.is_empty(), "{:?}", passing.errors);
+
+        let failing = compile(
+            &source,
+            CompileOptions {
+                max_nesting_depth: 63,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(failing.events.is_empty());
+        assert_eq!(failing.errors.len(), 1);
+        assert_eq!(failing.errors[0].code, "NESTING_DEPTH_EXCEEDED");
+    }
+
+    #[test]
     fn reports_unterminated_block_comment() {
         let result = compile("/? orphan eof", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);

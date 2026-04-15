@@ -51,6 +51,8 @@ For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 | --- | --- | --- |
 | `stress-smoke.sh` | Fast cross-implementation smoke run over selected stress fixtures. | `bash ./scripts/stress-smoke.sh --impl all` |
 | `stress-fixtures.py` | Runs curated fixture matrix against TS/Python/Rust CLIs and checks exit/output expectations. | `python3 ./scripts/stress-fixtures.py --impl all` |
+| `stress-fuzz-artifacts.py` | Runs Rust fuzz artifacts through TS/Python/Rust `inspect --json` flows and highlights implementation disagreement. | `python3 ./scripts/stress-fuzz-artifacts.py --only-interesting` |
+| `stress-promote-artifact.py` | Copies a chosen fuzz artifact into the stress-test inbox with triage metadata and review notes. | `python3 ./scripts/stress-promote-artifact.py --artifact ... --slug ...` |
 | `stress-positive-snippets.py` | Executes positive snippet corpora by mode (`transport`, `strict`, `custom`). | `python3 ./scripts/stress-positive-snippets.py --mode strict` |
 | `stress-negative-snippets.py` | Executes negative snippet corpora and checks reject behavior. | `python3 ./scripts/stress-negative-snippets.py --mode strict` |
 | `stress-canonical-snippets.py` | Canonical parity check for snippet corpora across implementations. | `python3 ./scripts/stress-canonical-snippets.py --mode all` |
