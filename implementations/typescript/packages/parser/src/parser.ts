@@ -554,6 +554,25 @@ class Parser {
         }
     }
 
+    private parseContainerValue(): Value {
+        if (!this.check(TokenType.Colon)) {
+            return this.parseValue();
+        }
+
+        const start = this.peek().span.start;
+        this.advance(); // consume :
+        const datatype = this.parseTypeAnnotation();
+        this.consume(TokenType.Equals, "Expected '=' after anonymous type annotation");
+        const value = this.parseValue();
+
+        return {
+            type: 'TypedValue',
+            datatype,
+            value,
+            span: createSpan(start, value.span.end),
+        };
+    }
+
     private projectedOpeningContainerDepth(): number | null {
         let extraDepth = 0;
         for (let index = this.current; index < this.tokens.length; index++) {
@@ -666,7 +685,7 @@ class Parser {
         this.consume(TokenType.LeftParen, "Expected '(' or '>' after node tag");
 
         while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
-            children.push(this.parseValue());
+            children.push(this.parseContainerValue());
             if (!this.check(TokenType.RightParen)) {
                 this.consumeSeparatorOrLineBreak(TokenType.RightParen, 'Expected \',\' or newline between node children');
             }
@@ -767,7 +786,7 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightBracket) && !this.isAtEnd()) {
-            const element = this.parseValue();
+            const element = this.parseContainerValue();
             elements.push(element);
 
             if (!this.check(TokenType.RightBracket)) {
@@ -802,7 +821,7 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
-            const element = this.parseValue();
+            const element = this.parseContainerValue();
             elements.push(element);
 
             if (this.check(TokenType.Comma)) {

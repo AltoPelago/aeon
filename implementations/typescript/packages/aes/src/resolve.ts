@@ -79,6 +79,9 @@ export function resolveRefs(
     }
 
     function resolveValueAtSubpath(value: Value, segments: readonly ReferencePathSegment[]): Value | null {
+        if (value.type === 'TypedValue') {
+            return resolveValueAtSubpath(value.value, segments);
+        }
         if (segments.length === 0) return value;
         const [head, ...rest] = segments;
         if (typeof head === 'object' && head !== null && head.type === 'attr') {
@@ -178,6 +181,10 @@ export function resolveRefs(
 
     function resolveValue(value: Value, sourcePath: string, sourceIndex: number, stack: readonly string[]): Value {
         switch (value.type) {
+            case 'TypedValue': {
+                const next = resolveValue(value.value, sourcePath, sourceIndex, stack);
+                return next !== value.value ? { ...value, value: next } : value;
+            }
             case 'CloneReference':
                 return resolveClone(value, sourcePath, sourceIndex, stack);
             case 'PointerReference':

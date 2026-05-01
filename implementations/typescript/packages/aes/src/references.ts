@@ -174,6 +174,10 @@ export function validateReferences(
 
 function* findReferences(value: Value): Generator<ReferenceNode> {
     switch (value.type) {
+        case 'TypedValue':
+            yield* findReferences(value.value);
+            return;
+
         case 'CloneReference':
         case 'PointerReference':
             yield value;
@@ -219,6 +223,10 @@ function* findReferences(value: Value): Generator<ReferenceNode> {
 
 function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
     switch (value.type) {
+        case 'TypedValue':
+            yield* findOwnedReferences(value.value);
+            return;
+
         case 'CloneReference':
         case 'PointerReference':
             yield value;
@@ -381,8 +389,9 @@ function resolveSubpath(event: AssignmentEvent, remainder: readonly ReferencePat
             };
             continue;
         } else if (typeof segment === 'string') {
-            if (context.value.type !== 'ObjectNode') return false;
-            const binding = context.value.bindings.find((candidate) => candidate.key === segment);
+            const value = unwrapTypedValue(context.value);
+            if (value.type !== 'ObjectNode') return false;
+            const binding = value.bindings.find((candidate) => candidate.key === segment);
             if (!binding) return false;
             const bindingAnnotations = buildAnnotationMap(binding.attributes);
             context = {
@@ -392,8 +401,9 @@ function resolveSubpath(event: AssignmentEvent, remainder: readonly ReferencePat
             continue;
         } else if (typeof segment === 'number') {
             if (segment < 0 || !Number.isInteger(segment)) return false;
-            if (context.value.type !== 'ListNode' && context.value.type !== 'TupleLiteral') return false;
-            const element = context.value.elements[segment];
+            const value = unwrapTypedValue(context.value);
+            if (value.type !== 'ListNode' && value.type !== 'TupleLiteral') return false;
+            const element = value.elements[segment];
             if (!element) return false;
             context = {
                 value: element,
@@ -412,7 +422,11 @@ function selectAnnotations(
     value: Value
 ): ReadonlyMap<string, AttributeEntry> | undefined {
     if (preferred && preferred.size > 0) return preferred;
-    return buildValueAnnotationMap(value);
+    return buildValueAnnotationMap(unwrapTypedValue(value));
+}
+
+function unwrapTypedValue(value: Value): Value {
+    return value.type === 'TypedValue' ? value.value : value;
 }
 
 function buildValueAnnotationMap(value: Value): ReadonlyMap<string, AttributeEntry> | undefined {

@@ -428,6 +428,8 @@ export function validateEnvelopeEvents(
 
 export function serializeCanonicalValue(value: Value): string {
     switch (value.type) {
+        case 'TypedValue':
+            return serializeCanonicalValue(value.value);
         case 'StringLiteral':
             return `"${escapeString(value.value)}"`;
         case 'NumberLiteral':

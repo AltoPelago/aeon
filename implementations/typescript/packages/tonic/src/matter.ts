@@ -465,6 +465,8 @@ function valueToMatterNode(
     errors: Diagnostic[],
 ): MatterAnyNode | null {
     switch (value.type) {
+        case 'TypedValue':
+            return valueToMatterNode(owner, value.value, errors);
         case 'StringLiteral':
             return new MatterScalarNode(owner, value.value, value.span);
         case 'NumberLiteral':
@@ -686,6 +688,8 @@ function isReferenceValue(value: MatterInput): value is MatterReferenceValue {
 
 function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
     switch (value.type) {
+        case 'TypedValue':
+            return scalarValueFromValue(value.value);
         case 'StringLiteral':
             return value.value;
         case 'NumberLiteral':

@@ -221,6 +221,10 @@ class PathResolver {
 
     private resolveValue(value: Value, parentPath: CanonicalPath): void {
         switch (value.type) {
+            case 'TypedValue':
+                this.resolveValue(value.value, parentPath);
+                break;
+
             case 'ObjectNode':
                 this.resolveObject(value, parentPath);
                 break;
@@ -255,19 +259,20 @@ class PathResolver {
                 const element = list.elements[index]!;
                 const indexedPath = extendPathIndex(parentPath, index);
                 this.registerSyntheticValueBinding(String(index), element, indexedPath);
-                this.resolveValue(element, indexedPath);
+                this.resolveValue(unwrapTypedValue(element), indexedPath);
             }
             return;
         }
 
         // Compatibility mode behavior: objects in lists extend parent path without indexes.
         for (const element of list.elements) {
-            if (element.type === 'ObjectNode') {
-                this.resolveObject(element, parentPath);
-            } else if (element.type === 'ListNode') {
-                this.resolveList(element, parentPath);
-            } else if (element.type === 'TupleLiteral') {
-                this.resolveTuple(element, parentPath);
+            const value = unwrapTypedValue(element);
+            if (value.type === 'ObjectNode') {
+                this.resolveObject(value, parentPath);
+            } else if (value.type === 'ListNode') {
+                this.resolveList(value, parentPath);
+            } else if (value.type === 'TupleLiteral') {
+                this.resolveTuple(value, parentPath);
             }
         }
     }
@@ -282,11 +287,13 @@ class PathResolver {
             const element = tuple.elements[index]!;
             const indexedPath = extendPathIndex(parentPath, index);
             this.registerSyntheticValueBinding(String(index), element, indexedPath);
-            this.resolveValue(element, indexedPath);
+            this.resolveValue(unwrapTypedValue(element), indexedPath);
         }
     }
 
     private registerSyntheticValueBinding(key: string, value: Value, path: CanonicalPath): void {
+        const datatype = value.type === 'TypedValue' ? value.datatype : null;
+        const bindingValue = unwrapTypedValue(value);
         const pathString = formatPath(path);
         const existingSpan = this.pathRegistry.get(pathString);
         if (existingSpan) {
@@ -298,8 +305,8 @@ class PathResolver {
         const syntheticBinding: Binding = {
             type: 'Binding',
             key,
-            value,
-            datatype: null,
+            value: bindingValue,
+            datatype,
             attributes: [],
             span: value.span,
         };
@@ -309,4 +316,8 @@ class PathResolver {
             span: value.span,
         });
     }
+}
+
+function unwrapTypedValue(value: Value): Value {
+    return value.type === 'TypedValue' ? value.value : value;
 }

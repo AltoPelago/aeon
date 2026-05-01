@@ -278,6 +278,10 @@ function collectSpanTargets(document: Document): readonly { readonly start: { re
     const visitValue = (value: Value): void => {
         addSpan(value.span);
         switch (value.type) {
+            case 'TypedValue':
+                addSpan(value.datatype.span);
+                visitValue(value.value);
+                break;
             case 'ObjectNode':
                 for (const attribute of value.attributes) {
                     addSpan(attribute.span);

@@ -1104,6 +1104,53 @@ describe('Parser', () => {
             }
         });
 
+        it('should parse anonymous typed node children', () => {
+            const tokens = tokenize('item:node = <page(:string = "hello", <tag>, :int32 = 3)>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            if (value.type === 'NodeLiteral') {
+                assert.strictEqual(value.children[0]!.type, 'TypedValue');
+                assert.strictEqual(value.children[1]!.type, 'NodeLiteral');
+                assert.strictEqual(value.children[2]!.type, 'TypedValue');
+                if (value.children[0]!.type === 'TypedValue') {
+                    assert.strictEqual(value.children[0]!.datatype.name, 'string');
+                    assert.strictEqual(value.children[0]!.value.type, 'StringLiteral');
+                }
+                if (value.children[2]!.type === 'TypedValue') {
+                    assert.strictEqual(value.children[2]!.datatype.name, 'int32');
+                    assert.strictEqual(value.children[2]!.value.type, 'NumberLiteral');
+                }
+            }
+        });
+
+        it('should parse anonymous typed list and tuple elements', () => {
+            const tokens = tokenize('values:list = [:int32 = 3, (:float64 = 10.5, :string = "x")]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'ListNode');
+            if (value.type === 'ListNode') {
+                assert.strictEqual(value.elements[0]!.type, 'TypedValue');
+                assert.strictEqual(value.elements[1]!.type, 'TupleLiteral');
+                if (value.elements[1]!.type === 'TupleLiteral') {
+                    assert.strictEqual(value.elements[1]!.elements[0]!.type, 'TypedValue');
+                    assert.strictEqual(value.elements[1]!.elements[1]!.type, 'TypedValue');
+                }
+            }
+        });
+
+        it('should reject anonymous typed values at root and in objects', () => {
+            const root = parse(tokenize(':string = "hello"').tokens);
+            assert.ok(root.errors.length > 0);
+
+            const object = parse(tokenize('a:object = { :int32 = 3 }').tokens);
+            assert.ok(object.errors.length > 0);
+        });
+
         it('should reject same-line node children without comma separation', () => {
             const tokens = tokenize('item = <tag("x" ~a)>').tokens;
             const result = parse(tokens);

@@ -487,6 +487,25 @@ test('canonicalizes nested node, list, and tuple children inside node introducer
     assert.ok(result.text.includes('  (1, 2)'));
 });
 
+test('canonicalizes anonymous typed values inside value containers', () => {
+    const input = [
+        'page:node = <page(',
+        '  :string = "hello world"',
+        '  <tag>',
+        '  :int32 = 3',
+        ')>',
+        'values:list = [:int32 = 3, :string = "4"]',
+        'pair:tuple = (:float64 = 10.5, :float64 = 2.0)',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes(':string = "hello world"'));
+    assert.ok(result.text.includes(':int32 = 3'));
+    assert.ok(result.text.includes('values:list = [:int32 = 3, :string = "4"]'));
+    assert.ok(result.text.includes('pair:tuple = (:float64 = 10.5, :float64 = 2.0)'));
+});
+
 test('canonicalizes quoted attribute selectors and root-prefixed attribute traversal', () => {
     const input = [
         'aeon:mode = "transport"',

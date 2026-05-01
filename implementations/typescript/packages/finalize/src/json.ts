@@ -228,6 +228,8 @@ function valueToJson(
     datatype?: string
 ): JsonValue {
     switch (value.type) {
+        case 'TypedValue':
+            return valueToJson(value.value, ctx, path, projection, formatDatatypeAnnotation(value.datatype));
         case 'StringLiteral':
             return value.value;
         case 'NumberLiteral': {
@@ -546,6 +548,8 @@ function measureMaterializedWeight(
     }
 
     switch (value.type) {
+        case 'TypedValue':
+            return measureMaterializedWeight(value.value, ctx, currentPath, stack);
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':

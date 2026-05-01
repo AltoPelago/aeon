@@ -210,6 +210,24 @@ describe('Mode Enforcement', () => {
 
             assert.strictEqual(result.errors.length, 0);
         });
+
+        it('should allow optional anonymous typed list elements in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nvalues:list = [:int32 = 3, :string = "4"]');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should reject anonymous typed value mismatches in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nvalues:list = [:int32 = "3"]');
+
+            assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
+        it('should allow untyped anonymous node children in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\npage:node = <page(\"hello\", 3)>');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
     });
 
     // ============================================

@@ -2452,6 +2452,8 @@ function readEnvelopeFieldAny(
 
 function readLiteralString(value: Value): string | null {
     switch (value.type) {
+        case 'TypedValue':
+            return readLiteralString(value.value);
         case 'StringLiteral':
         case 'SeparatorLiteral':
         case 'DateLiteral':
@@ -2768,6 +2770,11 @@ function formatEventLine(event: AssignmentEvent): string {
 function renderValue(value: Record<string, unknown>): string {
     const type = String(value.type);
     switch (type) {
+        case 'TypedValue': {
+            const datatype = value.datatype && typeof value.datatype === 'object' ? (value.datatype as { name?: unknown }).name : null;
+            const inner = value.value && typeof value.value === 'object' ? renderValue(value.value as Record<string, unknown>) : '';
+            return `:${typeof datatype === 'string' ? datatype : 'unknown'} = ${inner}`;
+        }
         case 'StringLiteral':
             return JSON.stringify(String(value.value ?? ''));
         case 'InfinityLiteral':
