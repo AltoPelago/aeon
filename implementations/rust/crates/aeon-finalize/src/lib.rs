@@ -292,6 +292,14 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 #[must_use]
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
+        Value::TypedValue { datatype, value } => json!({
+            "type": "TypedValue",
+            "datatype": {
+                "type": "TypeAnnotation",
+                "name": datatype,
+            },
+            "value": value_to_ast_json(value),
+        }),
         Value::NumberLiteral { raw } => json!({
             "type": "NumberLiteral",
             "raw": raw,
@@ -599,6 +607,18 @@ fn value_to_json_with_active_key(
     }
 
     let result = match value {
+        Value::TypedValue { datatype, value } => value_to_json(
+            value,
+            path,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            Some(datatype),
+            active_paths,
+            tracker,
+        ),
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
         Value::InfinityLiteral { raw } => {
@@ -953,6 +973,9 @@ fn measure_materialized_weight(
     }
 
     match value {
+        Value::TypedValue { value, .. } => {
+            measure_materialized_weight(value, current_path, path_values, tracker, stack)
+        }
         Value::StringLiteral { .. }
         | Value::NumberLiteral { .. }
         | Value::InfinityLiteral { .. }

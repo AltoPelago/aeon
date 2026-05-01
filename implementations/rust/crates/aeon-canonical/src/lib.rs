@@ -35,6 +35,10 @@ struct NodeValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Value {
+    Typed {
+        datatype: String,
+        value: Box<Value>,
+    },
     String(String),
     Number(String),
     Infinity(String),
@@ -261,6 +265,17 @@ fn render_sequence(
 fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     match value {
+        Value::Typed { datatype, value } => {
+            let rendered = render_value_multiline(value, indent);
+            if let Some((first, rest)) = rendered.split_first() {
+                let first = first.strip_prefix(&prefix).unwrap_or(first);
+                let mut lines = vec![format!("{prefix}:{} = {first}", normalize_datatype(datatype))];
+                lines.extend(rest.iter().cloned());
+                lines
+            } else {
+                vec![format!("{prefix}:{} = ", normalize_datatype(datatype))]
+            }
+        }
         Value::String(value) if value.contains('\n') => {
             let mut lines = render_string_lines(value, indent);
             if let Some(first) = lines.first_mut() {
@@ -399,6 +414,9 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 
 fn render_value_inline(value: &Value) -> String {
     match value {
+        Value::Typed { datatype, value } => {
+            format!(":{} = {}", normalize_datatype(datatype), render_value_inline(value))
+        }
         Value::String(value) => format!("\"{}\"", escape_string(value)),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
@@ -485,6 +503,7 @@ fn render_datatype(datatype: Option<&str>) -> String {
 
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
+        Value::Typed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -493,6 +512,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 
 fn is_simple_value(value: &Value) -> bool {
     match value {
+        Value::Typed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -1422,6 +1442,23 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
+        if self.peek() != Some(':') {
+            return self.parse_value();
+        }
+        self.index += 1;
+        self.skip_ws(true);
+        let datatype = self.parse_datatype_like()?;
+        self.skip_ws(true);
+        self.expect_char_message('=', "Expected '=' after anonymous type annotation")?;
+        self.skip_ws(true);
+        let value = self.parse_value()?;
+        Ok(Value::Typed {
+            datatype,
+            value: Box::new(value),
+        })
+    }
+
     fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
         self.expect_char('~')?;
         let is_pointer = if self.peek() == Some('>') {
@@ -1502,7 +1539,7 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
         self.skip_ws(true);
         while self.peek() != Some(terminator) {
-            items.push(self.parse_value()?);
+            items.push(self.parse_anonymous_value()?);
             self.skip_inline_ws();
             if self.peek() == Some(',') || self.peek() == Some('\n') {
                 self.consume_delimiter();
@@ -1708,7 +1745,8 @@ impl<'a> Parser<'a> {
                     bracket_depth -= 1;
                     self.index += 1;
                 }
-                '/' if bracket_depth == 0
+                '/' if self.source[start] != b'$'
+                    && bracket_depth == 0
                     && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
                 {
                     break;
@@ -2227,7 +2265,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
         );
     }
 

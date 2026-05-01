@@ -43,6 +43,12 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('  #ff0000,', result.text)
         self.assertIn('  <y@{kind:string = "swatch"}(#00ff00, "ok")>', result.text)
 
+    def test_canonicalizes_anonymous_typed_node_children(self) -> None:
+        result = canonicalize('aeon:mode = "strict"\npage:node = <page(:string = "hello", <tag>, :int32 = 3)>')
+        self.assertEqual([], result.errors)
+        self.assertIn(':string = "hello",', result.text)
+        self.assertIn(":int32 = 3", result.text)
+
     def test_canonicalizes_infinity_literals(self) -> None:
         result = canonicalize('top:infinity = Infinity\nbottom:infinity = -Infinity')
         self.assertEqual([], result.errors)

@@ -179,22 +179,42 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
-    let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
+    let max_attribute_depth = numeric_flag_value(
+        args,
+        "--max-attribute-depth",
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+    let max_separator_depth = numeric_flag_value(
+        args,
+        "--max-separator-depth",
+        CompileOptions::default().max_separator_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
         )
     })?;
-    let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
+    let max_generic_depth = numeric_flag_value(
+        args,
+        "--max-generic-depth",
+        CompileOptions::default().max_generic_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+    let max_nesting_depth = numeric_flag_value(
+        args,
+        "--max-nesting-depth",
+        CompileOptions::default().max_nesting_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
         )
@@ -298,22 +318,42 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
-    let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
+    let max_attribute_depth = numeric_flag_value(
+        args,
+        "--max-attribute-depth",
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+    let max_separator_depth = numeric_flag_value(
+        args,
+        "--max-separator-depth",
+        CompileOptions::default().max_separator_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
         )
     })?;
-    let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
+    let max_generic_depth = numeric_flag_value(
+        args,
+        "--max-generic-depth",
+        CompileOptions::default().max_generic_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+    let max_nesting_depth = numeric_flag_value(
+        args,
+        "--max-nesting-depth",
+        CompileOptions::default().max_nesting_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
         )
@@ -2025,6 +2065,7 @@ fn serialize_canonical_events(events: &[AssignmentEvent]) -> String {
 
 fn serialize_canonical_value(value: &Value) -> String {
     match value {
+        Value::TypedValue { value, .. } => serialize_canonical_value(value),
         Value::StringLiteral { value, .. } => format!("\"{}\"", escape_json(value)),
         Value::InfinityLiteral { raw } => raw.clone(),
         Value::NaNLiteral { raw } => raw.clone(),
@@ -2472,6 +2513,11 @@ fn render_errors(errors: &[Diagnostic]) -> String {
 
 fn render_value_json_string(value: &Value) -> String {
     match value {
+        Value::TypedValue { datatype, value } => format!(
+            "{{\"type\":\"TypedValue\",\"datatype\":{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}},\"value\":{}}}",
+            escape_json(datatype),
+            render_value_json_string(value)
+        ),
         Value::InfinityLiteral { raw } => format!(
             "{{\"type\":\"InfinityLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
@@ -2643,6 +2689,9 @@ fn format_event_line(event: &AssignmentEvent) -> String {
 
 fn render_human_value(value: &Value) -> String {
     match value {
+        Value::TypedValue { datatype, value } => {
+            format!(":{datatype} = {}", render_human_value(value))
+        }
         Value::StringLiteral { value, .. } => {
             serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
         }
@@ -3009,6 +3058,7 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
+        Value::TypedValue { value, .. } => core_value_to_aeos(value),
         Value::InfinityLiteral { raw } => EventValue {
             value_type: String::from("InfinityLiteral"),
             raw: Some(raw.clone()),
@@ -3354,12 +3404,12 @@ fn write_receipt_sidecar(path: &str, receipt: &JsonValue) -> Result<(), String> 
     fs::write(path, rendered).map_err(|error| format!("failed to write {path}: {error}"))
 }
 
-fn numeric_flag_value(args: &[String], flag: &str) -> Result<usize, String> {
+fn numeric_flag_value(args: &[String], flag: &str, default: usize) -> Result<usize, String> {
     match flag_value(args, flag) {
         Some(value) => value
             .parse::<usize>()
             .map_err(|_| format!("invalid value for {flag}")),
-        None => Ok(1),
+        None => Ok(default),
     }
 }
 

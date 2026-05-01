@@ -33,6 +33,7 @@ from .ast import (
     SwitchLiteral,
     TimeLiteral,
     TupleLiteral,
+    TypedValue,
     TypeAnnotation,
     Value,
 )
@@ -474,6 +475,22 @@ class Parser:
             if counts_toward_nesting:
                 self.current_nesting_depth -= 1
 
+    def parse_anonymous_value(self) -> Value:
+        if not self.check("COLON"):
+            return self.parse_value()
+        start = self.advance().span.start
+        self.skip_layout()
+        datatype = self.parse_type_annotation()
+        self.skip_layout()
+        self.consume("EQUALS", "Expected '=' after anonymous type annotation")
+        self.skip_separators()
+        value = self.parse_value()
+        return TypedValue(
+            datatype=datatype,
+            value=value,
+            span=Span(start=start, end=value.span.end if value.span else self.previous().span.end),
+        )
+
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
@@ -498,7 +515,7 @@ class Parser:
         self.consume("LPAREN", "Expected '(' or '>' after node tag")
         self.skip_layout()
         while not self.check("RPAREN"):
-            children.append(self.parse_value())
+            children.append(self.parse_anonymous_value())
             self.consume_member_delimiter("RPAREN", "Expected node child delimiter")
         self.consume("RPAREN", "Expected ')' to close node children")
         self.skip_layout()
@@ -520,7 +537,7 @@ class Parser:
         elements: list[Value] = []
         self.skip_layout()
         while not self.check("RBRACKET"):
-            elements.append(self.parse_value())
+            elements.append(self.parse_anonymous_value())
             self.consume_member_delimiter("RBRACKET", "Expected list delimiter")
         end = self.consume("RBRACKET", "Expected ']' to close list").span.end
         return ListNode(elements=elements, attributes=[], span=Span(start=start, end=end))
@@ -530,7 +547,7 @@ class Parser:
         elements: list[Value] = []
         self.skip_layout()
         while not self.check("RPAREN"):
-            elements.append(self.parse_value())
+            elements.append(self.parse_anonymous_value())
             if self.check("COMMA"):
                 self.advance()
                 self.skip_layout()

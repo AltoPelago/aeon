@@ -121,6 +121,9 @@ impl<'a> TokenParser<'a> {
         let mut bindings = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
+            if self.check(TokenKind::Colon) {
+                return Err(self.error_at_current("Expected key"));
+            }
             match self.parse_binding() {
                 Ok(binding) => bindings.push(binding),
                 Err(error) if error.code == "SYNTAX_ERROR" && error.message == "Expected key" => {
@@ -506,6 +509,22 @@ impl<'a> TokenParser<'a> {
         result
     }
 
+    fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
+        if !self.match_kind(TokenKind::Colon) {
+            return self.parse_value();
+        }
+        self.skip_newlines();
+        let datatype = self.parse_simple_datatype()?;
+        self.skip_newlines();
+        self.consume(TokenKind::Equals, "Expected `=` after anonymous type annotation")?;
+        self.skip_newlines();
+        let value = self.parse_value()?;
+        Ok(Value::TypedValue {
+            datatype,
+            value: Box::new(value),
+        })
+    }
+
     fn projected_opening_container_depth(&self) -> Option<usize> {
         let mut extra_depth = 0usize;
         for token in &self.tokens[self.current..] {
@@ -740,7 +759,7 @@ impl<'a> TokenParser<'a> {
         let mut items = Vec::new();
         self.skip_newlines();
         while !self.check(TokenKind::RightParen) {
-            items.push(self.parse_value()?);
+            items.push(self.parse_anonymous_value()?);
             if self.match_kind(TokenKind::Comma) {
                 self.skip_newlines();
                 if self.check(TokenKind::RightParen) {
@@ -1080,7 +1099,7 @@ impl<'a> TokenParser<'a> {
         let mut items = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
-            items.push(self.parse_value()?);
+            items.push(self.parse_anonymous_value()?);
             self.consume_member_delimiter(terminator, delimiter_message)?;
         }
         Ok(items)
@@ -1734,6 +1753,53 @@ mod tests {
             parse("content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
                 .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
+    }
+
+    #[test]
+    fn parses_anonymous_typed_container_values_from_tokens() {
+        let bindings = parse(
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>",
+        )
+        .expect("token parse");
+        match &bindings[0].value {
+            Value::ListNode { items } => {
+                assert!(matches!(items[0], Value::TypedValue { .. }));
+                assert!(matches!(items[1], Value::TypedValue { .. }));
+            }
+            other => panic!("expected list literal, got {other:?}"),
+        }
+        match &bindings[1].value {
+            Value::TupleLiteral { items } => {
+                assert!(matches!(items[0], Value::TypedValue { .. }));
+                assert!(matches!(items[1], Value::TypedValue { .. }));
+            }
+            other => panic!("expected tuple literal, got {other:?}"),
+        }
+        match &bindings[2].value {
+            Value::NodeLiteral { children, .. } => {
+                assert!(matches!(children[0], Value::TypedValue { .. }));
+                assert!(matches!(children[2], Value::TypedValue { .. }));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_anonymous_typed_values_from_tokens() {
+        for source in [
+            ":n = 3",
+            "a:n = :n = 3",
+            "a:list = [:n = :n = 3]",
+            "a:node = <tag(:n = :n = 3)>",
+            "a:object = { :n = 3 }",
+            "a:list[ :n = :n = 3 ]",
+            "a:list[ n = 3 ]",
+            "a:list[ : = 3 ]",
+            "a:list[ = 3 ]",
+        ] {
+            let error = parse(source).expect_err("expected syntax error");
+            assert_eq!(error.code, "SYNTAX_ERROR", "{source}");
+        }
     }
 
     #[test]

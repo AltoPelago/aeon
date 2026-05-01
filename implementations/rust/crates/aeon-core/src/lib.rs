@@ -212,6 +212,10 @@ pub enum NullLiteralMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
+    TypedValue {
+        datatype: String,
+        value: Box<Value>,
+    },
     NumberLiteral {
         raw: String,
     },
@@ -334,6 +338,7 @@ impl Value {
     #[must_use]
     pub fn value_kind(&self) -> &'static str {
         match self {
+            Self::TypedValue { .. } => "TypedValue",
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
             Self::NaNLiteral { .. } => "NaNLiteral",
@@ -2030,6 +2035,25 @@ mod tests {
             Value::StringLiteral { .. }
         ));
         assert!(matches!(result.events[1].value, Value::NodeLiteral { .. }));
+    }
+
+    #[test]
+    fn anonymous_typed_sequence_items_emit_indexed_datatypes() {
+        let result = compile(
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.values[0]"].datatype.as_deref(), Some("int32"));
+        assert_eq!(by_path["$.values[1]"].datatype.as_deref(), Some("string"));
+        assert_eq!(by_path["$.pair[0]"].datatype.as_deref(), Some("float64"));
+        assert_eq!(by_path["$.pair[1]"].datatype.as_deref(), Some("float64"));
+        assert!(matches!(by_path["$.page"].value, Value::NodeLiteral { .. }));
     }
 
     #[test]

@@ -212,6 +212,8 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
     ctx.active_paths.append(path)
     try:
         value_type = value.get("type")
+        if value_type == "TypedValue":
+            return value_to_json(value.get("value"), ctx, path, value.get("datatype"))
         if value_type == "StringLiteral":
             return value.get("value")
         if value_type == "NumberLiteral":
