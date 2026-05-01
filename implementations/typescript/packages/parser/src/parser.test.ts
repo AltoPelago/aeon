@@ -1151,6 +1151,29 @@ describe('Parser', () => {
             assert.ok(object.errors.length > 0);
         });
 
+        it('should reject nested anonymous typed values', () => {
+            const bindingValue = parse(tokenize('a:n = :n = 3').tokens);
+            assert.ok(bindingValue.errors.length > 0);
+
+            const listElement = parse(tokenize('a:list = [:n = :n = 3]').tokens);
+            assert.ok(listElement.errors.length > 0);
+
+            const malformedListHead = parse(tokenize('a:list[ :n = :n = 3 ]').tokens);
+            assert.ok(malformedListHead.errors.length > 0);
+
+            const malformedListHeadEntry = parse(tokenize('a:list[ n = 3 ]').tokens);
+            assert.ok(malformedListHeadEntry.errors.length > 0);
+
+            const malformedListHeadEmptyType = parse(tokenize('a:list[ : = 3 ]').tokens);
+            assert.ok(malformedListHeadEmptyType.errors.length > 0);
+
+            const malformedListHeadMissingElement = parse(tokenize('a:list[ = 3 ]').tokens);
+            assert.ok(malformedListHeadMissingElement.errors.length > 0);
+
+            const nodeChild = parse(tokenize('a:node = <tag(:n = :n = 3)>').tokens);
+            assert.ok(nodeChild.errors.length > 0);
+        });
+
         it('should reject same-line node children without comma separation', () => {
             const tokens = tokenize('item = <tag("x" ~a)>').tokens;
             const result = parse(tokens);
