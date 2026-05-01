@@ -595,6 +595,22 @@ fn value_to_json_with_active_key(
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
+    if let Value::TypedValue { datatype, value } = value {
+        return value_to_json_with_active_key(
+            value,
+            path,
+            active_key,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            Some(datatype),
+            active_paths,
+            tracker,
+        );
+    }
+
     let inserted = active_paths.insert(String::from(active_key));
     if !inserted {
         let diag = Diagnostic::new(
@@ -607,18 +623,7 @@ fn value_to_json_with_active_key(
     }
 
     let result = match value {
-        Value::TypedValue { datatype, value } => value_to_json(
-            value,
-            path,
-            projection,
-            path_values,
-            mode,
-            errors,
-            warnings,
-            Some(datatype),
-            active_paths,
-            tracker,
-        ),
+        Value::TypedValue { .. } => unreachable!("typed values are unwrapped before finalization"),
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
         Value::InfinityLiteral { raw } => {
@@ -1656,6 +1661,34 @@ mod tests {
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document["name"], json!("AEON"));
         assert_eq!(finalized.document["flags"], json!([true, false]));
+    }
+
+    #[test]
+    fn finalizes_anonymous_typed_values_without_reference_cycles() {
+        let source = "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n";
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+
+        assert!(
+            finalized.meta.errors.is_empty(),
+            "{:?}",
+            finalized.meta.errors
+        );
+        assert_eq!(finalized.document["values"], json!([3, "4"]));
+        assert_eq!(finalized.document["pair"], json!([10.5, 2.0]));
+        assert_eq!(
+            finalized.document["page"],
+            json!({
+                "$node": "page",
+                "$children": [
+                    "hello",
+                    { "$node": "tag", "$children": [] },
+                    3
+                ]
+            })
+        );
     }
 
     #[test]
