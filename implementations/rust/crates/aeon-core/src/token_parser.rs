@@ -515,17 +515,41 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if !self.match_kind(TokenKind::Colon) {
+        if !self.check(TokenKind::Colon) && !self.check(TokenKind::At) {
             return self.parse_value();
         }
+        let mut attributes = BTreeMap::new();
+        let mut attribute_order = Vec::new();
+        if self.check(TokenKind::At) {
+            let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
+            for key in parsed_order {
+                if !attributes.contains_key(&key) {
+                    attribute_order.push(key.clone());
+                }
+            }
+            attributes.extend(parsed_attrs);
+            self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before an anonymous value datatype",
+                ));
+            }
+        }
         self.skip_newlines();
-        let datatype = self.parse_simple_datatype()?;
+        let datatype = if self.match_kind(TokenKind::Colon) {
+            self.skip_newlines();
+            Some(self.parse_simple_datatype()?)
+        } else {
+            None
+        };
         self.skip_newlines();
-        self.consume(TokenKind::Equals, "Expected `=` after anonymous type annotation")?;
+        self.consume(TokenKind::Equals, "Expected `=` after anonymous value head")?;
         self.skip_newlines();
         let value = self.parse_value()?;
         Ok(Value::TypedValue {
             datatype,
+            attributes,
+            attribute_order,
             value: Box::new(value),
         })
     }
@@ -1809,6 +1833,36 @@ mod tests {
     }
 
     #[test]
+    fn parses_anonymous_attributed_container_values_from_tokens() {
+        let bindings = parse(
+            "values:list = [@{unit:string=\"cm\"} = 3, @{unit:string=\"cm\", precision:n=2}:n = 4]",
+        )
+        .expect("token parse");
+        match &bindings[0].value {
+            Value::ListNode { items } => {
+                match &items[0] {
+                    Value::TypedValue { datatype, attributes, .. } => {
+                        assert!(datatype.is_none());
+                        assert_eq!(attributes.len(), 1);
+                        assert!(attributes.contains_key("unit"));
+                    }
+                    other => panic!("expected typed wrapper, got {other:?}"),
+                }
+                match &items[1] {
+                    Value::TypedValue { datatype, attributes, .. } => {
+                        assert_eq!(datatype.as_deref(), Some("n"));
+                        assert_eq!(attributes.len(), 2);
+                        assert!(attributes.contains_key("unit"));
+                        assert!(attributes.contains_key("precision"));
+                    }
+                    other => panic!("expected typed wrapper, got {other:?}"),
+                }
+            }
+            other => panic!("expected list literal, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_malformed_anonymous_typed_values_from_tokens() {
         for source in [
             ":n = 3",
@@ -1820,6 +1874,7 @@ mod tests {
             "a:list[ n = 3 ]",
             "a:list[ : = 3 ]",
             "a:list[ = 3 ]",
+            "a:list = [@{unit:n=3}@{a:n=2}:n = 3]",
         ] {
             let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR", "{source}");

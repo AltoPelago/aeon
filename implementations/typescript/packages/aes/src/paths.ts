@@ -237,6 +237,10 @@ class PathResolver {
                 this.resolveTuple(value, parentPath);
                 break;
 
+            case 'NodeLiteral':
+                this.resolveNode(value, parentPath);
+                break;
+
             // All other value types do NOT produce paths
             // (literals, references, etc.)
             default:
@@ -291,8 +295,22 @@ class PathResolver {
         }
     }
 
+    private resolveNode(node: Extract<Value, { type: 'NodeLiteral' }>, parentPath: CanonicalPath): void {
+        if (!this.options.indexedPaths) {
+            return;
+        }
+
+        for (let index = 0; index < node.children.length; index++) {
+            const child = node.children[index]!;
+            const indexedPath = extendPathIndex(parentPath, index);
+            this.registerSyntheticValueBinding(String(index), child, indexedPath);
+            this.resolveValue(unwrapTypedValue(child), indexedPath);
+        }
+    }
+
     private registerSyntheticValueBinding(key: string, value: Value, path: CanonicalPath): void {
         const datatype = value.type === 'TypedValue' ? value.datatype : null;
+        const attributes = value.type === 'TypedValue' ? value.attributes : [];
         const bindingValue = unwrapTypedValue(value);
         const pathString = formatPath(path);
         const existingSpan = this.pathRegistry.get(pathString);
@@ -307,7 +325,7 @@ class PathResolver {
             key,
             value: bindingValue,
             datatype,
-            attributes: [],
+            attributes,
             span: value.span,
         };
         this.bindings.push({

@@ -265,11 +265,12 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
     switch (value.type) {
         case 'TypedValue': {
             const rendered = renderValue(value.value, indent, opts);
+            const head = `${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
             if (rendered.length === 0) {
-                return [`${formatDatatypeAnnotation(value.datatype)} = `];
+                return [`${head} = `];
             }
             const first = rendered[0] ?? '';
-            return [`${formatDatatypeAnnotation(value.datatype)} = ${first}`, ...rendered.slice(1)];
+            return [`${head} = ${first}`, ...rendered.slice(1)];
         }
         case 'StringLiteral':
             return formatStringLines(value.value, indent);
@@ -428,7 +429,7 @@ function renderValueInline(value: Value): string {
 function renderCompactInlineValue(value: Value): string {
     switch (value.type) {
         case 'TypedValue':
-            return `${formatDatatypeAnnotation(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
+            return `${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
         case 'StringLiteral':
             return formatString(value.value);
         case 'NumberLiteral':

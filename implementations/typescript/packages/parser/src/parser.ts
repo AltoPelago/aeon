@@ -563,19 +563,37 @@ class Parser {
     }
 
     private parseContainerValue(): Value {
-        if (!this.check(TokenType.Colon)) {
+        if (!this.check(TokenType.Colon) && !this.check(TokenType.At)) {
             return this.parseValue();
         }
 
         const start = this.peek().span.start;
-        this.advance(); // consume :
-        const datatype = this.parseTypeAnnotation();
-        this.consume(TokenType.Equals, "Expected '=' after anonymous type annotation");
+        const attributes: Attribute[] = [];
+        if (this.check(TokenType.At)) {
+            attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before an anonymous value datatype',
+                    this.peek().span,
+                    ': or =',
+                    this.peek().value
+                );
+            }
+        }
+
+        let datatype: TypeAnnotation | null = null;
+        if (this.check(TokenType.Colon)) {
+            this.advance(); // consume :
+            datatype = this.parseTypeAnnotation();
+        }
+
+        this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
         const value = this.parseValue();
 
         return {
             type: 'TypedValue',
             datatype,
+            attributes,
             value,
             span: createSpan(start, value.span.end),
         };

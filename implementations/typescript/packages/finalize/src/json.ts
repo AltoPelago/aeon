@@ -229,7 +229,13 @@ function valueToJson(
 ): JsonValue {
     switch (value.type) {
         case 'TypedValue':
-            return valueToJson(value.value, ctx, path, projection, formatDatatypeAnnotation(value.datatype));
+            return valueToJson(
+                value.value,
+                ctx,
+                path,
+                projection,
+                value.datatype ? formatDatatypeAnnotation(value.datatype) : datatype
+            );
         case 'StringLiteral':
             return value.value;
         case 'NumberLiteral': {

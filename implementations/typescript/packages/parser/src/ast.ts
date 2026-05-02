@@ -107,11 +107,13 @@ export type Value =
     | PointerReference;
 
 /**
- * Anonymous typed value (:type = value), valid only inside value containers.
+ * Anonymous headed value (:type = value, @{...} = value, or @{...}:type = value),
+ * valid only inside value containers.
  */
 export interface TypedValue extends ASTNode {
     readonly type: 'TypedValue';
-    readonly datatype: TypeAnnotation;
+    readonly datatype: TypeAnnotation | null;
+    readonly attributes: readonly Attribute[];
     readonly value: Value;
 }
 

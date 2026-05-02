@@ -260,6 +260,7 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
         for index, element in enumerate(elements):
             element_value = unwrap_typed_value(element)
             element_datatype = format_datatype(element.datatype) if isinstance(element, TypedValue) else None
+            element_annotations = build_annotations(element.attributes) if isinstance(element, TypedValue) else None
             element_path = extend_index(parent, index)
             path_str = format_path(element_path)
             if path_str in seen:
@@ -273,10 +274,33 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     value=element_value,
                     span=element.span,
                     datatype=element_datatype,
-                    annotations=None,
+                    annotations=element_annotations,
                 )
             )
             resolve_value(element_value, element_path, bindings, errors, seen)
+        return
+    if isinstance(value, NodeLiteral):
+        for index, child in enumerate(value.children):
+            child_value = unwrap_typed_value(child)
+            child_datatype = format_datatype(child.datatype) if isinstance(child, TypedValue) else None
+            child_annotations = build_annotations(child.attributes) if isinstance(child, TypedValue) else None
+            child_path = extend_index(parent, index)
+            path_str = format_path(child_path)
+            if path_str in seen:
+                errors.append(DuplicateCanonicalPathError(path_str, child.span))
+                continue
+            seen.add(path_str)
+            bindings.append(
+                ResolvedBinding(
+                    path=child_path,
+                    key=str(index),
+                    value=child_value,
+                    span=child.span,
+                    datatype=child_datatype,
+                    annotations=child_annotations,
+                )
+            )
+            resolve_value(child_value, child_path, bindings, errors, seen)
 
 
 def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object]] | None:
@@ -726,6 +750,8 @@ def select_annotations(
 
 
 def build_value_annotations(value: Value) -> dict[str, dict[str, object]] | None:
+    if isinstance(value, TypedValue) and value.attributes:
+        return build_annotations(value.attributes)
     value = unwrap_typed_value(value)
     if not isinstance(value, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
         return None

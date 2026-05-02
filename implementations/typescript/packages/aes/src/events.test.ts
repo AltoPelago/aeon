@@ -121,6 +121,27 @@ describe('Assignment Event Emission', () => {
             assert.ok(event);
             assert.strictEqual(event.normalizedPath, 'contacts[*].email');
         });
+
+        it('should emit events for node children and nested object bindings', () => {
+            const result = emit('page:node = <page({a = 1}, "hello")>');
+
+            assert.strictEqual(result.errors.length, 0);
+            const paths = result.events.map((e) => formatPath(e.path));
+            assert.ok(paths.includes('$.page'));
+            assert.ok(paths.includes('$.page[0]'));
+            assert.ok(paths.includes('$.page[0].a'));
+            assert.ok(paths.includes('$.page[1]'));
+        });
+
+        it('should emit anonymous child annotations on indexed child events', () => {
+            const result = emit('page:node = <page(@{unit:string="cm"}:int32 = 3)>');
+            const child = result.events.find((e) => formatPath(e.path) === '$.page[0]');
+
+            assert.ok(child);
+            assert.strictEqual(child!.datatype, 'int32');
+            assert.strictEqual(child!.annotations?.get('unit')?.datatype, 'string');
+            assert.strictEqual(child!.annotations?.get('unit')?.value.type, 'StringLiteral');
+        });
     });
 
     // ============================================

@@ -279,7 +279,27 @@ function collectSpanTargets(document: Document): readonly { readonly start: { re
         addSpan(value.span);
         switch (value.type) {
             case 'TypedValue':
-                addSpan(value.datatype.span);
+                if (value.datatype) {
+                    addSpan(value.datatype.span);
+                }
+                for (const attribute of value.attributes) {
+                    addSpan(attribute.span);
+                    for (const [, entry] of attribute.entries) {
+                        for (const nestedAttribute of entry.attributes) {
+                            addSpan(nestedAttribute.span);
+                            for (const [, nestedEntry] of nestedAttribute.entries) {
+                                addSpan(nestedEntry.value.span);
+                                if (nestedEntry.datatype) {
+                                    addSpan(nestedEntry.datatype.span);
+                                }
+                            }
+                        }
+                        addSpan(entry.value.span);
+                        if (entry.datatype) {
+                            addSpan(entry.datatype.span);
+                        }
+                    }
+                }
                 visitValue(value.value);
                 break;
             case 'ObjectNode':

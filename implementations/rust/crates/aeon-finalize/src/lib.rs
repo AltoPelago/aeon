@@ -292,12 +292,12 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 #[must_use]
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
-        Value::TypedValue { datatype, value } => json!({
+        Value::TypedValue { datatype, value, .. } => json!({
             "type": "TypedValue",
-            "datatype": {
+            "datatype": datatype.as_ref().map(|name| json!({
                 "type": "TypeAnnotation",
-                "name": datatype,
-            },
+                "name": name,
+            })),
             "value": value_to_ast_json(value),
         }),
         Value::NumberLiteral { raw } => json!({
@@ -595,7 +595,7 @@ fn value_to_json_with_active_key(
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
-    if let Value::TypedValue { datatype, value } = value {
+    if let Value::TypedValue { datatype, value, .. } = value {
         return value_to_json_with_active_key(
             value,
             path,
@@ -605,7 +605,7 @@ fn value_to_json_with_active_key(
             mode,
             errors,
             warnings,
-            Some(datatype),
+            datatype.as_deref(),
             active_paths,
             tracker,
         );

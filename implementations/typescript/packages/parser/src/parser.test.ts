@@ -1124,12 +1124,36 @@ describe('Parser', () => {
                 assert.strictEqual(value.children[1]!.type, 'NodeLiteral');
                 assert.strictEqual(value.children[2]!.type, 'TypedValue');
                 if (value.children[0]!.type === 'TypedValue') {
-                    assert.strictEqual(value.children[0]!.datatype.name, 'string');
+                    assert.strictEqual(value.children[0]!.datatype?.name, 'string');
+                    assert.strictEqual(value.children[0]!.attributes.length, 0);
                     assert.strictEqual(value.children[0]!.value.type, 'StringLiteral');
                 }
                 if (value.children[2]!.type === 'TypedValue') {
-                    assert.strictEqual(value.children[2]!.datatype.name, 'int32');
+                    assert.strictEqual(value.children[2]!.datatype?.name, 'int32');
+                    assert.strictEqual(value.children[2]!.attributes.length, 0);
                     assert.strictEqual(value.children[2]!.value.type, 'NumberLiteral');
+                }
+            }
+        });
+
+        it('should parse anonymous attributed container values', () => {
+            const tokens = tokenize('values:list = [@{unit:string="cm"} = 3, @{unit:string="cm", precision:n=2}:n = 4]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'ListNode');
+            if (value.type === 'ListNode') {
+                assert.strictEqual(value.elements[0]!.type, 'TypedValue');
+                assert.strictEqual(value.elements[1]!.type, 'TypedValue');
+                if (value.elements[0]!.type === 'TypedValue') {
+                    assert.strictEqual(value.elements[0]!.datatype, null);
+                    assert.strictEqual(value.elements[0]!.attributes.length, 1);
+                }
+                if (value.elements[1]!.type === 'TypedValue') {
+                    assert.strictEqual(value.elements[1]!.datatype?.name, 'n');
+                    assert.strictEqual(value.elements[1]!.attributes.length, 1);
+                    assert.strictEqual(value.elements[1]!.attributes[0]!.entries.size, 2);
                 }
             }
         });
@@ -1180,6 +1204,9 @@ describe('Parser', () => {
 
             const nodeChild = parse(tokenize('a:node = <tag(:n = :n = 3)>').tokens);
             assert.ok(nodeChild.errors.length > 0);
+
+            const repeatedAttributeBlock = parse(tokenize('a:list = [@{unit:n=3}@{a:n=2}:n = 3]').tokens);
+            assert.ok(repeatedAttributeBlock.errors.length > 0);
         });
 
         it('should reject same-line node children without comma separation', () => {

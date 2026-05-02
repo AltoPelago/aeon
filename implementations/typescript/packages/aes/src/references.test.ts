@@ -149,6 +149,12 @@ describe('Reference Validation', () => {
 
             assert.strictEqual(result.errors.length, 0);
         });
+
+        it('should allow backward references to indexed node children', () => {
+            const result = validate('page:node = <page({a:n=1, b:n=2})>\nref = ~page[0].a', true);
+
+            assert.strictEqual(result.errors.length, 0);
+        });
     });
 
     // ============================================

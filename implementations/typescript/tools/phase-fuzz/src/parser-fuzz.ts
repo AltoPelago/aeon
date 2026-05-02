@@ -174,6 +174,13 @@ function normalizeValue(value: Value): object {
     };
 
     switch (value.type) {
+        case 'TypedValue':
+            return {
+                ...base,
+                datatype: value.datatype ? normalizeNode(value.datatype) : null,
+                attributes: value.attributes.map(normalizeNode),
+                value: normalizeValue(value.value),
+            };
         case 'StringLiteral':
             return { ...base, value: value.value, raw: value.raw, delimiter: value.delimiter };
         case 'NumberLiteral':
@@ -281,6 +288,15 @@ function validateValue(value: Value, parentSpan: Span, sourceLength: number, cas
     ensureWithin(value.span, parentSpan, caseId);
 
     switch (value.type) {
+        case 'TypedValue':
+            if (value.datatype) {
+                validateNode(value.datatype, value.span, sourceLength, caseId);
+            }
+            for (const attribute of value.attributes) {
+                validateNode(attribute, value.span, sourceLength, caseId);
+            }
+            validateValue(value.value, value.span, sourceLength, caseId);
+            return;
         case 'ObjectNode':
             for (const attribute of value.attributes) {
                 validateNode(attribute, value.span, sourceLength, caseId);

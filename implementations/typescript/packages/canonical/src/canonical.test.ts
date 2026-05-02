@@ -506,6 +506,15 @@ test('canonicalizes anonymous typed values inside value containers', () => {
     assert.ok(result.text.includes('pair:tuple = (:float64 = 10.5, :float64 = 2.0)'));
 });
 
+test('canonicalizes anonymous attributed values inside value containers', () => {
+    const input = 'values:list = [@{unit:string = "cm"} = 3, @{precision:n = 2, unit:string = "cm"}:n = 4]';
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('@{unit:string = "cm"} = 3'));
+    assert.ok(result.text.includes('@{precision:n = 2, unit:string = "cm"}:n = 4'));
+});
+
 test('canonicalizes quoted attribute selectors and root-prefixed attribute traversal', () => {
     const input = [
         'aeon:mode = "transport"',

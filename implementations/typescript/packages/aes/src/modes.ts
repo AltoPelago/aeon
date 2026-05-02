@@ -463,27 +463,29 @@ function validateAnonymousTypedValues(
     const errors: ModeEnforcementError[] = [];
 
     if (value.type === 'TypedValue') {
-        const datatype = formatTypeAnnotation(value.datatype);
-        const expectedKinds = expectedKindsForReservedDatatype(datatype);
-        if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
-            errors.push(new CustomDatatypeNotAllowedError(value.span, ownerPath, datatype));
-        } else {
-            const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
-            const actualKind = resolvedValueKind(resolved);
-            if (mode === 'strict' && !expectedKinds && actualKind === 'SwitchLiteral') {
-                errors.push(new CustomSwitchAliasNotAllowedError(value.span, ownerPath, datatype));
-            } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
-                errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
-            } else if (!expectedKinds) {
-                const customShape = classifyCustomDatatypeShape(datatype);
-                if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
-                    errors.push(new InvalidCustomDatatypeBracketShapeError(value.span, ownerPath, datatype, actualKind));
-                } else {
-                    const customExpectedKinds = expectedKindsForCustomDatatype(datatype, customShape);
-                    if (customExpectedKinds && customExpectedKinds.length === 0) {
-                        errors.push(new IncompatibleCustomDatatypeAdornmentsError(value.span, ownerPath, datatype, actualKind));
-                    } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                        errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
+        if (value.datatype) {
+            const datatype = formatTypeAnnotation(value.datatype);
+            const expectedKinds = expectedKindsForReservedDatatype(datatype);
+            if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
+                errors.push(new CustomDatatypeNotAllowedError(value.span, ownerPath, datatype));
+            } else {
+                const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
+                const actualKind = resolvedValueKind(resolved);
+                if (mode === 'strict' && !expectedKinds && actualKind === 'SwitchLiteral') {
+                    errors.push(new CustomSwitchAliasNotAllowedError(value.span, ownerPath, datatype));
+                } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
+                    errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
+                } else if (!expectedKinds) {
+                    const customShape = classifyCustomDatatypeShape(datatype);
+                    if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
+                        errors.push(new InvalidCustomDatatypeBracketShapeError(value.span, ownerPath, datatype, actualKind));
+                    } else {
+                        const customExpectedKinds = expectedKindsForCustomDatatype(datatype, customShape);
+                        if (customExpectedKinds && customExpectedKinds.length === 0) {
+                            errors.push(new IncompatibleCustomDatatypeAdornmentsError(value.span, ownerPath, datatype, actualKind));
+                        } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                            errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
+                        }
                     }
                 }
             }
@@ -811,6 +813,9 @@ function selectAnnotations(
     value: Value
 ): ReadonlyMap<string, AttributeEntry> | undefined {
     if (preferred && preferred.size > 0) return preferred;
+    if (value.type === 'TypedValue' && value.attributes.length > 0) {
+        return buildAnnotationMap(value.attributes);
+    }
     return buildValueAnnotationMap(unwrapTypedValue(value));
 }
 

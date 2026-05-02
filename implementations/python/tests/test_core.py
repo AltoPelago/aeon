@@ -75,6 +75,28 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("float64", by_path["$.pair[0]"]["datatype"])
         self.assertEqual("float64", by_path["$.pair[1]"]["datatype"])
         self.assertEqual("NodeLiteral", by_path["$.page"]["value"]["type"])
+        self.assertEqual("string", by_path["$.page[0]"]["datatype"])
+        self.assertEqual("NodeLiteral", by_path["$.page[1]"]["value"]["type"])
+        self.assertEqual("int32", by_path["$.page[2]"]["datatype"])
+
+    def test_node_children_emit_indexed_paths_and_descendants(self) -> None:
+        result = compile_source('page:node = <page({a:n = 1, b:n = 2}, "hello")>')
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertIn("$.page", by_path)
+        self.assertIn("$.page[0]", by_path)
+        self.assertIn("$.page[0].a", by_path)
+        self.assertIn("$.page[0].b", by_path)
+        self.assertIn("$.page[1]", by_path)
+
+    def test_anonymous_attributed_values_emit_indexed_annotations(self) -> None:
+        result = compile_source('page:node = <page(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.internal_events}
+        self.assertEqual("int32", by_path["$.page[0]"]["datatype"])
+        self.assertEqual("string", by_path["$.page[0]"]["annotations"]["unit"]["datatype"])
+        self.assertIsNone(by_path["$.values[0]"]["datatype"])
+        self.assertEqual("string", by_path["$.values[0]"]["annotations"]["unit"]["datatype"])
 
     def test_anonymous_typed_value_rejections(self) -> None:
         for source in [
@@ -87,6 +109,7 @@ class CoreCompileTests(unittest.TestCase):
             "a:list[ n = 3 ]",
             "a:list[ : = 3 ]",
             "a:list[ = 3 ]",
+            "a:list = [@{unit:n=3}@{a:n=2}:n = 3]",
         ]:
             with self.subTest(source=source):
                 result = compile_source(source)

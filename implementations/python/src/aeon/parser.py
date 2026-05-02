@@ -478,17 +478,27 @@ class Parser:
                 self.current_nesting_depth -= 1
 
     def parse_anonymous_value(self) -> Value:
-        if not self.check("COLON"):
+        if not self.check("COLON") and not self.check("AT"):
             return self.parse_value()
-        start = self.advance().span.start
+        start = self.peek().span.start
+        attributes: list[Attribute] = []
+        if self.check("AT"):
+            attributes.append(self.parse_attribute(1))
+            self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before an anonymous value datatype", self.peek().span)
+        datatype = None
+        if self.check("COLON"):
+            self.advance()
+            self.skip_layout()
+            datatype = self.parse_type_annotation()
         self.skip_layout()
-        datatype = self.parse_type_annotation()
-        self.skip_layout()
-        self.consume("EQUALS", "Expected '=' after anonymous type annotation")
+        self.consume("EQUALS", "Expected '=' after anonymous value head")
         self.skip_separators()
         value = self.parse_value()
         return TypedValue(
             datatype=datatype,
+            attributes=attributes,
             value=value,
             span=Span(start=start, end=value.span.end if value.span else self.previous().span.end),
         )

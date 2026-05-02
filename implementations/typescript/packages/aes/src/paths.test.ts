@@ -176,6 +176,20 @@ describe('Canonical Path Resolution', () => {
             assert.ok(paths.includes('$.items[1]'));
             assert.ok(paths.includes('$.items[2]'));
         });
+
+        it('should emit indexed node child paths in core v1 indexed mode', () => {
+            const tokens = tokenize('page:node = <page({a = 1}, "hello")>').tokens;
+            const ast = parse(tokens);
+            assert.ok(ast.document);
+            const result = resolvePaths(ast.document!, { indexedPaths: true });
+
+            assert.strictEqual(result.errors.length, 0);
+            const paths = result.bindings.map((b) => formatPath(b.path));
+            assert.ok(paths.includes('$.page'));
+            assert.ok(paths.includes('$.page[0]'));
+            assert.ok(paths.includes('$.page[0].a'));
+            assert.ok(paths.includes('$.page[1]'));
+        });
     });
 
     // ============================================

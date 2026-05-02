@@ -213,7 +213,9 @@ pub enum NullLiteralMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     TypedValue {
-        datatype: String,
+        datatype: Option<String>,
+        attributes: BTreeMap<String, AttributeValue>,
+        attribute_order: Vec<String>,
         value: Box<Value>,
     },
     NumberLiteral {
@@ -2029,7 +2031,7 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.events.len(), 4);
         assert!(matches!(
             result.events[0].value,
             Value::StringLiteral { .. }
@@ -2054,6 +2056,52 @@ mod tests {
         assert_eq!(by_path["$.pair[0]"].datatype.as_deref(), Some("float64"));
         assert_eq!(by_path["$.pair[1]"].datatype.as_deref(), Some("float64"));
         assert!(matches!(by_path["$.page"].value, Value::NodeLiteral { .. }));
+        assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("string"));
+        assert!(matches!(by_path["$.page[1]"].value, Value::NodeLiteral { .. }));
+        assert_eq!(by_path["$.page[2]"].datatype.as_deref(), Some("int32"));
+    }
+
+    #[test]
+    fn anonymous_attributed_sequence_items_emit_indexed_annotations() {
+        let result = compile(
+            "page:node = <page(@{unit:string=\"cm\"}:int32 = 3)>\nvalues:list = [@{unit:string=\"cm\"} = 4]\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("int32"));
+        assert_eq!(
+            by_path["$.page[0]"].annotations.get("unit").and_then(|value| value.datatype.as_deref()),
+            Some("string")
+        );
+        assert!(by_path["$.values[0]"].datatype.is_none());
+        assert_eq!(
+            by_path["$.values[0]"].annotations.get("unit").and_then(|value| value.datatype.as_deref()),
+            Some("string")
+        );
+    }
+
+    #[test]
+    fn node_children_emit_indexed_paths_and_descendants() {
+        let result = compile(
+            "page:node = <page({a:n = 1, b:n = 2}, \"hello\")>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(by_path.contains_key("$.page"));
+        assert!(by_path.contains_key("$.page[0]"));
+        assert!(by_path.contains_key("$.page[0].a"));
+        assert!(by_path.contains_key("$.page[0].b"));
+        assert!(by_path.contains_key("$.page[1]"));
     }
 
     #[test]
@@ -2168,9 +2216,14 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
-        assert!(matches!(result.events[0].value, Value::NodeLiteral { .. }));
-        assert!(matches!(result.events[1].value, Value::NodeLiteral { .. }));
+        assert_eq!(result.events.len(), 10);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(matches!(by_path["$.n"].value, Value::NodeLiteral { .. }));
+        assert!(matches!(by_path["$.s"].value, Value::NodeLiteral { .. }));
     }
 
     #[test]
@@ -2180,7 +2233,7 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.events.len(), 3);
     }
 
     #[test]

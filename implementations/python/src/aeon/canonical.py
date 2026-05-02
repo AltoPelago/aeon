@@ -163,9 +163,10 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
 
     if isinstance(value, TypedValue):
         rendered = render_value(value.value, indent, inline_only) if value.value is not None else [""]
+        head = f"{render_attributes(value.attributes)}{render_type(value.datatype)}"
         if not rendered:
-            return [f"{render_type(value.datatype)} = "]
-        return [f"{render_type(value.datatype)} = {rendered[0]}", *rendered[1:]]
+            return [f"{head} = "]
+        return [f"{head} = {rendered[0]}", *rendered[1:]]
     if isinstance(value, StringLiteral):
         return format_string_lines(value.value, indent)
     if isinstance(value, NumberLiteral):
@@ -293,6 +294,8 @@ def render_value_inline(value: Value) -> str:
 
 
 def render_compact_inline_value(value: Value) -> str:
+    if isinstance(value, TypedValue):
+        return f"{render_attributes(value.attributes)}{render_type(value.datatype)} = {render_compact_inline_value(value.value)}"
     if isinstance(value, StringLiteral):
         return format_string(value.value)
     if isinstance(value, NumberLiteral):

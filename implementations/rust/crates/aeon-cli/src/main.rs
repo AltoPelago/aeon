@@ -11,8 +11,8 @@ use aeon_aeos::{
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
-    ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode,
+    PathSegment, ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -2513,11 +2513,17 @@ fn render_errors(errors: &[Diagnostic]) -> String {
 
 fn render_value_json_string(value: &Value) -> String {
     match value {
-        Value::TypedValue { datatype, value } => format!(
-            "{{\"type\":\"TypedValue\",\"datatype\":{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}},\"value\":{}}}",
-            escape_json(datatype),
-            render_value_json_string(value)
-        ),
+        Value::TypedValue { datatype, value, .. } => {
+            let datatype_json = datatype
+                .as_ref()
+                .map(|name| format!("{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}", escape_json(name)))
+                .unwrap_or_else(|| String::from("null"));
+            format!(
+                "{{\"type\":\"TypedValue\",\"datatype\":{},\"value\":{}}}",
+                datatype_json,
+                render_value_json_string(value)
+            )
+        }
         Value::InfinityLiteral { raw } => format!(
             "{{\"type\":\"InfinityLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
@@ -2689,8 +2695,24 @@ fn format_event_line(event: &AssignmentEvent) -> String {
 
 fn render_human_value(value: &Value) -> String {
     match value {
-        Value::TypedValue { datatype, value } => {
-            format!(":{datatype} = {}", render_human_value(value))
+        Value::TypedValue { datatype, attributes, value, .. } => {
+            let mut head = String::new();
+            if !attributes.is_empty() {
+                head.push('@');
+                head.push('{');
+                let rendered = attributes
+                    .iter()
+                    .map(|(key, entry)| format_attribute_entry(key, entry))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                head.push_str(&rendered);
+                head.push('}');
+            }
+            if let Some(datatype) = datatype {
+                head.push(':');
+                head.push_str(datatype);
+            }
+            format!("{head} = {}", render_human_value(value))
         }
         Value::StringLiteral { value, .. } => {
             serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
@@ -2749,6 +2771,39 @@ fn render_human_value(value: &Value) -> String {
                 .join(", ")
         ),
     }
+}
+
+fn format_attribute_entry(key: &str, entry: &AttributeValue) -> String {
+    let mut head = String::from(key);
+    if !entry.nested_attrs.is_empty() {
+        let rendered = entry
+            .nested_attrs
+            .iter()
+            .map(|(nested_key, nested_entry)| format_attribute_entry(nested_key, nested_entry))
+            .collect::<Vec<_>>()
+            .join(", ");
+        head.push('@');
+        head.push('{');
+        head.push_str(&rendered);
+        head.push('}');
+    }
+    if let Some(datatype) = &entry.datatype {
+        head.push(':');
+        head.push_str(datatype);
+    }
+    if !entry.object_members.is_empty() {
+        let rendered = entry
+            .object_members
+            .iter()
+            .map(|(member_key, member_entry)| format_attribute_entry(member_key, member_entry))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return format!("{head} = {{{rendered}}}");
+    }
+    if let Some(value) = &entry.value {
+        return format!("{head} = {}", render_human_value(value));
+    }
+    head
 }
 
 fn render_reference_path(segments: &[ReferenceSegment]) -> String {
