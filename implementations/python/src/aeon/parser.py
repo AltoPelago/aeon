@@ -220,9 +220,11 @@ class Parser:
         key = self.key_from_token(key_token)
         self.skip_layout()
         attributes: list[Attribute] = []
-        while self.check("AT"):
+        if self.check("AT"):
             attributes.append(self.parse_attribute(1))
             self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before a binding datatype", self.peek().span)
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
             self.advance()
@@ -497,9 +499,11 @@ class Parser:
         tag = self.key_from_token(self.consume_one_of(("IDENT", "STRING"), "Expected node tag after '<'"))
         self.skip_layout()
         attributes: list[Attribute] = []
-        while self.check("AT"):
+        if self.check("AT"):
             attributes.append(self.parse_attribute(1))
             self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before a node datatype", self.peek().span)
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
             self.advance()

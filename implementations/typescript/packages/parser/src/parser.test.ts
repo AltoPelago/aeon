@@ -274,6 +274,14 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.attributes.length, 1);
         });
 
+        it('should reject repeated binding attribute blocks', () => {
+            const tokens = tokenize('a@{unit:n=3}@{precision:n=2}:n = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
         it('should reject postfix literal attributes', () => {
             const tokens = tokenize('a = [0]@{b=2}').tokens;
             const result = parse(tokens);
@@ -1207,6 +1215,14 @@ describe('Parser', () => {
                 assert.strictEqual(value.datatype?.name, 'node');
                 assert.strictEqual(value.children.length, 0);
             }
+        });
+
+        it('should reject repeated node head attribute blocks', () => {
+            const tokens = tokenize('item = <span@{id="text"}@{class="body"}:node>').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
         it('should reject node syntax without a trailing closing angle', () => {

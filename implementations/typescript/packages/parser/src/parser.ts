@@ -277,8 +277,16 @@ class Parser {
 
         // Parse optional attributes @{...}
         const attributes: Attribute[] = [];
-        while (this.check(TokenType.At)) {
+        if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before a binding datatype',
+                    this.peek().span,
+                    ': or =',
+                    this.peek().value
+                );
+            }
         }
 
         // Parse optional datatype :type
@@ -650,8 +658,16 @@ class Parser {
         const tag = this.parseNodeTag();
 
         const attributes: Attribute[] = [];
-        while (this.check(TokenType.At)) {
+        if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before a node datatype',
+                    this.peek().span,
+                    ':, (, or >',
+                    this.peek().value
+                );
+            }
         }
 
         let datatype: TypeAnnotation | null = null;

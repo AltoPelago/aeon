@@ -329,3 +329,7 @@ a:radix<radix>[16] = %ff
 a:radix2[16] = %ff
 ---
 a:string<string> = "2"
+---
+a@{unit:n=3}@{precision:n=2}:n = 3
+---
+n:node = <a@{unit:n=3}@{precision:n=2}:node>

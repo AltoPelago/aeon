@@ -174,7 +174,7 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
-        while self.check(TokenKind::At) {
+        if self.check(TokenKind::At) {
             let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
             for key in parsed_order {
                 if !attributes.contains_key(&key) {
@@ -183,6 +183,11 @@ impl<'a> TokenParser<'a> {
             }
             attributes.extend(parsed_attrs);
             self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before a binding datatype",
+                ));
+            }
         }
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
@@ -979,10 +984,15 @@ impl<'a> TokenParser<'a> {
 
         let mut attributes = Vec::new();
         self.skip_newlines();
-        while self.check(TokenKind::At) {
+        if self.check(TokenKind::At) {
             let (attribute_map, _) = self.parse_attribute_block(1)?;
             attributes.push(attribute_map);
             self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before a node datatype",
+                ));
+            }
         }
 
         let mut datatype = None;
@@ -1748,11 +1758,25 @@ mod tests {
     }
 
     #[test]
+    fn rejects_repeated_binding_attribute_blocks_from_tokens() {
+        let error = parse("a@{unit:n=3}@{precision:n=2}:n = 3")
+            .expect_err("repeated binding attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
     fn parses_node_literals_from_tokens() {
         let bindings =
             parse("content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
                 .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
+    }
+
+    #[test]
+    fn rejects_repeated_node_head_attribute_blocks_from_tokens() {
+        let error = parse("content:node = <span@{id = \"text\"}@{class = \"body\"}:node>")
+            .expect_err("repeated node head attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
     }
 
     #[test]

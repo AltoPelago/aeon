@@ -92,6 +92,15 @@ class CoreCompileTests(unittest.TestCase):
                 result = compile_source(source)
                 self.assertIn("SYNTAX_ERROR", [error.code for error in result.errors])
 
+    def test_rejects_repeated_head_attribute_blocks(self) -> None:
+        for source in [
+            "a@{unit:n=3}@{precision:n=2}:n = 3",
+            "n:node = <a@{unit:n=3}@{precision:n=2}:node>",
+        ]:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertIn("SYNTAX_ERROR", [error.code for error in result.errors])
+
     def test_list_rejects_double_comma_delimiter(self) -> None:
         result = compile_source("a:list = [1,,2]")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

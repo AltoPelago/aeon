@@ -50,3 +50,7 @@ s:custom[1][2] = %111
 a:address = @home
 ---
 age:age = *age*
+---
+a@{unit:n=3}@{precision:n=2}:n = 3
+---
+n:node = <a@{unit:n=3}@{precision:n=2}:node>

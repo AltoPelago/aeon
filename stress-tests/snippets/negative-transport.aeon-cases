@@ -247,3 +247,7 @@ n:node = <a[2]>
 n:node = <a:node<node>>
 ---
 n:node = <a:node[2]>
+---
+a@{unit:n=3}@{precision:n=2}:n = 3
+---
+n:node = <a@{unit:n=3}@{precision:n=2}:node>
