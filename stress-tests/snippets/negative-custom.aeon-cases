@@ -11,6 +11,10 @@ a = []
 ---
 a = {}
 ---
+values:list = [@{unit:n=3}@{a:n=2}:n = 3]
+---
+page:node = <page(@{unit:string="cm"}:int32 = "3")>
+---
 debug = yes
 ---
 stamp = 2025-01-01T09

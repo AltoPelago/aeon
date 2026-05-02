@@ -183,7 +183,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
     events = [
-        strip_event_annotations(event)
+        event
         for event in internal_events
         if not str(event["key"]).startswith("aeon:")
     ]
@@ -331,13 +331,6 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     if include_annotations and binding.annotations is not None:
         event["annotations"] = annotations_to_json(binding.annotations)
     return event
-
-
-def strip_event_annotations(event: dict[str, object]) -> dict[str, object]:
-    if "annotations" not in event:
-        return event
-    return {key: value for key, value in event.items() if key != "annotations"}
-
 
 def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
     return {

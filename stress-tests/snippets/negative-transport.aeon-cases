@@ -9,6 +9,8 @@ s = hello
 ---
 a:list = [1,,2]
 ---
+values = [@{unit:n=3}@{a:n=2}:n = 3]
+---
 badGeneric3:set<string>[ab] = ^x
 ---
 badNodeHead1:node = <tag:pair<int32,string>("x")>

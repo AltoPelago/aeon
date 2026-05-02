@@ -13,6 +13,10 @@ a = true
 ---
 a = 2025-12-12
 ---
+values:list = [@{unit:n=3}@{a:n=2}:n = 3]
+---
+page:node = <page(@{unit:string="cm"}:int32 = "3")>
+---
 a:number = Infinity
 ---
 a:number = -Infinity

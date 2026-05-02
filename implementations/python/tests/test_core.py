@@ -92,7 +92,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_anonymous_attributed_values_emit_indexed_annotations(self) -> None:
         result = compile_source('page:node = <page(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
         self.assertEqual([], result.errors)
-        by_path = {event["path"]: event for event in result.internal_events}
+        by_path = {event["path"]: event for event in result.events}
         self.assertEqual("int32", by_path["$.page[0]"]["datatype"])
         self.assertEqual("string", by_path["$.page[0]"]["annotations"]["unit"]["datatype"])
         self.assertIsNone(by_path["$.values[0]"]["datatype"])
