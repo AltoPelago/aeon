@@ -10,7 +10,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.aeos import validate, validate_cts_payload
+from aeon.aeos import validate, validate_cts_payload, validate_events
+from aeon.core import compile_source
 
 
 class AeosTests(unittest.TestCase):
@@ -30,6 +31,19 @@ class AeosTests(unittest.TestCase):
     def test_type_mismatch(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "value": {"type": "NumberLiteral", "raw": "1", "value": "1"}, "span": [0, 1]}]
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})
+        self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
+
+    def test_accepts_indexed_node_child_paths(self) -> None:
+        compiled = compile_source("page:node = <page(:int32 = 3)>")
+        self.assertEqual([], compiled.errors)
+        result = validate_events(compiled.events, {"rules": [{"path": "$.page", "constraints": {"type": "NodeLiteral"}}, {"path": "$.page[0]", "constraints": {"type": "NumberLiteral"}}]})
+        self.assertTrue(result["ok"])
+        self.assertEqual([], result["errors"])
+
+    def test_rejects_indexed_node_child_type_mismatch(self) -> None:
+        compiled = compile_source("page:node = <page(:int32 = 3)>")
+        self.assertEqual([], compiled.errors)
+        result = validate_events(compiled.events, {"rules": [{"path": "$.page[0]", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
     def test_reference_policy_forbids_references(self) -> None:

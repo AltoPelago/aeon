@@ -600,6 +600,61 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('accepts indexed node-child paths in explicit rules', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }] },
+                    key: 'page',
+                    value: { type: 'NodeLiteral', tag: 'page', children: [{ type: 'NumberLiteral', value: '3', raw: '3', span: [2, 3] }], attributes: [], span: [1, 3] },
+                    span: [1, 3],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [2, 3] },
+                    span: [2, 3],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.page', constraints: { type: 'NodeLiteral' } },
+                    { path: '$.page[0]', constraints: { type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('rejects indexed node-child type mismatches', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }] },
+                    key: 'page',
+                    value: { type: 'NodeLiteral', tag: 'page', children: [{ type: 'NumberLiteral', value: '3', raw: '3', span: [2, 3] }], attributes: [], span: [1, 3] },
+                    span: [1, 3],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [2, 3] },
+                    span: [2, 3],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.page[0]', constraints: { type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.page[0]'));
+        });
+
         it('does not enforce forward attribute-reference legality (Core-owned)', () => {
             const aes: AES = [
                 {

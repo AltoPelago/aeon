@@ -275,8 +275,16 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
                 emit_error(ctx, create_diag(path, event.get("span"), f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
         if isinstance(expected_type, str):
             if expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
-                code = ERROR_CODES["tuple_element_type_mismatch"] if re.search(r"\[\d+\]$", path) else ERROR_CODES["type_mismatch"]
+                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
+
+
+def is_tuple_element_path(path: str, events: dict[str, dict[str, object]]) -> bool:
+    if not re.search(r"\[\d+\]$", path):
+        return False
+    parent_path = path[:path.rfind("[")]
+    parent = events.get(parent_path)
+    return isinstance(parent, dict) and parent.get("type") == "TupleLiteral"
 
 
 def check_reference_forms(

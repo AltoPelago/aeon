@@ -1,6 +1,6 @@
 # Anonymous Child Attributes Proposal
 
-Status: proposal
+Status: implemented in TypeScript, Rust, and Python core
 
 ## Summary
 
@@ -142,4 +142,5 @@ This keeps list, tuple, and node child flattening aligned with existing syntheti
 ## Follow-up Notes
 
 - Python AEOS currently trails the TypeScript and Rust implementations in datatype-rule coverage and behavior. Before anonymous child attributes are relied on for cross-implementation schema validation, Python AEOS should be brought to datatype-rule parity.
-- Node children do not currently emit separate AES events in any implementation. Anonymous child attributes for node children therefore still require child event emission work, even though the canonical addressing form is now settled as `[]`.
+- Indexed node-child AES events now emit in TypeScript, Rust, and Python using bracket addressing such as `$.page[0]` and `$.page[0].a`.
+- AEOS coverage should explicitly validate indexed node-child paths so anonymous child metadata and datatypes participate in schema checks consistently across implementations.

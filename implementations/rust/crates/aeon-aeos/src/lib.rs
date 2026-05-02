@@ -627,15 +627,16 @@ fn check_types(
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
             && !type_matches(expected_type, &event.value_type)
         {
+            let code = if is_tuple_element_path(path, events_by_path) {
+                "TUPLE_ELEMENT_TYPE_MISMATCH"
+            } else {
+                "type_mismatch"
+            };
             emit_error(
                 ctx,
                 ValidationDiagnostic {
                     path: Some(path.clone()),
-                    code: String::from(if is_indexed_path(path) {
-                        "TUPLE_ELEMENT_TYPE_MISMATCH"
-                    } else {
-                        "type_mismatch"
-                    }),
+                    code: String::from(code),
                     phase: String::from("schema_validation"),
                     span: event.span,
                 },
@@ -1012,8 +1013,20 @@ fn is_reference_type(value_type: &str) -> bool {
     matches!(value_type, "CloneReference" | "PointerReference")
 }
 
-fn is_indexed_path(path: &str) -> bool {
-    path.ends_with(']') && path.contains('[')
+fn is_tuple_element_path(path: &str, events_by_path: &BTreeMap<String, EventInfo>) -> bool {
+    let Some(index_start) = path.rfind('[') else {
+        return false;
+    };
+    if !path.ends_with(']') {
+        return false;
+    }
+    if path[index_start + 1..path.len() - 1].parse::<usize>().is_err() {
+        return false;
+    }
+    let parent_path = &path[..index_start];
+    events_by_path
+        .get(parent_path)
+        .is_some_and(|event| event.value_type == "TupleLiteral")
 }
 
 fn count_integer_digits(raw: &str) -> usize {
@@ -1262,5 +1275,141 @@ mod tests {
         let result = validate(&envelope);
         assert!(!result.ok);
         assert_eq!(result.errors[0].code, "invalid_reference_constraint");
+    }
+
+    #[test]
+    fn accepts_indexed_node_child_paths() {
+        let envelope = ValidationEnvelope {
+            aes: vec![
+                AesEvent {
+                    path: EventPath {
+                        segments: vec![
+                            PathSegmentInput {
+                                segment_type: String::from("root"),
+                                key: None,
+                                index: None,
+                            },
+                            PathSegmentInput {
+                                segment_type: String::from("member"),
+                                key: Some(String::from("page")),
+                                index: None,
+                            },
+                        ],
+                    },
+                    key: String::from("page"),
+                    datatype: None,
+                    value: EventValue {
+                        value_type: String::from("NodeLiteral"),
+                        raw: None,
+                        value: None,
+                        elements: Vec::new(),
+                    },
+                    span: Some(SpanInput::Pair([0, 1])),
+                },
+                AesEvent {
+                    path: EventPath {
+                        segments: vec![
+                            PathSegmentInput {
+                                segment_type: String::from("root"),
+                                key: None,
+                                index: None,
+                            },
+                            PathSegmentInput {
+                                segment_type: String::from("member"),
+                                key: Some(String::from("page")),
+                                index: None,
+                            },
+                            PathSegmentInput {
+                                segment_type: String::from("index"),
+                                key: None,
+                                index: Some(JsonValue::from(0)),
+                            },
+                        ],
+                    },
+                    key: String::from("0"),
+                    datatype: Some(String::from("int32")),
+                    value: EventValue {
+                        value_type: String::from("NumberLiteral"),
+                        raw: Some(String::from("3")),
+                        value: Some(JsonValue::String(String::from("3"))),
+                        elements: Vec::new(),
+                    },
+                    span: Some(SpanInput::Pair([2, 3])),
+                },
+            ],
+            schema: Some(Schema {
+                rules: vec![
+                    SchemaRule {
+                        path: Some(String::from("$.page")),
+                        constraints: json!({ "type": "NodeLiteral" }),
+                    },
+                    SchemaRule {
+                        path: Some(String::from("$.page[0]")),
+                        constraints: json!({ "type": "NumberLiteral" }),
+                    },
+                ],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(result.ok);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn rejects_indexed_node_child_type_mismatch() {
+        let envelope = ValidationEnvelope {
+            aes: vec![AesEvent {
+                path: EventPath {
+                    segments: vec![
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("page")),
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("index"),
+                            key: None,
+                            index: Some(JsonValue::from(0)),
+                        },
+                    ],
+                },
+                key: String::from("0"),
+                datatype: Some(String::from("int32")),
+                value: EventValue {
+                    value_type: String::from("NumberLiteral"),
+                    raw: Some(String::from("3")),
+                    value: Some(JsonValue::String(String::from("3"))),
+                    elements: Vec::new(),
+                },
+                span: Some(SpanInput::Pair([2, 3])),
+            }],
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.page[0]")),
+                    constraints: json!({ "type": "StringLiteral" }),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "type_mismatch");
+        assert_eq!(result.errors[0].path, Some(String::from("$.page[0]")));
     }
 }
