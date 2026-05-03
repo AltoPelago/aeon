@@ -71,6 +71,72 @@ interface CompileResult {
 - `header` exposes parsed header metadata for downstream projection/finalization.
 - `annotations` are emitted only when `emitAnnotations` is enabled.
 
+## Anonymous child heads
+
+Core supports anonymous typed and attributed children inside ordered containers.
+
+Examples:
+
+```aeon
+values:list = [:int32 = 3, @{unit:string = "cm"} = 4]
+pair:tuple = (:float64 = 10.5, :float64 = 2.0)
+page:node = <page(@{role:string = "title"}:string = "Hello")>
+```
+
+Supported forms:
+
+- `:type = value`
+- `@{...} = value`
+- `@{...}:type = value`
+
+These forms are valid only inside:
+
+- list elements
+- tuple elements
+- node children
+
+They are rejected at the root and inside objects without keys.
+
+There is only one attribute-block slot per binding or anonymous child head, so
+repeated heads like `@{a=1}@{b=2}:n = 3` fail closed.
+
+## Indexed child AES paths
+
+Core emits synthetic indexed events for ordered children, including node
+children.
+
+For example:
+
+```aeon
+page:node = <page({a:n = 1, b:n = 2}, :string = "hello")>
+```
+
+can produce AES paths including:
+
+- `$.page`
+- `$.page[0]`
+- `$.page[0].a`
+- `$.page[0].b`
+- `$.page[1]`
+
+Lists, tuples, and node children all use bracket-addressed canonical paths.
+
+## Attribute metadata namespace
+
+Default finalization and related tooling reserve metadata keys such as:
+
+- `@`
+- `@items`
+
+along with hardening-oriented keys like:
+
+- `__proto__`
+- `constructor`
+- `prototype`
+
+Those keys are rejected in attribute blocks at parse time to avoid collisions
+with finalized metadata projection.
+
 ## Security note
 
 For production processing, prefer the default fail-closed behavior and treat `recovery` as a tooling-oriented mode.

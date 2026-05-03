@@ -10,6 +10,8 @@ use crate::{
     Token, TokenKind, TrimtickMetadata, Value, tokenize,
 };
 
+const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
+
 pub(crate) fn parse_document_from_tokens(
     input: &str,
     max_nesting_depth: usize,
@@ -1165,6 +1167,12 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         while !self.check(terminator) {
             let key = self.parse_key()?;
+            if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                return Err(self.error_at_current(&format!(
+                    "Reserved attribute key: {}",
+                    key
+                )));
+            }
             self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
@@ -1859,6 +1867,26 @@ mod tests {
                 }
             }
             other => panic!("expected list literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_reserved_attribute_keys_from_tokens() {
+        for source in [
+            "a@{\"@items\":n=0}:list = [1]",
+            "a:list = [@{\"@items\":n=0}:n = 4]",
+            "a@{\"@\":n=0} = 1",
+            "a@{\"__proto__\":n=0} = 1",
+            "a@{\"constructor\":n=0} = 1",
+            "a@{\"prototype\":n=0} = 1",
+        ] {
+            let error = parse(source).expect_err("reserved attribute key should fail");
+            assert_eq!(error.code, "SYNTAX_ERROR", "{source}");
+            assert!(
+                error.message.contains("Reserved attribute key"),
+                "{source}: {}",
+                error.message
+            );
         }
     }
 

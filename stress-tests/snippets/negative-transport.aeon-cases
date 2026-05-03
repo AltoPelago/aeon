@@ -11,6 +11,16 @@ a:list = [1,,2]
 ---
 values = [@{unit:n=3}@{a:n=2}:n = 3]
 ---
+a@{"@items":n=0}:list = [@{"@items":n=0}:n=4]
+---
+a@{"@":n=0} = 1
+---
+a@{"__proto__":n=0} = 1
+---
+a@{"constructor":n=0} = 1
+---
+a@{"prototype":n=0} = 1
+---
 badGeneric3:set<string>[ab] = ^x
 ---
 badNodeHead1:node = <tag:pair<int32,string>("x")>

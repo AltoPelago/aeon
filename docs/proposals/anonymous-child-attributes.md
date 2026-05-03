@@ -2,6 +2,11 @@
 
 Status: implemented in TypeScript, Rust, and Python core
 
+Main implementation docs now live in:
+
+- [`docs/implementations/implementation-guideline.md`](../implementations/implementation-guideline.md)
+- [`docs/implementations/typescript/api/core.md`](../implementations/typescript/api/core.md)
+
 ## Summary
 
 AEON currently permits anonymous type annotations inside value containers:

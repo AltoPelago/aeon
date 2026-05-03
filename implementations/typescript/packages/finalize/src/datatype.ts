@@ -1,17 +1,22 @@
 export function formatDatatypeAnnotation(datatype: {
     readonly name: string;
-    readonly genericArgs: readonly string[];
+    readonly genericArgs?: readonly string[] | null;
     readonly radixBase?: number | null;
-    readonly separators: readonly string[];
-}): string {
-    const generics = datatype.genericArgs.length > 0
-        ? `<${datatype.genericArgs.join(', ')}>`
+    readonly separators?: readonly string[] | null;
+} | null | undefined): string {
+    if (!datatype) {
+        return '';
+    }
+    const genericArgs = datatype.genericArgs ?? [];
+    const separatorsList = datatype.separators ?? [];
+    const generics = genericArgs.length > 0
+        ? `<${genericArgs.join(', ')}>`
         : '';
     const radixBase = datatype.radixBase != null
         ? `[${datatype.radixBase}]`
         : '';
-    const separators = datatype.separators.length > 0
-        ? datatype.separators.map((separator) => `[${separator}]`).join('')
+    const separators = separatorsList.length > 0
+        ? separatorsList.map((separator) => `[${separator}]`).join('')
         : '';
     return `${datatype.name}${generics}${radixBase}${separators}`;
 }

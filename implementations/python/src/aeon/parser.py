@@ -65,6 +65,8 @@ RESERVED_V1_DATATYPES = {
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
 
+RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}
+
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
@@ -251,6 +253,8 @@ class Parser:
         while not self.check("RBRACE"):
             key_token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute key")
             key = self.key_from_token(key_token)
+            if key in RESERVED_ATTRIBUTE_KEYS:
+                raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
             self.skip_layout()
             attributes: list[Attribute] = []
             while self.check("AT"):

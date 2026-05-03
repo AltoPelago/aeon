@@ -15,6 +15,16 @@ a = 2025-12-12
 ---
 values:list = [@{unit:n=3}@{a:n=2}:n = 3]
 ---
+a@{"@items":n=0}:list = [@{"@items":n=0}:n=4]
+---
+a@{"@":n=0} = 1
+---
+a@{"__proto__":n=0} = 1
+---
+a@{"constructor":n=0} = 1
+---
+a@{"prototype":n=0} = 1
+---
 page:node = <page(@{unit:string="cm"}:int32 = "3")>
 ---
 a:number = Infinity

@@ -224,6 +224,159 @@ A new implementation should treat these representations as the stable backbone:
 
 Recommended rule: normalize early to the cross-language shapes that CTS compares, and keep richer internal structures behind that boundary.
 
+## Anonymous Child Heads
+
+Core now supports anonymous child heads in ordered value containers.
+
+That includes:
+
+- typed anonymous children like `:int32 = 3`
+- attributed anonymous children like `@{unit:string = "cm"} = 3`
+- combined anonymous heads like `@{unit:string = "cm"}:int32 = 3`
+
+These forms are valid only inside:
+
+- list elements
+- tuple elements
+- node children
+
+They are not valid:
+
+- at the root
+- as object members without keys
+- nested recursively as `:n = :n = 3`
+
+Implementation rule:
+
+- there is one head slot per binding or anonymous child
+- at most one attribute block may appear in that head
+- the order is `@{...}` then optional datatype then `=`
+
+For example:
+
+```aeon
+values:list = [@{unit:string = "cm"}:int32 = 3]
+pair:tuple = (:float64 = 10.5, :float64 = 2.0)
+page:node = <page(@{role:string = "title"}:string = "Hello")>
+```
+
+Reserved attribute keys now matter at parse time, not only during projection.
+Implementations should reject metadata-reserved names such as:
+
+- `@`
+- `@items`
+- `__proto__`
+- `constructor`
+- `prototype`
+
+This avoids fail-open collisions with finalized metadata surfaces.
+
+## Indexed Child Event Emission
+
+Core emits synthetic indexed AES events for ordered children, including node
+children.
+
+Canonical path examples:
+
+```text
+$.values[0]
+$.pair[1]
+$.page[0]
+$.page[0].a
+```
+
+Important rule:
+
+- lists, tuples, and node children all use bracket-addressed canonical paths
+
+Node children remain distinct in the value model, but implementations should not
+invent a second path sigil for node-child indexing.
+
+## Finalized Metadata Projection
+
+Default JSON finalization should preserve payload shape and keep attributes in
+sidecar metadata.
+
+Binding-level attributes project under `@.<binding>`:
+
+```json
+{
+  "width": [3],
+  "@": {
+    "width": {
+      "x": "cm"
+    }
+  }
+}
+```
+
+Indexed child attributes project under `@items` keyed by index:
+
+```json
+{
+  "width": [3],
+  "@": {
+    "width": {
+      "@items": {
+        "0": {
+          "unit": "cm"
+        }
+      }
+    }
+  }
+}
+```
+
+The same `@items` projection applies to:
+
+- lists
+- tuples
+- node children
+
+Implementations should reject user-authored attribute keys that would collide
+with this metadata namespace rather than silently dropping or shadowing them.
+
+## AEOS Attribute Constraints
+
+AEOS now supports schema constraints over attribute payloads through:
+
+- `constraints.attributes`
+- `closed_attributes`
+
+This applies equally to:
+
+- ordinary binding attributes
+- anonymous child attributes on indexed AES events like `$.page[0]`
+
+Example:
+
+```json
+{
+  "rules": [
+    {
+      "path": "$.values[0]",
+      "constraints": {
+        "type": "NumberLiteral",
+        "attributes": {
+          "unit": {
+            "required": true,
+            "type": "StringLiteral",
+            "datatype": "string"
+          }
+        },
+        "closed_attributes": true
+      }
+    }
+  ]
+}
+```
+
+Implementation rule:
+
+- attribute constraints recurse using the same core constraint vocabulary
+- `closed_attributes` is local to the current attribute object
+- attribute entries with datatypes should also inherit `datatype_rules` unless explicitly overridden by nested attribute constraints
+
 ## Common Portability Traps
 
 The Rust bring-up exposed a few places where new implementations are likely to drift unless they are called out explicitly.

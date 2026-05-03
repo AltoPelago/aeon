@@ -98,6 +98,21 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIsNone(by_path["$.values[0]"]["datatype"])
         self.assertEqual("string", by_path["$.values[0]"]["annotations"]["unit"]["datatype"])
 
+    def test_rejects_reserved_attribute_keys(self) -> None:
+        for source in [
+            'a@{"@items":n=0}:list = [1]',
+            'a:list = [@{"@items":n=0}:n = 4]',
+            'a@{"@":n=0} = 1',
+            'a@{"__proto__":n=0} = 1',
+            'a@{"constructor":n=0} = 1',
+            'a@{"prototype":n=0} = 1',
+        ]:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertTrue(result.errors)
+                self.assertEqual("SYNTAX_ERROR", result.errors[0].code)
+                self.assertIn("Reserved attribute key", result.errors[0].message)
+
     def test_anonymous_typed_value_rejections(self) -> None:
         for source in [
             ":n = 3",

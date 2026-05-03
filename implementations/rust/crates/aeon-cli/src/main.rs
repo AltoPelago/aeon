@@ -2332,10 +2332,16 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
     let items = records
         .iter()
         .map(|record| {
+            let subtype = record
+                .subtype
+                .as_ref()
+                .map(|subtype| format!(",\"subtype\":\"{}\"", escape_json(subtype)))
+                .unwrap_or_default();
             format!(
-                "{{\"kind\":\"{}\",\"form\":\"{}\",\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
+                "{{\"kind\":\"{}\",\"form\":\"{}\"{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
                 escape_json(&record.kind),
                 escape_json(&record.form),
+                subtype,
                 escape_json(&record.raw),
                 render_span(&record.span),
                 render_annotation_target(&record.target)
@@ -2584,7 +2590,7 @@ fn render_value_json_string(value: &Value) -> String {
         ),
         Value::HexLiteral { raw } => format!(
             "{{\"type\":\"HexLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('#')),
             escape_json(raw)
         ),
         Value::SeparatorLiteral { raw } => format!(
@@ -3047,9 +3053,15 @@ fn format_annotation_line(record: &aeon_annotations::AnnotationRecord) -> String
         aeon_annotations::AnnotationTarget::Path { path } => path.clone(),
         aeon_annotations::AnnotationTarget::Unbound { reason } => format!("unbound({reason})"),
     };
+    let subtype = record
+        .subtype
+        .as_ref()
+        .map(|subtype| format!(":{subtype}"))
+        .unwrap_or_default();
     format!(
-        "{} {} -> {} raw={}",
+        "{}{} {} -> {} raw={}",
         record.kind,
+        subtype,
         record.form,
         target,
         serde_json::to_string(&record.raw).unwrap_or_else(|_| String::from("\"\""))

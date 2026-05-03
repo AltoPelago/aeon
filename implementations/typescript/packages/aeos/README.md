@@ -90,11 +90,41 @@ page:node = <page(:int32 = 3)>
 
 produces AES paths including `$.page` and `$.page[0]`.
 
-### Current metadata boundary
+### Attribute-aware constraints
 
-Anonymous child attributes and other annotations remain part of AES event metadata.
-AEOS currently validates path, representation, datatype, and reference/container constraints over those events.
-It does not yet expose first-class schema constraints for annotation payload contents.
+AEOS now validates attribute payload contents through:
+
+- `constraints.attributes`
+- `closed_attributes`
+
+This applies to ordinary binding attributes and anonymous child attributes on
+indexed AES events.
+
+Example:
+
+```ts
+const schema = {
+  rules: [
+    {
+      path: '$.values[0]',
+      constraints: {
+        type: 'NumberLiteral',
+        attributes: {
+          unit: {
+            required: true,
+            type: 'StringLiteral',
+            datatype: 'string',
+          },
+        },
+        closed_attributes: true,
+      },
+    },
+  ],
+};
+```
+
+Attribute entries continue to travel in AES metadata, but AEOS now exposes a
+first-class schema surface for validating them.
 
 ## API
 

@@ -1158,6 +1158,22 @@ describe('Parser', () => {
             }
         });
 
+        it('should reject reserved attribute keys in binding and anonymous heads', () => {
+            for (const source of [
+                'a@{"@items":n=0}:list = [1]',
+                'a:list = [@{"@items":n=0}:n = 4]',
+                'a@{"@":n=0} = 1',
+                'a@{"__proto__":n=0} = 1',
+                'a@{"constructor":n=0} = 1',
+                'a@{"prototype":n=0} = 1',
+            ]) {
+                const result = parse(tokenize(source).tokens);
+                assert.ok(result.errors.length > 0, source);
+                assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR', source);
+                assert.match(result.errors[0]!.message, /Reserved attribute key/, source);
+            }
+        });
+
         it('should parse anonymous typed list and tuple elements', () => {
             const tokens = tokenize('values:list = [:int32 = 3, (:float64 = 10.5, :string = "x")]').tokens;
             const result = parse(tokens);

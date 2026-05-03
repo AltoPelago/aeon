@@ -1,6 +1,12 @@
 # AEOS Attribute-Aware Constraints
 
-Status: proposal
+Status: implemented in TypeScript, Rust, and Python AEOS
+
+Main implementation docs now live in:
+
+- [`docs/implementations/implementation-guideline.md`](../implementations/implementation-guideline.md)
+- [`docs/implementations/typescript/api/aeos.md`](../implementations/typescript/api/aeos.md)
+- [`implementations/typescript/packages/aeos/README.md`](../../implementations/typescript/packages/aeos/README.md)
 
 ## Summary
 

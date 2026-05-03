@@ -60,16 +60,38 @@ function normalizeFinalizeDiagnostics(meta, key) {
 
 function normalizeCoreBindings(events) {
   if (!Array.isArray(events)) return [];
-  return events.map((e) => ({
+  const eventByPath = new Map(
+    events
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => [normalizePath(String(e?.path ?? '')), e]),
+  );
+  return events
+    .filter((e) => !isNodeChildProjection(e, eventByPath))
+    .map((e) => ({
     path: normalizePath(String(e?.path ?? '')),
     datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
     kind: 'binding',
-  }));
+    }));
+}
+
+function isNodeChildProjection(event, eventByPath) {
+  const path = normalizePath(String(event?.path ?? ''));
+  const match = path.match(/^(.*)\[(\d+)\]$/);
+  if (!match) return false;
+  const parent = eventByPath.get(match[1]);
+  return parent?.value?.type === 'NodeLiteral';
 }
 
 function normalizeAesEvents(events) {
   if (!Array.isArray(events)) return [];
-  return events.map((e) => ({
+  const eventByPath = new Map(
+    events
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => [normalizePath(String(e?.path ?? '')), e]),
+  );
+  return events
+    .filter((e) => !isNodeChildProjection(e, eventByPath))
+    .map((e) => ({
     path: normalizePath(String(e?.path ?? '')),
     datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
     value_kind: typeof e?.value?.type === 'string' ? e.value.type : null,
@@ -77,7 +99,7 @@ function normalizeAesEvents(events) {
       e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
         ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
         : null,
-  }));
+    }));
 }
 
 function normalizePath(value) {

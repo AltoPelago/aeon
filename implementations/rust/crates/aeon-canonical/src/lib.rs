@@ -39,6 +39,11 @@ enum Value {
         datatype: String,
         value: Box<Value>,
     },
+    Attributed {
+        attributes: BTreeMap<String, AttributeEntry>,
+        datatype: Option<String>,
+        value: Box<Value>,
+    },
     String(String),
     Number(String),
     Infinity(String),
@@ -276,6 +281,26 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
                 vec![format!("{prefix}:{} = ", normalize_datatype(datatype))]
             }
         }
+        Value::Attributed {
+            attributes,
+            datatype,
+            value,
+        } => {
+            let rendered = render_value_multiline(value, indent);
+            let head = format!(
+                "{}{}",
+                render_attributes(attributes),
+                render_datatype(datatype.as_deref())
+            );
+            if let Some((first, rest)) = rendered.split_first() {
+                let first = first.strip_prefix(&prefix).unwrap_or(first);
+                let mut lines = vec![format!("{prefix}{head} = {first}")];
+                lines.extend(rest.iter().cloned());
+                lines
+            } else {
+                vec![format!("{prefix}{head} = ")]
+            }
+        }
         Value::String(value) if value.contains('\n') => {
             let mut lines = render_string_lines(value, indent);
             if let Some(first) = lines.first_mut() {
@@ -417,6 +442,18 @@ fn render_value_inline(value: &Value) -> String {
         Value::Typed { datatype, value } => {
             format!(":{} = {}", normalize_datatype(datatype), render_value_inline(value))
         }
+        Value::Attributed {
+            attributes,
+            datatype,
+            value,
+        } => {
+            format!(
+                "{}{} = {}",
+                render_attributes(attributes),
+                render_datatype(datatype.as_deref()),
+                render_value_inline(value)
+            )
+        }
         Value::String(value) => format!("\"{}\"", escape_string(value)),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
@@ -503,7 +540,7 @@ fn render_datatype(datatype: Option<&str>) -> String {
 
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } => is_simple_scalar(value),
+        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -512,7 +549,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } => is_simple_value(value),
+        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -1443,6 +1480,26 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
+        if self.peek() == Some('@') {
+            let attributes = self.parse_attribute_block()?;
+            self.skip_ws(true);
+            let datatype = if self.peek() == Some(':') {
+                self.index += 1;
+                self.skip_ws(true);
+                Some(self.parse_datatype_like()?)
+            } else {
+                None
+            };
+            self.skip_ws(true);
+            self.expect_char_message('=', "Expected '=' after anonymous attribute/type annotation")?;
+            self.skip_ws(true);
+            let value = self.parse_value()?;
+            return Ok(Value::Attributed {
+                attributes,
+                datatype,
+                value: Box::new(value),
+            });
+        }
         if self.peek() != Some(':') {
             return self.parse_value();
         }
@@ -2546,6 +2603,15 @@ mod tests {
                 .text
                 .contains("<button@{action:lookup = ~scene[1]}:node(")
         );
+    }
+
+    #[test]
+    fn canonicalizes_anonymous_attributed_children() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\nwidth:list = [@{unit:string = \"cm\"} = 3]\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("@{unit:string = \"cm\"} = 3"), "{}", result.text);
     }
 
     #[test]

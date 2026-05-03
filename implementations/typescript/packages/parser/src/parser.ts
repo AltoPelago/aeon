@@ -334,6 +334,14 @@ class Parser {
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
             const attrKeyToken = this.consumeOneOf([TokenType.Identifier, TokenType.String], "Expected attribute key");
             const attrKey = this.keyFromToken(attrKeyToken);
+            if (RESERVED_ATTRIBUTE_KEYS.has(attrKey)) {
+                throw new SyntaxError(
+                    `Reserved attribute key: ${attrKey}`,
+                    attrKeyToken.span,
+                    'non-reserved attribute key',
+                    attrKeyToken.value
+                );
+            }
             const attributes: Attribute[] = [];
             while (this.check(TokenType.At)) {
                 attributes.push(this.parseAttribute(depth + 1));
@@ -1712,6 +1720,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
+const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',

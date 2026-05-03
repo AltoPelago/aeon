@@ -532,10 +532,11 @@ fn payload_to_json(
                 tracker,
             ),
         );
-        if !event.annotations.is_empty() {
-            attrs.insert(
-                key.clone(),
-                attributes_to_json(
+        if let Some(attr_json) = merge_attribute_json(
+            if event.annotations.is_empty() {
+                None
+            } else {
+                Some(attributes_to_json(
                     &event.annotations,
                     &path,
                     projection,
@@ -545,8 +546,21 @@ fn payload_to_json(
                     warnings,
                     active_paths,
                     tracker,
-                ),
-            );
+                ))
+            },
+            indexed_child_attributes_to_json(
+                &event.value,
+                &path,
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+                tracker,
+            ),
+        ) {
+            attrs.insert(key.clone(), attr_json);
         }
     }
     if !attrs.is_empty() {
@@ -734,7 +748,7 @@ fn value_to_json_with_active_key(
                         .iter()
                         .enumerate()
                         .map(|(index, child)| {
-                            let child_path = format!("{path}<{index}>");
+                            let child_path = format!("{path}[{index}]");
                             value_to_json(
                                 child,
                                 &child_path,
@@ -805,10 +819,11 @@ fn value_to_json_with_active_key(
                             tracker,
                         ),
                     );
-                    if !binding.attributes.is_empty() {
-                        attrs.insert(
-                            binding.key.clone(),
-                            attributes_to_json(
+                    if let Some(attr_json) = merge_attribute_json(
+                        if binding.attributes.is_empty() {
+                            None
+                        } else {
+                            Some(attributes_to_json(
                                 &binding.attributes,
                                 &child_path,
                                 projection,
@@ -818,8 +833,21 @@ fn value_to_json_with_active_key(
                                 warnings,
                                 active_paths,
                                 tracker,
-                            ),
-                        );
+                            ))
+                        },
+                        indexed_child_attributes_to_json(
+                            &binding.value,
+                            &child_path,
+                            projection,
+                            path_values,
+                            mode,
+                            errors,
+                            warnings,
+                            active_paths,
+                            tracker,
+                        ),
+                    ) {
+                        attrs.insert(binding.key.clone(), attr_json);
                     }
                 }
             }
@@ -1411,6 +1439,85 @@ fn node_attributes_to_json(
     JsonValue::Object(merged)
 }
 
+fn indexed_child_attributes_to_json(
+    value: &Value,
+    path: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
+) -> Option<JsonValue> {
+    let mut items = Map::new();
+    match value {
+        Value::ListNode { items: children } | Value::TupleLiteral { items: children } => {
+            for (index, child) in children.iter().enumerate() {
+                let Value::TypedValue { attributes, .. } = child else {
+                    continue;
+                };
+                if attributes.is_empty() {
+                    continue;
+                }
+                let child_path = format!("{path}[{index}]");
+                let JsonValue::Object(attr_json) = attributes_to_json(
+                    attributes,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                    tracker,
+                ) else {
+                    continue;
+                };
+                if !attr_json.is_empty() {
+                    items.insert(index.to_string(), JsonValue::Object(attr_json));
+                }
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                let Value::TypedValue { attributes, .. } = child else {
+                    continue;
+                };
+                if attributes.is_empty() {
+                    continue;
+                }
+                let child_path = format!("{path}[{index}]");
+                let JsonValue::Object(attr_json) = attributes_to_json(
+                    attributes,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                    tracker,
+                ) else {
+                    continue;
+                };
+                if !attr_json.is_empty() {
+                    items.insert(index.to_string(), JsonValue::Object(attr_json));
+                }
+            }
+        }
+        _ => return None,
+    }
+
+    if items.is_empty() {
+        None
+    } else {
+        let mut object = Map::new();
+        object.insert(String::from("@items"), JsonValue::Object(items));
+        Some(JsonValue::Object(object))
+    }
+}
+
 fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, JsonValue>) {
     for (key, value) in source {
         match (target.get_mut(&key), value) {
@@ -1421,6 +1528,19 @@ fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, Js
                 target.insert(key, replacement);
             }
         }
+    }
+}
+
+fn merge_attribute_json(left: Option<JsonValue>, right: Option<JsonValue>) -> Option<JsonValue> {
+    match (left, right) {
+        (Some(JsonValue::Object(mut left_obj)), Some(JsonValue::Object(right_obj))) => {
+            merge_json_object(&mut left_obj, right_obj);
+            Some(JsonValue::Object(left_obj))
+        }
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+        (Some(left), Some(_)) => Some(left),
     }
 }
 
@@ -2168,6 +2288,54 @@ mod tests {
                 "@": {
                     "a": {
                         "b": 1
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projects_indexed_child_attributes_under_at_items_for_lists() {
+        let source = "width@{x:string = \"cm\"}:list = [@{unit:string = \"cm\"} = 3]\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "width": [3],
+                "@": {
+                    "width": {
+                        "x": "cm",
+                        "@items": {
+                            "0": {
+                                "unit": "cm"
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projects_indexed_child_attributes_under_at_items_for_node_children() {
+        let source = "page:node = <page(@{role:string = \"title\"} = \"Hello\")>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "page": {
+                    "$node": "page",
+                    "$children": ["Hello"]
+                },
+                "@": {
+                    "page": {
+                        "@items": {
+                            "0": {
+                                "role": "title"
+                            }
+                        }
                     }
                 }
             })
