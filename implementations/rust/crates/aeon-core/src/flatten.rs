@@ -234,7 +234,10 @@ fn flatten_validation_bindings(
                             path: format_path(&item_path),
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
-                            value: clone_validation_value(unwrap_typed_value(item), shallow_event_values),
+                            value: clone_validation_value(
+                                unwrap_typed_value(item),
+                                shallow_event_values,
+                            ),
                             span: binding.span,
                         });
                     }
@@ -266,7 +269,10 @@ fn flatten_validation_bindings(
                             path: format_path(&item_path),
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
-                            value: clone_validation_value(unwrap_typed_value(item), shallow_event_values),
+                            value: clone_validation_value(
+                                unwrap_typed_value(item),
+                                shallow_event_values,
+                            ),
                             span: binding.span,
                         });
                     }
@@ -307,7 +313,10 @@ fn flatten_validation_bindings(
                         path: format_path(&child_path),
                         datatype: typed_datatype(child),
                         annotations: BTreeMap::new(),
-                        value: clone_validation_value(unwrap_typed_value(child), shallow_event_values),
+                        value: clone_validation_value(
+                            unwrap_typed_value(child),
+                            shallow_event_values,
+                        ),
                         span: binding.span,
                     });
                     flatten_validation_value(
@@ -361,7 +370,10 @@ fn flatten_validation_value(
                         path: format_path(&item_path),
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
-                        value: clone_validation_value(unwrap_typed_value(item), shallow_event_values),
+                        value: clone_validation_value(
+                            unwrap_typed_value(item),
+                            shallow_event_values,
+                        ),
                         span: owner_span,
                     });
                 }
@@ -423,7 +435,10 @@ fn flatten_validation_value(
                         path: format_path(&item_path),
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
-                        value: clone_validation_value(unwrap_typed_value(item), shallow_event_values),
+                        value: clone_validation_value(
+                            unwrap_typed_value(item),
+                            shallow_event_values,
+                        ),
                         span: owner_span,
                     });
                 }

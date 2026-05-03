@@ -722,11 +722,15 @@ def resolve_reference_subpath(
             context_annotations = select_annotations(build_annotations(child.attributes), context_value)
             continue
         if isinstance(segment, int):
-            if not isinstance(context_value, (ListNode, TupleLiteral)):
+            if isinstance(context_value, (ListNode, TupleLiteral)):
+                elements = context_value.elements
+            elif isinstance(context_value, NodeLiteral):
+                elements = context_value.children
+            else:
                 return None
-            if segment < 0 or segment >= len(context_value.elements):
+            if segment < 0 or segment >= len(elements):
                 return None
-            context_value = unwrap_typed_value(context_value.elements[segment])
+            context_value = unwrap_typed_value(elements[segment])
             context_annotations = select_annotations(None, context_value)
             continue
         return None
@@ -837,11 +841,15 @@ def resolve_reference_target(
             context_annotations = nested_annotations if isinstance(nested_annotations, dict) else None
             continue
         if isinstance(segment, int):
-            if not isinstance(context_value, (ListNode, TupleLiteral)):
+            if isinstance(context_value, (ListNode, TupleLiteral)):
+                elements = context_value.elements
+            elif isinstance(context_value, NodeLiteral):
+                elements = context_value.children
+            else:
                 return None
-            if segment < 0 or segment >= len(context_value.elements):
+            if segment < 0 or segment >= len(elements):
                 return None
-            context_value = unwrap_typed_value(context_value.elements[segment])
+            context_value = unwrap_typed_value(elements[segment])
             context_annotations = None
             continue
         if isinstance(context_value, ObjectNode):

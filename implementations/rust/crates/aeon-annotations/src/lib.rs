@@ -591,9 +591,7 @@ impl<'a> AnnotationParser<'a> {
                             bracket_depth = bracket_depth.saturating_sub(1);
                             self.scanner.bump();
                         }
-                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']')
-                            if bracket_depth == 0 =>
-                        {
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') if bracket_depth == 0 => {
                             break;
                         }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
@@ -638,8 +636,7 @@ impl<'a> AnnotationParser<'a> {
                 let start = self.scanner.index;
                 if self.scanner.source[start..].starts_with("aeon:") {
                     while let Some(ch) = self.scanner.peek() {
-                        if matches!(ch, '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']')
-                        {
+                        if matches!(ch, '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') {
                             break;
                         }
                         self.scanner.bump();
@@ -912,7 +909,8 @@ mod tests {
 
     #[test]
     fn captures_reserved_slash_channels_with_subtypes() {
-        let records = extract_annotations("//{ structure\n/[ profile ]/\n/( instructions )/\na = 1");
+        let records =
+            extract_annotations("//{ structure\n/[ profile ]/\n/( instructions )/\na = 1");
         assert_eq!(records.len(), 3);
         assert_eq!(records[0].kind, "reserved");
         assert_eq!(records[0].subtype.as_deref(), Some("structure"));

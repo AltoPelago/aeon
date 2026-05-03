@@ -1100,6 +1100,15 @@ describe('Parser', () => {
             assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
         });
 
+        it('should report canonical paths for duplicate quoted top-level keys', () => {
+            const tokens = tokenize('"a.b" = 1\n"a.b" = 2').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.["a.b"]');
+        });
+
         it('should error on duplicate key in object', () => {
             const tokens = tokenize('config = { a = 1, a = 2 }').tokens;
             const result = parse(tokens);

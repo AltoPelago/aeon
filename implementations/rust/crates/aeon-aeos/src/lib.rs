@@ -325,7 +325,8 @@ fn validate_inner(
         merge_datatype_rules(&rule_index, &schema.datatype_rules, &events_by_path);
     check_presence(&rule_index, &bound_paths, &mut ctx);
     check_reference_forms(schema, &rule_index, &events_by_path, &mut ctx);
-    let effective_events_by_path = resolve_reference_form_events(&effective_rule_index, &events_by_path);
+    let effective_events_by_path =
+        resolve_reference_form_events(&effective_rule_index, &events_by_path);
     check_types(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_tuple_arity(
         &effective_rule_index,
@@ -336,7 +337,12 @@ fn validate_inner(
     check_numeric_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_string_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_patterns(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_attribute_constraints(&rule_index, &effective_events_by_path, &schema.datatype_rules, &mut ctx);
+    check_attribute_constraints(
+        &rule_index,
+        &effective_events_by_path,
+        &schema.datatype_rules,
+        &mut ctx,
+    );
     check_world_policy(schema, aes, &bound_paths, &rule_index, &mut ctx);
 
     finalize_result(ctx, &bound_paths, &events_by_path)
@@ -581,7 +587,10 @@ fn validate_reference_constraints(
     }
 
     if constraints.get("resolve_reference_form").is_some()
-        && constraints.get("resolve_reference_form").and_then(JsonValue::as_bool).is_none()
+        && constraints
+            .get("resolve_reference_form")
+            .and_then(JsonValue::as_bool)
+            .is_none()
     {
         emit_error(
             ctx,
@@ -859,10 +868,10 @@ fn check_reference_forms(
 
         if let Some(pattern) = reference_target_pattern
             && is_reference_type(&event.value_type)
-            && event
-                .reference_path
-                .as_ref()
-                .is_some_and(|segments| Regex::new(pattern).is_ok_and(|regex| !regex.is_match(&format_reference_target_path(segments))))
+            && event.reference_path.as_ref().is_some_and(|segments| {
+                Regex::new(pattern)
+                    .is_ok_and(|regex| !regex.is_match(&format_reference_target_path(segments)))
+            })
         {
             emit_error(
                 ctx,
@@ -983,7 +992,10 @@ fn check_numeric_form(
                 continue;
             };
             if let Some(min_value) = constraints.get("min_value").and_then(JsonValue::as_str)
-                && min_value.parse::<i128>().ok().is_some_and(|min| numeric < min)
+                && min_value
+                    .parse::<i128>()
+                    .ok()
+                    .is_some_and(|min| numeric < min)
             {
                 emit_error(
                     ctx,
@@ -997,7 +1009,10 @@ fn check_numeric_form(
                 continue;
             }
             if let Some(max_value) = constraints.get("max_value").and_then(JsonValue::as_str)
-                && max_value.parse::<i128>().ok().is_some_and(|max| numeric > max)
+                && max_value
+                    .parse::<i128>()
+                    .ok()
+                    .is_some_and(|max| numeric > max)
             {
                 emit_error(
                     ctx,
@@ -1126,9 +1141,7 @@ fn validate_attribute_map(
     datatype_rules: &BTreeMap<String, JsonValue>,
     ctx: &mut DiagContext,
 ) {
-    let attribute_rules = constraints
-        .get("attributes")
-        .and_then(JsonValue::as_object);
+    let attribute_rules = constraints.get("attributes").and_then(JsonValue::as_object);
 
     if let Some(attribute_rules) = attribute_rules {
         for (key, child_constraints_value) in attribute_rules {
@@ -1153,7 +1166,13 @@ fn validate_attribute_map(
             let Some(entry) = entry else {
                 continue;
             };
-            validate_attribute_entry(&child_path, entry, child_constraints_value, datatype_rules, ctx);
+            validate_attribute_entry(
+                &child_path,
+                entry,
+                child_constraints_value,
+                datatype_rules,
+                ctx,
+            );
         }
     }
 
@@ -1189,9 +1208,13 @@ fn validate_attribute_entry(
     datatype_rules: &BTreeMap<String, JsonValue>,
     ctx: &mut DiagContext,
 ) {
-    let effective_constraints = merge_attribute_datatype_rules(constraints, entry.datatype.as_deref(), datatype_rules);
+    let effective_constraints =
+        merge_attribute_datatype_rules(constraints, entry.datatype.as_deref(), datatype_rules);
 
-    if let Some(expected_container) = effective_constraints.get("type_is").and_then(JsonValue::as_str) {
+    if let Some(expected_container) = effective_constraints
+        .get("type_is")
+        .and_then(JsonValue::as_str)
+    {
         let ok = match expected_container {
             "list" => matches!(entry.value_type.as_str(), "ListLiteral" | "ListNode"),
             "tuple" => entry.value_type == "TupleLiteral",
@@ -1210,7 +1233,9 @@ fn validate_attribute_entry(
         }
     }
 
-    if let Some(expected_type) = effective_constraints.get("type").and_then(JsonValue::as_str)
+    if let Some(expected_type) = effective_constraints
+        .get("type")
+        .and_then(JsonValue::as_str)
         && !type_matches(expected_type, &entry.value_type)
     {
         emit_error(
@@ -1224,7 +1249,9 @@ fn validate_attribute_entry(
         );
     }
 
-    if let Some(expected_datatype) = effective_constraints.get("datatype").and_then(JsonValue::as_str)
+    if let Some(expected_datatype) = effective_constraints
+        .get("datatype")
+        .and_then(JsonValue::as_str)
         && entry.datatype.as_deref() != Some(expected_datatype)
     {
         emit_error(
@@ -1238,7 +1265,10 @@ fn validate_attribute_entry(
         );
     }
 
-    if let Some(reference) = effective_constraints.get("reference").and_then(JsonValue::as_str) {
+    if let Some(reference) = effective_constraints
+        .get("reference")
+        .and_then(JsonValue::as_str)
+    {
         match reference {
             "forbid" if is_reference_type(&entry.value_type) => emit_error(
                 ctx,
@@ -1262,8 +1292,14 @@ fn validate_attribute_entry(
         }
     }
 
-    if effective_constraints.get("reference").and_then(JsonValue::as_str) == Some("require") {
-        if let Some(reference_kind) = effective_constraints.get("reference_kind").and_then(JsonValue::as_str)
+    if effective_constraints
+        .get("reference")
+        .and_then(JsonValue::as_str)
+        == Some("require")
+    {
+        if let Some(reference_kind) = effective_constraints
+            .get("reference_kind")
+            .and_then(JsonValue::as_str)
         {
             let expected = match reference_kind {
                 "clone" => Some("CloneReference"),
@@ -1286,7 +1322,10 @@ fn validate_attribute_entry(
 
     if entry.value_type == "NumberLiteral" {
         let digit_count = count_integer_digits(&entry.raw);
-        if effective_constraints.get("sign").and_then(JsonValue::as_str) == Some("unsigned")
+        if effective_constraints
+            .get("sign")
+            .and_then(JsonValue::as_str)
+            == Some("unsigned")
             && is_negative(&entry.raw)
         {
             emit_error(
@@ -1299,7 +1338,9 @@ fn validate_attribute_entry(
                 },
             );
         }
-        if let Some(min_digits) = effective_constraints.get("min_digits").and_then(JsonValue::as_u64)
+        if let Some(min_digits) = effective_constraints
+            .get("min_digits")
+            .and_then(JsonValue::as_u64)
             && digit_count < min_digits as usize
         {
             emit_error(
@@ -1312,7 +1353,9 @@ fn validate_attribute_entry(
                 },
             );
         }
-        if let Some(max_digits) = effective_constraints.get("max_digits").and_then(JsonValue::as_u64)
+        if let Some(max_digits) = effective_constraints
+            .get("max_digits")
+            .and_then(JsonValue::as_u64)
             && digit_count > max_digits as usize
         {
             emit_error(
@@ -1325,7 +1368,9 @@ fn validate_attribute_entry(
                 },
             );
         }
-        if effective_constraints.get("min_value").is_some() || effective_constraints.get("max_value").is_some() {
+        if effective_constraints.get("min_value").is_some()
+            || effective_constraints.get("max_value").is_some()
+        {
             let Some(normalized) = normalize_integer_literal(&entry.raw) else {
                 emit_error(
                     ctx,
@@ -1341,8 +1386,13 @@ fn validate_attribute_entry(
             let Some(numeric) = normalized.parse::<i128>().ok() else {
                 return;
             };
-            if let Some(min_value) = effective_constraints.get("min_value").and_then(JsonValue::as_str)
-                && min_value.parse::<i128>().ok().is_some_and(|min| numeric < min)
+            if let Some(min_value) = effective_constraints
+                .get("min_value")
+                .and_then(JsonValue::as_str)
+                && min_value
+                    .parse::<i128>()
+                    .ok()
+                    .is_some_and(|min| numeric < min)
             {
                 emit_error(
                     ctx,
@@ -1354,8 +1404,13 @@ fn validate_attribute_entry(
                     },
                 );
             }
-            if let Some(max_value) = effective_constraints.get("max_value").and_then(JsonValue::as_str)
-                && max_value.parse::<i128>().ok().is_some_and(|max| numeric > max)
+            if let Some(max_value) = effective_constraints
+                .get("max_value")
+                .and_then(JsonValue::as_str)
+                && max_value
+                    .parse::<i128>()
+                    .ok()
+                    .is_some_and(|max| numeric > max)
             {
                 emit_error(
                     ctx,
@@ -1372,7 +1427,9 @@ fn validate_attribute_entry(
 
     if entry.value_type == "StringLiteral" {
         let value = string_value(entry.value.as_ref()).unwrap_or_default();
-        if let Some(min_length) = effective_constraints.get("min_length").and_then(JsonValue::as_u64)
+        if let Some(min_length) = effective_constraints
+            .get("min_length")
+            .and_then(JsonValue::as_u64)
             && value.len() < min_length as usize
         {
             emit_error(
@@ -1385,7 +1442,9 @@ fn validate_attribute_entry(
                 },
             );
         }
-        if let Some(max_length) = effective_constraints.get("max_length").and_then(JsonValue::as_u64)
+        if let Some(max_length) = effective_constraints
+            .get("max_length")
+            .and_then(JsonValue::as_u64)
             && value.len() > max_length as usize
         {
             emit_error(
@@ -1398,7 +1457,9 @@ fn validate_attribute_entry(
                 },
             );
         }
-        if let Some(pattern) = effective_constraints.get("pattern").and_then(JsonValue::as_str)
+        if let Some(pattern) = effective_constraints
+            .get("pattern")
+            .and_then(JsonValue::as_str)
             && Regex::new(pattern).is_ok_and(|regex| !regex.is_match(&value))
         {
             emit_error(
@@ -1421,7 +1482,13 @@ fn validate_attribute_entry(
         .get("attributes")
         .is_some_and(|value| value.is_object());
     if has_nested_rules || closed_attributes {
-        validate_attribute_map(path, &entry.attributes, &effective_constraints, datatype_rules, ctx);
+        validate_attribute_map(
+            path,
+            &entry.attributes,
+            &effective_constraints,
+            datatype_rules,
+            ctx,
+        );
     }
 }
 
@@ -1433,7 +1500,9 @@ fn merge_attribute_datatype_rules(
     let Some(datatype) = datatype else {
         return constraints.clone();
     };
-    let Some(JsonValue::Object(rule_constraints)) = datatype_rules.get(&datatype_base(datatype).to_lowercase()) else {
+    let Some(JsonValue::Object(rule_constraints)) =
+        datatype_rules.get(&datatype_base(datatype).to_lowercase())
+    else {
         return constraints.clone();
     };
     let mut merged = rule_constraints.clone();
@@ -1575,7 +1644,9 @@ fn resolve_reference_form_events(
         if !is_reference_type(&event.value_type) {
             continue;
         }
-        let Some(terminal) = resolve_terminal_reference_event(event, events_by_path, &mut BTreeSet::new()) else {
+        let Some(terminal) =
+            resolve_terminal_reference_event(event, events_by_path, &mut BTreeSet::new())
+        else {
             resolved.remove(path);
             continue;
         };
@@ -1639,7 +1710,10 @@ fn is_tuple_element_path(path: &str, events_by_path: &BTreeMap<String, EventInfo
     if !path.ends_with(']') {
         return false;
     }
-    if path[index_start + 1..path.len() - 1].parse::<usize>().is_err() {
+    if path[index_start + 1..path.len() - 1]
+        .parse::<usize>()
+        .is_err()
+    {
         return false;
     }
     let parent_path = &path[..index_start];
@@ -1660,14 +1734,11 @@ fn normalize_integer_literal(raw: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
     }
-    let valid = raw
-        .chars()
-        .enumerate()
-        .all(|(idx, ch)| match ch {
-            '+' | '-' => idx == 0,
-            '_' => true,
-            _ => ch.is_ascii_digit(),
-        });
+    let valid = raw.chars().enumerate().all(|(idx, ch)| match ch {
+        '+' | '-' => idx == 0,
+        '_' => true,
+        _ => ch.is_ascii_digit(),
+    });
     if !valid || !raw.chars().any(|ch| ch.is_ascii_digit()) || raw.contains('.') {
         return None;
     }
@@ -1974,8 +2045,16 @@ mod tests {
             aes: vec![AesEvent {
                 path: EventPath {
                     segments: vec![
-                        PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                        PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("postcode")), index: None },
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("postcode")),
+                            index: None,
+                        },
                     ],
                 },
                 key: String::from("postcode"),
@@ -2017,8 +2096,16 @@ mod tests {
                 AesEvent {
                     path: EventPath {
                         segments: vec![
-                            PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                            PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("source")), index: None },
+                            PathSegmentInput {
+                                segment_type: String::from("root"),
+                                key: None,
+                                index: None,
+                            },
+                            PathSegmentInput {
+                                segment_type: String::from("member"),
+                                key: Some(String::from("source")),
+                                index: None,
+                            },
                         ],
                     },
                     key: String::from("source"),
@@ -2036,8 +2123,16 @@ mod tests {
                 AesEvent {
                     path: EventPath {
                         segments: vec![
-                            PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                            PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("postcode")), index: None },
+                            PathSegmentInput {
+                                segment_type: String::from("root"),
+                                key: None,
+                                index: None,
+                            },
+                            PathSegmentInput {
+                                segment_type: String::from("member"),
+                                key: Some(String::from("postcode")),
+                                index: None,
+                            },
                         ],
                     },
                     key: String::from("postcode"),
@@ -2076,8 +2171,16 @@ mod tests {
             aes: vec![AesEvent {
                 path: EventPath {
                     segments: vec![
-                        PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                        PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("postcode")), index: None },
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("postcode")),
+                            index: None,
+                        },
                     ],
                 },
                 key: String::from("postcode"),
@@ -2257,8 +2360,16 @@ mod tests {
             aes: vec![AesEvent {
                 path: EventPath {
                     segments: vec![
-                        PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                        PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("value")), index: None },
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("value")),
+                            index: None,
+                        },
                     ],
                 },
                 key: String::from("value"),
@@ -2333,8 +2444,16 @@ mod tests {
             aes: vec![AesEvent {
                 path: EventPath {
                     segments: vec![
-                        PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                        PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("value")), index: None },
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("value")),
+                            index: None,
+                        },
                     ],
                 },
                 key: String::from("value"),
@@ -2369,7 +2488,13 @@ mod tests {
 
         let result = validate(&envelope);
         assert!(!result.ok);
-        assert!(result.errors.iter().any(|error| error.code == "unexpected_attribute_entry" && error.path.as_deref() == Some("$.value@extra")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "unexpected_attribute_entry"
+                    && error.path.as_deref() == Some("$.value@extra"))
+        );
     }
 
     #[test]
@@ -2391,14 +2516,25 @@ mod tests {
         );
 
         let mut datatype_rules = BTreeMap::new();
-        datatype_rules.insert(String::from("uint"), json!({ "type": "NumberLiteral", "sign": "unsigned" }));
+        datatype_rules.insert(
+            String::from("uint"),
+            json!({ "type": "NumberLiteral", "sign": "unsigned" }),
+        );
 
         let envelope = ValidationEnvelope {
             aes: vec![AesEvent {
                 path: EventPath {
                     segments: vec![
-                        PathSegmentInput { segment_type: String::from("root"), key: None, index: None },
-                        PathSegmentInput { segment_type: String::from("member"), key: Some(String::from("value")), index: None },
+                        PathSegmentInput {
+                            segment_type: String::from("root"),
+                            key: None,
+                            index: None,
+                        },
+                        PathSegmentInput {
+                            segment_type: String::from("member"),
+                            key: Some(String::from("value")),
+                            index: None,
+                        },
                     ],
                 },
                 key: String::from("value"),
@@ -2432,6 +2568,12 @@ mod tests {
 
         let result = validate(&envelope);
         assert!(!result.ok);
-        assert!(result.errors.iter().any(|error| error.code == "numeric_form_violation" && error.path.as_deref() == Some("$.value@unit")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "numeric_form_violation"
+                    && error.path.as_deref() == Some("$.value@unit"))
+        );
     }
 }

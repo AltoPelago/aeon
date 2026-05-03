@@ -169,10 +169,8 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut active_paths = BTreeSet::new();
-    let mut tracker = MaterializationTracker::new(
-        options.max_materialized_weight,
-        options.max_reference_depth,
-    );
+    let mut tracker =
+        MaterializationTracker::new(options.max_materialized_weight, options.max_reference_depth);
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
@@ -292,7 +290,9 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 #[must_use]
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
-        Value::TypedValue { datatype, value, .. } => json!({
+        Value::TypedValue {
+            datatype, value, ..
+        } => json!({
             "type": "TypedValue",
             "datatype": datatype.as_ref().map(|name| json!({
                 "type": "TypeAnnotation",
@@ -609,7 +609,10 @@ fn value_to_json_with_active_key(
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
-    if let Value::TypedValue { datatype, value, .. } = value {
+    if let Value::TypedValue {
+        datatype, value, ..
+    } = value
+    {
         return value_to_json_with_active_key(
             value,
             path,
@@ -877,8 +880,7 @@ fn value_to_json_with_active_key(
                             "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
                             format!(
                                 "Reference materialization depth {} exceeds max_reference_depth {}",
-                                observed_depth,
-                                limit
+                                observed_depth, limit
                             ),
                         )
                         .at_path(path),

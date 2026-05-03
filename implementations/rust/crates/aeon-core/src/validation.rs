@@ -41,7 +41,10 @@ pub(crate) fn build_validation_event_lookup(
     for index in duplicate_indexes {
         let path = &events[index].path;
         errors.push(
-            Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", key_from_path(path)))
+            Diagnostic::new(
+                "DUPLICATE_KEY",
+                format!("Duplicate key: '{}'", key_from_path(path)),
+            )
             .at_path(path.clone())
             .with_span(events[index].span),
         );
@@ -67,7 +70,10 @@ pub(crate) fn validate_duplicate_canonical_paths(
     for index in &duplicate_indexes {
         let path = &flattened.rendered_event_paths[*index];
         errors.push(
-            Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", key_from_path(path)))
+            Diagnostic::new(
+                "DUPLICATE_KEY",
+                format!("Duplicate key: '{}'", key_from_path(path)),
+            )
             .at_path(path.clone())
             .with_span(flattened.events[*index].span),
         );
@@ -99,8 +105,33 @@ pub(crate) fn validate_duplicate_canonical_paths(
     }
 }
 
-fn key_from_path(path: &str) -> &str {
-    path.strip_prefix("$.").unwrap_or(path)
+fn key_from_path(path: &str) -> String {
+    if let Some(start) = path.rfind(".[") {
+        let segment = &path[start + 2..];
+        if segment.starts_with('"') && segment.ends_with(']') {
+            return unescape_quoted_path_segment(&segment[..segment.len() - 1]);
+        }
+    }
+    path.rsplit('.').next().unwrap_or(path).to_string()
+}
+
+fn unescape_quoted_path_segment(segment: &str) -> String {
+    let inner = segment
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(segment);
+    let mut result = String::new();
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                result.push(next);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 pub(crate) fn validate_reference_steps(
@@ -673,6 +704,9 @@ fn resolve_reference_remainder<'a>(
         ReferenceSegment::Index(index) => match value {
             Value::ListNode { items } | Value::TupleLiteral { items } => {
                 resolve_reference_remainder(items.get(*index)?, None, &remainder[1..])
+            }
+            Value::NodeLiteral { children, .. } => {
+                resolve_reference_remainder(children.get(*index)?, None, &remainder[1..])
             }
             _ => None,
         },

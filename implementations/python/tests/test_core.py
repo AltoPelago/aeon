@@ -89,6 +89,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIn("$.page[0].b", by_path)
         self.assertIn("$.page[1]", by_path)
 
+    def test_references_resolve_through_node_child_indexes(self) -> None:
+        result = compile_source('page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a')
+        self.assertEqual([], result.errors)
+        self.assertIn("$.copy", {event["path"] for event in result.events})
+
     def test_anonymous_attributed_values_emit_indexed_annotations(self) -> None:
         result = compile_source('page:node = <page(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
         self.assertEqual([], result.errors)

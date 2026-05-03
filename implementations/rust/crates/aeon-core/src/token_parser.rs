@@ -1169,10 +1169,7 @@ impl<'a> TokenParser<'a> {
             let key_span = self.peek().span;
             let key = self.parse_key()?;
             if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
-                return Err(self.error_at_current(&format!(
-                    "Reserved attribute key: {}",
-                    key
-                )));
+                return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }
             self.skip_newlines();
             let mut datatype = None;
@@ -1203,9 +1200,11 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
             if members.contains_key(&key) {
-                return Err(Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: `{key}`"))
-                    .at_path("$")
-                    .with_span(key_span));
+                return Err(
+                    Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{key}'"))
+                        .at_path("$")
+                        .with_span(key_span),
+                );
             }
             members.insert(
                 key.clone(),
@@ -1822,8 +1821,8 @@ mod tests {
 
     #[test]
     fn rejects_floating_object_attributes_from_tokens() {
-        let error = parse("x = { @{meta=1} k = 2 }")
-            .expect_err("floating object attributes should fail");
+        let error =
+            parse("x = { @{meta=1} k = 2 }").expect_err("floating object attributes should fail");
         assert_eq!(error.code, "SYNTAX_ERROR");
     }
 
@@ -1880,7 +1879,11 @@ mod tests {
         match &bindings[0].value {
             Value::ListNode { items } => {
                 match &items[0] {
-                    Value::TypedValue { datatype, attributes, .. } => {
+                    Value::TypedValue {
+                        datatype,
+                        attributes,
+                        ..
+                    } => {
                         assert!(datatype.is_none());
                         assert_eq!(attributes.len(), 1);
                         assert!(attributes.contains_key("unit"));
@@ -1888,7 +1891,11 @@ mod tests {
                     other => panic!("expected typed wrapper, got {other:?}"),
                 }
                 match &items[1] {
-                    Value::TypedValue { datatype, attributes, .. } => {
+                    Value::TypedValue {
+                        datatype,
+                        attributes,
+                        ..
+                    } => {
                         assert_eq!(datatype.as_deref(), Some("n"));
                         assert_eq!(attributes.len(), 2);
                         assert!(attributes.contains_key("unit"));

@@ -1,35 +1,46 @@
 /**
- * Quick check: what does the AST actually contain for duplicate attr keys?
+ * Focused grammar probes for cases where parser recovery may still return a
+ * partial AST. A syntax shape is only accepted when errors.length === 0.
  */
 import { tokenize } from '../packages/lexer/dist/index.js';
 import { parse } from '../packages/parser/dist/index.js';
 
-const input = 'a @{x=1, x=2, x=3} = 42';
-const { tokens } = tokenize(input);
-const filtered = tokens.filter(t => t.type !== 'Newline');
-const { document, errors } = parse(filtered);
+function inspect(input, options = {}) {
+    const { tokens, errors: lexErrors } = tokenize(input);
+    const filtered = tokens.filter(t => t.type !== 'Newline');
+    const { document, errors: parseErrors } = parse(filtered, options);
+    const errors = [...lexErrors, ...parseErrors];
+    return {
+        accepted: errors.length === 0 && document !== null,
+        document,
+        errors,
+    };
+}
 
-console.log('Errors:', errors.length);
-console.log('Binding attrs:', JSON.stringify(
-    [...document.bindings[0].attributes[0].entries.entries()],
-    null, 2
-));
+function show(label, input, options) {
+    const result = inspect(input, options);
+    console.log(`\n--- ${label} ---`);
+    console.log('Input:', input);
+    console.log('Accepted:', result.accepted);
+    console.log('Errors:', result.errors.map(e => `${e.code}: ${e.message}`));
+    console.log('Bindings:', result.document?.bindings?.length ?? 0);
+    return result;
+}
 
-// Also check: header after body
-const input2 = 'x = 1\naeon:mode = "strict"';
-const { tokens: t2 } = tokenize(input2);
-const f2 = t2.filter(t => t.type !== 'Newline');
-const { document: d2, errors: e2 } = parse(f2);
-console.log('\n--- Header after body ---');
-console.log('Errors:', e2.length);
-console.log('Header:', d2.header);
-console.log('Bindings:', d2.bindings.length, d2.bindings.map(b => `${b.key}=${JSON.stringify(b.value)}`));
+const duplicateAttr = show('Duplicate attribute keys', 'a @{x=1, x=2, x=3} = 42');
+if (!duplicateAttr.accepted) {
+    console.log('Partial attr entries after recovery:', JSON.stringify(
+        [...(duplicateAttr.document?.bindings?.[0]?.attributes?.[0]?.entries ?? new Map()).entries()],
+        null,
+        2,
+    ));
+}
 
-// Also check: top-level dup keys
-const input3 = 'a = 1\na = 2';
-const { tokens: t3 } = tokenize(input3);
-const f3 = t3.filter(t => t.type !== 'Newline');
-const { document: d3, errors: e3 } = parse(f3);
-console.log('\n--- Top-level duplicate keys ---');
-console.log('Errors:', e3.length, e3.map(e => e.message));
-console.log('Bindings:', d3.bindings.length);
+const headerAfterBody = show('Header-like binding after body', 'x = 1\naeon:mode = "strict"');
+console.log('Header:', headerAfterBody.document?.header ?? null);
+console.log('Binding keys:', headerAfterBody.document?.bindings?.map(b => b.key) ?? []);
+
+show('Top-level duplicate keys', 'a = 1\na = 2');
+show('Floating object attribute', 'x = { @{meta=1} k = 2 }');
+show('Repeated attribute entry head with raised depth', 'a @{x @{y=1} @{z=2} = 3} = 4', { maxAttributeDepth: 8 });
+show('Single nested attribute entry head with raised depth', 'a @{x @{origin="core"} = 2} = 1', { maxAttributeDepth: 8 });

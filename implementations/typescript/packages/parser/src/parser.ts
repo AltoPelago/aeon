@@ -168,7 +168,7 @@ class Parser {
         if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
             return `$.${key}`;
         }
-        return `$["${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+        return `$.[${JSON.stringify(key)}]`;
     }
 
     private isHeaderStart(): boolean {

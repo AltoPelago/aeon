@@ -445,9 +445,12 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
-    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
-    })?;
+    let max_reference_depth =
+        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
+            )
+        })?;
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -1015,9 +1018,12 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
-    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
-    })?;
+    let max_reference_depth =
+        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
+            )
+        })?;
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
     if args
@@ -2520,10 +2526,17 @@ fn render_errors(errors: &[Diagnostic]) -> String {
 
 fn render_value_json_string(value: &Value) -> String {
     match value {
-        Value::TypedValue { datatype, value, .. } => {
+        Value::TypedValue {
+            datatype, value, ..
+        } => {
             let datatype_json = datatype
                 .as_ref()
-                .map(|name| format!("{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}", escape_json(name)))
+                .map(|name| {
+                    format!(
+                        "{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}",
+                        escape_json(name)
+                    )
+                })
                 .unwrap_or_else(|| String::from("null"));
             format!(
                 "{{\"type\":\"TypedValue\",\"datatype\":{},\"value\":{}}}",
@@ -2702,7 +2715,12 @@ fn format_event_line(event: &AssignmentEvent) -> String {
 
 fn render_human_value(value: &Value) -> String {
     match value {
-        Value::TypedValue { datatype, attributes, value, .. } => {
+        Value::TypedValue {
+            datatype,
+            attributes,
+            value,
+            ..
+        } => {
             let mut head = String::new();
             if !attributes.is_empty() {
                 head.push('@');
@@ -2957,9 +2975,7 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "HEADER_CONFLICT"
         | "DUPLICATE_KEY"
         | "DUPLICATE_CANONICAL_PATH"
-        | "DATATYPE_LITERAL_MISMATCH" => {
-            Some("Core Validation")
-        }
+        | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
         "MISSING_REFERENCE_TARGET"
         | "FORWARD_REFERENCE"
         | "SELF_REFERENCE"

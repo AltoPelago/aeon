@@ -579,6 +579,16 @@ describe('Core - compile()', () => {
             });
         });
 
+        it('should report duplicate quoted top-level keys with canonical path details', () => {
+            const result = compile('"a.b" = 1\n"a.b" = 2');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.strictEqual(result.errors[0]!.message, "Duplicate key: 'a.b'");
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.["a.b"]');
+        });
+
         it('should report temporal literal diagnostics with aligned messages and spans', () => {
             const cases = [
                 {

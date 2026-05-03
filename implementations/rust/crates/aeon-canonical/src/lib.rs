@@ -47,7 +47,10 @@ enum Value {
     String(String),
     Number(String),
     Infinity(String),
-    Null { mode: NullMode, value: String },
+    Null {
+        mode: NullMode,
+        value: String,
+    },
     Object(Vec<Binding>),
     List(Vec<Value>),
     Tuple(Vec<Value>),
@@ -274,7 +277,10 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
             let rendered = render_value_multiline(value, indent);
             if let Some((first, rest)) = rendered.split_first() {
                 let first = first.strip_prefix(&prefix).unwrap_or(first);
-                let mut lines = vec![format!("{prefix}:{} = {first}", normalize_datatype(datatype))];
+                let mut lines = vec![format!(
+                    "{prefix}:{} = {first}",
+                    normalize_datatype(datatype)
+                )];
                 lines.extend(rest.iter().cloned());
                 lines
             } else {
@@ -440,7 +446,11 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 fn render_value_inline(value: &Value) -> String {
     match value {
         Value::Typed { datatype, value } => {
-            format!(":{} = {}", normalize_datatype(datatype), render_value_inline(value))
+            format!(
+                ":{} = {}",
+                normalize_datatype(datatype),
+                render_value_inline(value)
+            )
         }
         Value::Attributed {
             attributes,
@@ -1491,7 +1501,10 @@ impl<'a> Parser<'a> {
                 None
             };
             self.skip_ws(true);
-            self.expect_char_message('=', "Expected '=' after anonymous attribute/type annotation")?;
+            self.expect_char_message(
+                '=',
+                "Expected '=' after anonymous attribute/type annotation",
+            )?;
             self.skip_ws(true);
             let value = self.parse_value()?;
             return Ok(Value::Attributed {
@@ -2607,11 +2620,14 @@ mod tests {
 
     #[test]
     fn canonicalizes_anonymous_attributed_children() {
-        let result = canonicalize(
-            "aeon:mode = \"strict\"\nwidth:list = [@{unit:string = \"cm\"} = 3]\n",
-        );
+        let result =
+            canonicalize("aeon:mode = \"strict\"\nwidth:list = [@{unit:string = \"cm\"} = 3]\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
-        assert!(result.text.contains("@{unit:string = \"cm\"} = 3"), "{}", result.text);
+        assert!(
+            result.text.contains("@{unit:string = \"cm\"} = 3"),
+            "{}",
+            result.text
+        );
     }
 
     #[test]

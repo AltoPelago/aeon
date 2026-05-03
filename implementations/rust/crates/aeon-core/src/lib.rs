@@ -2057,7 +2057,10 @@ mod tests {
         assert_eq!(by_path["$.pair[1]"].datatype.as_deref(), Some("float64"));
         assert!(matches!(by_path["$.page"].value, Value::NodeLiteral { .. }));
         assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("string"));
-        assert!(matches!(by_path["$.page[1]"].value, Value::NodeLiteral { .. }));
+        assert!(matches!(
+            by_path["$.page[1]"].value,
+            Value::NodeLiteral { .. }
+        ));
         assert_eq!(by_path["$.page[2]"].datatype.as_deref(), Some("int32"));
     }
 
@@ -2075,12 +2078,18 @@ mod tests {
             .collect::<std::collections::BTreeMap<_, _>>();
         assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("int32"));
         assert_eq!(
-            by_path["$.page[0]"].annotations.get("unit").and_then(|value| value.datatype.as_deref()),
+            by_path["$.page[0]"]
+                .annotations
+                .get("unit")
+                .and_then(|value| value.datatype.as_deref()),
             Some("string")
         );
         assert!(by_path["$.values[0]"].datatype.is_none());
         assert_eq!(
-            by_path["$.values[0]"].annotations.get("unit").and_then(|value| value.datatype.as_deref()),
+            by_path["$.values[0]"]
+                .annotations
+                .get("unit")
+                .and_then(|value| value.datatype.as_deref()),
             Some("string")
         );
     }
@@ -2102,6 +2111,21 @@ mod tests {
         assert!(by_path.contains_key("$.page[0].a"));
         assert!(by_path.contains_key("$.page[0].b"));
         assert!(by_path.contains_key("$.page[1]"));
+    }
+
+    #[test]
+    fn references_resolve_through_node_child_indexes() {
+        let result = compile(
+            "page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .events
+                .iter()
+                .any(|event| format_path(&event.path) == "$.copy")
+        );
     }
 
     #[test]

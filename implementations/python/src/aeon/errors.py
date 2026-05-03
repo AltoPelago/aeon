@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ._compat import dataclass
 from .spans import Position, Span
 
@@ -174,9 +176,18 @@ class UnsafeMaxNestingDepthError(AeonError):
 
 
 def _key_from_path(path: str) -> str:
-    if path.startswith("$."):
-        return path[2:]
-    return path
+    if ".[" in path and path.endswith("]"):
+        quoted = path[path.rfind(".[") + 2 : -1]
+        if quoted.startswith('"') and quoted.endswith('"'):
+            try:
+                parsed = json.loads(quoted)
+                if isinstance(parsed, str):
+                    return parsed
+            except json.JSONDecodeError:
+                return quoted.strip('"')
+    if "." in path:
+        return path.rsplit(".", 1)[1]
+    return path.removeprefix("$")
 
 
 class DuplicateCanonicalPathError(AeonError):
