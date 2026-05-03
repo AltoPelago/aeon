@@ -27,12 +27,14 @@ export const ErrorCodes = {
     // Presence checks (Phase 4)
     MISSING_REQUIRED_FIELD: 'missing_required_field',
     UNEXPECTED_BINDING: 'unexpected_binding',
+    UNEXPECTED_ATTRIBUTE_ENTRY: 'unexpected_attribute_entry',
 
     // Type checks (Phase 5)
     TYPE_MISMATCH: 'type_mismatch',
     REFERENCE_REQUIRED: 'reference_required',
     REFERENCE_FORBIDDEN: 'reference_forbidden',
     REFERENCE_KIND_MISMATCH: 'reference_kind_mismatch',
+    REFERENCE_TARGET_MISMATCH: 'reference_target_mismatch',
     WRONG_CONTAINER_KIND: 'WRONG_CONTAINER_KIND',
     TUPLE_ARITY_MISMATCH: 'TUPLE_ARITY_MISMATCH',
     TUPLE_ELEMENT_TYPE_MISMATCH: 'TUPLE_ELEMENT_TYPE_MISMATCH',

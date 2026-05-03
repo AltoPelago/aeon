@@ -157,13 +157,11 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ## CTS
 
 ```bash
-node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts ../../cts/core/v1/core-cts.v1.json --lane core
-node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts ../../cts/aes/v1/aes-cts.v1.json --lane aes
-node ../typescript/tools/annotation-cts-runner/dist/index.js --sut ./bin/aeon-python --cts ../../cts/annotations/v1/annotation-stream-cts.v1.json
-node ../typescript/tools/cts-runner/dist/index.js --sut ./bin/aeon-python --cts ../../cts/aeos/v1/aeos-validator-cts.v1.json
+node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/core/v1/core-cts.v1.json" --lane core
+node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.json" --lane aes
+node ../typescript/tools/annotation-cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/annotations/v1/annotation-stream-cts.v1.json"
+node ../typescript/tools/cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aeos/v1/aeos-validator-cts.v1.json"
 ```
-
-Those commands fall back to the sibling `aeonite-org/aeonite-cts` checkout automatically when the old in-repo `cts/` paths are absent.
 
 The sibling roots can be overridden with:
 

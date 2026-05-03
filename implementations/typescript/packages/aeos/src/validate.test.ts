@@ -693,6 +693,188 @@ describe('validate()', () => {
             assert.strictEqual(result.ok, true);
             assert.strictEqual(result.errors.length, 0);
         });
+
+        it('requires attribute entries when declared in schema', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                            attributes: {
+                                unit: { required: true, type: 'StringLiteral', datatype: 'string' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.MISSING_REQUIRED_FIELD && e.path === '$.value@unit'));
+        });
+
+        it('checks attribute entry type and datatype', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'symbol',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            attributes: {
+                                unit: { type: 'NumberLiteral', datatype: 'string' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value@unit'));
+        });
+
+        it('rejects unexpected attribute entries when closed_attributes is true', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                        ['extra', {
+                            value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [3, 4] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            attributes: {
+                                unit: { type: 'StringLiteral' },
+                            },
+                            closed_attributes: true,
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('recurses into nested attribute entries', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 5] },
+                    annotations: new Map([
+                        ['meta', {
+                            value: { type: 'ObjectNode', bindings: [], attributes: [], span: [2, 4] },
+                            annotations: new Map([
+                                ['label', {
+                                    value: { type: 'NumberLiteral', value: '7', raw: '7', span: [3, 4] },
+                                    datatype: 'n',
+                                }],
+                            ]),
+                        }],
+                    ]),
+                    span: [1, 5],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            attributes: {
+                                meta: {
+                                    attributes: {
+                                        label: { type: 'StringLiteral' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value@meta@label'));
+        });
+
+        it('applies datatype_rules to attribute entries automatically', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'NumberLiteral', value: '-7', raw: '-7', span: [2, 3] },
+                            datatype: 'uint',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            attributes: {
+                                unit: {},
+                            },
+                        },
+                    },
+                ],
+                datatype_rules: {
+                    uint: { type: 'NumberLiteral', sign: 'unsigned' },
+                },
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.value@unit'));
+        });
     });
 
     describe('optional trailing separator delimiter policy', () => {
@@ -725,6 +907,156 @@ describe('validate()', () => {
             const result = validate(aesWithTrailingDelimiter, schema, { trailingSeparatorDelimiterPolicy: 'error' });
             assert.strictEqual(result.ok, false);
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.TRAILING_SEPARATOR_DELIMITER));
+        });
+    });
+
+    describe('reference target and resolved-form constraints', () => {
+        it('matches canonicalized reference_target_pattern for quoted and attribute segments', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'postcode' }] },
+                    key: 'postcode',
+                    value: { type: 'CloneReference', path: ['safe keys', { type: 'attr', key: 'ns' }], span: [0, 12] },
+                    span: [0, 12],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.postcode',
+                        constraints: {
+                            reference_target_pattern: '^\\$\\.\\["safe keys"\\]@ns$',
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+        });
+
+        it('fails when reference target path falls outside the allowed domain', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'postcode' }] },
+                    key: 'postcode',
+                    value: { type: 'CloneReference', path: ['ages', 3], span: [0, 18] },
+                    span: [0, 18],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.postcode',
+                        constraints: {
+                            reference: 'require',
+                            reference_kind: 'clone',
+                            reference_target_pattern: '^\\$\\.postcodes\\[\\d+\\]$',
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.REFERENCE_TARGET_MISMATCH && e.path === '$.postcode'));
+        });
+
+        it('resolves transitive reference chains for type and pattern checks when enabled', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'a' }] },
+                    key: 'a',
+                    value: { type: 'StringLiteral', value: 'ok', raw: '"ok"' },
+                    span: [0, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'b' }] },
+                    key: 'b',
+                    value: { type: 'CloneReference', path: ['a'], span: [5, 9] },
+                    span: [5, 9],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'c' }] },
+                    key: 'c',
+                    value: { type: 'CloneReference', path: ['b'], span: [10, 14] },
+                    span: [10, 14],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.c',
+                        constraints: {
+                            type: 'StringLiteral',
+                            pattern: 'ok',
+                            resolve_reference_form: true,
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+        });
+
+        it('keeps missing targets and cycles Core-owned when resolve_reference_form is enabled', () => {
+            const missingTargetAes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'postcode' }] },
+                    key: 'postcode',
+                    value: { type: 'CloneReference', path: ['missing'], span: [0, 9] },
+                    span: [0, 9],
+                },
+            ] as unknown as AES;
+
+            const cyclicAes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'a' }] },
+                    key: 'a',
+                    value: { type: 'CloneReference', path: ['b'], span: [0, 4] },
+                    span: [0, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'b' }] },
+                    key: 'b',
+                    value: { type: 'CloneReference', path: ['a'], span: [5, 9] },
+                    span: [5, 9],
+                },
+            ] as unknown as AES;
+
+            const missingSchema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.postcode',
+                        constraints: {
+                            type: 'IntegerLiteral',
+                            min_value: '1000',
+                            max_value: '9999',
+                            resolve_reference_form: true,
+                        },
+                    },
+                ],
+            };
+            const cycleSchema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.a',
+                        constraints: {
+                            type: 'IntegerLiteral',
+                            min_value: '1000',
+                            max_value: '9999',
+                            resolve_reference_form: true,
+                        },
+                    },
+                ],
+            };
+
+            assert.strictEqual(validate(missingTargetAes, missingSchema).ok, true);
+            assert.strictEqual(validate(cyclicAes, cycleSchema).ok, true);
         });
     });
 });

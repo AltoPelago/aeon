@@ -315,7 +315,9 @@ The current stack is healthiest when each layer owns a narrow responsibility:
 In practice this means:
 
 - AEOS should not re-own Core reference-legality failures.
+- Core should emit the canonical indexed child events that downstream tooling depends on. Lists, tuples, and node children should surface bracket-addressed child paths such as `$.values[0]` and `$.page[0]` before AEOS or finalization tries to reason about them.
 - Finalization should not silently act like a resolver or application runtime.
+- AEOS should validate those indexed child paths the same way it validates other AES paths, but annotation payload inspection is still a separate concern from the current schema surface.
 - CLI commands should not invent semantics beyond what the library layers already define.
   But user-facing CLI parity can still include workflow details like backup-on-write behavior for formatters when the implementation docs/tests establish that contract.
   A practical AEOS runtime surface can start as a thin `bind` wrapper that composes Core compile, AEOS validate, and finalization without re-owning schema semantics in the CLI.

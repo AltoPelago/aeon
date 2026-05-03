@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aeon_aeos::{
-    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, Schema, SpanInput,
+    AesEvent, AttributeEntry as AeosAttributeEntry, EventPath, EventValue, OffsetOnly,
+    PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema, SpanInput,
     ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
@@ -3098,6 +3099,11 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
             },
             key: event.key.clone(),
             datatype: event.datatype.clone(),
+            annotations: event
+                .annotations
+                .iter()
+                .map(|(key, entry)| (key.clone(), core_attribute_to_aeos(entry)))
+                .collect(),
             value: core_value_to_aeos(&event.value),
             span: Some(SpanInput::Object {
                 start: OffsetOnly {
@@ -3118,12 +3124,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("InfinityLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NaNLiteral { raw } => EventValue {
             value_type: String::from("NaNLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NullLiteral { mode, value, raw } => EventValue {
@@ -3136,96 +3144,112 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
                 },
                 "value": value,
             })),
+            path: None,
             elements: Vec::new(),
         },
         Value::NumberLiteral { raw } => EventValue {
             value_type: String::from("NumberLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(normalize_number_literal(raw))),
+            path: None,
             elements: Vec::new(),
         },
         Value::StringLiteral { value, raw, .. } => EventValue {
             value_type: String::from("StringLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(value.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::BooleanLiteral { raw } => EventValue {
             value_type: String::from("BooleanLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::Bool(raw == "true")),
+            path: None,
             elements: Vec::new(),
         },
         Value::SwitchLiteral { raw } => EventValue {
             value_type: String::from("SwitchLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::HexLiteral { raw } => EventValue {
             value_type: String::from("HexLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::SeparatorLiteral { raw } => EventValue {
             value_type: String::from("SeparatorLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('^').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::RadixLiteral { raw } => EventValue {
             value_type: String::from("RadixLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('%').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::DateLiteral { raw } => EventValue {
             value_type: String::from("DateLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::DateTimeLiteral { raw } => EventValue {
             value_type: String::from("DateTimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::TimeLiteral { raw } => EventValue {
             value_type: String::from("TimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NodeLiteral { raw, .. } => EventValue {
             value_type: String::from("NodeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::ListNode { items } => EventValue {
             value_type: String::from("ListNode"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::TupleLiteral { items } => EventValue {
             value_type: String::from("TupleLiteral"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::ObjectNode { .. } => EventValue {
             value_type: String::from("ObjectNode"),
             raw: None,
             value: None,
+            path: None,
             elements: Vec::new(),
         },
         Value::CloneReference { segments, .. } => EventValue {
@@ -3234,6 +3258,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::Array(
                 segments.iter().map(reference_segment_to_json).collect(),
             )),
+            path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
         },
         Value::PointerReference { segments, .. } => EventValue {
@@ -3242,7 +3267,41 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::Array(
                 segments.iter().map(reference_segment_to_json).collect(),
             )),
+            path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
+        },
+    }
+}
+
+fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
+    AeosAttributeEntry {
+        value: entry
+            .value
+            .as_ref()
+            .map(core_value_to_aeos)
+            .unwrap_or(EventValue {
+                value_type: String::from("ObjectNode"),
+                raw: None,
+                value: None,
+                path: None,
+                elements: Vec::new(),
+            }),
+        datatype: entry.datatype.clone(),
+        annotations: entry
+            .nested_attrs
+            .iter()
+            .map(|(key, nested)| (key.clone(), core_attribute_to_aeos(nested)))
+            .collect(),
+    }
+}
+
+fn reference_segment_to_aeos(segment: &ReferenceSegment) -> AeosReferencePathSegment {
+    match segment {
+        ReferenceSegment::Key(key) => AeosReferencePathSegment::Member(key.clone()),
+        ReferenceSegment::Index(index) => AeosReferencePathSegment::Index(*index as i64),
+        ReferenceSegment::Attr(key) => AeosReferencePathSegment::Attribute {
+            segment_type: String::from("attr"),
+            key: key.clone(),
         },
     }
 }

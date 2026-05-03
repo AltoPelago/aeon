@@ -42,7 +42,7 @@ describe('buildRuleIndex()', () => {
             rules: [
                 { constraints: { type: 'StringLiteral' } } as any,
             ],
-        } as SchemaV1;
+        } as unknown as SchemaV1;
         const ctx = createDiagContext();
 
         const index = buildRuleIndex(schema, ctx);
@@ -74,7 +74,7 @@ describe('buildRuleIndex()', () => {
             rules: [
                 { path: '$.a', constraints: { unknown_key: true } as any },
             ],
-        } as SchemaV1;
+        } as unknown as SchemaV1;
         const ctx = createDiagContext();
 
         const index = buildRuleIndex(schema, ctx);
@@ -136,6 +136,124 @@ describe('buildRuleIndex()', () => {
                 { path: '$.a', constraints: { reference: 'require' } },
             ],
         };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
+
+    it('accepts nested attribute constraints', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.value',
+                    constraints: {
+                        type: 'NumberLiteral',
+                        attributes: {
+                            unit: {
+                                required: true,
+                                type: 'StringLiteral',
+                                datatype: 'string',
+                            },
+                            meta: {
+                                attributes: {
+                                    label: {
+                                        type: 'StringLiteral',
+                                    },
+                                },
+                            },
+                        },
+                        closed_attributes: true,
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 1);
+        assert.strictEqual(ctx.errors.length, 0);
+    });
+
+    it('rejects unknown nested attribute constraint keys', () => {
+        const schema = {
+            rules: [
+                {
+                    path: '$.value',
+                    constraints: {
+                        attributes: {
+                            unit: {
+                                bogus: true,
+                            },
+                        },
+                    },
+                },
+            ],
+        } as unknown as SchemaV1;
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+        assert.strictEqual(ctx.errors[0]?.path, '$.value@unit');
+    });
+
+    it('accepts valid reference_target_pattern and resolve_reference_form constraints', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.postcode',
+                    constraints: {
+                        reference: 'require',
+                        reference_kind: 'clone',
+                        reference_target_pattern: '^\\$\\.postcodes\\[\\d+\\]$',
+                        resolve_reference_form: true,
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 1);
+        assert.strictEqual(ctx.errors.length, 0);
+    });
+
+    it('rejects invalid reference_target_pattern regex', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.postcode',
+                    constraints: {
+                        reference_target_pattern: '[',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
+
+    it('rejects resolve_reference_form when it is not boolean', () => {
+        const schema = {
+            rules: [
+                {
+                    path: '$.postcode',
+                    constraints: {
+                        resolve_reference_form: 'yes',
+                    },
+                },
+            ],
+        } as unknown as SchemaV1;
         const ctx = createDiagContext();
 
         const index = buildRuleIndex(schema, ctx);
