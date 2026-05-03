@@ -204,6 +204,15 @@ class NodeLiteral:
     span: Span | None = None
 
 
+@dataclass(slots=True)
+class TypedValue:
+    type: Literal["TypedValue"] = "TypedValue"
+    datatype: TypeAnnotation | None = None
+    attributes: list[Attribute] = field(default_factory=list)
+    value: "Value" | None = None
+    span: Span | None = None
+
+
 @dataclass(slots=True, frozen=True)
 class AttributePathSegment:
     type: Literal["attr"] = "attr"
@@ -228,6 +237,8 @@ class PointerReference:
 
 
 Value = (
+    TypedValue
+    |
     StringLiteral
     | NumberLiteral
     | InfinityLiteral

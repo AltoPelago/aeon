@@ -16,29 +16,32 @@ function isReferenceType(type: string | undefined): boolean {
 
 function validateReferenceConstraints(
     schema: SchemaV1,
-    rule: SchemaRule,
+    rulePath: string,
+    constraints: Record<string, unknown>,
     ctx: DiagContext
 ): boolean {
-    const reference = rule.constraints.reference;
-    const referenceKind = rule.constraints.reference_kind;
-    const expectedType = typeof rule.constraints.type === 'string' ? rule.constraints.type : undefined;
+    const reference = constraints.reference;
+    const referenceKind = constraints.reference_kind;
+    const referenceTargetPattern = constraints.reference_target_pattern;
+    const resolveReferenceForm = constraints.resolve_reference_form;
+    const expectedType = typeof constraints.type === 'string' ? constraints.type : undefined;
     const schemaReferencePolicy = schema.reference_policy;
 
-    if (reference !== undefined && !['allow', 'forbid', 'require'].includes(reference)) {
+    if (reference !== undefined && (typeof reference !== 'string' || !['allow', 'forbid', 'require'].includes(reference))) {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `Invalid reference constraint for path ${rule.path}: ${String(reference)}`,
+            `Invalid reference constraint for path ${rulePath}: ${String(reference)}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
     }
 
-    if (referenceKind !== undefined && !['clone', 'pointer', 'either'].includes(referenceKind)) {
+    if (referenceKind !== undefined && (typeof referenceKind !== 'string' || !['clone', 'pointer', 'either'].includes(referenceKind))) {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `Invalid reference_kind constraint for path ${rule.path}: ${String(referenceKind)}`,
+            `Invalid reference_kind constraint for path ${rulePath}: ${String(referenceKind)}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
@@ -46,19 +49,61 @@ function validateReferenceConstraints(
 
     if (referenceKind !== undefined && reference !== 'require') {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `reference_kind requires reference='require' for path ${rule.path}`,
+            `reference_kind requires reference='require' for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
     }
 
-    if (reference === 'forbid' && isReferenceType(expectedType)) {
+    if (referenceTargetPattern !== undefined) {
+        if (typeof referenceTargetPattern !== 'string') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `Invalid reference_target_pattern constraint for path ${rulePath}: ${String(referenceTargetPattern)}`,
+                ErrorCodes.INVALID_REFERENCE_CONSTRAINT
+            ));
+            return false;
+        }
+        try {
+            new RegExp(referenceTargetPattern);
+        } catch {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `Invalid reference_target_pattern regex for path ${rulePath}: ${referenceTargetPattern}`,
+                ErrorCodes.INVALID_REFERENCE_CONSTRAINT
+            ));
+            return false;
+        }
+        if (reference === 'forbid') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `reference_target_pattern conflicts with reference='forbid' for path ${rulePath}`,
+                ErrorCodes.INVALID_REFERENCE_CONSTRAINT
+            ));
+            return false;
+        }
+    }
+
+    if (resolveReferenceForm !== undefined && typeof resolveReferenceForm !== 'boolean') {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `reference='forbid' conflicts with type='${expectedType}' for path ${rule.path}`,
+            `resolve_reference_form must be boolean for path ${rulePath}`,
+            ErrorCodes.INVALID_REFERENCE_CONSTRAINT
+        ));
+        return false;
+    }
+
+    if (reference === 'forbid' && expectedType !== undefined && isReferenceType(expectedType)) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `reference='forbid' conflicts with type='${expectedType}' for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
@@ -66,9 +111,9 @@ function validateReferenceConstraints(
 
     if (reference === 'require' && expectedType !== undefined && !isReferenceType(expectedType)) {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `reference='require' conflicts with non-reference type='${expectedType}' for path ${rule.path}`,
+            `reference='require' conflicts with non-reference type='${expectedType}' for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
@@ -76,9 +121,9 @@ function validateReferenceConstraints(
 
     if (referenceKind === 'clone' && expectedType === 'PointerReference') {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `reference_kind='clone' conflicts with type='PointerReference' for path ${rule.path}`,
+            `reference_kind='clone' conflicts with type='PointerReference' for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
@@ -86,22 +131,74 @@ function validateReferenceConstraints(
 
     if (referenceKind === 'pointer' && expectedType === 'CloneReference') {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `reference_kind='pointer' conflicts with type='CloneReference' for path ${rule.path}`,
+            `reference_kind='pointer' conflicts with type='CloneReference' for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
     }
 
-    if (schemaReferencePolicy === 'forbid' && (reference === 'require' || isReferenceType(expectedType))) {
+    if (schemaReferencePolicy === 'forbid' && (reference === 'require' || (expectedType !== undefined && isReferenceType(expectedType)))) {
         emitError(ctx, createDiag(
-            rule.path,
+            rulePath,
             null,
-            `schema reference_policy='forbid' conflicts with rule for path ${rule.path}`,
+            `schema reference_policy='forbid' conflicts with rule for path ${rulePath}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
         ));
         return false;
+    }
+
+    return true;
+}
+
+function validateConstraintTree(
+    schema: SchemaV1,
+    rulePath: string,
+    constraints: Record<string, unknown>,
+    ctx: DiagContext
+): boolean {
+    if (hasUnknownConstraintKeys(constraints)) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Unknown constraint key in rule for path: ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
+    if (!validateReferenceConstraints(schema, rulePath, constraints, ctx)) {
+        return false;
+    }
+
+    const nestedAttributes = constraints.attributes;
+    if (nestedAttributes === undefined) {
+        return true;
+    }
+    if (nestedAttributes === null || typeof nestedAttributes !== 'object' || Array.isArray(nestedAttributes)) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid attributes constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
+    for (const [key, childConstraints] of Object.entries(nestedAttributes)) {
+        if (childConstraints === null || typeof childConstraints !== 'object' || Array.isArray(childConstraints)) {
+            emitError(ctx, createDiag(
+                `${rulePath}@${key}`,
+                null,
+                `Invalid attribute constraint for path ${rulePath}@${key}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+        if (!validateConstraintTree(schema, `${rulePath}@${key}`, childConstraints as Record<string, unknown>, ctx)) {
+            return false;
+        }
     }
 
     return true;
@@ -162,18 +259,7 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
             continue;
         }
 
-        // Check for unknown constraint keys
-        if (hasUnknownConstraintKeys(rule.constraints as Record<string, unknown>)) {
-            emitError(ctx, createDiag(
-                rule.path,
-                null,
-                `Unknown constraint key in rule for path: ${rule.path}`,
-                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
-            ));
-            continue;
-        }
-
-        if (!validateReferenceConstraints(schema, rule, ctx)) {
+        if (!validateConstraintTree(schema, rule.path, rule.constraints as Record<string, unknown>, ctx)) {
             continue;
         }
 

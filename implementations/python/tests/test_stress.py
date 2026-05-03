@@ -132,7 +132,7 @@ class TestAlgorithmicStress(unittest.TestCase):
         repeats = 1000
         source = "dupes:object = {\n" + "\n".join("  collision:number = 1" for _ in range(repeats)) + "\n}"
         strict_result = compile_source(source)
-        self.assertTrue(any(error.code == "DUPLICATE_CANONICAL_PATH" for error in strict_result.errors))
+        self.assertTrue(any(error.code == "DUPLICATE_KEY" for error in strict_result.errors))
         recovery_result = compile_source(source, CompileOptions(recovery=True))
         self.assertGreater(len(recovery_result.events), 0)
 

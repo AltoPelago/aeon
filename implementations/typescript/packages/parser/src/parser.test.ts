@@ -274,6 +274,23 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.attributes.length, 1);
         });
 
+        it('should report duplicate attribute keys', () => {
+            const tokens = tokenize('a@{x = 1, x = 2} = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.match(result.errors[0]!.message, /Duplicate key: 'x'/);
+        });
+
+        it('should reject repeated binding attribute blocks', () => {
+            const tokens = tokenize('a@{unit:n=3}@{precision:n=2}:n = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
         it('should reject postfix literal attributes', () => {
             const tokens = tokenize('a = [0]@{b=2}').tokens;
             const result = parse(tokens);
@@ -792,6 +809,15 @@ describe('Parser', () => {
             assert.ok(entry?.attributes[0]?.entries.has('origin'));
         });
 
+        it('should reject repeated attribute heads on an attribute entry', () => {
+            const tokens = tokenize('f@{ns@{y=1}@{z=2} = "aeon"} = "fractal"').tokens;
+            const result = parse(tokens, { maxAttributeDepth: 8 });
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /Only one attribute block/);
+        });
+
         it('should enforce max_attribute_depth for nested attribute heads', () => {
             const tokens = tokenize('f@{ns@{origin:string = "core"}:string = "aeon"}:string = "fractal"').tokens;
             const result = parse(tokens, { maxAttributeDepth: 1 });
@@ -1066,6 +1092,23 @@ describe('Parser', () => {
     });
 
     describe('duplicate key errors', () => {
+        it('should error on duplicate key at the top level', () => {
+            const tokens = tokenize('a = 1\na = 2').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+        });
+
+        it('should report canonical paths for duplicate quoted top-level keys', () => {
+            const tokens = tokenize('"a.b" = 1\n"a.b" = 2').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.["a.b"]');
+        });
+
         it('should error on duplicate key in object', () => {
             const tokens = tokenize('config = { a = 1, a = 2 }').tokens;
             const result = parse(tokens);
@@ -1079,6 +1122,15 @@ describe('Parser', () => {
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should reject floating object attributes', () => {
+            const tokens = tokenize('x = { @{meta=1} k = 2 }').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /Object attributes must be attached/);
         });
     });
 
@@ -1102,6 +1154,119 @@ describe('Parser', () => {
                 assert.strictEqual(value.tag, 'tag');
                 assert.strictEqual(value.children.length, 2);
             }
+        });
+
+        it('should parse anonymous typed node children', () => {
+            const tokens = tokenize('item:node = <page(:string = "hello", <tag>, :int32 = 3)>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            if (value.type === 'NodeLiteral') {
+                assert.strictEqual(value.children[0]!.type, 'TypedValue');
+                assert.strictEqual(value.children[1]!.type, 'NodeLiteral');
+                assert.strictEqual(value.children[2]!.type, 'TypedValue');
+                if (value.children[0]!.type === 'TypedValue') {
+                    assert.strictEqual(value.children[0]!.datatype?.name, 'string');
+                    assert.strictEqual(value.children[0]!.attributes.length, 0);
+                    assert.strictEqual(value.children[0]!.value.type, 'StringLiteral');
+                }
+                if (value.children[2]!.type === 'TypedValue') {
+                    assert.strictEqual(value.children[2]!.datatype?.name, 'int32');
+                    assert.strictEqual(value.children[2]!.attributes.length, 0);
+                    assert.strictEqual(value.children[2]!.value.type, 'NumberLiteral');
+                }
+            }
+        });
+
+        it('should parse anonymous attributed container values', () => {
+            const tokens = tokenize('values:list = [@{unit:string="cm"} = 3, @{unit:string="cm", precision:n=2}:n = 4]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'ListNode');
+            if (value.type === 'ListNode') {
+                assert.strictEqual(value.elements[0]!.type, 'TypedValue');
+                assert.strictEqual(value.elements[1]!.type, 'TypedValue');
+                if (value.elements[0]!.type === 'TypedValue') {
+                    assert.strictEqual(value.elements[0]!.datatype, null);
+                    assert.strictEqual(value.elements[0]!.attributes.length, 1);
+                }
+                if (value.elements[1]!.type === 'TypedValue') {
+                    assert.strictEqual(value.elements[1]!.datatype?.name, 'n');
+                    assert.strictEqual(value.elements[1]!.attributes.length, 1);
+                    assert.strictEqual(value.elements[1]!.attributes[0]!.entries.size, 2);
+                }
+            }
+        });
+
+        it('should reject reserved attribute keys in binding and anonymous heads', () => {
+            for (const source of [
+                'a@{"@items":n=0}:list = [1]',
+                'a:list = [@{"@items":n=0}:n = 4]',
+                'a@{"@":n=0} = 1',
+                'a@{"__proto__":n=0} = 1',
+                'a@{"constructor":n=0} = 1',
+                'a@{"prototype":n=0} = 1',
+            ]) {
+                const result = parse(tokenize(source).tokens);
+                assert.ok(result.errors.length > 0, source);
+                assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR', source);
+                assert.match(result.errors[0]!.message, /Reserved attribute key/, source);
+            }
+        });
+
+        it('should parse anonymous typed list and tuple elements', () => {
+            const tokens = tokenize('values:list = [:int32 = 3, (:float64 = 10.5, :string = "x")]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'ListNode');
+            if (value.type === 'ListNode') {
+                assert.strictEqual(value.elements[0]!.type, 'TypedValue');
+                assert.strictEqual(value.elements[1]!.type, 'TupleLiteral');
+                if (value.elements[1]!.type === 'TupleLiteral') {
+                    assert.strictEqual(value.elements[1]!.elements[0]!.type, 'TypedValue');
+                    assert.strictEqual(value.elements[1]!.elements[1]!.type, 'TypedValue');
+                }
+            }
+        });
+
+        it('should reject anonymous typed values at root and in objects', () => {
+            const root = parse(tokenize(':string = "hello"').tokens);
+            assert.ok(root.errors.length > 0);
+
+            const object = parse(tokenize('a:object = { :int32 = 3 }').tokens);
+            assert.ok(object.errors.length > 0);
+        });
+
+        it('should reject nested anonymous typed values', () => {
+            const bindingValue = parse(tokenize('a:n = :n = 3').tokens);
+            assert.ok(bindingValue.errors.length > 0);
+
+            const listElement = parse(tokenize('a:list = [:n = :n = 3]').tokens);
+            assert.ok(listElement.errors.length > 0);
+
+            const malformedListHead = parse(tokenize('a:list[ :n = :n = 3 ]').tokens);
+            assert.ok(malformedListHead.errors.length > 0);
+
+            const malformedListHeadEntry = parse(tokenize('a:list[ n = 3 ]').tokens);
+            assert.ok(malformedListHeadEntry.errors.length > 0);
+
+            const malformedListHeadEmptyType = parse(tokenize('a:list[ : = 3 ]').tokens);
+            assert.ok(malformedListHeadEmptyType.errors.length > 0);
+
+            const malformedListHeadMissingElement = parse(tokenize('a:list[ = 3 ]').tokens);
+            assert.ok(malformedListHeadMissingElement.errors.length > 0);
+
+            const nodeChild = parse(tokenize('a:node = <tag(:n = :n = 3)>').tokens);
+            assert.ok(nodeChild.errors.length > 0);
+
+            const repeatedAttributeBlock = parse(tokenize('a:list = [@{unit:n=3}@{a:n=2}:n = 3]').tokens);
+            assert.ok(repeatedAttributeBlock.errors.length > 0);
         });
 
         it('should reject same-line node children without comma separation', () => {
@@ -1137,6 +1302,14 @@ describe('Parser', () => {
                 assert.strictEqual(value.datatype?.name, 'node');
                 assert.strictEqual(value.children.length, 0);
             }
+        });
+
+        it('should reject repeated node head attribute blocks', () => {
+            const tokens = tokenize('item = <span@{id="text"}@{class="body"}:node>').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
         it('should reject node syntax without a trailing closing angle', () => {

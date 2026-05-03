@@ -67,6 +67,65 @@ The usual pipeline is:
 - `warnings`
 - `guarantees`
 
+### Indexed child paths
+
+AEOS validates AES paths, including synthetic indexed child events emitted by Core.
+
+That means schemas can target list elements, tuple elements, and node children directly:
+
+```ts
+const schema = {
+  rules: [
+    { path: '$.page', constraints: { type: 'NodeLiteral' } },
+    { path: '$.page[0]', constraints: { type: 'NumberLiteral' } },
+  ]
+};
+```
+
+For example, this AEON source:
+
+```aeon
+page:node = <page(:int32 = 3)>
+```
+
+produces AES paths including `$.page` and `$.page[0]`.
+
+### Attribute-aware constraints
+
+AEOS now validates attribute payload contents through:
+
+- `constraints.attributes`
+- `closed_attributes`
+
+This applies to ordinary binding attributes and anonymous child attributes on
+indexed AES events.
+
+Example:
+
+```ts
+const schema = {
+  rules: [
+    {
+      path: '$.values[0]',
+      constraints: {
+        type: 'NumberLiteral',
+        attributes: {
+          unit: {
+            required: true,
+            type: 'StringLiteral',
+            datatype: 'string',
+          },
+        },
+        closed_attributes: true,
+      },
+    },
+  ],
+};
+```
+
+Attribute entries continue to travel in AES metadata, but AEOS now exposes a
+first-class schema surface for validating them.
+
 ## API
 
 ### `validate(aes, schema, options?)`

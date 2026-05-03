@@ -127,6 +127,9 @@ cd implementations/python
 python3 tools/run_cts.py core aes
 ```
 
+These lanes resolve manifests from `AEONITE_CTS_ROOT`, which defaults to the
+sibling `aeonite-org/aeonite-cts/cts` checkout.
+
 Cross-implementation diff helper:
 
 ```bash

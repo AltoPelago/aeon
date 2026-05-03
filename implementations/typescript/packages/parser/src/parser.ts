@@ -111,6 +111,7 @@ class Parser {
         const start = this.peek().span.start;
         let header: Header | null = null;
         const bindings: Binding[] = [];
+        const keys = new Set<string>();
 
         // Check for header forms
         if (this.isHeaderStart()) {
@@ -135,6 +136,11 @@ class Parser {
                 }
                 const binding = this.parseBinding();
                 if (binding) {
+                    if (keys.has(binding.key)) {
+                        this.errors.push(new DuplicateKeyError(binding.key, binding.span, this.rootKeyPath(binding.key)));
+                    } else {
+                        keys.add(binding.key);
+                    }
                     bindings.push(binding);
                     this.consumeSeparatorOrLineBreak(TokenType.EOF, 'Expected \',\' or newline between top-level bindings');
                 }
@@ -156,6 +162,13 @@ class Parser {
             envelope: null,
             span: createSpan(start, end),
         };
+    }
+
+    private rootKeyPath(key: string): string {
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+            return `$.${key}`;
+        }
+        return `$.[${JSON.stringify(key)}]`;
     }
 
     private isHeaderStart(): boolean {
@@ -277,8 +290,16 @@ class Parser {
 
         // Parse optional attributes @{...}
         const attributes: Attribute[] = [];
-        while (this.check(TokenType.At)) {
+        if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before a binding datatype',
+                    this.peek().span,
+                    ': or =',
+                    this.peek().value
+                );
+            }
         }
 
         // Parse optional datatype :type
@@ -326,9 +347,25 @@ class Parser {
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
             const attrKeyToken = this.consumeOneOf([TokenType.Identifier, TokenType.String], "Expected attribute key");
             const attrKey = this.keyFromToken(attrKeyToken);
+            if (RESERVED_ATTRIBUTE_KEYS.has(attrKey)) {
+                throw new SyntaxError(
+                    `Reserved attribute key: ${attrKey}`,
+                    attrKeyToken.span,
+                    'non-reserved attribute key',
+                    attrKeyToken.value
+                );
+            }
             const attributes: Attribute[] = [];
-            while (this.check(TokenType.At)) {
+            if (this.check(TokenType.At)) {
                 attributes.push(this.parseAttribute(depth + 1));
+                if (this.check(TokenType.At)) {
+                    throw new SyntaxError(
+                        'Only one attribute block is allowed before an attribute entry datatype',
+                        this.peek().span,
+                        ': or =',
+                        this.peek().value
+                    );
+                }
             }
 
             // Optional datatype
@@ -341,6 +378,9 @@ class Parser {
             this.consume(TokenType.Equals, "Expected '=' in attribute");
             const attrValue = this.parseValue();
 
+            if (entries.has(attrKey)) {
+                this.errors.push(new DuplicateKeyError(attrKey, attrKeyToken.span));
+            }
             entries.set(attrKey, { value: attrValue, datatype: attrDatatype, attributes });
 
             if (!this.check(TokenType.RightBrace)) {
@@ -554,6 +594,43 @@ class Parser {
         }
     }
 
+    private parseContainerValue(): Value {
+        if (!this.check(TokenType.Colon) && !this.check(TokenType.At)) {
+            return this.parseValue();
+        }
+
+        const start = this.peek().span.start;
+        const attributes: Attribute[] = [];
+        if (this.check(TokenType.At)) {
+            attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before an anonymous value datatype',
+                    this.peek().span,
+                    ': or =',
+                    this.peek().value
+                );
+            }
+        }
+
+        let datatype: TypeAnnotation | null = null;
+        if (this.check(TokenType.Colon)) {
+            this.advance(); // consume :
+            datatype = this.parseTypeAnnotation();
+        }
+
+        this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
+        const value = this.parseValue();
+
+        return {
+            type: 'TypedValue',
+            datatype,
+            attributes,
+            value,
+            span: createSpan(start, value.span.end),
+        };
+    }
+
     private projectedOpeningContainerDepth(): number | null {
         let extraDepth = 0;
         for (let index = this.current; index < this.tokens.length; index++) {
@@ -631,8 +708,16 @@ class Parser {
         const tag = this.parseNodeTag();
 
         const attributes: Attribute[] = [];
-        while (this.check(TokenType.At)) {
+        if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Only one attribute block is allowed before a node datatype',
+                    this.peek().span,
+                    ':, (, or >',
+                    this.peek().value
+                );
+            }
         }
 
         let datatype: TypeAnnotation | null = null;
@@ -666,7 +751,7 @@ class Parser {
         this.consume(TokenType.LeftParen, "Expected '(' or '>' after node tag");
 
         while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
-            children.push(this.parseValue());
+            children.push(this.parseContainerValue());
             if (!this.check(TokenType.RightParen)) {
                 this.consumeSeparatorOrLineBreak(TokenType.RightParen, 'Expected \',\' or newline between node children');
             }
@@ -717,9 +802,13 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
-            // Parse optional attributes before binding
-            while (this.check(TokenType.At)) {
-                attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Object attributes must be attached to the object binding or an object member binding',
+                    this.peek().span,
+                    'object member key',
+                    this.peek().value
+                );
             }
 
             if (this.check(TokenType.RightBrace)) break;
@@ -767,7 +856,7 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightBracket) && !this.isAtEnd()) {
-            const element = this.parseValue();
+            const element = this.parseContainerValue();
             elements.push(element);
 
             if (!this.check(TokenType.RightBracket)) {
@@ -802,7 +891,7 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
-            const element = this.parseValue();
+            const element = this.parseContainerValue();
             elements.push(element);
 
             if (this.check(TokenType.Comma)) {
@@ -1659,6 +1748,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
+const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',

@@ -126,6 +126,26 @@ cd implementations/rust
 cargo test
 ```
 
+## CTS
+
+Run all supported CTS lanes:
+
+```bash
+cd implementations/rust
+python3 tools/run_cts.py
+```
+
+Run selected lanes:
+
+```bash
+cd implementations/rust
+python3 tools/run_cts.py core aes aeos
+```
+
+The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
+checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before
+running the requested lanes.
+
 For parser hardening work, a local `cargo-fuzz` workspace now lives under:
 
 - `implementations/rust/fuzz`

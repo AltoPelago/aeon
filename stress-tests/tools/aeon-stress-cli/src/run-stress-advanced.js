@@ -211,11 +211,11 @@ function runRecoveryBehavior() {
   const source = 'a = 1\na = 2';
   const normal = compile(source);
   const recovery = compile(source, { recovery: true });
-  if (normal.events.length !== 0 || !hasCode(normal.errors, 'DUPLICATE_CANONICAL_PATH')) {
-    return failRow('recovery-fail-closed-default', 'default should be fail-closed with duplicate path');
+  if (normal.events.length !== 0 || !hasCode(normal.errors, 'DUPLICATE_KEY')) {
+    return failRow('recovery-fail-closed-default', 'default should be fail-closed with duplicate key');
   }
-  if (recovery.events.length === 0 || !hasCode(recovery.errors, 'DUPLICATE_CANONICAL_PATH')) {
-    return failRow('recovery-partial-events', 'recovery mode should retain partial events with duplicate error');
+  if (recovery.events.length === 0 || !hasCode(recovery.errors, 'DUPLICATE_KEY')) {
+    return failRow('recovery-partial-events', 'recovery mode should retain partial events with duplicate key error');
   }
   return passRow('recovery-vs-fail-closed', { recoveryEvents: recovery.events.length });
 }

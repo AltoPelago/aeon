@@ -5,6 +5,10 @@ debug:switch = yes
 ---
 label:string = ""
 ---
+values:list = [@{unit:string="cm"} = 3]
+---
+page:node = <page(@{unit:string="cm"}:int32 = 3)>
+---
 pair:tuple<n> = (3)
 ---
 pair:tuple<n> = (3,)

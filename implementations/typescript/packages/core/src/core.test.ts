@@ -250,15 +250,15 @@ describe('Core - compile()', () => {
     // ============================================
 
     describe('fail-closed behavior', () => {
-        it('should return zero events on duplicate canonical path (Phase 4 error)', () => {
-            // This is Red Team test #1: duplicate path must result in 0 events
+        it('should return zero events on duplicate top-level key', () => {
+            // Duplicate keys must fail closed before event emission.
             const result = compile('a = { b = 1 }\na = { b = 2 }');
 
             // MUST return 0 events
             assert.strictEqual(result.events.length, 0);
             // MUST include error
             assert.ok(result.errors.length > 0);
-            assert.ok(result.errors.some(e => e.code === 'DUPLICATE_CANONICAL_PATH'));
+            assert.ok(result.errors.some(e => e.code === 'DUPLICATE_KEY'));
         });
 
         it('should propagate errors through emit surface', () => {
@@ -304,7 +304,7 @@ describe('Core - compile()', () => {
             const result = compile('a = { b = 1 }\na = { b = 2 }', { recovery: true });
 
             // Errors are collected
-            assert.ok(result.errors.some(e => e.code === 'DUPLICATE_CANONICAL_PATH'));
+            assert.ok(result.errors.some(e => e.code === 'DUPLICATE_KEY'));
         });
     });
 
@@ -566,22 +566,27 @@ describe('Core - compile()', () => {
             });
         });
 
-        it('should report duplicate canonical paths with duplicate-site span details', () => {
+        it('should report duplicate top-level keys with duplicate-site span details', () => {
             const result = compile('a = 1\na = 2');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_CANONICAL_PATH');
-            assert.strictEqual(result.errors[0]!.message, "Duplicate canonical path: '$.a'");
-            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.a');
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.strictEqual(result.errors[0]!.message, "Duplicate key: 'a'");
             assert.deepStrictEqual(result.errors[0]!.span, {
                 start: { line: 2, column: 1, offset: 6 },
                 end: { line: 2, column: 6, offset: 11 },
             });
-            assert.deepStrictEqual((result.errors[0] as { firstOccurrence?: unknown }).firstOccurrence, {
-                start: { line: 1, column: 1, offset: 0 },
-                end: { line: 1, column: 6, offset: 5 },
-            });
+        });
+
+        it('should report duplicate quoted top-level keys with canonical path details', () => {
+            const result = compile('"a.b" = 1\n"a.b" = 2');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.strictEqual(result.errors[0]!.message, "Duplicate key: 'a.b'");
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.["a.b"]');
         });
 
         it('should report temporal literal diagnostics with aligned messages and spans', () => {

@@ -62,6 +62,88 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual(["$.a", "$.a[0]"], [event["path"] for event in result.events])
 
+    def test_anonymous_typed_list_tuple_and_node_values(self) -> None:
+        result = compile_source(
+            'values:list = [:int32 = 3, :string = "4"]\n'
+            'pair:tuple = (:float64 = 10.5, :float64 = 2.0)\n'
+            'page:node = <page(:string = "hello", <tag>, :int32 = 3)>'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("int32", by_path["$.values[0]"]["datatype"])
+        self.assertEqual("string", by_path["$.values[1]"]["datatype"])
+        self.assertEqual("float64", by_path["$.pair[0]"]["datatype"])
+        self.assertEqual("float64", by_path["$.pair[1]"]["datatype"])
+        self.assertEqual("NodeLiteral", by_path["$.page"]["value"]["type"])
+        self.assertEqual("string", by_path["$.page[0]"]["datatype"])
+        self.assertEqual("NodeLiteral", by_path["$.page[1]"]["value"]["type"])
+        self.assertEqual("int32", by_path["$.page[2]"]["datatype"])
+
+    def test_node_children_emit_indexed_paths_and_descendants(self) -> None:
+        result = compile_source('page:node = <page({a:n = 1, b:n = 2}, "hello")>')
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertIn("$.page", by_path)
+        self.assertIn("$.page[0]", by_path)
+        self.assertIn("$.page[0].a", by_path)
+        self.assertIn("$.page[0].b", by_path)
+        self.assertIn("$.page[1]", by_path)
+
+    def test_references_resolve_through_node_child_indexes(self) -> None:
+        result = compile_source('page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a')
+        self.assertEqual([], result.errors)
+        self.assertIn("$.copy", {event["path"] for event in result.events})
+
+    def test_anonymous_attributed_values_emit_indexed_annotations(self) -> None:
+        result = compile_source('page:node = <page(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("int32", by_path["$.page[0]"]["datatype"])
+        self.assertEqual("string", by_path["$.page[0]"]["annotations"]["unit"]["datatype"])
+        self.assertIsNone(by_path["$.values[0]"]["datatype"])
+        self.assertEqual("string", by_path["$.values[0]"]["annotations"]["unit"]["datatype"])
+
+    def test_rejects_reserved_attribute_keys(self) -> None:
+        for source in [
+            'a@{"@items":n=0}:list = [1]',
+            'a:list = [@{"@items":n=0}:n = 4]',
+            'a@{"@":n=0} = 1',
+            'a@{"__proto__":n=0} = 1',
+            'a@{"constructor":n=0} = 1',
+            'a@{"prototype":n=0} = 1',
+        ]:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertTrue(result.errors)
+                self.assertEqual("SYNTAX_ERROR", result.errors[0].code)
+                self.assertIn("Reserved attribute key", result.errors[0].message)
+
+    def test_anonymous_typed_value_rejections(self) -> None:
+        for source in [
+            ":n = 3",
+            "a:n = :n = 3",
+            "a:list = [:n = :n = 3]",
+            "a:node = <tag(:n = :n = 3)>",
+            "a:object = { :n = 3 }",
+            "a:list[ :n = :n = 3 ]",
+            "a:list[ n = 3 ]",
+            "a:list[ : = 3 ]",
+            "a:list[ = 3 ]",
+            "a:list = [@{unit:n=3}@{a:n=2}:n = 3]",
+        ]:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertIn("SYNTAX_ERROR", [error.code for error in result.errors])
+
+    def test_rejects_repeated_head_attribute_blocks(self) -> None:
+        for source in [
+            "a@{unit:n=3}@{precision:n=2}:n = 3",
+            "n:node = <a@{unit:n=3}@{precision:n=2}:node>",
+        ]:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertIn("SYNTAX_ERROR", [error.code for error in result.errors])
+
     def test_list_rejects_double_comma_delimiter(self) -> None:
         result = compile_source("a:list = [1,,2]")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ._compat import dataclass
 from .spans import Position, Span
 
@@ -47,7 +49,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "GENERIC_DEPTH_EXCEEDED",
     }:
         return "Parsing"
-    if code in {"HEADER_CONFLICT", "DUPLICATE_CANONICAL_PATH", "DATATYPE_LITERAL_MISMATCH"}:
+    if code in {"HEADER_CONFLICT", "DUPLICATE_KEY", "DUPLICATE_CANONICAL_PATH", "DATATYPE_LITERAL_MISMATCH"}:
         return "Core Validation"
     if code in {"MISSING_REFERENCE_TARGET", "FORWARD_REFERENCE", "SELF_REFERENCE", "ATTRIBUTE_DEPTH_EXCEEDED"}:
         return "Reference Validation"
@@ -173,12 +175,28 @@ class UnsafeMaxNestingDepthError(AeonError):
         )
 
 
+def _key_from_path(path: str) -> str:
+    if ".[" in path and path.endswith("]"):
+        quoted = path[path.rfind(".[") + 2 : -1]
+        if quoted.startswith('"') and quoted.endswith('"'):
+            try:
+                parsed = json.loads(quoted)
+                if isinstance(parsed, str):
+                    return parsed
+            except json.JSONDecodeError:
+                return quoted.strip('"')
+    if "." in path:
+        return path.rsplit(".", 1)[1]
+    return path.removeprefix("$")
+
+
 class DuplicateCanonicalPathError(AeonError):
     def __init__(self, path: str, span: Span) -> None:
+        key = _key_from_path(path)
         super().__init__(
-            message=f"Duplicate canonical path: '{path}'",
+            message=f"Duplicate key: '{key}'",
             span=span,
-            code="DUPLICATE_CANONICAL_PATH",
+            code="DUPLICATE_KEY",
             path=path,
         )
 

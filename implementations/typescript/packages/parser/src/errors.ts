@@ -109,11 +109,15 @@ export class NestingDepthExceededError extends ParserError {
  */
 export class DuplicateKeyError extends ParserError {
     readonly key: string;
+    readonly path?: string;
 
-    constructor(key: string, span: Span) {
+    constructor(key: string, span: Span, path?: string) {
         super(`Duplicate key: '${key}'`, span, 'DUPLICATE_KEY');
         this.name = 'DuplicateKeyError';
         this.key = key;
+        if (path !== undefined) {
+            this.path = path;
+        }
     }
 }
 

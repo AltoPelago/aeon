@@ -21,6 +21,7 @@ from .ast import (
     SeparatorLiteral,
     StringLiteral,
     TupleLiteral,
+    TypedValue,
     TypeAnnotation,
     Value,
 )
@@ -182,7 +183,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
     events = [
-        strip_event_annotations(event)
+        event
         for event in internal_events
         if not str(event["key"]).startswith("aeon:")
     ]
@@ -249,6 +250,7 @@ def resolve_binding(
 
 
 def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[str]) -> None:
+    value = unwrap_typed_value(value)
     if isinstance(value, ObjectNode):
         for binding in value.bindings:
             resolve_binding(binding, parent, bindings, errors, seen)
@@ -256,6 +258,9 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
     if isinstance(value, (ListNode, TupleLiteral)):
         elements = value.elements
         for index, element in enumerate(elements):
+            element_value = unwrap_typed_value(element)
+            element_datatype = format_datatype(element.datatype) if isinstance(element, TypedValue) else None
+            element_annotations = build_annotations(element.attributes) if isinstance(element, TypedValue) else None
             element_path = extend_index(parent, index)
             path_str = format_path(element_path)
             if path_str in seen:
@@ -266,13 +271,36 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                 ResolvedBinding(
                     path=element_path,
                     key=str(index),
-                    value=element,
+                    value=element_value,
                     span=element.span,
-                    datatype=None,
-                    annotations=None,
+                    datatype=element_datatype,
+                    annotations=element_annotations,
                 )
             )
-            resolve_value(element, element_path, bindings, errors, seen)
+            resolve_value(element_value, element_path, bindings, errors, seen)
+        return
+    if isinstance(value, NodeLiteral):
+        for index, child in enumerate(value.children):
+            child_value = unwrap_typed_value(child)
+            child_datatype = format_datatype(child.datatype) if isinstance(child, TypedValue) else None
+            child_annotations = build_annotations(child.attributes) if isinstance(child, TypedValue) else None
+            child_path = extend_index(parent, index)
+            path_str = format_path(child_path)
+            if path_str in seen:
+                errors.append(DuplicateCanonicalPathError(path_str, child.span))
+                continue
+            seen.add(path_str)
+            bindings.append(
+                ResolvedBinding(
+                    path=child_path,
+                    key=str(index),
+                    value=child_value,
+                    span=child.span,
+                    datatype=child_datatype,
+                    annotations=child_annotations,
+                )
+            )
+            resolve_value(child_value, child_path, bindings, errors, seen)
 
 
 def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object]] | None:
@@ -303,13 +331,6 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     if include_annotations and binding.annotations is not None:
         event["annotations"] = annotations_to_json(binding.annotations)
     return event
-
-
-def strip_event_annotations(event: dict[str, object]) -> dict[str, object]:
-    if "annotations" not in event:
-        return event
-    return {key: value for key, value in event.items() if key != "annotations"}
-
 
 def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
     return {
@@ -343,6 +364,8 @@ def value_to_json(value: Value) -> dict[str, object]:
                 payload[key] = [binding_to_json(item) for item in raw]
             elif key in {"elements", "children"}:
                 payload[key] = [value_to_json(item) for item in raw]
+            elif key == "value" and isinstance(value, TypedValue):
+                payload[key] = value_to_json(raw)
             elif key == "path":
                 payload[key] = reference_path_to_json(raw)
             else:
@@ -386,7 +409,7 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
         if should_skip_header_binding_for_mode(document, binding):
             continue
         last_segment = binding.path.segments[-1]
-        if last_segment.type == "index":
+        if last_segment.type == "index" and binding.datatype is None:
             continue
         if binding.datatype is None:
             if mode in {"strict", "custom"}:
@@ -455,10 +478,61 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
             )
         )
         errors.extend(validate_node_head_datatypes(binding.value, format_path(binding.path), binding.span, mode))
+        errors.extend(validate_anonymous_typed_values(binding.value, format_path(binding.path), binding.span, lookup, mode, effective_policy))
+    return errors
+
+
+def validate_anonymous_typed_values(
+    value: Value,
+    owner_path: str,
+    span: Span,
+    lookup: dict[str, ResolvedBinding],
+    mode: str,
+    effective_policy: str,
+) -> list[AeonError]:
+    errors: list[AeonError] = []
+    if isinstance(value, TypedValue):
+        datatype = format_datatype(value.datatype)
+        if datatype is not None and value.value is not None:
+            expected = expected_kinds_for_reserved_datatype(datatype)
+            if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
+                errors.append(CustomDatatypeNotAllowedError(owner_path, datatype, value.span or span))
+            else:
+                actual_value = resolve_reference_value(value.value, lookup) or value.value
+                actual_kind = value_kind(actual_value)
+                if mode == "strict" and expected is None and actual_kind == "SwitchLiteral":
+                    errors.append(CustomSwitchAliasNotAllowedError(owner_path, datatype, value.span or span))
+                elif expected is not None and actual_kind not in expected:
+                    errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, expected, value.span or span))
+                elif expected is None:
+                    custom_shape = classify_custom_datatype_shape(datatype)
+                    if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
+                        errors.append(InvalidCustomDatatypeBracketShapeError(owner_path, datatype, actual_kind, value.span or span))
+                    else:
+                        custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
+                        if custom_expected == ():
+                            errors.append(IncompatibleCustomDatatypeAdornmentsError(owner_path, datatype, actual_kind, value.span or span))
+                        elif custom_expected is not None and actual_kind not in custom_expected:
+                            errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, custom_expected, value.span or span))
+        if value.value is not None:
+            errors.extend(validate_anonymous_typed_values(value.value, owner_path, span, lookup, mode, effective_policy))
+        return errors
+    if isinstance(value, ObjectNode):
+        for binding in value.bindings:
+            errors.extend(validate_anonymous_typed_values(binding.value, f"{owner_path}.{binding.key}", span, lookup, mode, effective_policy))
+        return errors
+    if isinstance(value, (ListNode, TupleLiteral)):
+        for index, element in enumerate(value.elements):
+            errors.extend(validate_anonymous_typed_values(element, f"{owner_path}[{index}]", span, lookup, mode, effective_policy))
+        return errors
+    if isinstance(value, NodeLiteral):
+        for index, child in enumerate(value.children):
+            errors.extend(validate_anonymous_typed_values(child, f"{owner_path}[{index}]", span, lookup, mode, effective_policy))
     return errors
 
 
 def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode: str) -> list[AeonError]:
+    value = unwrap_typed_value(value)
     errors: list[AeonError] = []
     if isinstance(value, NodeLiteral):
         head_datatype = format_datatype(value.datatype)
@@ -537,13 +611,13 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
 def datatype_check_kind(binding: ResolvedBinding, lookup: dict[str, ResolvedBinding], stack: tuple[str, ...] = ()) -> str:
     resolved = resolve_reference_value(binding.value, lookup)
     if resolved is None:
-        return value_kind(binding.value)
+        return value_kind(unwrap_typed_value(binding.value))
     if isinstance(resolved, (CloneReference, PointerReference)):
         resolution = resolve_mode_reference_target(resolved.path, lookup)
         if resolution is None or resolution[0] in stack:
             return value_kind(resolved)
         return datatype_check_kind(resolution[1], lookup, (*stack, resolution[0]))
-    return value_kind(resolved)
+    return value_kind(unwrap_typed_value(resolved))
 
 
 def validate_annotation_entries(
@@ -595,6 +669,7 @@ def resolve_reference_value(
     value: Value,
     lookup: dict[str, ResolvedBinding],
 ) -> Value | None:
+    value = unwrap_typed_value(value)
     if not isinstance(value, (CloneReference, PointerReference)):
         return value
     resolution = resolve_mode_reference_target(value.path, lookup)
@@ -627,14 +702,14 @@ def resolve_reference_subpath(
     remainder: list[object],
     lookup: dict[str, ResolvedBinding],
 ) -> Value | None:
-    context_value = value
+    context_value = unwrap_typed_value(value)
     context_annotations = select_annotations(annotations, context_value)
     for segment in remainder:
         if isinstance(segment, AttributePathSegment):
             if context_annotations is None or segment.key not in context_annotations:
                 return None
             entry = context_annotations[segment.key]
-            context_value = entry["value"]
+            context_value = unwrap_typed_value(entry["value"])
             context_annotations = select_annotations(entry.get("annotations"), context_value)
             continue
         if isinstance(segment, str):
@@ -643,15 +718,19 @@ def resolve_reference_subpath(
             child = next((binding for binding in context_value.bindings if binding.key == segment), None)
             if child is None:
                 return None
-            context_value = child.value
+            context_value = unwrap_typed_value(child.value)
             context_annotations = select_annotations(build_annotations(child.attributes), context_value)
             continue
         if isinstance(segment, int):
-            if not isinstance(context_value, (ListNode, TupleLiteral)):
+            if isinstance(context_value, (ListNode, TupleLiteral)):
+                elements = context_value.elements
+            elif isinstance(context_value, NodeLiteral):
+                elements = context_value.children
+            else:
                 return None
-            if segment < 0 or segment >= len(context_value.elements):
+            if segment < 0 or segment >= len(elements):
                 return None
-            context_value = context_value.elements[segment]
+            context_value = unwrap_typed_value(elements[segment])
             context_annotations = select_annotations(None, context_value)
             continue
         return None
@@ -668,12 +747,16 @@ def select_annotations(
 
 
 def build_value_annotations(value: Value) -> dict[str, dict[str, object]] | None:
+    if isinstance(value, TypedValue) and value.attributes:
+        return build_annotations(value.attributes)
+    value = unwrap_typed_value(value)
     if not isinstance(value, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
         return None
     return build_annotations(value.attributes)
 
 
 def iter_references(value: Value):
+    value = unwrap_typed_value(value)
     if isinstance(value, (CloneReference, PointerReference)):
         yield value
         return
@@ -695,6 +778,7 @@ def iter_references(value: Value):
 
 
 def iter_owned_references(value: Value):
+    value = unwrap_typed_value(value)
     if isinstance(value, (CloneReference, PointerReference)):
         yield value
         return
@@ -728,7 +812,7 @@ def iter_annotation_references(annotations: dict[str, dict[str, object]] | None)
         if isinstance(nested, dict):
             yield from iter_annotation_references(nested)
         value = entry.get("value")
-        if isinstance(value, (CloneReference, PointerReference, ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
+        if isinstance(value, (CloneReference, PointerReference, ObjectNode, ListNode, TupleLiteral, NodeLiteral, TypedValue)):
             yield from iter_references(value)
 
 
@@ -745,30 +829,34 @@ def resolve_reference_target(
         return None
     if first_attr_index == len(path):
         return order.get(prefix_path)
-    context_value = binding.value
+    context_value = unwrap_typed_value(binding.value)
     context_annotations = binding.annotations
     for segment in path[first_attr_index:]:
         if isinstance(segment, AttributePathSegment):
             if context_annotations is None or segment.key not in context_annotations:
                 return None
             entry = context_annotations[segment.key]
-            context_value = entry["value"]
+            context_value = unwrap_typed_value(entry["value"])
             nested_annotations = entry.get("annotations")
             context_annotations = nested_annotations if isinstance(nested_annotations, dict) else None
             continue
         if isinstance(segment, int):
-            if not isinstance(context_value, (ListNode, TupleLiteral)):
+            if isinstance(context_value, (ListNode, TupleLiteral)):
+                elements = context_value.elements
+            elif isinstance(context_value, NodeLiteral):
+                elements = context_value.children
+            else:
                 return None
-            if segment < 0 or segment >= len(context_value.elements):
+            if segment < 0 or segment >= len(elements):
                 return None
-            context_value = context_value.elements[segment]
+            context_value = unwrap_typed_value(elements[segment])
             context_annotations = None
             continue
         if isinstance(context_value, ObjectNode):
             nested = next((item for item in context_value.bindings if item.key == segment), None)
             if nested is None:
                 return None
-            context_value = nested.value
+            context_value = unwrap_typed_value(nested.value)
             context_annotations = build_annotations(nested.attributes)
             continue
         return None
@@ -923,6 +1011,7 @@ def is_valid_custom_radix_base_spec(spec: str) -> bool:
 
 
 def value_kind(value: Value) -> str:
+    value = unwrap_typed_value(value)
     if isinstance(value, StringLiteral):
         return "TrimtickStringLiteral" if value.trimticks is not None else "StringLiteral"
     if isinstance(value, DateTimeLiteral):
@@ -936,6 +1025,12 @@ def value_kind(value: Value) -> str:
     if isinstance(value, EncodingLiteral):
         return "EncodingLiteral" if has_valid_encoding_literal(value.raw) else "InvalidEncodingLiteral"
     return getattr(value, "type")
+
+
+def unwrap_typed_value(value: Value) -> Value:
+    if isinstance(value, TypedValue) and value.value is not None:
+        return value.value
+    return value
 
 
 def has_valid_literal_underscores(raw: str) -> bool:

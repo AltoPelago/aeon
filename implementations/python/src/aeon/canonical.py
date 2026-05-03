@@ -29,6 +29,7 @@ from .ast import (
     SwitchLiteral,
     TimeLiteral,
     TupleLiteral,
+    TypedValue,
     TypeAnnotation,
     Value,
 )
@@ -160,6 +161,12 @@ def render_tuple_binding(prefix: str, key: str, value: TupleLiteral, indent: int
 def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
     prefix = " " * indent
 
+    if isinstance(value, TypedValue):
+        rendered = render_value(value.value, indent, inline_only) if value.value is not None else [""]
+        head = f"{render_attributes(value.attributes)}{render_type(value.datatype)}"
+        if not rendered:
+            return [f"{head} = "]
+        return [f"{head} = {rendered[0]}", *rendered[1:]]
     if isinstance(value, StringLiteral):
         return format_string_lines(value.value, indent)
     if isinstance(value, NumberLiteral):
@@ -287,6 +294,8 @@ def render_value_inline(value: Value) -> str:
 
 
 def render_compact_inline_value(value: Value) -> str:
+    if isinstance(value, TypedValue):
+        return f"{render_attributes(value.attributes)}{render_type(value.datatype)} = {render_compact_inline_value(value.value)}"
     if isinstance(value, StringLiteral):
         return format_string(value.value)
     if isinstance(value, NumberLiteral):
@@ -439,6 +448,8 @@ def format_separator(raw: str) -> str:
 
 
 def is_simple_value(value: Value) -> bool:
+    if isinstance(value, TypedValue):
+        return value.value is not None and is_simple_value(value.value)
     if isinstance(value, StringLiteral) and "\n" in value.value:
         return False
     return isinstance(

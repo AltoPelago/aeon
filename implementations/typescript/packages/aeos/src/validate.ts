@@ -19,6 +19,39 @@ import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns } from './rules/stringForm.js';
 import type { ConstraintsV1 } from './types/schema.js';
 
+const TYPE_ALIASES: Record<string, readonly string[]> = {
+    NumberLiteral: ['NumberLiteral'],
+    StringLiteral: ['StringLiteral'],
+    BooleanLiteral: ['BooleanLiteral'],
+    NullLiteral: ['NullLiteral'],
+    ObjectNode: ['ObjectNode'],
+    ListNode: ['ListNode'],
+    ListLiteral: ['ListNode', 'ListLiteral'],
+    TupleLiteral: ['TupleLiteral'],
+    CloneReference: ['CloneReference'],
+    PointerReference: ['PointerReference'],
+    NodeLiteral: ['NodeLiteral'],
+};
+
+type AttributeInfo = {
+    type: string;
+    raw: string;
+    value: string;
+    datatype?: string;
+    span: [number, number] | null;
+    attributes?: ReadonlyMap<string, AttributeInfo>;
+};
+
+type EventInfo = {
+    type: string;
+    raw: string;
+    value: string;
+    datatype?: string;
+    span: [number, number] | null;
+    attributes?: ReadonlyMap<string, AttributeInfo>;
+    referencePath?: readonly (string | number | { readonly type: 'attr'; readonly key: string })[];
+};
+
 function formatQuotedMemberSegment(key: unknown): string {
     return `.[${JSON.stringify(String(key))}]`;
 }
@@ -135,29 +168,52 @@ export function validate(
 
     // Phase 2 — Baseline invariants
     const seen = new Map<string, any>();
-    const eventsByPath = new Map<string, {
-        type: string;
-        raw: string;
-        value: string;
-        datatype?: string;
-        span: [number, number] | null;
-    }>();
+    const eventsByPath = new Map<string, EventInfo>();
     const containerArity = new Map<string, number>();
 
     function hydrateIndexedFallback(basePath: string, value: any, fallbackSpan: [number, number] | null): void {
-        const isContainer = value?.type === 'TupleLiteral' || value?.type === 'ListLiteral' || value?.type === 'ListNode';
-        if (!isContainer || !Array.isArray(value.elements)) return;
-        for (let i = 0; i < value.elements.length; i++) {
+        const isContainer = value?.type === 'TupleLiteral' || value?.type === 'ListLiteral' || value?.type === 'ListNode' || value?.type === 'NodeLiteral';
+        const elements = Array.isArray(value?.elements) ? value.elements : Array.isArray(value?.children) ? value.children : null;
+        if (!isContainer || !elements) return;
+        for (let i = 0; i < elements.length; i++) {
             const elementPath = `${basePath}[${i}]`;
             if (eventsByPath.has(elementPath)) continue;
-            const element = value.elements[i];
-            eventsByPath.set(elementPath, {
+            const element = elements[i];
+            const attributes = buildAttributeInfoMap(element?.attributes);
+            const info: EventInfo = {
                 type: typeof element?.type === 'string' ? element.type : 'Unknown',
                 raw: typeof element?.raw === 'string' ? element.raw : '',
                 value: typeof element?.value === 'string' ? element.value : '',
                 span: toTuple(element?.span) ?? fallbackSpan,
-            });
+                ...(Array.isArray(element?.path) ? { referencePath: element.path as readonly (string | number | { readonly type: 'attr'; readonly key: string })[] } : {}),
+                ...(attributes ? { attributes } : {}),
+            };
+            eventsByPath.set(elementPath, info);
         }
+    }
+
+    function buildAttributeInfoMap(attributes: ReadonlyMap<string, unknown> | Record<string, unknown> | undefined): ReadonlyMap<string, AttributeInfo> | undefined {
+        const sourceEntries = attributes instanceof Map
+            ? Array.from(attributes.entries())
+            : attributes && typeof attributes === 'object'
+                ? Object.entries(attributes)
+                : [];
+        if (sourceEntries.length === 0) return undefined;
+        const mapped = new Map<string, AttributeInfo>();
+        for (const [key, entry] of sourceEntries) {
+            const valueNode = (entry as any)?.value;
+            const nestedAttributes = buildAttributeInfoMap((entry as any)?.annotations as ReadonlyMap<string, unknown> | Record<string, unknown> | undefined);
+            const info: AttributeInfo = {
+                type: typeof valueNode?.type === 'string' ? valueNode.type : 'Unknown',
+                raw: typeof valueNode?.raw === 'string' ? valueNode.raw : '',
+                value: typeof valueNode?.value === 'string' ? valueNode.value : '',
+                ...(typeof (entry as any)?.datatype === 'string' ? { datatype: (entry as any).datatype as string } : {}),
+                span: toTuple(valueNode?.span),
+                ...(nestedAttributes ? { attributes: nestedAttributes } : {}),
+            };
+            mapped.set(String(key), info);
+        }
+        return mapped;
     }
 
     for (let i = 0; i < aes.length; i++) {
@@ -185,16 +241,23 @@ export function validate(
             seen.set(pathStr, event.span);
             // Collect event info for Phase 5-7 checks
             if (event.value && typeof event.value.type === 'string') {
-                eventsByPath.set(pathStr, {
+                const attributes = buildAttributeInfoMap(event.annotations);
+                const info: EventInfo = {
                     type: event.value.type,
                     raw: typeof event.value.raw === 'string' ? event.value.raw : '',
                     value: typeof event.value.value === 'string' ? event.value.value : '',
                     ...(typeof event.datatype === 'string' ? { datatype: event.datatype } : {}),
                     span: toTuple(event.span),
-                });
+                    ...(Array.isArray(event.value.path) ? { referencePath: event.value.path as readonly (string | number | { readonly type: 'attr'; readonly key: string })[] } : {}),
+                    ...(attributes ? { attributes } : {}),
+                };
+                eventsByPath.set(pathStr, info);
                 if ((event.value.type === 'TupleLiteral' || event.value.type === 'ListLiteral' || event.value.type === 'ListNode')
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
+                    hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
+                } else if (event.value.type === 'NodeLiteral' && Array.isArray((event.value as any).children)) {
+                    containerArity.set(pathStr, (event.value as any).children.length);
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
                 }
             }
@@ -237,8 +300,10 @@ export function validate(
     checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, ctx);
 
     // Phase 5: Type checks (literal kind)
-    checkTypes(ruleIndex, eventsByPath, ctx);
     checkReferenceForms(schema, ruleIndex, eventsByPath, ctx);
+
+    const effectiveEventsByPath = resolveReferenceFormEvents(ruleIndex, eventsByPath);
+    checkTypes(ruleIndex, effectiveEventsByPath, ctx);
 
     // Phase 5b: core v1 arity checks for tuple/list containers
     for (const [path, rule] of ruleIndex) {
@@ -258,12 +323,13 @@ export function validate(
     }
 
     // Phase 6: Numeric form constraints (sign, digit count)
-    checkNumericForm(ruleIndex, eventsByPath, ctx);
+    checkNumericForm(ruleIndex, effectiveEventsByPath, ctx);
 
     // Phase 7: String form constraints (length, pattern)
-    checkStringForm(ruleIndex, eventsByPath, ctx);
-    checkPatterns(ruleIndex, eventsByPath, ctx);
-    checkDatatypeRules(schema.datatype_rules, eventsByPath, ctx);
+    checkStringForm(ruleIndex, effectiveEventsByPath, ctx);
+    checkPatterns(ruleIndex, effectiveEventsByPath, ctx);
+    checkAttributeConstraints(ruleIndex, effectiveEventsByPath, schema.datatype_rules, ctx);
+    checkDatatypeRules(schema.datatype_rules, effectiveEventsByPath, ctx);
 
     if (ctx.errors.length > 0) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
@@ -332,6 +398,77 @@ function checkWorldPolicy(
             ErrorCodes.UNEXPECTED_BINDING
         ));
     }
+}
+
+function resolveReferenceFormEvents(
+    ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): ReadonlyMap<string, EventInfo> {
+    const resolved = new Map(eventsByPath);
+    for (const [path, rule] of ruleIndex.entries()) {
+        if ((rule.constraints as any).resolve_reference_form !== true) continue;
+        const event = eventsByPath.get(path);
+        if (!event || !isReferenceType(event.type) || !event.referencePath) continue;
+        const terminal = resolveTerminalReferenceEvent(event, eventsByPath, new Set<string>());
+        if (!terminal) {
+            resolved.delete(path);
+            continue;
+        }
+        resolved.set(path, {
+            ...terminal,
+            span: event.span,
+        });
+    }
+    return resolved;
+}
+
+function resolveTerminalReferenceEvent(
+    event: EventInfo,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    activePaths: Set<string>,
+): EventInfo | null {
+    if (!isReferenceType(event.type) || !event.referencePath) {
+        return event;
+    }
+
+    const targetPath = formatReferenceLookupPath(event.referencePath);
+    if (activePaths.has(targetPath)) {
+        return null;
+    }
+    const target = eventsByPath.get(targetPath);
+    if (!target) {
+        return null;
+    }
+
+    activePaths.add(targetPath);
+    const resolved = isReferenceType(target.type)
+        ? resolveTerminalReferenceEvent(target, eventsByPath, activePaths)
+        : target;
+    activePaths.delete(targetPath);
+    return resolved;
+}
+
+function formatReferenceLookupPath(
+    segments: readonly (string | number | { readonly type: 'attr'; readonly key: string })[],
+): string {
+    if (segments.length === 0) return '$';
+    let out = '$';
+    for (const segment of segments) {
+        if (typeof segment === 'number') {
+            out += `[${segment}]`;
+            continue;
+        }
+        if (typeof segment === 'string') {
+            out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment)
+                ? `.${segment}`
+                : formatQuotedMemberSegment(segment);
+            continue;
+        }
+        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
+            ? `@${segment.key}`
+            : `@[${JSON.stringify(segment.key)}]`;
+    }
+    return out;
 }
 
 function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
@@ -446,6 +583,187 @@ function checkDatatypeRules(
     }
 }
 
+function checkAttributeConstraints(
+    ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    for (const [path, rule] of ruleIndex) {
+        if (!rule.constraints.attributes && rule.constraints.closed_attributes !== true) continue;
+        const event = eventsByPath.get(path);
+        if (!event) continue;
+        validateAttributeMap(path, event.attributes, rule.constraints, datatypeRules, ctx);
+    }
+}
+
+function validateAttributeMap(
+    basePath: string,
+    attributes: ReadonlyMap<string, AttributeInfo> | undefined,
+    constraints: ConstraintsV1,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    const requiredAttributes = constraints.attributes ?? {};
+    for (const [key, childConstraints] of Object.entries(requiredAttributes)) {
+        const childPath = `${basePath}@${key}`;
+        const entry = attributes?.get(key);
+        if (childConstraints.required === true && !entry) {
+            emitError(ctx, createDiag(
+                childPath,
+                null,
+                `Missing required field: ${childPath}`,
+                ErrorCodes.MISSING_REQUIRED_FIELD
+            ));
+            continue;
+        }
+        if (!entry) continue;
+        validateAttributeEntry(childPath, entry, childConstraints, datatypeRules, ctx);
+    }
+
+    if (constraints.closed_attributes === true && attributes) {
+        const allowed = new Set(Object.keys(requiredAttributes));
+        for (const key of attributes.keys()) {
+            if (allowed.has(key)) continue;
+            const childPath = `${basePath}@${key}`;
+            emitError(ctx, createDiag(
+                childPath,
+                attributes.get(key)?.span ?? null,
+                `Attribute '${childPath}' is not allowed by closed attribute constraints`,
+                ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY
+            ));
+        }
+    }
+}
+
+function validateAttributeEntry(
+    path: string,
+    entry: AttributeInfo,
+    constraints: ConstraintsV1,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    const effectiveConstraints = mergeDatatypeRuleConstraints(constraints, entry.datatype, datatypeRules);
+    if (effectiveConstraints.type_is !== undefined) {
+        const containerOk = effectiveConstraints.type_is === 'list'
+            ? (entry.type === 'ListLiteral' || entry.type === 'ListNode')
+            : entry.type === 'TupleLiteral';
+        if (!containerOk) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Container kind mismatch: expected ${effectiveConstraints.type_is}, got ${entry.type}`,
+                ErrorCodes.WRONG_CONTAINER_KIND
+            ));
+        }
+    }
+
+    if (effectiveConstraints.type !== undefined && !constraintTypeMatches(entry.type, effectiveConstraints.type, entry.raw)) {
+        emitError(ctx, createDiag(
+            path,
+            entry.span,
+            `Type mismatch: expected ${effectiveConstraints.type}, got ${entry.type}`,
+            ErrorCodes.TYPE_MISMATCH
+        ));
+    }
+
+    if (effectiveConstraints.datatype !== undefined && entry.datatype !== effectiveConstraints.datatype) {
+        emitError(ctx, createDiag(
+            path,
+            entry.span,
+            `Datatype mismatch: expected ${effectiveConstraints.datatype}, got ${entry.datatype ?? '<none>'}`,
+            ErrorCodes.TYPE_MISMATCH
+        ));
+    }
+
+    if (effectiveConstraints.reference === 'require' && !isReferenceType(entry.type)) {
+        emitError(ctx, createDiag(
+            path,
+            entry.span,
+            `Reference required at ${path}, got ${entry.type}`,
+            ErrorCodes.REFERENCE_REQUIRED
+        ));
+    } else if (effectiveConstraints.reference === 'forbid' && isReferenceType(entry.type)) {
+        emitError(ctx, createDiag(
+            path,
+            entry.span,
+            `Reference not allowed at ${path}, got ${entry.type}`,
+            ErrorCodes.REFERENCE_FORBIDDEN
+        ));
+    }
+
+    if (effectiveConstraints.reference === 'require' && effectiveConstraints.reference_kind && effectiveConstraints.reference_kind !== 'either') {
+        const expectedType = effectiveConstraints.reference_kind === 'clone' ? 'CloneReference' : 'PointerReference';
+        if (entry.type !== expectedType) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Reference kind mismatch at ${path}: expected ${expectedType}, got ${entry.type}`,
+                ErrorCodes.REFERENCE_KIND_MISMATCH
+            ));
+        }
+    }
+
+    if (entry.type === 'NumberLiteral') {
+        const digitCount = countIntegerDigits(entry.raw);
+        if (effectiveConstraints.sign === 'unsigned' && isNegative(entry.raw)) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Numeric form violation: expected unsigned, got negative`,
+                ErrorCodes.NUMERIC_FORM_VIOLATION
+            ));
+        }
+        if (effectiveConstraints.min_digits !== undefined && digitCount < effectiveConstraints.min_digits) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Numeric form violation: expected min ${effectiveConstraints.min_digits} digits, got ${digitCount}`,
+                ErrorCodes.NUMERIC_FORM_VIOLATION
+            ));
+        }
+        if (effectiveConstraints.max_digits !== undefined && digitCount > effectiveConstraints.max_digits) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Numeric form violation: expected max ${effectiveConstraints.max_digits} digits, got ${digitCount}`,
+                ErrorCodes.NUMERIC_FORM_VIOLATION
+            ));
+        }
+    }
+
+    if (entry.type === 'StringLiteral') {
+        if (effectiveConstraints.min_length !== undefined && entry.value.length < effectiveConstraints.min_length) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `String length violation: expected min length ${effectiveConstraints.min_length}, got ${entry.value.length}`,
+                ErrorCodes.STRING_LENGTH_VIOLATION
+            ));
+        }
+        if (effectiveConstraints.max_length !== undefined && entry.value.length > effectiveConstraints.max_length) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `String length violation: expected max length ${effectiveConstraints.max_length}, got ${entry.value.length}`,
+                ErrorCodes.STRING_LENGTH_VIOLATION
+            ));
+        }
+        if (effectiveConstraints.pattern !== undefined && !(new RegExp(effectiveConstraints.pattern).test(entry.value))) {
+            emitError(ctx, createDiag(
+                path,
+                entry.span,
+                `Pattern mismatch: value does not match ${effectiveConstraints.pattern}`,
+                ErrorCodes.PATTERN_MISMATCH
+            ));
+        }
+    }
+
+    if (effectiveConstraints.attributes || effectiveConstraints.closed_attributes === true) {
+        validateAttributeMap(path, entry.attributes, effectiveConstraints, datatypeRules, ctx);
+    }
+}
+
 function datatypeBase(datatype: string): string {
     const genericIdx = datatype.indexOf('<');
     const separatorIdx = datatype.indexOf('[');
@@ -453,6 +771,31 @@ function datatypeBase(datatype: string): string {
         .filter((idx) => idx >= 0)
         .reduce((min, idx) => Math.min(min, idx), datatype.length);
     return datatype.slice(0, endIdx);
+}
+
+function mergeDatatypeRuleConstraints(
+    constraints: ConstraintsV1,
+    datatype: string | undefined,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+): ConstraintsV1 {
+    if (!datatype || !datatypeRules) return constraints;
+    const datatypeRule = datatypeRules[datatypeBase(datatype).toLowerCase()];
+    if (!datatypeRule) return constraints;
+    return { ...datatypeRule, ...constraints };
+}
+
+function constraintTypeMatches(actualType: string, expectedType: string, raw: string): boolean {
+    if (actualType === expectedType) return true;
+    if (actualType === 'NumberLiteral') {
+        if (expectedType === 'IntegerLiteral') return /^[+-]?\d[\d_]*$/.test(raw);
+        if (expectedType === 'FloatLiteral') return /^[+-]?(?:\d[\d_]*\.\d[\d_]*|\d[\d_]*\.|\.\d[\d_]*|\d[\d_]*[eE][+-]?\d[\d_]*)$/.test(raw);
+    }
+    const satisfies = TYPE_ALIASES[actualType];
+    return Boolean(satisfies?.includes(expectedType));
+}
+
+function isReferenceType(type: string): boolean {
+    return type === 'CloneReference' || type === 'PointerReference';
 }
 
 function datatypeTypeMatches(actualType: string, expectedType: string, raw: string): boolean {

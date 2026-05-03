@@ -33,6 +33,7 @@ from .ast import (
     SwitchLiteral,
     TimeLiteral,
     TupleLiteral,
+    TypedValue,
     TypeAnnotation,
     Value,
 )
@@ -63,6 +64,8 @@ RESERVED_V1_DATATYPES = {
     "sep", "set",
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
+
+RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}
 
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 
@@ -219,9 +222,11 @@ class Parser:
         key = self.key_from_token(key_token)
         self.skip_layout()
         attributes: list[Attribute] = []
-        while self.check("AT"):
+        if self.check("AT"):
             attributes.append(self.parse_attribute(1))
             self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before a binding datatype", self.peek().span)
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
             self.advance()
@@ -248,6 +253,8 @@ class Parser:
         while not self.check("RBRACE"):
             key_token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute key")
             key = self.key_from_token(key_token)
+            if key in RESERVED_ATTRIBUTE_KEYS:
+                raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
             self.skip_layout()
             attributes: list[Attribute] = []
             while self.check("AT"):
@@ -474,15 +481,43 @@ class Parser:
             if counts_toward_nesting:
                 self.current_nesting_depth -= 1
 
+    def parse_anonymous_value(self) -> Value:
+        if not self.check("COLON") and not self.check("AT"):
+            return self.parse_value()
+        start = self.peek().span.start
+        attributes: list[Attribute] = []
+        if self.check("AT"):
+            attributes.append(self.parse_attribute(1))
+            self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before an anonymous value datatype", self.peek().span)
+        datatype = None
+        if self.check("COLON"):
+            self.advance()
+            self.skip_layout()
+            datatype = self.parse_type_annotation()
+        self.skip_layout()
+        self.consume("EQUALS", "Expected '=' after anonymous value head")
+        self.skip_separators()
+        value = self.parse_value()
+        return TypedValue(
+            datatype=datatype,
+            attributes=attributes,
+            value=value,
+            span=Span(start=start, end=value.span.end if value.span else self.previous().span.end),
+        )
+
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
         tag = self.key_from_token(self.consume_one_of(("IDENT", "STRING"), "Expected node tag after '<'"))
         self.skip_layout()
         attributes: list[Attribute] = []
-        while self.check("AT"):
+        if self.check("AT"):
             attributes.append(self.parse_attribute(1))
             self.skip_layout()
+            if self.check("AT"):
+                raise SyntaxError("Only one attribute block is allowed before a node datatype", self.peek().span)
         datatype: TypeAnnotation | None = None
         if self.check("COLON"):
             self.advance()
@@ -498,7 +533,7 @@ class Parser:
         self.consume("LPAREN", "Expected '(' or '>' after node tag")
         self.skip_layout()
         while not self.check("RPAREN"):
-            children.append(self.parse_value())
+            children.append(self.parse_anonymous_value())
             self.consume_member_delimiter("RPAREN", "Expected node child delimiter")
         self.consume("RPAREN", "Expected ')' to close node children")
         self.skip_layout()
@@ -520,7 +555,7 @@ class Parser:
         elements: list[Value] = []
         self.skip_layout()
         while not self.check("RBRACKET"):
-            elements.append(self.parse_value())
+            elements.append(self.parse_anonymous_value())
             self.consume_member_delimiter("RBRACKET", "Expected list delimiter")
         end = self.consume("RBRACKET", "Expected ']' to close list").span.end
         return ListNode(elements=elements, attributes=[], span=Span(start=start, end=end))
@@ -530,7 +565,7 @@ class Parser:
         elements: list[Value] = []
         self.skip_layout()
         while not self.check("RPAREN"):
-            elements.append(self.parse_value())
+            elements.append(self.parse_anonymous_value())
             if self.check("COMMA"):
                 self.advance()
                 self.skip_layout()

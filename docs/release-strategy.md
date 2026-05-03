@@ -183,6 +183,8 @@ Before cutting a Python release:
 cd implementations/python
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/run_cts.py
+cd ../rust
+python3 tools/run_cts.py
 ```
 
 Recommended repo-level checks:

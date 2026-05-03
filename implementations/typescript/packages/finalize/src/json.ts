@@ -175,7 +175,10 @@ function payloadToJson(
             if (ctx.strict) continue;
         }
         document[key] = valueToJson(event.value, ctx, eventPath, projection, event.datatype);
-        const attrJson = annotationsToJson(event.annotations, ctx, eventPath, projection);
+        const attrJson = mergeAttributeJsonObjects(
+            annotationsToJson(event.annotations, ctx, eventPath, projection),
+            indexedChildAnnotationsToJson(event.value, ctx, eventPath, projection),
+        );
         if (attrJson) {
             documentAttrs[key] = attrJson;
         }
@@ -228,6 +231,14 @@ function valueToJson(
     datatype?: string
 ): JsonValue {
     switch (value.type) {
+        case 'TypedValue':
+            return valueToJson(
+                value.value,
+                ctx,
+                path,
+                projection,
+                value.datatype ? formatDatatypeAnnotation(value.datatype) : datatype
+            );
         case 'StringLiteral':
             return value.value;
         case 'NumberLiteral': {
@@ -344,7 +355,7 @@ function valueToJson(
             return {
                 $node: value.tag,
                 ...(nodeAttrs ? { '@': nodeAttrs } : {}),
-                $children: value.children.map((child, index) => valueToJson(child, ctx, `${path}<${index}>`, projection)),
+                $children: value.children.map((child, index) => valueToJson(child, ctx, `${path}[${index}]`, projection)),
             };
         }
         case 'CloneReference': {
@@ -422,7 +433,10 @@ function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: 
             if (ctx.strict) continue;
         }
         obj[key] = valueToJson(binding.value, ctx, entryPath, projection);
-        const attrJson = attributesToJson(binding.attributes, ctx, entryPath, projection);
+        const attrJson = mergeAttributeJsonObjects(
+            attributesToJson(binding.attributes, ctx, entryPath, projection),
+            indexedChildAnnotationsToJson(binding.value, ctx, entryPath, projection),
+        );
         if (attrJson) {
             attrEntries[key] = attrJson;
         }
@@ -546,6 +560,8 @@ function measureMaterializedWeight(
     }
 
     switch (value.type) {
+        case 'TypedValue':
+            return measureMaterializedWeight(value.value, ctx, currentPath, stack);
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':
@@ -735,6 +751,41 @@ function attributesToJson(
         obj['@'] = nestedAttrEntries;
     }
     return Object.keys(obj).length > 0 ? obj : null;
+}
+
+function indexedChildAnnotationsToJson(
+    value: Value,
+    ctx: JsonContext,
+    path: string,
+    projection: ProjectionState
+): JsonObject | null {
+    const children = value.type === 'ListNode' || value.type === 'TupleLiteral'
+        ? value.elements
+        : value.type === 'NodeLiteral'
+            ? value.children
+            : null;
+    if (!children) return null;
+
+    const itemAttrs: JsonObject = {};
+    for (const [index, child] of children.entries()) {
+        if (child.type !== 'TypedValue' || child.attributes.length === 0) {
+            continue;
+        }
+        const childPath = `${path}[${index}]`;
+        const attrJson = attributesToJson(child.attributes, ctx, childPath, projection);
+        if (attrJson) {
+            itemAttrs[String(index)] = attrJson;
+        }
+    }
+
+    return Object.keys(itemAttrs).length > 0 ? { '@items': itemAttrs } : null;
+}
+
+function mergeAttributeJsonObjects(left: JsonObject | null, right: JsonObject | null): JsonObject | null {
+    if (left && right) {
+        return { ...left, ...right };
+    }
+    return left ?? right;
 }
 
 function datatypeForPath(path: string, ctx: JsonContext): string | undefined {

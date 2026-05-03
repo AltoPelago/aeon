@@ -11,15 +11,21 @@ KNOWN_CONSTRAINT_KEYS = {
     "type",
     "reference",
     "reference_kind",
+    "reference_target_pattern",
+    "resolve_reference_form",
     "type_is",
     "length_exact",
     "sign",
     "min_digits",
     "max_digits",
+    "min_value",
+    "max_value",
     "min_length",
     "max_length",
     "pattern",
     "datatype",
+    "attributes",
+    "closed_attributes",
 }
 
 TYPE_ALIASES = {
@@ -46,6 +52,7 @@ ERROR_CODES = {
     "reference_required": "reference_required",
     "reference_forbidden": "reference_forbidden",
     "reference_kind_mismatch": "reference_kind_mismatch",
+    "reference_target_mismatch": "reference_target_mismatch",
     "wrong_container_kind": "WRONG_CONTAINER_KIND",
     "tuple_arity_mismatch": "TUPLE_ARITY_MISMATCH",
     "tuple_element_type_mismatch": "TUPLE_ELEMENT_TYPE_MISMATCH",
@@ -56,6 +63,7 @@ ERROR_CODES = {
     "datatype_allowlist_reject": "datatype_allowlist_reject",
     "trailing_separator_delimiter": "trailing_separator_delimiter",
     "unexpected_binding": "unexpected_binding",
+    "unexpected_attribute_entry": "unexpected_attribute_entry",
 }
 
 
@@ -95,6 +103,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
                     "span": to_span_tuple(event.get("span")),
+                    "datatype": event.get("datatype") if isinstance(event.get("datatype"), str) else None,
+                    "reference_path": value.get("path") if isinstance(value.get("path"), list) else None,
+                    "attributes": build_attribute_info_map(event.get("annotations")),
                 }
                 if value.get("type") in {"TupleLiteral", "ListLiteral", "ListNode"} and isinstance(value.get("elements"), list):
                     elements = value.get("elements")
@@ -124,8 +135,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
 
     rule_index = build_rule_index(schema, ctx)
     check_presence(rule_index, bound_paths, ctx)
-    check_types(rule_index, events_by_path, ctx)
     check_reference_forms(schema, rule_index, events_by_path, ctx)
+    effective_events_by_path = resolve_reference_form_events(rule_index, events_by_path)
+    check_types(rule_index, effective_events_by_path, ctx)
 
     for path, rule in rule_index.items():
         expected_length = rule.get("constraints", {}).get("length_exact")
@@ -133,9 +145,10 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
         if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
             emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
 
-    check_numeric_form(rule_index, events_by_path, ctx)
-    check_string_form(rule_index, events_by_path, ctx)
-    check_patterns(rule_index, events_by_path, ctx)
+    check_numeric_form(rule_index, effective_events_by_path, ctx)
+    check_string_form(rule_index, effective_events_by_path, ctx)
+    check_patterns(rule_index, effective_events_by_path, ctx)
+    check_attribute_constraints(rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
     check_world_policy(schema, aes, bound_paths, ctx)
 
     if ctx.errors:
@@ -189,16 +202,35 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if not isinstance(constraints, dict):
             constraints = {}
             rule["constraints"] = constraints
-        if any(key not in KNOWN_CONSTRAINT_KEYS for key in constraints.keys()):
-            emit_error(ctx, create_diag(path, None, f"Unknown constraint key in rule for path: {path}", ERROR_CODES["unknown_constraint_key"]))
-            continue
-        if not validate_reference_constraints(schema, path, constraints, ctx):
+        if not validate_constraint_tree(schema, path, constraints, ctx):
             continue
         datatype = constraints.get("datatype")
         if allowlist is not None and isinstance(datatype, str) and datatype not in allowlist:
             emit_error(ctx, create_diag(path, None, f"Datatype '{datatype}' not allowed by schema datatype_allowlist", ERROR_CODES["datatype_allowlist_reject"]))
         index[path] = rule
     return index
+
+
+def validate_constraint_tree(schema: dict[str, object], path: str, constraints: dict[str, object], ctx: DiagContext) -> bool:
+    if any(key not in KNOWN_CONSTRAINT_KEYS for key in constraints.keys()):
+        emit_error(ctx, create_diag(path, None, f"Unknown constraint key in rule for path: {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
+    if not validate_reference_constraints(schema, path, constraints, ctx):
+        return False
+    nested = constraints.get("attributes")
+    if nested is None:
+        return True
+    if not isinstance(nested, dict):
+        emit_error(ctx, create_diag(path, None, f"Invalid attributes constraint for path: {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
+    for key, child in nested.items():
+        child_path = f"{path}@{key}"
+        if not isinstance(child, dict):
+            emit_error(ctx, create_diag(child_path, None, f"Invalid attribute constraint for path: {child_path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+        if not validate_constraint_tree(schema, child_path, child, ctx):
+            return False
+    return True
 
 
 def validate_reference_constraints(
@@ -209,6 +241,8 @@ def validate_reference_constraints(
 ) -> bool:
     reference = constraints.get("reference")
     reference_kind = constraints.get("reference_kind")
+    reference_target_pattern = constraints.get("reference_target_pattern")
+    resolve_reference_form = constraints.get("resolve_reference_form")
     expected_type = constraints.get("type")
     schema_reference_policy = schema.get("reference_policy")
 
@@ -222,6 +256,23 @@ def validate_reference_constraints(
 
     if reference_kind is not None and reference != "require":
         emit_error(ctx, create_diag(path, None, f"reference_kind requires reference='require' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+        return False
+
+    if reference_target_pattern is not None:
+        if not isinstance(reference_target_pattern, str):
+            emit_error(ctx, create_diag(path, None, f"Invalid reference_target_pattern constraint for path {path}: {reference_target_pattern}", ERROR_CODES["invalid_reference_constraint"]))
+            return False
+        try:
+            re.compile(reference_target_pattern)
+        except re.error:
+            emit_error(ctx, create_diag(path, None, f"Invalid reference_target_pattern regex for path {path}: {reference_target_pattern}", ERROR_CODES["invalid_reference_constraint"]))
+            return False
+        if reference == "forbid":
+            emit_error(ctx, create_diag(path, None, f"reference_target_pattern conflicts with reference='forbid' for path {path}", ERROR_CODES["invalid_reference_constraint"]))
+            return False
+
+    if resolve_reference_form is not None and not isinstance(resolve_reference_form, bool):
+        emit_error(ctx, create_diag(path, None, f"resolve_reference_form must be boolean for path {path}", ERROR_CODES["invalid_reference_constraint"]))
         return False
 
     if reference == "forbid" and is_reference_type(expected_type):
@@ -275,8 +326,16 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
                 emit_error(ctx, create_diag(path, event.get("span"), f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
         if isinstance(expected_type, str):
             if expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
-                code = ERROR_CODES["tuple_element_type_mismatch"] if re.search(r"\[\d+\]$", path) else ERROR_CODES["type_mismatch"]
+                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
+
+
+def is_tuple_element_path(path: str, events: dict[str, dict[str, object]]) -> bool:
+    if not re.search(r"\[\d+\]$", path):
+        return False
+    parent_path = path[:path.rfind("[")]
+    parent = events.get(parent_path)
+    return isinstance(parent, dict) and parent.get("type") == "TupleLiteral"
 
 
 def check_reference_forms(
@@ -297,8 +356,6 @@ def check_reference_forms(
             continue
         reference = constraints.get("reference")
         reference_kind = constraints.get("reference_kind")
-        if not isinstance(reference, str):
-            continue
         event = events.get(path)
         if event is None:
             continue
@@ -309,19 +366,22 @@ def check_reference_forms(
                 emit_error(ctx, create_diag(path, event.get("span"), f"Reference not allowed at {path}, got {actual_type}", ERROR_CODES["reference_forbidden"]))
             continue
 
-        if reference == "allow":
-            continue
+        if reference == "require":
+            if not is_reference_type(actual_type):
+                emit_error(ctx, create_diag(path, event.get("span"), f"Reference required at {path}, got {actual_type}", ERROR_CODES["reference_required"]))
+                continue
 
-        if not is_reference_type(actual_type):
-            emit_error(ctx, create_diag(path, event.get("span"), f"Reference required at {path}, got {actual_type}", ERROR_CODES["reference_required"]))
-            continue
+            if reference_kind not in {None, "either"}:
+                expected_type = "CloneReference" if reference_kind == "clone" else "PointerReference"
+                if actual_type != expected_type:
+                    emit_error(ctx, create_diag(path, event.get("span"), f"Reference kind mismatch at {path}: expected {expected_type}, got {actual_type}", ERROR_CODES["reference_kind_mismatch"]))
+                    continue
 
-        if reference_kind in {None, "either"}:
-            continue
-
-        expected_type = "CloneReference" if reference_kind == "clone" else "PointerReference"
-        if actual_type != expected_type:
-            emit_error(ctx, create_diag(path, event.get("span"), f"Reference kind mismatch at {path}: expected {expected_type}, got {actual_type}", ERROR_CODES["reference_kind_mismatch"]))
+        target_pattern = constraints.get("reference_target_pattern")
+        if isinstance(target_pattern, str) and is_reference_type(actual_type):
+            reference_path = event.get("reference_path")
+            if isinstance(reference_path, list) and re.search(target_pattern, format_reference_target_path(reference_path)) is None:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Reference target path does not satisfy reference_target_pattern at {path}", ERROR_CODES["reference_target_mismatch"]))
 
 
 def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
@@ -332,7 +392,9 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
         sign = constraints.get("sign")
         min_digits = constraints.get("min_digits")
         max_digits = constraints.get("max_digits")
-        if sign is None and min_digits is None and max_digits is None:
+        min_value = constraints.get("min_value")
+        max_value = constraints.get("max_value")
+        if sign is None and min_digits is None and max_digits is None and min_value is None and max_value is None:
             continue
         event = events.get(path)
         if event is None or event.get("type") not in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
@@ -347,6 +409,18 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
             continue
         if isinstance(max_digits, int) and digit_count > max_digits:
             emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
+            continue
+        normalized = normalize_integer_literal(raw)
+        if min_value is not None or max_value is not None:
+            if normalized is None:
+                emit_error(ctx, create_diag(path, event.get("span"), "Numeric form violation: exact integer range constraints require integer literal form", ERROR_CODES["numeric_form_violation"]))
+                continue
+            numeric = int(normalized)
+            if isinstance(min_value, str) and numeric < int(min_value):
+                emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected value >= {min_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
+                continue
+            if isinstance(max_value, str) and numeric > int(max_value):
+                emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
 
 
 def check_string_form(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
@@ -389,6 +463,132 @@ def check_patterns(rule_index: dict[str, dict[str, object]], events: dict[str, d
             regex = regex + "$"
         if not re.search(regex, str(event.get("value", ""))):
             emit_error(ctx, create_diag(path, event.get("span"), f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
+
+
+def check_attribute_constraints(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], datatype_rules: object, ctx: DiagContext) -> None:
+    for path, rule in rule_index.items():
+        constraints = rule.get("constraints")
+        if not isinstance(constraints, dict):
+            continue
+        if "attributes" not in constraints and constraints.get("closed_attributes") is not True:
+            continue
+        event = events.get(path)
+        if not isinstance(event, dict):
+            continue
+        validate_attribute_map(path, event.get("attributes"), constraints, datatype_rules, ctx)
+
+
+def validate_attribute_map(base_path: str, attributes: object, constraints: dict[str, object], datatype_rules: object, ctx: DiagContext) -> None:
+    attribute_map = attributes if isinstance(attributes, dict) else {}
+    nested_rules = constraints.get("attributes")
+    if isinstance(nested_rules, dict):
+        for key, child_constraints in nested_rules.items():
+            child_path = f"{base_path}@{key}"
+            if not isinstance(child_constraints, dict):
+                continue
+            entry = attribute_map.get(key) if isinstance(attribute_map, dict) else None
+            if child_constraints.get("required") is True and not isinstance(entry, dict):
+                emit_error(ctx, create_diag(child_path, None, f"Missing required field: {child_path}", ERROR_CODES["missing_required_field"]))
+                continue
+            if not isinstance(entry, dict):
+                continue
+            validate_attribute_entry(child_path, entry, child_constraints, datatype_rules, ctx)
+
+    if constraints.get("closed_attributes") is True and isinstance(attribute_map, dict):
+        allowed = set(nested_rules.keys()) if isinstance(nested_rules, dict) else set()
+        for key, entry in attribute_map.items():
+            if key in allowed:
+                continue
+            span = entry.get("span") if isinstance(entry, dict) else None
+            emit_error(ctx, create_diag(f"{base_path}@{key}", span, f"Unexpected attribute entry: {base_path}@{key}", ERROR_CODES["unexpected_attribute_entry"]))
+
+
+def validate_attribute_entry(path: str, entry: dict[str, object], constraints: dict[str, object], datatype_rules: object, ctx: DiagContext) -> None:
+    effective_constraints = merge_datatype_rule_constraints(constraints, entry.get("datatype"), datatype_rules)
+    actual_type = entry.get("type")
+    span = entry.get("span")
+    raw = entry.get("raw", "") if isinstance(entry.get("raw", ""), str) else ""
+    value = entry.get("value", "") if isinstance(entry.get("value", ""), str) else ""
+    datatype = entry.get("datatype") if isinstance(entry.get("datatype"), str) else None
+
+    expected_container = effective_constraints.get("type_is")
+    if expected_container is not None and isinstance(actual_type, str):
+        ok = expected_container == "list" and actual_type in {"ListLiteral", "ListNode"} or expected_container == "tuple" and actual_type == "TupleLiteral"
+        if not ok:
+            emit_error(ctx, create_diag(path, span, f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
+
+    expected_type = effective_constraints.get("type")
+    if isinstance(expected_type, str) and isinstance(actual_type, str) and expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
+        emit_error(ctx, create_diag(path, span, f"Type mismatch: expected {expected_type}, got {actual_type}", ERROR_CODES["type_mismatch"]))
+
+    expected_datatype = effective_constraints.get("datatype")
+    if isinstance(expected_datatype, str) and datatype != expected_datatype:
+        emit_error(ctx, create_diag(path, span, f"Datatype mismatch: expected {expected_datatype}, got {datatype}", ERROR_CODES["type_mismatch"]))
+
+    reference = effective_constraints.get("reference")
+    if reference == "forbid" and is_reference_type(actual_type):
+        emit_error(ctx, create_diag(path, span, f"Reference not allowed at {path}, got {actual_type}", ERROR_CODES["reference_forbidden"]))
+    if reference == "require" and not is_reference_type(actual_type):
+        emit_error(ctx, create_diag(path, span, f"Reference required at {path}, got {actual_type}", ERROR_CODES["reference_required"]))
+
+    if reference == "require":
+        reference_kind = effective_constraints.get("reference_kind")
+        expected_reference_type = "CloneReference" if reference_kind == "clone" else "PointerReference" if reference_kind == "pointer" else None
+        if expected_reference_type is not None and actual_type != expected_reference_type:
+            emit_error(ctx, create_diag(path, span, f"Reference kind mismatch at {path}: expected {expected_reference_type}, got {actual_type}", ERROR_CODES["reference_kind_mismatch"]))
+
+    if actual_type == "NumberLiteral":
+        digit_count = count_integer_digits(raw)
+        if effective_constraints.get("sign") == "unsigned" and is_negative(raw):
+            emit_error(ctx, create_diag(path, span, "Numeric form violation: expected unsigned, got negative", ERROR_CODES["numeric_form_violation"]))
+        min_digits = effective_constraints.get("min_digits")
+        max_digits = effective_constraints.get("max_digits")
+        min_value = effective_constraints.get("min_value")
+        max_value = effective_constraints.get("max_value")
+        if isinstance(min_digits, int) and digit_count < min_digits:
+            emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected min {min_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
+        if isinstance(max_digits, int) and digit_count > max_digits:
+            emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
+        if min_value is not None or max_value is not None:
+            normalized = normalize_integer_literal(raw)
+            if normalized is None:
+                emit_error(ctx, create_diag(path, span, "Numeric form violation: exact integer range constraints require integer literal form", ERROR_CODES["numeric_form_violation"]))
+            else:
+                numeric = int(normalized)
+                if isinstance(min_value, str) and numeric < int(min_value):
+                    emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected value >= {min_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
+                if isinstance(max_value, str) and numeric > int(max_value):
+                    emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
+
+    if actual_type == "StringLiteral":
+        min_length = effective_constraints.get("min_length")
+        max_length = effective_constraints.get("max_length")
+        pattern = effective_constraints.get("pattern")
+        length = len(value.encode("utf-16-le")) // 2
+        if isinstance(min_length, int) and length < min_length:
+            emit_error(ctx, create_diag(path, span, f"String form violation: expected min length {min_length}, got {length}", ERROR_CODES["string_length_violation"]))
+        if isinstance(max_length, int) and length > max_length:
+            emit_error(ctx, create_diag(path, span, f"String form violation: expected max length {max_length}, got {length}", ERROR_CODES["string_length_violation"]))
+        if isinstance(pattern, str):
+            regex = pattern
+            if not regex.startswith("^"):
+                regex = "^" + regex
+            if not regex.endswith("$"):
+                regex = regex + "$"
+            if not re.search(regex, value):
+                emit_error(ctx, create_diag(path, span, f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
+
+    if "attributes" in effective_constraints or effective_constraints.get("closed_attributes") is True:
+        validate_attribute_map(path, entry.get("attributes"), effective_constraints, datatype_rules, ctx)
+
+
+def merge_datatype_rule_constraints(constraints: dict[str, object], datatype: object, datatype_rules: object) -> dict[str, object]:
+    if not isinstance(datatype, str) or not isinstance(datatype_rules, dict):
+        return constraints
+    rule = datatype_rules.get(datatype_base(datatype).lower())
+    if not isinstance(rule, dict):
+        return constraints
+    return {**rule, **constraints}
 
 
 def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
@@ -461,6 +661,41 @@ def build_guarantees(bound_paths: set[str], events: dict[str, dict[str, object]]
     return guarantees
 
 
+def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    resolved = dict(events)
+    for path, rule in rule_index.items():
+        constraints = rule.get("constraints")
+        if not isinstance(constraints, dict) or constraints.get("resolve_reference_form") is not True:
+            continue
+        event = events.get(path)
+        if not isinstance(event, dict) or not is_reference_type(event.get("type")):
+            continue
+        terminal = resolve_terminal_reference_event(event, events, set())
+        if terminal is None:
+            resolved.pop(path, None)
+            continue
+        resolved[path] = {**terminal, "span": event.get("span")}
+    return resolved
+
+
+def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str]) -> dict[str, object] | None:
+    if not is_reference_type(event.get("type")):
+        return event
+    reference_path = event.get("reference_path")
+    if not isinstance(reference_path, list):
+        return None
+    target_path = format_reference_target_path(reference_path)
+    if target_path in active_paths:
+        return None
+    target = events.get(target_path)
+    if not isinstance(target, dict):
+        return None
+    active_paths.add(target_path)
+    resolved = resolve_terminal_reference_event(target, events, active_paths) if is_reference_type(target.get("type")) else target
+    active_paths.discard(target_path)
+    return resolved
+
+
 def create_diag(path: str, span: object, message: str, code: str) -> dict[str, object]:
     return {
         "path": path,
@@ -504,8 +739,37 @@ def format_canonical_path(path: object) -> str:
     return result or "$"
 
 
+def format_reference_target_path(segments: list[object]) -> str:
+    if not segments:
+        return "$"
+    out = "$"
+    for segment in segments:
+        if isinstance(segment, int):
+            out += f"[{segment}]"
+        elif isinstance(segment, str):
+            if is_identifier_safe(segment):
+                out += f".{segment}"
+            else:
+                escaped_key = segment.replace("\\", "\\\\").replace('"', '\\"')
+                out += f'.["{escaped_key}"]'
+        elif isinstance(segment, dict) and segment.get("type") == "attr":
+            key = str(segment.get("key", ""))
+            if is_identifier_safe(key):
+                out += f"@{key}"
+            else:
+                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                out += f'@["{escaped_key}"]'
+    return out
+
+
 def is_reference_type(value_type: object) -> bool:
     return value_type in {"CloneReference", "PointerReference"}
+
+
+def normalize_integer_literal(raw: str) -> str | None:
+    if re.fullmatch(r"[+-]?\d[\d_]*", raw) is None:
+        return None
+    return raw.replace("_", "")
 
 
 def canonical_path_to_json(path: str) -> dict[str, object]:
@@ -580,7 +844,30 @@ def hydrate_indexed_fallback(base_path: str, value: dict[str, object], fallback_
             "raw": str(element.get("raw", "")) if isinstance(element.get("raw", ""), str) else "",
             "value": str(element.get("value", "")) if isinstance(element.get("value", ""), str) else "",
             "span": to_span_tuple(element.get("span")) or fallback_span,
+            "reference_path": element.get("path") if isinstance(element.get("path"), list) else None,
+            "attributes": build_attribute_info_map(element.get("attributes")),
         }
+
+
+def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]] | None:
+    if not isinstance(attributes, dict) or not attributes:
+        return None
+    mapped: dict[str, dict[str, object]] = {}
+    for key, entry in attributes.items():
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("value")
+        if not isinstance(value, dict):
+            continue
+        mapped[str(key)] = {
+            "type": value.get("type"),
+            "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
+            "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
+            "span": to_span_tuple(value.get("span")),
+            "datatype": entry.get("datatype") if isinstance(entry.get("datatype"), str) else None,
+            "attributes": build_attribute_info_map(entry.get("annotations")),
+        }
+    return mapped
 
 
 def decode_separator_chars(datatype: str | None) -> list[str]:
@@ -611,6 +898,13 @@ def count_integer_digits(raw: str) -> int:
     exp_index_E = text.find("E")
     exp_index = min(index for index in [decimal_index if decimal_index != -1 else len(text), exp_index_e if exp_index_e != -1 else len(text), exp_index_E if exp_index_E != -1 else len(text), len(text)])
     return sum(1 for char in text[:exp_index] if char.isdigit())
+
+
+def datatype_base(datatype: str) -> str:
+    generic_index = datatype.find("<")
+    separator_index = datatype.find("[")
+    end_index = min(index for index in [generic_index if generic_index != -1 else len(datatype), separator_index if separator_index != -1 else len(datatype), len(datatype)])
+    return datatype[:end_index]
 
 
 def is_negative(raw: str) -> bool:

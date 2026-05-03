@@ -84,11 +84,13 @@ export function checkTypes(
 
         // Check if actual type satisfies expected type
         if (!typeMatches(actualType, expectedType, event.raw)) {
+            const parentPath = path.replace(/\[\d+\]$/, '');
+            const parentType = parentPath !== path ? events.get(parentPath)?.type : undefined;
             emitError(ctx, createDiag(
                 path,
                 event.span,
                 `Type mismatch: expected ${expectedType}, got ${actualType}`,
-                /\[\d+\]$/.test(path)
+                /\[\d+\]$/.test(path) && parentType === 'TupleLiteral'
                     ? ErrorCodes.TUPLE_ELEMENT_TYPE_MISMATCH
                     : ErrorCodes.TYPE_MISMATCH
             ));

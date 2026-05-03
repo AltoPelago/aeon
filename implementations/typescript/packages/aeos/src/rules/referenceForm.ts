@@ -9,10 +9,36 @@ type EventInfo = {
     value: string;
     datatype?: string;
     span: [number, number] | null;
+    referencePath?: readonly (string | number | { readonly type: 'attr'; readonly key: string })[];
 };
 
 function isReferenceType(type: string): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
+}
+
+function formatQuotedMemberSegment(key: string): string {
+    return `.[${JSON.stringify(key)}]`;
+}
+
+function formatReferenceTargetPath(segments: readonly (string | number | { readonly type: 'attr'; readonly key: string })[]): string {
+    if (segments.length === 0) return '$';
+    let out = '$';
+    for (const segment of segments) {
+        if (typeof segment === 'number') {
+            out += `[${segment}]`;
+            continue;
+        }
+        if (typeof segment === 'string') {
+            out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment)
+                ? `.${segment}`
+                : formatQuotedMemberSegment(segment);
+            continue;
+        }
+        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
+            ? `@${segment.key}`
+            : `@[${JSON.stringify(segment.key)}]`;
+    }
+    return out;
 }
 
 export function checkReferenceForms(
@@ -36,8 +62,6 @@ export function checkReferenceForms(
     for (const [path, rule] of ruleIndex) {
         const reference = rule.constraints.reference;
         const referenceKind = rule.constraints.reference_kind;
-        if (reference === undefined) continue;
-
         const event = eventsByPath.get(path);
         if (!event) continue;
 
@@ -52,31 +76,47 @@ export function checkReferenceForms(
             continue;
         }
 
-        if (reference === 'allow') {
-            continue;
+        if (reference === 'allow' || reference === undefined) {
+            // Allow still permits target-domain constraints.
+        } else if (reference === 'require') {
+            if (!isReferenceType(event.type)) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Reference required at ${path}, got ${event.type}`,
+                    ErrorCodes.REFERENCE_REQUIRED
+                ));
+                continue;
+            }
+
+            if (referenceKind !== undefined && referenceKind !== 'either') {
+                const expectedType = referenceKind === 'clone' ? 'CloneReference' : 'PointerReference';
+                if (event.type !== expectedType) {
+                    emitError(ctx, createDiag(
+                        path,
+                        event.span,
+                        `Reference kind mismatch at ${path}: expected ${expectedType}, got ${event.type}`,
+                        ErrorCodes.REFERENCE_KIND_MISMATCH
+                    ));
+                    continue;
+                }
+            }
         }
 
-        if (!isReferenceType(event.type)) {
+        const targetPattern = (rule.constraints as any).reference_target_pattern;
+        if (targetPattern === undefined) {
+            continue;
+        }
+        if (!isReferenceType(event.type) || !event.referencePath) {
+            continue;
+        }
+        if (!(new RegExp(targetPattern).test(formatReferenceTargetPath(event.referencePath)))) {
             emitError(ctx, createDiag(
                 path,
                 event.span,
-                `Reference required at ${path}, got ${event.type}`,
-                ErrorCodes.REFERENCE_REQUIRED
+                `Reference target path does not satisfy reference_target_pattern at ${path}`,
+                ErrorCodes.REFERENCE_TARGET_MISMATCH
             ));
-            continue;
         }
-
-        if (referenceKind === undefined || referenceKind === 'either') {
-            continue;
-        }
-
-        const expectedType = referenceKind === 'clone' ? 'CloneReference' : 'PointerReference';
-        if (event.type === expectedType) continue;
-        emitError(ctx, createDiag(
-            path,
-            event.span,
-            `Reference kind mismatch at ${path}: expected ${expectedType}, got ${event.type}`,
-            ErrorCodes.REFERENCE_KIND_MISMATCH
-        ));
     }
 }

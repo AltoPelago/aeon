@@ -194,6 +194,44 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         });
     });
 
+    it('projects indexed child attributes under @items for lists', () => {
+        const events = compileToEvents('width@{x:string="cm"}:list = [@{unit:string="cm"} = 3]');
+        const result = finalizeJson(events, { mode: 'strict' });
+        assert.deepStrictEqual(result.document, {
+            width: [3],
+            '@': {
+                width: {
+                    x: 'cm',
+                    '@items': {
+                        '0': {
+                            unit: 'cm',
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    it('projects indexed child attributes under @items for node children', () => {
+        const events = compileToEvents('page:node = <page(@{role:string="title"} = "Hello")>');
+        const result = finalizeJson(events, { mode: 'strict' });
+        assert.deepStrictEqual(result.document, {
+            page: {
+                $node: 'page',
+                $children: ['Hello'],
+            },
+            '@': {
+                page: {
+                    '@items': {
+                        '0': {
+                            role: 'title',
+                        },
+                    },
+                },
+            },
+        });
+    });
+
     it('preserves recursively nested attribute heads under @ projection', () => {
         const events = compileToEvents([
             'a@{',

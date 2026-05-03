@@ -10,6 +10,8 @@ use crate::{
     Token, TokenKind, TrimtickMetadata, Value, tokenize,
 };
 
+const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
+
 pub(crate) fn parse_document_from_tokens(
     input: &str,
     max_nesting_depth: usize,
@@ -121,6 +123,9 @@ impl<'a> TokenParser<'a> {
         let mut bindings = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
+            if self.check(TokenKind::Colon) {
+                return Err(self.error_at_current("Expected key"));
+            }
             match self.parse_binding() {
                 Ok(binding) => bindings.push(binding),
                 Err(error) if error.code == "SYNTAX_ERROR" && error.message == "Expected key" => {
@@ -171,7 +176,7 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
-        while self.check(TokenKind::At) {
+        if self.check(TokenKind::At) {
             let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
             for key in parsed_order {
                 if !attributes.contains_key(&key) {
@@ -180,6 +185,11 @@ impl<'a> TokenParser<'a> {
             }
             attributes.extend(parsed_attrs);
             self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before a binding datatype",
+                ));
+            }
         }
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
@@ -506,6 +516,46 @@ impl<'a> TokenParser<'a> {
         result
     }
 
+    fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
+        if !self.check(TokenKind::Colon) && !self.check(TokenKind::At) {
+            return self.parse_value();
+        }
+        let mut attributes = BTreeMap::new();
+        let mut attribute_order = Vec::new();
+        if self.check(TokenKind::At) {
+            let (parsed_attrs, parsed_order) = self.parse_attribute_block(1)?;
+            for key in parsed_order {
+                if !attributes.contains_key(&key) {
+                    attribute_order.push(key.clone());
+                }
+            }
+            attributes.extend(parsed_attrs);
+            self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before an anonymous value datatype",
+                ));
+            }
+        }
+        self.skip_newlines();
+        let datatype = if self.match_kind(TokenKind::Colon) {
+            self.skip_newlines();
+            Some(self.parse_simple_datatype()?)
+        } else {
+            None
+        };
+        self.skip_newlines();
+        self.consume(TokenKind::Equals, "Expected `=` after anonymous value head")?;
+        self.skip_newlines();
+        let value = self.parse_value()?;
+        Ok(Value::TypedValue {
+            datatype,
+            attributes,
+            attribute_order,
+            value: Box::new(value),
+        })
+    }
+
     fn projected_opening_container_depth(&self) -> Option<usize> {
         let mut extra_depth = 0usize;
         for token in &self.tokens[self.current..] {
@@ -740,7 +790,7 @@ impl<'a> TokenParser<'a> {
         let mut items = Vec::new();
         self.skip_newlines();
         while !self.check(TokenKind::RightParen) {
-            items.push(self.parse_value()?);
+            items.push(self.parse_anonymous_value()?);
             if self.match_kind(TokenKind::Comma) {
                 self.skip_newlines();
                 if self.check(TokenKind::RightParen) {
@@ -960,10 +1010,15 @@ impl<'a> TokenParser<'a> {
 
         let mut attributes = Vec::new();
         self.skip_newlines();
-        while self.check(TokenKind::At) {
+        if self.check(TokenKind::At) {
             let (attribute_map, _) = self.parse_attribute_block(1)?;
             attributes.push(attribute_map);
             self.skip_newlines();
+            if self.check(TokenKind::At) {
+                return Err(self.error_at_current(
+                    "Only one attribute block is allowed before a node datatype",
+                ));
+            }
         }
 
         let mut datatype = None;
@@ -1080,7 +1135,7 @@ impl<'a> TokenParser<'a> {
         let mut items = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
-            items.push(self.parse_value()?);
+            items.push(self.parse_anonymous_value()?);
             self.consume_member_delimiter(terminator, delimiter_message)?;
         }
         Ok(items)
@@ -1111,12 +1166,16 @@ impl<'a> TokenParser<'a> {
         let mut member_order = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
+            let key_span = self.peek().span;
             let key = self.parse_key()?;
+            if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
+            }
             self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
             let mut nested_attr_order = Vec::new();
-            while self.check(TokenKind::At) {
+            if self.check(TokenKind::At) {
                 let (parsed_attrs, parsed_order) = self.parse_attribute_block(depth + 1)?;
                 for nested_key in parsed_order {
                     if !nested_attrs.contains_key(&nested_key) {
@@ -1125,6 +1184,11 @@ impl<'a> TokenParser<'a> {
                 }
                 nested_attrs.extend(parsed_attrs);
                 self.skip_newlines();
+                if self.check(TokenKind::At) {
+                    return Err(self.error_at_current(
+                        "Only one attribute block is allowed before an attribute entry datatype",
+                    ));
+                }
             }
             self.skip_newlines();
             if self.match_kind(TokenKind::Colon) {
@@ -1135,6 +1199,13 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Equals, equals_message)?;
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
+            if members.contains_key(&key) {
+                return Err(
+                    Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{key}'"))
+                        .at_path("$")
+                        .with_span(key_span),
+                );
+            }
             members.insert(
                 key.clone(),
                 AttributeValue::with_parts(
@@ -1729,11 +1800,151 @@ mod tests {
     }
 
     #[test]
+    fn rejects_repeated_binding_attribute_blocks_from_tokens() {
+        let error = parse("a@{unit:n=3}@{precision:n=2}:n = 3")
+            .expect_err("repeated binding attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn rejects_duplicate_attribute_keys_from_tokens() {
+        let error = parse("a@{x=1, x=2} = 3").expect_err("duplicate attribute keys should fail");
+        assert_eq!(error.code, "DUPLICATE_KEY");
+    }
+
+    #[test]
+    fn rejects_repeated_attribute_heads_on_attribute_entries_from_tokens() {
+        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1)
+            .expect_err("repeated attribute entry heads should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn rejects_floating_object_attributes_from_tokens() {
+        let error =
+            parse("x = { @{meta=1} k = 2 }").expect_err("floating object attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
     fn parses_node_literals_from_tokens() {
         let bindings =
             parse("content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
                 .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
+    }
+
+    #[test]
+    fn rejects_repeated_node_head_attribute_blocks_from_tokens() {
+        let error = parse("content:node = <span@{id = \"text\"}@{class = \"body\"}:node>")
+            .expect_err("repeated node head attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn parses_anonymous_typed_container_values_from_tokens() {
+        let bindings = parse(
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>",
+        )
+        .expect("token parse");
+        match &bindings[0].value {
+            Value::ListNode { items } => {
+                assert!(matches!(items[0], Value::TypedValue { .. }));
+                assert!(matches!(items[1], Value::TypedValue { .. }));
+            }
+            other => panic!("expected list literal, got {other:?}"),
+        }
+        match &bindings[1].value {
+            Value::TupleLiteral { items } => {
+                assert!(matches!(items[0], Value::TypedValue { .. }));
+                assert!(matches!(items[1], Value::TypedValue { .. }));
+            }
+            other => panic!("expected tuple literal, got {other:?}"),
+        }
+        match &bindings[2].value {
+            Value::NodeLiteral { children, .. } => {
+                assert!(matches!(children[0], Value::TypedValue { .. }));
+                assert!(matches!(children[2], Value::TypedValue { .. }));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_anonymous_attributed_container_values_from_tokens() {
+        let bindings = parse(
+            "values:list = [@{unit:string=\"cm\"} = 3, @{unit:string=\"cm\", precision:n=2}:n = 4]",
+        )
+        .expect("token parse");
+        match &bindings[0].value {
+            Value::ListNode { items } => {
+                match &items[0] {
+                    Value::TypedValue {
+                        datatype,
+                        attributes,
+                        ..
+                    } => {
+                        assert!(datatype.is_none());
+                        assert_eq!(attributes.len(), 1);
+                        assert!(attributes.contains_key("unit"));
+                    }
+                    other => panic!("expected typed wrapper, got {other:?}"),
+                }
+                match &items[1] {
+                    Value::TypedValue {
+                        datatype,
+                        attributes,
+                        ..
+                    } => {
+                        assert_eq!(datatype.as_deref(), Some("n"));
+                        assert_eq!(attributes.len(), 2);
+                        assert!(attributes.contains_key("unit"));
+                        assert!(attributes.contains_key("precision"));
+                    }
+                    other => panic!("expected typed wrapper, got {other:?}"),
+                }
+            }
+            other => panic!("expected list literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_reserved_attribute_keys_from_tokens() {
+        for source in [
+            "a@{\"@items\":n=0}:list = [1]",
+            "a:list = [@{\"@items\":n=0}:n = 4]",
+            "a@{\"@\":n=0} = 1",
+            "a@{\"__proto__\":n=0} = 1",
+            "a@{\"constructor\":n=0} = 1",
+            "a@{\"prototype\":n=0} = 1",
+        ] {
+            let error = parse(source).expect_err("reserved attribute key should fail");
+            assert_eq!(error.code, "SYNTAX_ERROR", "{source}");
+            assert!(
+                error.message.contains("Reserved attribute key"),
+                "{source}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_anonymous_typed_values_from_tokens() {
+        for source in [
+            ":n = 3",
+            "a:n = :n = 3",
+            "a:list = [:n = :n = 3]",
+            "a:node = <tag(:n = :n = 3)>",
+            "a:object = { :n = 3 }",
+            "a:list[ :n = :n = 3 ]",
+            "a:list[ n = 3 ]",
+            "a:list[ : = 3 ]",
+            "a:list[ = 3 ]",
+            "a:list = [@{unit:n=3}@{a:n=2}:n = 3]",
+        ] {
+            let error = parse(source).expect_err("expected syntax error");
+            assert_eq!(error.code, "SYNTAX_ERROR", "{source}");
+        }
     }
 
     #[test]

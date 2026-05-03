@@ -84,6 +84,7 @@ export interface Envelope extends ASTNode {
  * Value union type
  */
 export type Value =
+    | TypedValue
     | StringLiteral
     | NumberLiteral
     | InfinityLiteral
@@ -104,6 +105,17 @@ export type Value =
     | NodeLiteral
     | CloneReference
     | PointerReference;
+
+/**
+ * Anonymous headed value (:type = value, @{...} = value, or @{...}:type = value),
+ * valid only inside value containers.
+ */
+export interface TypedValue extends ASTNode {
+    readonly type: 'TypedValue';
+    readonly datatype: TypeAnnotation | null;
+    readonly attributes: readonly Attribute[];
+    readonly value: Value;
+}
 
 /**
  * String literal

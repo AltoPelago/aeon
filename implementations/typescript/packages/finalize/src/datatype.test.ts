@@ -29,4 +29,13 @@ describe('Finalize datatype formatting', () => {
             separators: [],
         }), 'radix[10]');
     });
+
+    it('tolerates minimal or null datatype metadata objects', () => {
+        assert.strictEqual(formatDatatypeAnnotation({
+            name: 'int32',
+            genericArgs: null,
+            separators: null,
+        }), 'int32');
+        assert.strictEqual(formatDatatypeAnnotation(null), '');
+    });
 });

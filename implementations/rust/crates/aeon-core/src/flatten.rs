@@ -44,6 +44,34 @@ pub(crate) enum ValidationReferenceStep {
     VisibleTarget(String),
 }
 
+fn typed_datatype(value: &Value) -> Option<String> {
+    match value {
+        Value::TypedValue { datatype, .. } => datatype.clone(),
+        _ => None,
+    }
+}
+
+fn typed_annotations(value: &Value) -> BTreeMap<String, AttributeValue> {
+    match value {
+        Value::TypedValue { attributes, .. } => attributes.clone(),
+        _ => BTreeMap::new(),
+    }
+}
+
+fn unwrap_typed_value(value: &Value) -> &Value {
+    match value {
+        Value::TypedValue { value, .. } => value,
+        _ => value,
+    }
+}
+
+fn is_container_value(value: &Value) -> bool {
+    matches!(
+        unwrap_typed_value(value),
+        Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
+    )
+}
+
 pub(crate) fn flatten_document(
     bindings: &[Binding],
     root: &CanonicalPath,
@@ -188,7 +216,7 @@ fn flatten_validation_bindings(
             });
         }
 
-        match &binding.value {
+        match unwrap_typed_value(&binding.value) {
             Value::ListNode { items } => {
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
@@ -201,22 +229,20 @@ fn flatten_validation_bindings(
                         item,
                         shallow_event_values,
                     );
-                    if !matches!(
-                        item,
-                        Value::ObjectNode { .. }
-                            | Value::ListNode { .. }
-                            | Value::TupleLiteral { .. }
-                    ) {
+                    if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
-                            datatype: None,
+                            datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
-                            value: clone_validation_value(item, shallow_event_values),
+                            value: clone_validation_value(
+                                unwrap_typed_value(item),
+                                shallow_event_values,
+                            ),
                             span: binding.span,
                         });
                     }
                     flatten_validation_value(
-                        item,
+                        unwrap_typed_value(item),
                         &item_path,
                         binding.span,
                         shallow_event_values,
@@ -238,22 +264,20 @@ fn flatten_validation_bindings(
                         item,
                         shallow_event_values,
                     );
-                    if !matches!(
-                        item,
-                        Value::ObjectNode { .. }
-                            | Value::ListNode { .. }
-                            | Value::TupleLiteral { .. }
-                    ) {
+                    if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: format_path(&item_path),
-                            datatype: None,
+                            datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
-                            value: clone_validation_value(item, shallow_event_values),
+                            value: clone_validation_value(
+                                unwrap_typed_value(item),
+                                shallow_event_values,
+                            ),
                             span: binding.span,
                         });
                     }
                     flatten_validation_value(
-                        item,
+                        unwrap_typed_value(item),
                         &item_path,
                         binding.span,
                         shallow_event_values,
@@ -273,6 +297,39 @@ fn flatten_validation_bindings(
                     reference_steps,
                 );
             }
+            Value::NodeLiteral { children, .. } => {
+                let path_parent = format_path(&path);
+                for (index, child) in children.iter().enumerate() {
+                    let child_path = path.index(index);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        child,
+                        shallow_event_values,
+                    );
+                    events.push(ValidationEvent {
+                        path: format_path(&child_path),
+                        datatype: typed_datatype(child),
+                        annotations: BTreeMap::new(),
+                        value: clone_validation_value(
+                            unwrap_typed_value(child),
+                            shallow_event_values,
+                        ),
+                        span: binding.span,
+                    });
+                    flatten_validation_value(
+                        unwrap_typed_value(child),
+                        &child_path,
+                        binding.span,
+                        shallow_event_values,
+                        events,
+                        reference_targets,
+                        reference_steps,
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -287,7 +344,7 @@ fn flatten_validation_value(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<ValidationReferenceStep>,
 ) {
-    match value {
+    match unwrap_typed_value(value) {
         Value::ObjectNode { bindings } => flatten_validation_bindings(
             bindings,
             parent,
@@ -308,21 +365,51 @@ fn flatten_validation_value(
                     item,
                     shallow_event_values,
                 );
-                if !matches!(
-                    item,
-                    Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
-                ) {
+                if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
-                        datatype: None,
+                        datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
-                        value: clone_validation_value(item, shallow_event_values),
+                        value: clone_validation_value(
+                            unwrap_typed_value(item),
+                            shallow_event_values,
+                        ),
                         span: owner_span,
                     });
                 }
                 flatten_validation_value(
-                    item,
+                    unwrap_typed_value(item),
                     &item_path,
+                    owner_span,
+                    shallow_event_values,
+                    events,
+                    reference_targets,
+                    reference_steps,
+                );
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            let parent_path = format_path(parent);
+            for (index, child) in children.iter().enumerate() {
+                let child_path = parent.index(index);
+                track_reference_sequence_item(
+                    reference_targets,
+                    reference_steps,
+                    &parent_path,
+                    index,
+                    child,
+                    shallow_event_values,
+                );
+                events.push(ValidationEvent {
+                    path: format_path(&child_path),
+                    datatype: typed_datatype(child),
+                    annotations: BTreeMap::new(),
+                    value: clone_validation_value(unwrap_typed_value(child), shallow_event_values),
+                    span: owner_span,
+                });
+                flatten_validation_value(
+                    unwrap_typed_value(child),
+                    &child_path,
                     owner_span,
                     shallow_event_values,
                     events,
@@ -343,20 +430,20 @@ fn flatten_validation_value(
                     item,
                     shallow_event_values,
                 );
-                if !matches!(
-                    item,
-                    Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
-                ) {
+                if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: format_path(&item_path),
-                        datatype: None,
+                        datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
-                        value: clone_validation_value(item, shallow_event_values),
+                        value: clone_validation_value(
+                            unwrap_typed_value(item),
+                            shallow_event_values,
+                        ),
                         span: owner_span,
                     });
                 }
                 flatten_validation_value(
-                    item,
+                    unwrap_typed_value(item),
                     &item_path,
                     owner_span,
                     shallow_event_values,
@@ -421,7 +508,7 @@ fn flatten_bindings(
             }
         }
 
-        match &binding.value {
+        match unwrap_typed_value(&binding.value) {
             Value::ListNode { items } => {
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
@@ -438,21 +525,21 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
-                        datatype: None,
-                        annotations: BTreeMap::new(),
-                        value: clone_event_value(item, shallow_event_values),
+                        datatype: typed_datatype(item),
+                        annotations: typed_annotations(item),
+                        value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
                     rendered_event_paths.push(item_text.clone());
                     if emit_binding_projections {
                         bindings_out.push(BindingProjection {
                             path: item_text,
-                            datatype: None,
+                            datatype: typed_datatype(item),
                             kind: "binding",
                         });
                     }
                     flatten_container_item(
-                        item,
+                        unwrap_typed_value(item),
                         &path.index(index),
                         shallow_event_values,
                         emit_binding_projections,
@@ -482,21 +569,21 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
-                        datatype: None,
-                        annotations: BTreeMap::new(),
-                        value: clone_event_value(item, shallow_event_values),
+                        datatype: typed_datatype(item),
+                        annotations: typed_annotations(item),
+                        value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
                     rendered_event_paths.push(item_text.clone());
                     if emit_binding_projections {
                         bindings_out.push(BindingProjection {
                             path: item_text,
-                            datatype: None,
+                            datatype: typed_datatype(item),
                             kind: "binding",
                         });
                     }
                     flatten_container_item(
-                        item,
+                        unwrap_typed_value(item),
                         &path.index(index),
                         shallow_event_values,
                         emit_binding_projections,
@@ -524,6 +611,50 @@ fn flatten_bindings(
                     reference_steps,
                 );
             }
+            Value::NodeLiteral { children, .. } => {
+                let path_parent = format_path(&path);
+                for (index, child) in children.iter().enumerate() {
+                    let child_path = path.index(index);
+                    let child_text = format_path(&child_path);
+                    track_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &path_parent,
+                        index,
+                        child,
+                        shallow_event_values,
+                    );
+                    events.push(AssignmentEvent {
+                        path: child_path.clone(),
+                        key: index.to_string(),
+                        datatype: typed_datatype(child),
+                        annotations: typed_annotations(child),
+                        value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
+                        span: binding.span,
+                    });
+                    rendered_event_paths.push(child_text.clone());
+                    if emit_binding_projections {
+                        bindings_out.push(BindingProjection {
+                            path: child_text,
+                            datatype: typed_datatype(child),
+                            kind: "binding",
+                        });
+                    }
+                    flatten_container_item(
+                        unwrap_typed_value(child),
+                        &child_path,
+                        shallow_event_values,
+                        emit_binding_projections,
+                        include_event_annotations,
+                        events,
+                        rendered_event_paths,
+                        bindings_out,
+                        reference_targets,
+                        reference_steps,
+                        binding.span,
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -542,7 +673,7 @@ fn flatten_container_item(
     reference_steps: &mut Vec<ValidationReferenceStep>,
     span: Span,
 ) {
-    match value {
+    match unwrap_typed_value(value) {
         Value::ObjectNode { bindings } => flatten_bindings(
             bindings,
             parent,
@@ -571,22 +702,66 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: item_path.clone(),
                     key: index.to_string(),
-                    datatype: None,
-                    annotations: BTreeMap::new(),
-                    value: clone_event_value(item, shallow_event_values),
+                    datatype: typed_datatype(item),
+                    annotations: typed_annotations(item),
+                    value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                     span,
                 });
                 rendered_event_paths.push(item_text.clone());
                 if emit_binding_projections {
                     bindings_out.push(BindingProjection {
                         path: item_text,
-                        datatype: None,
+                        datatype: typed_datatype(item),
                         kind: "binding",
                     });
                 }
                 flatten_container_item(
-                    item,
+                    unwrap_typed_value(item),
                     &item_path,
+                    shallow_event_values,
+                    emit_binding_projections,
+                    include_event_annotations,
+                    events,
+                    rendered_event_paths,
+                    bindings_out,
+                    reference_targets,
+                    reference_steps,
+                    span,
+                );
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            let parent_path = format_path(parent);
+            for (index, child) in children.iter().enumerate() {
+                let child_path = parent.index(index);
+                let child_text = format_path(&child_path);
+                track_reference_sequence_item(
+                    reference_targets,
+                    reference_steps,
+                    &parent_path,
+                    index,
+                    child,
+                    shallow_event_values,
+                );
+                events.push(AssignmentEvent {
+                    path: child_path.clone(),
+                    key: index.to_string(),
+                    datatype: typed_datatype(child),
+                    annotations: typed_annotations(child),
+                    value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
+                    span,
+                });
+                rendered_event_paths.push(child_text.clone());
+                if emit_binding_projections {
+                    bindings_out.push(BindingProjection {
+                        path: child_text,
+                        datatype: typed_datatype(child),
+                        kind: "binding",
+                    });
+                }
+                flatten_container_item(
+                    unwrap_typed_value(child),
+                    &child_path,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -605,9 +780,9 @@ fn flatten_container_item(
 
 fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
     if !shallow_event_values {
-        return value.clone();
+        return unwrap_typed_value(value).clone();
     }
-    match value {
+    match unwrap_typed_value(value) {
         Value::ObjectNode { .. } => Value::ObjectNode {
             bindings: Vec::new(),
         },
@@ -632,9 +807,9 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
 
 fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
     if !shallow_event_values {
-        return value.clone();
+        return unwrap_typed_value(value).clone();
     }
-    match value {
+    match unwrap_typed_value(value) {
         Value::NumberLiteral { raw } => Value::NumberLiteral { raw: raw.clone() },
         Value::InfinityLiteral { raw } => Value::InfinityLiteral { raw: raw.clone() },
         Value::NaNLiteral { raw } => Value::NaNLiteral { raw: raw.clone() },
@@ -682,6 +857,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
             segments: segments.clone(),
             span: *span,
         },
+        Value::TypedValue { .. } => unreachable!("typed values are unwrapped before cloning"),
     }
 }
 

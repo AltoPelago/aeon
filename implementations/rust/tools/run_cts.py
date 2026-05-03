@@ -8,8 +8,8 @@ import sys
 repo_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(repo_root / "scripts"))
 
-from repo_paths import repo_path_env
 from repo_paths import get_aeonite_cts_root
+from repo_paths import repo_path_env
 
 
 @dataclass(frozen=True)
@@ -19,10 +19,18 @@ class LaneCommand:
 
 
 def main() -> int:
-    python_root = repo_root / "implementations" / "python"
-    sut = python_root / "bin" / "aeon-python"
+    rust_root = repo_root / "implementations" / "rust"
+    sut = rust_root / "target" / "debug" / "aeon-rust"
     env = repo_path_env()
     cts_root = get_aeonite_cts_root()
+
+    build = subprocess.run(
+        ["cargo", "build", "-p", "aeon-cli"],
+        cwd=rust_root,
+        env=env,
+    )
+    if build.returncode != 0:
+        return build.returncode
 
     def cts_manifest(*parts: str) -> str:
         return str(cts_root.joinpath(*parts))

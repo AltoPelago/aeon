@@ -5,14 +5,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aeon_aeos::{
-    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, Schema, SpanInput,
+    AesEvent, AttributeEntry as AeosAttributeEntry, EventPath, EventValue, OffsetOnly,
+    PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema, SpanInput,
     ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
-    ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode,
+    PathSegment, ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -179,22 +180,42 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
-    let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
+    let max_attribute_depth = numeric_flag_value(
+        args,
+        "--max-attribute-depth",
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+    let max_separator_depth = numeric_flag_value(
+        args,
+        "--max-separator-depth",
+        CompileOptions::default().max_separator_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
         )
     })?;
-    let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
+    let max_generic_depth = numeric_flag_value(
+        args,
+        "--max-generic-depth",
+        CompileOptions::default().max_generic_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+    let max_nesting_depth = numeric_flag_value(
+        args,
+        "--max-nesting-depth",
+        CompileOptions::default().max_nesting_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
         )
@@ -298,22 +319,42 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
-    let max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth").map_err(|_| {
+    let max_attribute_depth = numeric_flag_value(
+        args,
+        "--max-attribute-depth",
+        CompileOptions::default().max_attribute_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+    let max_separator_depth = numeric_flag_value(
+        args,
+        "--max-separator-depth",
+        CompileOptions::default().max_separator_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
         )
     })?;
-    let max_generic_depth = numeric_flag_value(args, "--max-generic-depth").map_err(|_| {
+    let max_generic_depth = numeric_flag_value(
+        args,
+        "--max-generic-depth",
+        CompileOptions::default().max_generic_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+    let max_nesting_depth = numeric_flag_value(
+        args,
+        "--max-nesting-depth",
+        CompileOptions::default().max_nesting_depth,
+    )
+    .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
         )
@@ -404,9 +445,12 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
-    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
-    })?;
+    let max_reference_depth =
+        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
+            )
+        })?;
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -974,9 +1018,12 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?;
-    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
-        String::from("Error: Invalid value for --max-reference-depth (expected a non-negative integer)")
-    })?;
+    let max_reference_depth =
+        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
+            )
+        })?;
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
     if args
@@ -2025,6 +2072,7 @@ fn serialize_canonical_events(events: &[AssignmentEvent]) -> String {
 
 fn serialize_canonical_value(value: &Value) -> String {
     match value {
+        Value::TypedValue { value, .. } => serialize_canonical_value(value),
         Value::StringLiteral { value, .. } => format!("\"{}\"", escape_json(value)),
         Value::InfinityLiteral { raw } => raw.clone(),
         Value::NaNLiteral { raw } => raw.clone(),
@@ -2290,10 +2338,16 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
     let items = records
         .iter()
         .map(|record| {
+            let subtype = record
+                .subtype
+                .as_ref()
+                .map(|subtype| format!(",\"subtype\":\"{}\"", escape_json(subtype)))
+                .unwrap_or_default();
             format!(
-                "{{\"kind\":\"{}\",\"form\":\"{}\",\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
+                "{{\"kind\":\"{}\",\"form\":\"{}\"{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
                 escape_json(&record.kind),
                 escape_json(&record.form),
+                subtype,
                 escape_json(&record.raw),
                 render_span(&record.span),
                 render_annotation_target(&record.target)
@@ -2472,6 +2526,24 @@ fn render_errors(errors: &[Diagnostic]) -> String {
 
 fn render_value_json_string(value: &Value) -> String {
     match value {
+        Value::TypedValue {
+            datatype, value, ..
+        } => {
+            let datatype_json = datatype
+                .as_ref()
+                .map(|name| {
+                    format!(
+                        "{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}",
+                        escape_json(name)
+                    )
+                })
+                .unwrap_or_else(|| String::from("null"));
+            format!(
+                "{{\"type\":\"TypedValue\",\"datatype\":{},\"value\":{}}}",
+                datatype_json,
+                render_value_json_string(value)
+            )
+        }
         Value::InfinityLiteral { raw } => format!(
             "{{\"type\":\"InfinityLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
@@ -2531,7 +2603,7 @@ fn render_value_json_string(value: &Value) -> String {
         ),
         Value::HexLiteral { raw } => format!(
             "{{\"type\":\"HexLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw),
+            escape_json(raw.trim_start_matches('#')),
             escape_json(raw)
         ),
         Value::SeparatorLiteral { raw } => format!(
@@ -2643,6 +2715,30 @@ fn format_event_line(event: &AssignmentEvent) -> String {
 
 fn render_human_value(value: &Value) -> String {
     match value {
+        Value::TypedValue {
+            datatype,
+            attributes,
+            value,
+            ..
+        } => {
+            let mut head = String::new();
+            if !attributes.is_empty() {
+                head.push('@');
+                head.push('{');
+                let rendered = attributes
+                    .iter()
+                    .map(|(key, entry)| format_attribute_entry(key, entry))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                head.push_str(&rendered);
+                head.push('}');
+            }
+            if let Some(datatype) = datatype {
+                head.push(':');
+                head.push_str(datatype);
+            }
+            format!("{head} = {}", render_human_value(value))
+        }
         Value::StringLiteral { value, .. } => {
             serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
         }
@@ -2700,6 +2796,39 @@ fn render_human_value(value: &Value) -> String {
                 .join(", ")
         ),
     }
+}
+
+fn format_attribute_entry(key: &str, entry: &AttributeValue) -> String {
+    let mut head = String::from(key);
+    if !entry.nested_attrs.is_empty() {
+        let rendered = entry
+            .nested_attrs
+            .iter()
+            .map(|(nested_key, nested_entry)| format_attribute_entry(nested_key, nested_entry))
+            .collect::<Vec<_>>()
+            .join(", ");
+        head.push('@');
+        head.push('{');
+        head.push_str(&rendered);
+        head.push('}');
+    }
+    if let Some(datatype) = &entry.datatype {
+        head.push(':');
+        head.push_str(datatype);
+    }
+    if !entry.object_members.is_empty() {
+        let rendered = entry
+            .object_members
+            .iter()
+            .map(|(member_key, member_entry)| format_attribute_entry(member_key, member_entry))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return format!("{head} = {{{rendered}}}");
+    }
+    if let Some(value) = &entry.value {
+        return format!("{head} = {}", render_human_value(value));
+    }
+    head
 }
 
 fn render_reference_path(segments: &[ReferenceSegment]) -> String {
@@ -2843,9 +2972,10 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "INVALID_SEPARATOR_CHAR"
         | "SEPARATOR_DEPTH_EXCEEDED"
         | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
-        "HEADER_CONFLICT" | "DUPLICATE_CANONICAL_PATH" | "DATATYPE_LITERAL_MISMATCH" => {
-            Some("Core Validation")
-        }
+        "HEADER_CONFLICT"
+        | "DUPLICATE_KEY"
+        | "DUPLICATE_CANONICAL_PATH"
+        | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
         "MISSING_REFERENCE_TARGET"
         | "FORWARD_REFERENCE"
         | "SELF_REFERENCE"
@@ -2942,9 +3072,15 @@ fn format_annotation_line(record: &aeon_annotations::AnnotationRecord) -> String
         aeon_annotations::AnnotationTarget::Path { path } => path.clone(),
         aeon_annotations::AnnotationTarget::Unbound { reason } => format!("unbound({reason})"),
     };
+    let subtype = record
+        .subtype
+        .as_ref()
+        .map(|subtype| format!(":{subtype}"))
+        .unwrap_or_default();
     format!(
-        "{} {} -> {} raw={}",
+        "{}{} {} -> {} raw={}",
         record.kind,
+        subtype,
         record.form,
         target,
         serde_json::to_string(&record.raw).unwrap_or_else(|_| String::from("\"\""))
@@ -2994,6 +3130,11 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
             },
             key: event.key.clone(),
             datatype: event.datatype.clone(),
+            annotations: event
+                .annotations
+                .iter()
+                .map(|(key, entry)| (key.clone(), core_attribute_to_aeos(entry)))
+                .collect(),
             value: core_value_to_aeos(&event.value),
             span: Some(SpanInput::Object {
                 start: OffsetOnly {
@@ -3009,16 +3150,19 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
+        Value::TypedValue { value, .. } => core_value_to_aeos(value),
         Value::InfinityLiteral { raw } => EventValue {
             value_type: String::from("InfinityLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NaNLiteral { raw } => EventValue {
             value_type: String::from("NaNLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NullLiteral { mode, value, raw } => EventValue {
@@ -3031,96 +3175,112 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
                 },
                 "value": value,
             })),
+            path: None,
             elements: Vec::new(),
         },
         Value::NumberLiteral { raw } => EventValue {
             value_type: String::from("NumberLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(normalize_number_literal(raw))),
+            path: None,
             elements: Vec::new(),
         },
         Value::StringLiteral { value, raw, .. } => EventValue {
             value_type: String::from("StringLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(value.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::BooleanLiteral { raw } => EventValue {
             value_type: String::from("BooleanLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::Bool(raw == "true")),
+            path: None,
             elements: Vec::new(),
         },
         Value::SwitchLiteral { raw } => EventValue {
             value_type: String::from("SwitchLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::HexLiteral { raw } => EventValue {
             value_type: String::from("HexLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::SeparatorLiteral { raw } => EventValue {
             value_type: String::from("SeparatorLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('^').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::RadixLiteral { raw } => EventValue {
             value_type: String::from("RadixLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('%').to_string())),
+            path: None,
             elements: Vec::new(),
         },
         Value::DateLiteral { raw } => EventValue {
             value_type: String::from("DateLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::DateTimeLiteral { raw } => EventValue {
             value_type: String::from("DateTimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::TimeLiteral { raw } => EventValue {
             value_type: String::from("TimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::NodeLiteral { raw, .. } => EventValue {
             value_type: String::from("NodeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
             elements: Vec::new(),
         },
         Value::ListNode { items } => EventValue {
             value_type: String::from("ListNode"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::TupleLiteral { items } => EventValue {
             value_type: String::from("TupleLiteral"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::ObjectNode { .. } => EventValue {
             value_type: String::from("ObjectNode"),
             raw: None,
             value: None,
+            path: None,
             elements: Vec::new(),
         },
         Value::CloneReference { segments, .. } => EventValue {
@@ -3129,6 +3289,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::Array(
                 segments.iter().map(reference_segment_to_json).collect(),
             )),
+            path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
         },
         Value::PointerReference { segments, .. } => EventValue {
@@ -3137,7 +3298,41 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::Array(
                 segments.iter().map(reference_segment_to_json).collect(),
             )),
+            path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
+        },
+    }
+}
+
+fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
+    AeosAttributeEntry {
+        value: entry
+            .value
+            .as_ref()
+            .map(core_value_to_aeos)
+            .unwrap_or(EventValue {
+                value_type: String::from("ObjectNode"),
+                raw: None,
+                value: None,
+                path: None,
+                elements: Vec::new(),
+            }),
+        datatype: entry.datatype.clone(),
+        annotations: entry
+            .nested_attrs
+            .iter()
+            .map(|(key, nested)| (key.clone(), core_attribute_to_aeos(nested)))
+            .collect(),
+    }
+}
+
+fn reference_segment_to_aeos(segment: &ReferenceSegment) -> AeosReferencePathSegment {
+    match segment {
+        ReferenceSegment::Key(key) => AeosReferencePathSegment::Member(key.clone()),
+        ReferenceSegment::Index(index) => AeosReferencePathSegment::Index(*index as i64),
+        ReferenceSegment::Attr(key) => AeosReferencePathSegment::Attribute {
+            segment_type: String::from("attr"),
+            key: key.clone(),
         },
     }
 }
@@ -3354,12 +3549,12 @@ fn write_receipt_sidecar(path: &str, receipt: &JsonValue) -> Result<(), String> 
     fs::write(path, rendered).map_err(|error| format!("failed to write {path}: {error}"))
 }
 
-fn numeric_flag_value(args: &[String], flag: &str) -> Result<usize, String> {
+fn numeric_flag_value(args: &[String], flag: &str, default: usize) -> Result<usize, String> {
     match flag_value(args, flag) {
         Some(value) => value
             .parse::<usize>()
             .map_err(|_| format!("invalid value for {flag}")),
-        None => Ok(1),
+        None => Ok(default),
     }
 }
 
@@ -3842,7 +4037,7 @@ mod tests {
         );
         let normalized = normalize(&rendered);
         assert!(normalized.contains("## Errors"));
-        assert!(normalized.contains("[DUPLICATE_CANONICAL_PATH]"));
+        assert!(normalized.contains("[DUPLICATE_KEY]"));
         assert!(!normalized.contains("## Assignment Events"));
     }
 

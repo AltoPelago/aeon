@@ -7,6 +7,8 @@
 /**
  * Known constraint keys for v1
  */
+export interface AttributeConstraintsV1 extends ConstraintsV1 {}
+
 export interface ConstraintsV1 {
     /** Path must exist in AES */
     readonly required?: boolean;
@@ -19,6 +21,12 @@ export interface ConstraintsV1 {
 
     /** Required reference kind when reference='require' */
     readonly reference_kind?: 'clone' | 'pointer' | 'either';
+
+    /** Regex pattern matched against the canonicalized reference target path */
+    readonly reference_target_pattern?: string;
+
+    /** Resolve reference chains before applying form/type constraints on this path */
+    readonly resolve_reference_form?: boolean;
 
     /** Core v1 container kind check: list | tuple */
     readonly type_is?: 'list' | 'tuple';
@@ -52,6 +60,12 @@ export interface ConstraintsV1 {
 
     /** Datatype label (presence check only, no capacity) */
     readonly datatype?: string;
+
+    /** Attribute entry constraints keyed by attribute name */
+    readonly attributes?: Readonly<Record<string, AttributeConstraintsV1>>;
+
+    /** Reject unknown attribute keys at this attribute-object level */
+    readonly closed_attributes?: boolean;
 }
 
 /**
@@ -90,6 +104,8 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'type',
     'reference',
     'reference_kind',
+    'reference_target_pattern',
+    'resolve_reference_form',
     'type_is',
     'length_exact',
     'sign',
@@ -101,6 +117,8 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'max_length',
     'pattern',
     'datatype',
+    'attributes',
+    'closed_attributes',
 ]);
 
 /**

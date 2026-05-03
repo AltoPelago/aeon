@@ -169,10 +169,8 @@ pub fn finalize_json(events: &[AssignmentEvent], options: FinalizeOptions) -> Fi
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut active_paths = BTreeSet::new();
-    let mut tracker = MaterializationTracker::new(
-        options.max_materialized_weight,
-        options.max_reference_depth,
-    );
+    let mut tracker =
+        MaterializationTracker::new(options.max_materialized_weight, options.max_reference_depth);
     let projection = Projection::new(options.materialization, options.include_paths.clone());
     let path_values = index_event_values(events);
 
@@ -292,6 +290,16 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 #[must_use]
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
+        Value::TypedValue {
+            datatype, value, ..
+        } => json!({
+            "type": "TypedValue",
+            "datatype": datatype.as_ref().map(|name| json!({
+                "type": "TypeAnnotation",
+                "name": name,
+            })),
+            "value": value_to_ast_json(value),
+        }),
         Value::NumberLiteral { raw } => json!({
             "type": "NumberLiteral",
             "raw": raw,
@@ -524,10 +532,11 @@ fn payload_to_json(
                 tracker,
             ),
         );
-        if !event.annotations.is_empty() {
-            attrs.insert(
-                key.clone(),
-                attributes_to_json(
+        if let Some(attr_json) = merge_attribute_json(
+            if event.annotations.is_empty() {
+                None
+            } else {
+                Some(attributes_to_json(
                     &event.annotations,
                     &path,
                     projection,
@@ -537,8 +546,21 @@ fn payload_to_json(
                     warnings,
                     active_paths,
                     tracker,
-                ),
-            );
+                ))
+            },
+            indexed_child_attributes_to_json(
+                &event.value,
+                &path,
+                projection,
+                path_values,
+                mode,
+                errors,
+                warnings,
+                active_paths,
+                tracker,
+            ),
+        ) {
+            attrs.insert(key.clone(), attr_json);
         }
     }
     if !attrs.is_empty() {
@@ -587,6 +609,25 @@ fn value_to_json_with_active_key(
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
+    if let Value::TypedValue {
+        datatype, value, ..
+    } = value
+    {
+        return value_to_json_with_active_key(
+            value,
+            path,
+            active_key,
+            projection,
+            path_values,
+            mode,
+            errors,
+            warnings,
+            datatype.as_deref(),
+            active_paths,
+            tracker,
+        );
+    }
+
     let inserted = active_paths.insert(String::from(active_key));
     if !inserted {
         let diag = Diagnostic::new(
@@ -599,6 +640,7 @@ fn value_to_json_with_active_key(
     }
 
     let result = match value {
+        Value::TypedValue { .. } => unreachable!("typed values are unwrapped before finalization"),
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
         Value::InfinityLiteral { raw } => {
@@ -709,7 +751,7 @@ fn value_to_json_with_active_key(
                         .iter()
                         .enumerate()
                         .map(|(index, child)| {
-                            let child_path = format!("{path}<{index}>");
+                            let child_path = format!("{path}[{index}]");
                             value_to_json(
                                 child,
                                 &child_path,
@@ -780,10 +822,11 @@ fn value_to_json_with_active_key(
                             tracker,
                         ),
                     );
-                    if !binding.attributes.is_empty() {
-                        attrs.insert(
-                            binding.key.clone(),
-                            attributes_to_json(
+                    if let Some(attr_json) = merge_attribute_json(
+                        if binding.attributes.is_empty() {
+                            None
+                        } else {
+                            Some(attributes_to_json(
                                 &binding.attributes,
                                 &child_path,
                                 projection,
@@ -793,8 +836,21 @@ fn value_to_json_with_active_key(
                                 warnings,
                                 active_paths,
                                 tracker,
-                            ),
-                        );
+                            ))
+                        },
+                        indexed_child_attributes_to_json(
+                            &binding.value,
+                            &child_path,
+                            projection,
+                            path_values,
+                            mode,
+                            errors,
+                            warnings,
+                            active_paths,
+                            tracker,
+                        ),
+                    ) {
+                        attrs.insert(binding.key.clone(), attr_json);
                     }
                 }
             }
@@ -824,8 +880,7 @@ fn value_to_json_with_active_key(
                             "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
                             format!(
                                 "Reference materialization depth {} exceeds max_reference_depth {}",
-                                observed_depth,
-                                limit
+                                observed_depth, limit
                             ),
                         )
                         .at_path(path),
@@ -953,6 +1008,9 @@ fn measure_materialized_weight(
     }
 
     match value {
+        Value::TypedValue { value, .. } => {
+            measure_materialized_weight(value, current_path, path_values, tracker, stack)
+        }
         Value::StringLiteral { .. }
         | Value::NumberLiteral { .. }
         | Value::InfinityLiteral { .. }
@@ -1383,6 +1441,85 @@ fn node_attributes_to_json(
     JsonValue::Object(merged)
 }
 
+fn indexed_child_attributes_to_json(
+    value: &Value,
+    path: &str,
+    projection: &Projection,
+    path_values: &BTreeMap<String, Value>,
+    mode: FinalizeMode,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+    active_paths: &mut BTreeSet<String>,
+    tracker: &mut MaterializationTracker,
+) -> Option<JsonValue> {
+    let mut items = Map::new();
+    match value {
+        Value::ListNode { items: children } | Value::TupleLiteral { items: children } => {
+            for (index, child) in children.iter().enumerate() {
+                let Value::TypedValue { attributes, .. } = child else {
+                    continue;
+                };
+                if attributes.is_empty() {
+                    continue;
+                }
+                let child_path = format!("{path}[{index}]");
+                let JsonValue::Object(attr_json) = attributes_to_json(
+                    attributes,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                    tracker,
+                ) else {
+                    continue;
+                };
+                if !attr_json.is_empty() {
+                    items.insert(index.to_string(), JsonValue::Object(attr_json));
+                }
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                let Value::TypedValue { attributes, .. } = child else {
+                    continue;
+                };
+                if attributes.is_empty() {
+                    continue;
+                }
+                let child_path = format!("{path}[{index}]");
+                let JsonValue::Object(attr_json) = attributes_to_json(
+                    attributes,
+                    &child_path,
+                    projection,
+                    path_values,
+                    mode,
+                    errors,
+                    warnings,
+                    active_paths,
+                    tracker,
+                ) else {
+                    continue;
+                };
+                if !attr_json.is_empty() {
+                    items.insert(index.to_string(), JsonValue::Object(attr_json));
+                }
+            }
+        }
+        _ => return None,
+    }
+
+    if items.is_empty() {
+        None
+    } else {
+        let mut object = Map::new();
+        object.insert(String::from("@items"), JsonValue::Object(items));
+        Some(JsonValue::Object(object))
+    }
+}
+
 fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, JsonValue>) {
     for (key, value) in source {
         match (target.get_mut(&key), value) {
@@ -1393,6 +1530,19 @@ fn merge_json_object(target: &mut Map<String, JsonValue>, source: Map<String, Js
                 target.insert(key, replacement);
             }
         }
+    }
+}
+
+fn merge_attribute_json(left: Option<JsonValue>, right: Option<JsonValue>) -> Option<JsonValue> {
+    match (left, right) {
+        (Some(JsonValue::Object(mut left_obj)), Some(JsonValue::Object(right_obj))) => {
+            merge_json_object(&mut left_obj, right_obj);
+            Some(JsonValue::Object(left_obj))
+        }
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+        (Some(left), Some(_)) => Some(left),
     }
 }
 
@@ -1633,6 +1783,34 @@ mod tests {
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document["name"], json!("AEON"));
         assert_eq!(finalized.document["flags"], json!([true, false]));
+    }
+
+    #[test]
+    fn finalizes_anonymous_typed_values_without_reference_cycles() {
+        let source = "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n";
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+
+        assert!(
+            finalized.meta.errors.is_empty(),
+            "{:?}",
+            finalized.meta.errors
+        );
+        assert_eq!(finalized.document["values"], json!([3, "4"]));
+        assert_eq!(finalized.document["pair"], json!([10.5, 2.0]));
+        assert_eq!(
+            finalized.document["page"],
+            json!({
+                "$node": "page",
+                "$children": [
+                    "hello",
+                    { "$node": "tag", "$children": [] },
+                    3
+                ]
+            })
+        );
     }
 
     #[test]
@@ -2112,6 +2290,54 @@ mod tests {
                 "@": {
                     "a": {
                         "b": 1
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projects_indexed_child_attributes_under_at_items_for_lists() {
+        let source = "width@{x:string = \"cm\"}:list = [@{unit:string = \"cm\"} = 3]\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "width": [3],
+                "@": {
+                    "width": {
+                        "x": "cm",
+                        "@items": {
+                            "0": {
+                                "unit": "cm"
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn projects_indexed_child_attributes_under_at_items_for_node_children() {
+        let source = "page:node = <page(@{role:string = \"title\"} = \"Hello\")>\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(
+            finalized.document,
+            json!({
+                "page": {
+                    "$node": "page",
+                    "$children": ["Hello"]
+                },
+                "@": {
+                    "page": {
+                        "@items": {
+                            "0": {
+                                "role": "title"
+                            }
+                        }
                     }
                 }
             })

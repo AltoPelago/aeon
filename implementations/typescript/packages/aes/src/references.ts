@@ -174,6 +174,13 @@ export function validateReferences(
 
 function* findReferences(value: Value): Generator<ReferenceNode> {
     switch (value.type) {
+        case 'TypedValue':
+            for (const attr of value.attributes) {
+                yield* findReferencesInAttribute(attr);
+            }
+            yield* findReferences(value.value);
+            return;
+
         case 'CloneReference':
         case 'PointerReference':
             yield value;
@@ -219,6 +226,13 @@ function* findReferences(value: Value): Generator<ReferenceNode> {
 
 function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
     switch (value.type) {
+        case 'TypedValue':
+            for (const attr of value.attributes) {
+                yield* findReferencesInAttribute(attr);
+            }
+            yield* findOwnedReferences(value.value);
+            return;
+
         case 'CloneReference':
         case 'PointerReference':
             yield value;
@@ -381,8 +395,9 @@ function resolveSubpath(event: AssignmentEvent, remainder: readonly ReferencePat
             };
             continue;
         } else if (typeof segment === 'string') {
-            if (context.value.type !== 'ObjectNode') return false;
-            const binding = context.value.bindings.find((candidate) => candidate.key === segment);
+            const value = unwrapTypedValue(context.value);
+            if (value.type !== 'ObjectNode') return false;
+            const binding = value.bindings.find((candidate) => candidate.key === segment);
             if (!binding) return false;
             const bindingAnnotations = buildAnnotationMap(binding.attributes);
             context = {
@@ -392,8 +407,17 @@ function resolveSubpath(event: AssignmentEvent, remainder: readonly ReferencePat
             continue;
         } else if (typeof segment === 'number') {
             if (segment < 0 || !Number.isInteger(segment)) return false;
-            if (context.value.type !== 'ListNode' && context.value.type !== 'TupleLiteral') return false;
-            const element = context.value.elements[segment];
+            const value = unwrapTypedValue(context.value);
+            let element: Value | undefined;
+
+            if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
+                element = value.elements[segment];
+            } else if (value.type === 'NodeLiteral') {
+                element = value.children[segment];
+            } else {
+                return false;
+            }
+
             if (!element) return false;
             context = {
                 value: element,
@@ -412,7 +436,14 @@ function selectAnnotations(
     value: Value
 ): ReadonlyMap<string, AttributeEntry> | undefined {
     if (preferred && preferred.size > 0) return preferred;
-    return buildValueAnnotationMap(value);
+    if (value.type === 'TypedValue' && value.attributes.length > 0) {
+        return buildAnnotationMap(value.attributes);
+    }
+    return buildValueAnnotationMap(unwrapTypedValue(value));
+}
+
+function unwrapTypedValue(value: Value): Value {
+    return value.type === 'TypedValue' ? value.value : value;
 }
 
 function buildValueAnnotationMap(value: Value): ReadonlyMap<string, AttributeEntry> | undefined {

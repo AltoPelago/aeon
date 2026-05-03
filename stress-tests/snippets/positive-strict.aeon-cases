@@ -5,6 +5,10 @@ a:string = ""
 ---
 a:list<int32> = [1, 2, 3]
 ---
+values:list = [@{unit:string="cm"} = 3]
+---
+page:node = <page(@{unit:string="cm"}:int32 = 3)>
+---
 a:tuple<int32,int32> = (1, 2)
 ---
 a : tuple < n , n > = (3 , 3)
@@ -368,4 +372,3 @@ a311:n = +0.000_000_000
 a312:n = +0.0e-0
 ---
 a313:n = +0.0e+0
-

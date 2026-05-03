@@ -168,6 +168,7 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
+        Value::TypedValue { value, .. } => core_value_to_aeos(value),
         Value::InfinityLiteral { raw } => scalar_value(
             "InfinityLiteral",
             raw.clone(),

@@ -10,6 +10,7 @@ pub enum AnnotationTarget {
 pub struct AnnotationRecord {
     pub kind: String,
     pub form: String,
+    pub subtype: Option<String>,
     pub raw: String,
     pub span: Span,
     pub target: AnnotationTarget,
@@ -25,6 +26,7 @@ struct Bindable {
 struct CommentRecord {
     kind: String,
     form: String,
+    subtype: Option<String>,
     raw: String,
     span: Span,
 }
@@ -39,6 +41,7 @@ pub fn extract_annotations(source: &str) -> Vec<AnnotationRecord> {
         .map(|comment| AnnotationRecord {
             kind: comment.kind,
             form: comment.form,
+            subtype: comment.subtype,
             raw: comment.raw,
             span: comment.span,
             target: resolve_target(comment.span, &bindables),
@@ -101,11 +104,7 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
     for container in &infix_containing {
         let descendants = bindables
             .iter()
-            .filter(|candidate| {
-                candidate.path != container.path
-                    && is_descendant_path(&container.path, &candidate.path)
-                    && span_contains(container.span, candidate.span)
-            })
+            .filter(|candidate| bindable_descends_from(container, candidate))
             .collect::<Vec<_>>();
         if let Some(nearest) = resolve_nearest_by_offset(comment_span, &descendants) {
             return AnnotationTarget::Path {
@@ -140,6 +139,17 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
         .collect::<Vec<_>>();
     forward.sort_by_key(|bindable| bindable.span.start.offset);
     if let Some(hit) = forward.first() {
+        if hit.path == "$.[\"aeon:header\"]" {
+            let descendants = bindables
+                .iter()
+                .filter(|candidate| bindable_descends_from(hit, candidate))
+                .collect::<Vec<_>>();
+            if let Some(descendant) = resolve_nearest_by_offset(comment_span, &descendants) {
+                return AnnotationTarget::Path {
+                    path: descendant.path.clone(),
+                };
+            }
+        }
         return AnnotationTarget::Path {
             path: hit.path.clone(),
         };
@@ -192,6 +202,15 @@ fn is_descendant_path(parent: &str, candidate: &str) -> bool {
             || candidate.starts_with(&format!("{parent}[")))
 }
 
+fn bindable_descends_from(container: &Bindable, candidate: &Bindable) -> bool {
+    candidate.path != container.path
+        && span_contains(container.span, candidate.span)
+        && (is_descendant_path(&container.path, &candidate.path)
+            || (container.path == "$.[\"aeon:header\"]"
+                && candidate.path.starts_with("$.[\"aeon:")
+                && candidate.path != "$.[\"aeon:header\"]"))
+}
+
 fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
     let bytes = source.as_bytes();
     let mut scanner = Scanner::new(source);
@@ -206,16 +225,17 @@ fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
                 scanner.bump();
                 scanner.bump();
                 let marker = scanner.peek();
-                if matches!(marker, Some('#' | '@' | '?')) {
+                if let Some(marker) = marker.filter(|candidate| is_structured_marker(*candidate)) {
                     scanner.bump();
                     while !scanner.is_eof() && scanner.peek() != Some('\n') {
                         scanner.bump();
                     }
                     let end = scanner.position();
-                    let (kind, form) = line_kind(marker.expect("marker present"));
+                    let (kind, form, subtype) = line_kind(marker);
                     records.push(CommentRecord {
                         kind: kind.to_owned(),
                         form: form.to_owned(),
+                        subtype: subtype.map(str::to_owned),
                         raw: source[start.offset..end.offset].to_owned(),
                         span: Span { start, end },
                     });
@@ -225,11 +245,11 @@ fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
                     }
                 }
             }
-            Some('/') if matches!(scanner.peek_n(1), Some('#' | '@' | '?')) => {
+            Some('/') if scanner.peek_n(1).is_some_and(is_structured_marker) => {
                 let start = scanner.position();
                 scanner.bump();
                 let marker = scanner.bump().expect("marker present");
-                let closing = marker;
+                let closing = structured_block_closer(marker);
                 while !scanner.is_eof() {
                     if scanner.peek() == Some(closing) && scanner.peek_n(1) == Some('/') {
                         scanner.bump();
@@ -239,10 +259,11 @@ fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
                     scanner.bump();
                 }
                 let end = scanner.position();
-                let (kind, form) = block_kind(marker);
+                let (kind, form, subtype) = block_kind(marker);
                 records.push(CommentRecord {
                     kind: kind.to_owned(),
                     form: form.to_owned(),
+                    subtype: subtype.map(str::to_owned),
                     raw: source[start.offset..end.offset].to_owned(),
                     span: Span { start, end },
                 });
@@ -268,21 +289,40 @@ fn scan_structured_comments(source: &str) -> Vec<CommentRecord> {
     records
 }
 
-fn line_kind(marker: char) -> (&'static str, &'static str) {
+fn is_structured_marker(marker: char) -> bool {
+    matches!(marker, '#' | '@' | '?' | '{' | '[' | '(')
+}
+
+fn structured_block_closer(marker: char) -> char {
     match marker {
-        '#' => ("doc", "line"),
-        '@' => ("annotation", "line"),
-        '?' => ("hint", "line"),
-        _ => ("reserved", "line"),
+        '{' => '}',
+        '[' => ']',
+        '(' => ')',
+        _ => marker,
     }
 }
 
-fn block_kind(marker: char) -> (&'static str, &'static str) {
+fn line_kind(marker: char) -> (&'static str, &'static str, Option<&'static str>) {
     match marker {
-        '#' => ("doc", "block"),
-        '@' => ("annotation", "block"),
-        '?' => ("hint", "block"),
-        _ => ("reserved", "block"),
+        '#' => ("doc", "line", None),
+        '@' => ("annotation", "line", None),
+        '?' => ("hint", "line", None),
+        '{' => ("reserved", "line", Some("structure")),
+        '[' => ("reserved", "line", Some("profile")),
+        '(' => ("reserved", "line", Some("instructions")),
+        _ => ("reserved", "line", None),
+    }
+}
+
+fn block_kind(marker: char) -> (&'static str, &'static str, Option<&'static str>) {
+    match marker {
+        '#' => ("doc", "block", None),
+        '@' => ("annotation", "block", None),
+        '?' => ("hint", "block", None),
+        '{' => ("reserved", "block", Some("structure")),
+        '[' => ("reserved", "block", Some("profile")),
+        '(' => ("reserved", "block", Some("instructions")),
+        _ => ("reserved", "block", None),
     }
 }
 
@@ -294,6 +334,8 @@ fn collect_bindables(source: &str) -> Vec<Bindable> {
 struct AnnotationParser<'a> {
     scanner: Scanner<'a>,
 }
+
+const AEON_HEADER_CHILD_PARENT: &str = "$<aeon_header>";
 
 impl<'a> AnnotationParser<'a> {
     fn new(source: &'a str) -> Self {
@@ -332,7 +374,12 @@ impl<'a> AnnotationParser<'a> {
         let mut bindables = Vec::new();
         match self.scanner.peek()? {
             '{' => {
-                let end = self.capture_object(&path, &mut bindables);
+                let child_parent_path = if parent_path == "$" && key == "aeon:header" {
+                    AEON_HEADER_CHILD_PARENT
+                } else {
+                    &path
+                };
+                let end = self.capture_object(child_parent_path, &mut bindables);
                 bindables.insert(
                     0,
                     Bindable {
@@ -383,8 +430,14 @@ impl<'a> AnnotationParser<'a> {
         self.scanner.bump();
         self.skip_trivia(true);
         while !self.scanner.is_eof() && self.scanner.peek() != Some('}') {
+            let before = self.scanner.index;
             if let Some(children) = self.parse_binding(parent_path) {
                 bindables.extend(children);
+            } else {
+                self.capture_scalar();
+                if self.scanner.index == before {
+                    self.scanner.bump();
+                }
             }
             self.skip_trivia(true);
             if self.scanner.peek() == Some(',') {
@@ -412,6 +465,13 @@ impl<'a> AnnotationParser<'a> {
             let start = self.scanner.position();
             let item_path = format!("{parent_path}[{index}]");
             match self.scanner.peek() {
+                Some('@') | Some(':') => {
+                    let end = self.capture_anonymous_headed_value(&item_path, bindables);
+                    bindables.push(Bindable {
+                        path: item_path,
+                        span: Span { start, end },
+                    });
+                }
                 Some('{') => {
                     let end = self.capture_object(&item_path, bindables);
                     bindables.push(Bindable {
@@ -456,6 +516,33 @@ impl<'a> AnnotationParser<'a> {
         self.scanner.position()
     }
 
+    fn capture_anonymous_headed_value(
+        &mut self,
+        item_path: &str,
+        bindables: &mut Vec<Bindable>,
+    ) -> Position {
+        if self.scanner.peek() == Some('@') {
+            self.skip_attributes();
+            self.skip_trivia(true);
+        }
+        if self.scanner.peek() == Some(':') {
+            self.skip_type_annotation();
+            self.skip_trivia(true);
+        }
+        if self.scanner.peek() == Some('=') {
+            self.scanner.bump();
+            self.skip_trivia(true);
+        }
+        match self.scanner.peek() {
+            Some('{') => self.capture_object(item_path, bindables),
+            Some('[') => self.capture_sequence('[', ']', item_path, bindables),
+            Some('(') => self.capture_sequence('(', ')', item_path, bindables),
+            Some('<') => self.capture_balanced('<', '>'),
+            Some(_) => self.capture_scalar(),
+            None => self.scanner.position(),
+        }
+    }
+
     fn capture_balanced(&mut self, open: char, close: char) -> Position {
         let mut depth = 0usize;
         while !self.scanner.is_eof() {
@@ -493,9 +580,18 @@ impl<'a> AnnotationParser<'a> {
             Some('~') => {
                 self.scanner.bump();
                 self.skip_trivia(true);
+                let mut bracket_depth = 0usize;
                 while !self.scanner.is_eof() {
                     match self.scanner.peek() {
-                        Some(' ' | '\t' | '\n' | '\r' | ',' | ']' | '}') => {
+                        Some('[') => {
+                            bracket_depth += 1;
+                            self.scanner.bump();
+                        }
+                        Some(']') if bracket_depth > 0 => {
+                            bracket_depth = bracket_depth.saturating_sub(1);
+                            self.scanner.bump();
+                        }
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') if bracket_depth == 0 => {
                             break;
                         }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
@@ -516,7 +612,7 @@ impl<'a> AnnotationParser<'a> {
                         }
                         Some('/')
                             if self.scanner.peek_n(1) == Some('/')
-                                || matches!(self.scanner.peek_n(1), Some('#' | '@' | '?')) =>
+                                || self.scanner.peek_n(1).is_some_and(is_structured_marker) =>
                         {
                             break;
                         }
@@ -538,6 +634,15 @@ impl<'a> AnnotationParser<'a> {
             '"' => self.scanner.read_quoted(),
             _ => {
                 let start = self.scanner.index;
+                if self.scanner.source[start..].starts_with("aeon:") {
+                    while let Some(ch) = self.scanner.peek() {
+                        if matches!(ch, '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') {
+                            break;
+                        }
+                        self.scanner.bump();
+                    }
+                    return Some(self.scanner.source[start..self.scanner.index].to_owned());
+                }
                 while let Some(ch) = self.scanner.peek() {
                     if matches!(
                         ch,
@@ -619,8 +724,9 @@ impl<'a> AnnotationParser<'a> {
                     }
                     progressed = true;
                 }
-                (Some('/'), Some('#' | '@' | '?')) => {
-                    let closing = self.scanner.peek_n(1).expect("marker exists");
+                (Some('/'), Some(marker)) if is_structured_marker(marker) => {
+                    let closing =
+                        structured_block_closer(self.scanner.peek_n(1).expect("marker exists"));
                     self.scanner.bump();
                     self.scanner.bump();
                     while !self.scanner.is_eof() {
@@ -751,7 +857,9 @@ impl<'a> Scanner<'a> {
 }
 
 fn format_path(parent: &str, key: &str) -> String {
-    if parent == "$" {
+    if parent == AEON_HEADER_CHILD_PARENT {
+        format!("$.[\"aeon:{}\"]", escape_key(key))
+    } else if parent == "$" {
         if is_identifier(key) {
             format!("$.{key}")
         } else {
@@ -786,6 +894,7 @@ mod tests {
         let records = extract_annotations("//# docs\na = 1");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].kind, "doc");
+        assert_eq!(records[0].subtype, None);
         assert!(matches!(records[0].target, AnnotationTarget::Path { ref path } if path == "$.a"));
     }
 
@@ -796,5 +905,47 @@ mod tests {
         assert!(
             matches!(records[0].target, AnnotationTarget::Path { ref path } if path == "$.a[1]")
         );
+    }
+
+    #[test]
+    fn captures_reserved_slash_channels_with_subtypes() {
+        let records =
+            extract_annotations("//{ structure\n/[ profile ]/\n/( instructions )/\na = 1");
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].kind, "reserved");
+        assert_eq!(records[0].subtype.as_deref(), Some("structure"));
+        assert_eq!(records[1].subtype.as_deref(), Some("profile"));
+        assert_eq!(records[2].subtype.as_deref(), Some("instructions"));
+        assert!(records.iter().all(
+            |record| matches!(record.target, AnnotationTarget::Path { ref path } if path == "$.a")
+        ));
+    }
+
+    #[test]
+    fn anonymous_attributed_children_do_not_hang_annotation_extraction() {
+        let records = extract_annotations("width:list = [@{unit:string = \"cm\"} = 3]\n");
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn malformed_object_attribute_blocks_do_not_hang_annotation_extraction() {
+        let records = extract_annotations("x = { @{meta=1} k = 2 }\n");
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn header_and_empty_container_comments_bind_deterministically() {
+        let source = "//!/bin/aeon --profile=ts.object.v1\n\n/# Comment Stress (r5 target forms) #/\naeon:header = {\n  version = \"2.1\"\n  mode = \"transport\"\n  profile = \"ts.object.v1\"\n}\n\nemptyList:list<int32> = [ /# container fallback #/ ]\n";
+        let records = extract_annotations(source);
+        assert_eq!(
+            records[0].target,
+            AnnotationTarget::Path {
+                path: String::from("$.[\"aeon:version\"]")
+            }
+        );
+        assert!(matches!(
+            records[1].target,
+            AnnotationTarget::Path { ref path } if path == "$.emptyList"
+        ));
     }
 }

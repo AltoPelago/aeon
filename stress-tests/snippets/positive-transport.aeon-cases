@@ -3,6 +3,10 @@ a:object = {}
 ---
 a = {}
 ---
+values = [@{unit:string="cm"} = 3]
+---
+page = <page(@{unit:string="cm"}:int32 = 3)>
+---
 a:string = ""
 ---
 a = ""

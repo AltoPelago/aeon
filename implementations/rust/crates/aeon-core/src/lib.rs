@@ -212,6 +212,12 @@ pub enum NullLiteralMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
+    TypedValue {
+        datatype: Option<String>,
+        attributes: BTreeMap<String, AttributeValue>,
+        attribute_order: Vec<String>,
+        value: Box<Value>,
+    },
     NumberLiteral {
         raw: String,
     },
@@ -334,6 +340,7 @@ impl Value {
     #[must_use]
     pub fn value_kind(&self) -> &'static str {
         match self {
+            Self::TypedValue { .. } => "TypedValue",
             Self::NumberLiteral { .. } => "NumberLiteral",
             Self::InfinityLiteral { .. } => "InfinityLiteral",
             Self::NaNLiteral { .. } => "NaNLiteral",
@@ -1442,8 +1449,8 @@ mod tests {
     fn rejects_duplicate_canonical_paths_fail_closed_with_duplicate_site_span_details() {
         let result = compile("a = 1\na = 2\n", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DUPLICATE_CANONICAL_PATH");
-        assert_eq!(result.errors[0].message, "Duplicate canonical path: '$.a'");
+        assert_eq!(result.errors[0].code, "DUPLICATE_KEY");
+        assert_eq!(result.errors[0].message, "Duplicate key: 'a'");
         assert_eq!(result.errors[0].path.as_deref(), Some("$.a"));
         assert_eq!(
             result.errors[0].span,
@@ -1477,7 +1484,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "DUPLICATE_CANONICAL_PATH")
+                .any(|error| error.code == "DUPLICATE_KEY")
         );
         assert_eq!(result.events.len(), 1);
         assert_eq!(format_path(&result.events[0].path), "$.a");
@@ -2024,12 +2031,101 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.events.len(), 4);
         assert!(matches!(
             result.events[0].value,
             Value::StringLiteral { .. }
         ));
         assert!(matches!(result.events[1].value, Value::NodeLiteral { .. }));
+    }
+
+    #[test]
+    fn anonymous_typed_sequence_items_emit_indexed_datatypes() {
+        let result = compile(
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.values[0]"].datatype.as_deref(), Some("int32"));
+        assert_eq!(by_path["$.values[1]"].datatype.as_deref(), Some("string"));
+        assert_eq!(by_path["$.pair[0]"].datatype.as_deref(), Some("float64"));
+        assert_eq!(by_path["$.pair[1]"].datatype.as_deref(), Some("float64"));
+        assert!(matches!(by_path["$.page"].value, Value::NodeLiteral { .. }));
+        assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("string"));
+        assert!(matches!(
+            by_path["$.page[1]"].value,
+            Value::NodeLiteral { .. }
+        ));
+        assert_eq!(by_path["$.page[2]"].datatype.as_deref(), Some("int32"));
+    }
+
+    #[test]
+    fn anonymous_attributed_sequence_items_emit_indexed_annotations() {
+        let result = compile(
+            "page:node = <page(@{unit:string=\"cm\"}:int32 = 3)>\nvalues:list = [@{unit:string=\"cm\"} = 4]\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.page[0]"].datatype.as_deref(), Some("int32"));
+        assert_eq!(
+            by_path["$.page[0]"]
+                .annotations
+                .get("unit")
+                .and_then(|value| value.datatype.as_deref()),
+            Some("string")
+        );
+        assert!(by_path["$.values[0]"].datatype.is_none());
+        assert_eq!(
+            by_path["$.values[0]"]
+                .annotations
+                .get("unit")
+                .and_then(|value| value.datatype.as_deref()),
+            Some("string")
+        );
+    }
+
+    #[test]
+    fn node_children_emit_indexed_paths_and_descendants() {
+        let result = compile(
+            "page:node = <page({a:n = 1, b:n = 2}, \"hello\")>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(by_path.contains_key("$.page"));
+        assert!(by_path.contains_key("$.page[0]"));
+        assert!(by_path.contains_key("$.page[0].a"));
+        assert!(by_path.contains_key("$.page[0].b"));
+        assert!(by_path.contains_key("$.page[1]"));
+    }
+
+    #[test]
+    fn references_resolve_through_node_child_indexes() {
+        let result = compile(
+            "page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .events
+                .iter()
+                .any(|event| format_path(&event.path) == "$.copy")
+        );
     }
 
     #[test]
@@ -2144,9 +2240,14 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
-        assert!(matches!(result.events[0].value, Value::NodeLiteral { .. }));
-        assert!(matches!(result.events[1].value, Value::NodeLiteral { .. }));
+        assert_eq!(result.events.len(), 10);
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(matches!(by_path["$.n"].value, Value::NodeLiteral { .. }));
+        assert!(matches!(by_path["$.s"].value, Value::NodeLiteral { .. }));
     }
 
     #[test]
@@ -2156,7 +2257,7 @@ mod tests {
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
-        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.events.len(), 3);
     }
 
     #[test]

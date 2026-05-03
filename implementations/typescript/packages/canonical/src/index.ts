@@ -263,6 +263,15 @@ function renderListBinding(prefix: string, key: string, list: Value, indent: num
 function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }): string[] {
     const prefix = ' '.repeat(indent);
     switch (value.type) {
+        case 'TypedValue': {
+            const rendered = renderValue(value.value, indent, opts);
+            const head = `${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            if (rendered.length === 0) {
+                return [`${head} = `];
+            }
+            const first = rendered[0] ?? '';
+            return [`${head} = ${first}`, ...rendered.slice(1)];
+        }
         case 'StringLiteral':
             return formatStringLines(value.value, indent);
         case 'NumberLiteral':
@@ -419,6 +428,8 @@ function renderValueInline(value: Value): string {
 
 function renderCompactInlineValue(value: Value): string {
     switch (value.type) {
+        case 'TypedValue':
+            return `${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
         case 'StringLiteral':
             return formatString(value.value);
         case 'NumberLiteral':
@@ -783,6 +794,9 @@ function formatSeparator(raw: string): string {
 function isSimpleValue(value: Value): boolean {
     if (value.type === 'StringLiteral' && value.value.includes('\n')) {
         return false;
+    }
+    if (value.type === 'TypedValue') {
+        return isSimpleValue(value.value);
     }
     switch (value.type) {
         case 'StringLiteral':

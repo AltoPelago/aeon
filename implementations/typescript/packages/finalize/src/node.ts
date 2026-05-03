@@ -170,6 +170,8 @@ function isTopLevel(path: AssignmentEvent['path']): boolean {
 
 function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: string, projection: ProjectionState): FinalizedNode {
     switch (value.type) {
+        case 'TypedValue':
+            return valueToNode(value.value, meta, ctx, path, projection);
         case 'StringLiteral':
             return scalarNode('String', value.value, value.raw, meta);
         case 'NumberLiteral':
