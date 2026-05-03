@@ -111,6 +111,7 @@ class Parser {
         const start = this.peek().span.start;
         let header: Header | null = null;
         const bindings: Binding[] = [];
+        const keys = new Set<string>();
 
         // Check for header forms
         if (this.isHeaderStart()) {
@@ -135,6 +136,11 @@ class Parser {
                 }
                 const binding = this.parseBinding();
                 if (binding) {
+                    if (keys.has(binding.key)) {
+                        this.errors.push(new DuplicateKeyError(binding.key, binding.span));
+                    } else {
+                        keys.add(binding.key);
+                    }
                     bindings.push(binding);
                     this.consumeSeparatorOrLineBreak(TokenType.EOF, 'Expected \',\' or newline between top-level bindings');
                 }
@@ -343,8 +349,16 @@ class Parser {
                 );
             }
             const attributes: Attribute[] = [];
-            while (this.check(TokenType.At)) {
+            if (this.check(TokenType.At)) {
                 attributes.push(this.parseAttribute(depth + 1));
+                if (this.check(TokenType.At)) {
+                    throw new SyntaxError(
+                        'Only one attribute block is allowed before an attribute entry datatype',
+                        this.peek().span,
+                        ': or =',
+                        this.peek().value
+                    );
+                }
             }
 
             // Optional datatype
@@ -357,6 +371,9 @@ class Parser {
             this.consume(TokenType.Equals, "Expected '=' in attribute");
             const attrValue = this.parseValue();
 
+            if (entries.has(attrKey)) {
+                this.errors.push(new DuplicateKeyError(attrKey, attrKeyToken.span));
+            }
             entries.set(attrKey, { value: attrValue, datatype: attrDatatype, attributes });
 
             if (!this.check(TokenType.RightBrace)) {
@@ -778,9 +795,13 @@ class Parser {
         const attributes: Attribute[] = [];
 
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
-            // Parse optional attributes before binding
-            while (this.check(TokenType.At)) {
-                attributes.push(this.parseAttribute(1));
+            if (this.check(TokenType.At)) {
+                throw new SyntaxError(
+                    'Object attributes must be attached to the object binding or an object member binding',
+                    this.peek().span,
+                    'object member key',
+                    this.peek().value
+                );
             }
 
             if (this.check(TokenType.RightBrace)) break;

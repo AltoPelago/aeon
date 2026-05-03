@@ -274,6 +274,15 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.attributes.length, 1);
         });
 
+        it('should report duplicate attribute keys', () => {
+            const tokens = tokenize('a@{x = 1, x = 2} = 3').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+            assert.match(result.errors[0]!.message, /Duplicate key: 'x'/);
+        });
+
         it('should reject repeated binding attribute blocks', () => {
             const tokens = tokenize('a@{unit:n=3}@{precision:n=2}:n = 3').tokens;
             const result = parse(tokens);
