@@ -163,6 +163,23 @@ describe('Core - compile()', () => {
             ].join('\n'));
         });
 
+        it('should accept prose as a reserved trimtick alias in strict mode', () => {
+            const result = compile([
+                'aeon:mode = "strict"',
+                'body:prose = >`',
+                '  # Heading',
+                '',
+                '  Markdown-ish content.',
+                '`',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+            const body = result.events.find((event) => formatPath(event.path) === '$.body');
+            assert.ok(body);
+            assert.strictEqual(body.datatype, 'prose');
+            assert.strictEqual(body.value.type, 'StringLiteral');
+        });
+
         it('should compile escaped backticks inside backtick strings', () => {
             const result = compile('string006:string = `\\``');
 

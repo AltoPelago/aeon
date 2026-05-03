@@ -1005,6 +1005,22 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_accepts_prose_as_reserved_trimtick_alias() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nbody:prose = >`\n  # Heading\n\n  Markdown-ish content.\n`\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let body = result
+            .events
+            .iter()
+            .find(|event| format_path(&event.path) == "$.body")
+            .expect("body event");
+        assert_eq!(body.datatype.as_deref(), Some("prose"));
+        assert_eq!(body.value.value_kind(), "TrimtickStringLiteral");
+    }
+
+    #[test]
     fn transport_mode_allows_custom_datatypes_without_explicit_override() {
         let result = compile(
             "aeon:mode = \"transport\"\ncolor:stroke = #ff00ff\n",

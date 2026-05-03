@@ -862,7 +862,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'infinity') return ['InfinityLiteral'];
     if (base === 'nan') return ['NaNLiteral'];
     if (base === 'string') return ['StringLiteral'];
-    if (base === 'trimtick') return ['TrimtickStringLiteral'];
+    if (base === 'trimtick' || base === 'prose') return ['TrimtickStringLiteral'];
     if (base === 'boolean' || base === 'bool') return ['BooleanLiteral'];
     if (base === 'switch') return ['SwitchLiteral'];
     if (base === 'hex') return ['HexLiteral'];
