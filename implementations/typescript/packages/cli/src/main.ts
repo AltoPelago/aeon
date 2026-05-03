@@ -2732,6 +2732,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'GENERIC_DEPTH_EXCEEDED':
             return 'Parsing';
         case 'HEADER_CONFLICT':
+        case 'DUPLICATE_KEY':
         case 'DUPLICATE_CANONICAL_PATH':
         case 'DATATYPE_LITERAL_MISMATCH':
             return 'Core Validation';

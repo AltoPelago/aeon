@@ -1449,8 +1449,8 @@ mod tests {
     fn rejects_duplicate_canonical_paths_fail_closed_with_duplicate_site_span_details() {
         let result = compile("a = 1\na = 2\n", CompileOptions::default());
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DUPLICATE_CANONICAL_PATH");
-        assert_eq!(result.errors[0].message, "Duplicate canonical path: '$.a'");
+        assert_eq!(result.errors[0].code, "DUPLICATE_KEY");
+        assert_eq!(result.errors[0].message, "Duplicate key: 'a'");
         assert_eq!(result.errors[0].path.as_deref(), Some("$.a"));
         assert_eq!(
             result.errors[0].span,
@@ -1484,7 +1484,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "DUPLICATE_CANONICAL_PATH")
+                .any(|error| error.code == "DUPLICATE_KEY")
         );
         assert_eq!(result.events.len(), 1);
         assert_eq!(format_path(&result.events[0].path), "$.a");

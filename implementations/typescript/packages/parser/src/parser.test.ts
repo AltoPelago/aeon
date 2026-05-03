@@ -809,6 +809,15 @@ describe('Parser', () => {
             assert.ok(entry?.attributes[0]?.entries.has('origin'));
         });
 
+        it('should reject repeated attribute heads on an attribute entry', () => {
+            const tokens = tokenize('f@{ns@{y=1}@{z=2} = "aeon"} = "fractal"').tokens;
+            const result = parse(tokens, { maxAttributeDepth: 8 });
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /Only one attribute block/);
+        });
+
         it('should enforce max_attribute_depth for nested attribute heads', () => {
             const tokens = tokenize('f@{ns@{origin:string = "core"}:string = "aeon"}:string = "fractal"').tokens;
             const result = parse(tokens, { maxAttributeDepth: 1 });
@@ -1083,6 +1092,14 @@ describe('Parser', () => {
     });
 
     describe('duplicate key errors', () => {
+        it('should error on duplicate key at the top level', () => {
+            const tokens = tokenize('a = 1\na = 2').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'DUPLICATE_KEY');
+        });
+
         it('should error on duplicate key in object', () => {
             const tokens = tokenize('config = { a = 1, a = 2 }').tokens;
             const result = parse(tokens);
@@ -1096,6 +1113,15 @@ describe('Parser', () => {
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should reject floating object attributes', () => {
+            const tokens = tokenize('x = { @{meta=1} k = 2 }').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /Object attributes must be attached/);
         });
     });
 

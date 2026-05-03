@@ -342,7 +342,7 @@ FIXTURES: tuple[FixtureCase, ...] = (
         fixture_class="finalize",
         facets=("negative", "resource-limit", "runtime-budget", "zero-lock"),
     ),
-    FixtureCase("edge/escaped-decoded-identity-duplicate.aeon", "stress-tests/edge/escaped-decoded-identity-duplicate.aeon", 1, "DUPLICATE_CANONICAL_PATH", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
+    FixtureCase("edge/escaped-decoded-identity-duplicate.aeon", "stress-tests/edge/escaped-decoded-identity-duplicate.aeon", 1, "DUPLICATE_KEY", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/inline-array-separator-boundaries.aeon", "stress-tests/edge/inline-array-separator-boundaries.aeon", 1, "INVALID_SEPARATOR_CHAR", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/string-literal-newline.aeon", "stress-tests/edge/string-literal-newline.aeon", 1, "UNTERMINATED_STRING", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),
     FixtureCase("edge/unicode-braced-incomplete.aeon", "stress-tests/edge/unicode-braced-incomplete.aeon", 1, "INVALID_ESCAPE", ("--json",), fixture_class="parse", facets=("negative", "diagnostic", "promotion-candidate"), cts_lane="core", cts_ready=True),

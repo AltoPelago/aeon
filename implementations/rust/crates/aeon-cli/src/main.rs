@@ -2954,7 +2954,10 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "INVALID_SEPARATOR_CHAR"
         | "SEPARATOR_DEPTH_EXCEEDED"
         | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
-        "HEADER_CONFLICT" | "DUPLICATE_CANONICAL_PATH" | "DATATYPE_LITERAL_MISMATCH" => {
+        "HEADER_CONFLICT"
+        | "DUPLICATE_KEY"
+        | "DUPLICATE_CANONICAL_PATH"
+        | "DATATYPE_LITERAL_MISMATCH" => {
             Some("Core Validation")
         }
         "MISSING_REFERENCE_TARGET"
@@ -4018,7 +4021,7 @@ mod tests {
         );
         let normalized = normalize(&rendered);
         assert!(normalized.contains("## Errors"));
-        assert!(normalized.contains("[DUPLICATE_CANONICAL_PATH]"));
+        assert!(normalized.contains("[DUPLICATE_KEY]"));
         assert!(!normalized.contains("## Assignment Events"));
     }
 

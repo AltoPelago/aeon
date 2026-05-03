@@ -1166,6 +1166,7 @@ impl<'a> TokenParser<'a> {
         let mut member_order = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
+            let key_span = self.peek().span;
             let key = self.parse_key()?;
             if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!(
@@ -1177,7 +1178,7 @@ impl<'a> TokenParser<'a> {
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
             let mut nested_attr_order = Vec::new();
-            while self.check(TokenKind::At) {
+            if self.check(TokenKind::At) {
                 let (parsed_attrs, parsed_order) = self.parse_attribute_block(depth + 1)?;
                 for nested_key in parsed_order {
                     if !nested_attrs.contains_key(&nested_key) {
@@ -1186,6 +1187,11 @@ impl<'a> TokenParser<'a> {
                 }
                 nested_attrs.extend(parsed_attrs);
                 self.skip_newlines();
+                if self.check(TokenKind::At) {
+                    return Err(self.error_at_current(
+                        "Only one attribute block is allowed before an attribute entry datatype",
+                    ));
+                }
             }
             self.skip_newlines();
             if self.match_kind(TokenKind::Colon) {
@@ -1196,6 +1202,11 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Equals, equals_message)?;
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
+            if members.contains_key(&key) {
+                return Err(Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: `{key}`"))
+                    .at_path("$")
+                    .with_span(key_span));
+            }
             members.insert(
                 key.clone(),
                 AttributeValue::with_parts(
@@ -1793,6 +1804,26 @@ mod tests {
     fn rejects_repeated_binding_attribute_blocks_from_tokens() {
         let error = parse("a@{unit:n=3}@{precision:n=2}:n = 3")
             .expect_err("repeated binding attributes should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn rejects_duplicate_attribute_keys_from_tokens() {
+        let error = parse("a@{x=1, x=2} = 3").expect_err("duplicate attribute keys should fail");
+        assert_eq!(error.code, "DUPLICATE_KEY");
+    }
+
+    #[test]
+    fn rejects_repeated_attribute_heads_on_attribute_entries_from_tokens() {
+        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1)
+            .expect_err("repeated attribute entry heads should fail");
+        assert_eq!(error.code, "SYNTAX_ERROR");
+    }
+
+    #[test]
+    fn rejects_floating_object_attributes_from_tokens() {
+        let error = parse("x = { @{meta=1} k = 2 }")
+            .expect_err("floating object attributes should fail");
         assert_eq!(error.code, "SYNTAX_ERROR");
     }
 

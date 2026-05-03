@@ -137,7 +137,7 @@ class Parser {
                 const binding = this.parseBinding();
                 if (binding) {
                     if (keys.has(binding.key)) {
-                        this.errors.push(new DuplicateKeyError(binding.key, binding.span));
+                        this.errors.push(new DuplicateKeyError(binding.key, binding.span, this.rootKeyPath(binding.key)));
                     } else {
                         keys.add(binding.key);
                     }
@@ -162,6 +162,13 @@ class Parser {
             envelope: null,
             span: createSpan(start, end),
         };
+    }
+
+    private rootKeyPath(key: string): string {
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+            return `$.${key}`;
+        }
+        return `$["${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
     }
 
     private isHeaderStart(): boolean {

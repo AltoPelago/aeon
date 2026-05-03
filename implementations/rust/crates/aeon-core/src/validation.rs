@@ -41,10 +41,7 @@ pub(crate) fn build_validation_event_lookup(
     for index in duplicate_indexes {
         let path = &events[index].path;
         errors.push(
-            Diagnostic::new(
-                "DUPLICATE_CANONICAL_PATH",
-                format!("Duplicate canonical path: '{path}'"),
-            )
+            Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", key_from_path(path)))
             .at_path(path.clone())
             .with_span(events[index].span),
         );
@@ -70,10 +67,7 @@ pub(crate) fn validate_duplicate_canonical_paths(
     for index in &duplicate_indexes {
         let path = &flattened.rendered_event_paths[*index];
         errors.push(
-            Diagnostic::new(
-                "DUPLICATE_CANONICAL_PATH",
-                format!("Duplicate canonical path: '{path}'"),
-            )
+            Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", key_from_path(path)))
             .at_path(path.clone())
             .with_span(flattened.events[*index].span),
         );
@@ -103,6 +97,10 @@ pub(crate) fn validate_duplicate_canonical_paths(
         flattened.rendered_event_paths.clear();
         flattened.bindings.clear();
     }
+}
+
+fn key_from_path(path: &str) -> &str {
+    path.strip_prefix("$.").unwrap_or(path)
 }
 
 pub(crate) fn validate_reference_steps(

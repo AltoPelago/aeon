@@ -430,8 +430,14 @@ impl<'a> AnnotationParser<'a> {
         self.scanner.bump();
         self.skip_trivia(true);
         while !self.scanner.is_eof() && self.scanner.peek() != Some('}') {
+            let before = self.scanner.index;
             if let Some(children) = self.parse_binding(parent_path) {
                 bindables.extend(children);
+            } else {
+                self.capture_scalar();
+                if self.scanner.index == before {
+                    self.scanner.bump();
+                }
             }
             self.skip_trivia(true);
             if self.scanner.peek() == Some(',') {
@@ -920,6 +926,12 @@ mod tests {
     #[test]
     fn anonymous_attributed_children_do_not_hang_annotation_extraction() {
         let records = extract_annotations("width:list = [@{unit:string = \"cm\"} = 3]\n");
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn malformed_object_attribute_blocks_do_not_hang_annotation_extraction() {
+        let records = extract_annotations("x = { @{meta=1} k = 2 }\n");
         assert!(records.is_empty());
     }
 
