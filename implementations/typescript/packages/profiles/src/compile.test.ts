@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from './compile.js';
 import { createDefaultRegistry, createRegistry } from './registry.js';
+import { formatPath } from '@aeon/aes';
 import type { Profile } from './types.js';
 
 const sourceOk = 'ok';
@@ -194,5 +195,7 @@ test('default core profile parses introducer node syntax', () => {
         mode: 'strict',
     });
     assert.equal(result.meta?.errors?.length ?? 0, 0);
-    assert.equal(result.aes.length, 1);
+    assert.equal(result.aes.length, 2);
+    assert.equal(formatPath(result.aes[0]!.path), '$.view');
+    assert.equal(formatPath(result.aes[1]!.path), '$.view[0]');
 });
