@@ -56,7 +56,7 @@ DEFAULT_HEADER = {
     "encoding": StringLiteral(value="utf-8", raw="utf-8", delimiter='"', span=_zero_span()),
     "mode": StringLiteral(value="transport", raw="transport", delimiter='"', span=_zero_span()),
     "profile": StringLiteral(value="core", raw="core", delimiter='"', span=_zero_span()),
-    "version": NumberLiteral(value="1.0", raw="1.0", span=_zero_span()),
+    "version": StringLiteral(value="1.0", raw="1.0", delimiter='"', span=_zero_span()),
 }
 
 
