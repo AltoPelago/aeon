@@ -109,6 +109,7 @@ RESERVED_KIND_MAP = {
     "o": ("ObjectNode",),
     "node": ("NodeLiteral",),
     "trimtick": ("TrimtickStringLiteral",),
+    "prose": ("TrimtickStringLiteral",),
     "encoding": ("EncodingLiteral",),
     "base64": ("EncodingLiteral",),
     "embed": ("EncodingLiteral",),

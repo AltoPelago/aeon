@@ -1492,6 +1492,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "float64"
             | "string"
             | "trimtick"
+            | "prose"
             | "boolean"
             | "bool"
             | "switch"

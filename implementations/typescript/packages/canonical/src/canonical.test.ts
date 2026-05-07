@@ -12,7 +12,7 @@ test('canonicalizes default header', () => {
     assert.ok(lines.includes('  encoding = "utf-8"'));
     assert.ok(lines.includes('  mode = "transport"'));
     assert.ok(lines.includes('  profile = "core"'));
-    assert.ok(lines.includes('  version = 1.0'));
+    assert.ok(lines.includes('  version = "1.0"'));
 });
 
 test('sorts top-level keys and object keys', () => {
@@ -120,7 +120,7 @@ test('canonicalizes multiline strings as spaces-only trimticks', () => {
         '  encoding = "utf-8"',
         '  mode = "transport"',
         '  profile = "core"',
-        '  version = 1.0',
+        '  version = "1.0"',
         '}',
         'class = {',
         '  text = >`',
@@ -369,7 +369,7 @@ test('renders stable core v1 canonical output for mixed tuple and indexed refere
         '  encoding = "utf-8"',
         '  mode = "transport"',
         '  profile = "core"',
-        '  version = 1.0',
+        '  version = "1.0"',
         '}',
         'mixed:tuple<int32, int32> = (1, 2)',
         'target = [10, 20]',

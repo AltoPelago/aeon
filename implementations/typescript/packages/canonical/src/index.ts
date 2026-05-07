@@ -59,9 +59,10 @@ const DEFAULT_HEADER: Record<string, Value> = {
         span: { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 1, offset: 0 } },
     },
     version: {
-        type: 'NumberLiteral',
+        type: 'StringLiteral',
         value: '1.0',
         raw: '1.0',
+        delimiter: '"',
         span: { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 1, offset: 0 } },
     },
 };

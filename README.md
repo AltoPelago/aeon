@@ -4,6 +4,8 @@ Core AEON implementation workspace.
 
 License: MIT. See [LICENSE](./LICENSE).
 
+Public language guide and user-facing documentation: [AltoPelago/aeon wiki](https://github.com/AltoPelago/aeon/wiki).
+
 It currently contains:
 
 - `implementations/`

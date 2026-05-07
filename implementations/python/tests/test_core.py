@@ -193,6 +193,14 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
+    def test_prose_reserved_alias_accepts_trimticks_in_strict_mode(self) -> None:
+        source = 'aeon:mode = "strict"\nbody:prose = >`\n  # Heading\n\n  Markdown-ish content.\n`'
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+        body = next(event for event in result.events if event["path"] == "$.body")
+        self.assertEqual("prose", body["datatype"])
+        self.assertEqual("StringLiteral", body["value"]["type"])
+
     def test_custom_mode_enforces_switch_typing(self) -> None:
         source = 'aeon:mode = "custom"\ndebug = yes'
         result = compile_source(source)

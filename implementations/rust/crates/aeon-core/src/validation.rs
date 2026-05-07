@@ -1042,6 +1042,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "nan"
             | "string"
             | "trimtick"
+            | "prose"
             | "boolean"
             | "bool"
             | "switch"
@@ -1082,7 +1083,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "nan" => Some(vec!["NaNLiteral"]),
         "null" => Some(vec!["NullLiteral"]),
         "string" => Some(vec!["StringLiteral"]),
-        "trimtick" => Some(vec!["TrimtickStringLiteral"]),
+        "trimtick" | "prose" => Some(vec!["TrimtickStringLiteral"]),
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
         "switch" => Some(vec!["SwitchLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),

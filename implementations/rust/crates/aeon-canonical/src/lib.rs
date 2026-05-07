@@ -172,7 +172,7 @@ fn default_header() -> Vec<Binding> {
         Binding::scalar("encoding", Value::String(String::from("utf-8"))),
         Binding::scalar("mode", Value::String(String::from("transport"))),
         Binding::scalar("profile", Value::String(String::from("core"))),
-        Binding::scalar("version", Value::Number(String::from("1.0"))),
+        Binding::scalar("version", Value::String(String::from("1.0"))),
     ]
 }
 
@@ -2195,7 +2195,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_int:number = 0\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_int:number = 0\n"
         );
     }
 
@@ -2205,7 +2205,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:infinity = -Infinity\ntop:infinity = Infinity\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nbottom:infinity = -Infinity\ntop:infinity = Infinity\n"
         );
     }
 
@@ -2215,7 +2215,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:nan = -NaN\ntop:nan = NaN\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nbottom:nan = -NaN\ntop:nan = NaN\n"
         );
     }
 
@@ -2225,7 +2225,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nbottom:null = !\"postponed\"\ntop:null = !none\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nbottom:null = !\"postponed\"\ntop:null = !none\n"
         );
     }
 
@@ -2285,7 +2285,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nstring014:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring015:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring016:string = \"⭢ 𐤈 ⮕ ⮑\"\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nstring014:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring015:string = \"⭢ 𐤈 ⮕ ⮑\"\nstring016:string = \"⭢ 𐤈 ⮕ ⮑\"\n"
         );
     }
 
@@ -2295,7 +2295,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~order.total\norder:o = {\n  total:n = 2\n}\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nmixed:n = ~order.total\norder:o = {\n  total:n = 2\n}\n"
         );
     }
 
@@ -2305,7 +2305,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = 1.0\n}\nmixed:n = ~>order.total\norder:o = {\n  total:n = 2\n}\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nmixed:n = ~>order.total\norder:o = {\n  total:n = 2\n}\n"
         );
     }
 

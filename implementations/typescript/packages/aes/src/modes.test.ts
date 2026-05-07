@@ -117,6 +117,19 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should accept prose as a reserved trimtick alias in strict mode', () => {
+            const result = enforce([
+                'aeon:mode = "strict"',
+                'body:prose = >>`',
+                '  # Title',
+                '',
+                '  A formatted paragraph.',
+                '`',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should pass typed tuple literal in strict mode with indexed paths', () => {
             const result = enforceIndexed('aeon:mode = "strict"\npair:tuple<int32, int32> = (1, 2)');
             assert.strictEqual(result.errors.length, 0);
