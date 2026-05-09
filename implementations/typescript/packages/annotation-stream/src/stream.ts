@@ -4,6 +4,12 @@ import { tokenize, type Span, type Token, TokenType } from '@aeon/lexer';
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
 export type AnnotationForm = 'line' | 'block';
 export type AnnotationReservedSubtype = 'structure' | 'profile' | 'instructions';
+export type AnnotationPlacementPart = 'key' | 'attributes' | 'datatype-colon' | 'datatype' | 'equals' | 'value';
+
+export interface AnnotationPlacement {
+    readonly after?: AnnotationPlacementPart;
+    readonly before?: AnnotationPlacementPart;
+}
 
 export interface AnnotationTargetPath {
     readonly kind: 'path';
@@ -29,6 +35,7 @@ export interface AnnotationRecord {
     readonly span: Span;
     readonly target: AnnotationTarget;
     readonly subtype?: AnnotationReservedSubtype;
+    readonly placement?: AnnotationPlacement;
 }
 
 export interface BuildAnnotationStreamInput {
@@ -57,6 +64,11 @@ interface DescendantIndex {
     readonly items: readonly Bindable[];
     readonly starts: readonly number[];
     readonly ends: readonly number[];
+}
+
+interface PlacementLandmark {
+    readonly part: AnnotationPlacementPart;
+    readonly span: Span;
 }
 
 class AnnotationResolver {
@@ -159,6 +171,7 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
         path: formatPath(event.path),
         order,
     }));
+    const eventByPath = new Map(input.events.map((event) => [formatPath(event.path), event]));
     const spanBindables = (input.spans ?? []).map((span, order) => ({ span, order }));
     const resolver = new AnnotationResolver(bindables, spanBindables);
 
@@ -182,6 +195,10 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
             span: token.span,
             target,
         };
+        const placement = resolvePlacement(token, target, eventByPath, input.tokens);
+        if (placement) {
+            (record as { placement: AnnotationPlacement }).placement = placement;
+        }
         if (token.comment.subtype) {
             (record as { subtype: AnnotationReservedSubtype }).subtype = token.comment.subtype;
         }
@@ -255,6 +272,167 @@ function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined
         return forwardDistance <= trailingDistance ? forwardHit : trailingHit;
     }
     return forwardHit ?? trailingHit;
+}
+
+function resolvePlacement(
+    comment: Token,
+    target: AnnotationTarget,
+    eventByPath: ReadonlyMap<string, AssignmentEvent>,
+    tokens: readonly Token[],
+): AnnotationPlacement | undefined {
+    if (target.kind !== 'path') {
+        return undefined;
+    }
+    const event = eventByPath.get(target.path);
+    if (!event) {
+        return undefined;
+    }
+
+    const landmarks = bindingLandmarks(event, tokens);
+    if (landmarks.length === 0) {
+        return undefined;
+    }
+    if (landmarks.some((landmark) => spansOverlapInterior(landmark.span, comment.span))) {
+        return undefined;
+    }
+
+    const previous = landmarks
+        .filter((landmark) => landmark.span.end.offset <= comment.span.start.offset)
+        .at(-1);
+    const next = landmarks.find((landmark) => landmark.span.start.offset >= comment.span.end.offset);
+    if (!previous && !next) {
+        return undefined;
+    }
+
+    return {
+        ...(previous ? { after: previous.part } : {}),
+        ...(next ? { before: next.part } : {}),
+    };
+}
+
+function bindingLandmarks(event: AssignmentEvent, tokens: readonly Token[]): readonly PlacementLandmark[] {
+    const eventTokens = tokens
+        .filter((token) => token.type !== TokenType.EOF)
+        .filter((token) => !isCommentToken(token))
+        .filter((token) => token.span.start.offset >= event.span.start.offset && token.span.end.offset <= event.span.end.offset);
+    const topLevel = topLevelTokens(eventTokens);
+    const key = topLevel[0];
+    if (!key) {
+        return [];
+    }
+
+    const valueSpan = event.value.span;
+    const equals = topLevel
+        .filter((token) => token.type === TokenType.Equals && token.span.end.offset <= valueSpan.start.offset)
+        .at(-1);
+    const headEnd = equals?.span.start.offset ?? valueSpan.start.offset;
+    const attributes = findAttributesLandmark(eventTokens, topLevel, key.span.end.offset, headEnd);
+    const datatypeColon = topLevel.find((token) =>
+        token.type === TokenType.Colon
+        && token.span.start.offset >= (attributes?.span.end.offset ?? key.span.end.offset)
+        && token.span.end.offset <= headEnd
+    );
+    const datatype = datatypeColon ? findDatatypeLandmark(eventTokens, datatypeColon.span.end.offset, headEnd) : undefined;
+
+    return [
+        { part: 'key' as const, span: key.span },
+        ...(attributes ? [attributes] : []),
+        ...(datatypeColon ? [{ part: 'datatype-colon' as const, span: datatypeColon.span }] : []),
+        ...(datatype ? [datatype] : []),
+        ...(equals ? [{ part: 'equals' as const, span: equals.span }] : []),
+        { part: 'value' as const, span: valueSpan },
+    ].sort((left, right) => left.span.start.offset - right.span.start.offset);
+}
+
+function isCommentToken(token: Token): boolean {
+    return token.type === TokenType.LineComment || token.type === TokenType.BlockComment;
+}
+
+function topLevelTokens(tokens: readonly Token[]): readonly Token[] {
+    const result: Token[] = [];
+    let depth = 0;
+    for (const token of tokens) {
+        if (depth === 0) {
+            result.push(token);
+        }
+        depth += depthDelta(token);
+        if (depth < 0) {
+            depth = 0;
+        }
+    }
+    return result;
+}
+
+function depthDelta(token: Token): number {
+    switch (token.type) {
+        case TokenType.LeftBrace:
+        case TokenType.LeftBracket:
+        case TokenType.LeftParen:
+        case TokenType.LeftAngle:
+            return 1;
+        case TokenType.RightBrace:
+        case TokenType.RightBracket:
+        case TokenType.RightParen:
+        case TokenType.RightAngle:
+            return -1;
+        default:
+            return 0;
+    }
+}
+
+function findAttributesLandmark(
+    tokens: readonly Token[],
+    topLevel: readonly Token[],
+    afterOffset: number,
+    beforeOffset: number,
+): PlacementLandmark | undefined {
+    const at = topLevel.find((token) =>
+        token.type === TokenType.At
+        && token.span.start.offset >= afterOffset
+        && token.span.end.offset <= beforeOffset
+    );
+    if (!at) {
+        return undefined;
+    }
+    const nextHeadPart = topLevel.find((token) =>
+        token.span.start.offset > at.span.start.offset
+        && token.span.start.offset <= beforeOffset
+        && (token.type === TokenType.Colon || token.type === TokenType.Equals)
+    );
+    const end = nextHeadPart
+        ? tokens
+            .filter((token) => token.span.end.offset <= nextHeadPart.span.start.offset)
+            .at(-1)?.span.end ?? at.span.end
+        : at.span.end;
+    return {
+        part: 'attributes',
+        span: { start: at.span.start, end },
+    };
+}
+
+function findDatatypeLandmark(
+    tokens: readonly Token[],
+    afterOffset: number,
+    beforeOffset: number,
+): PlacementLandmark | undefined {
+    const datatypeTokens = tokens.filter((token) =>
+        token.span.start.offset >= afterOffset
+        && token.span.end.offset <= beforeOffset
+        && token.type !== TokenType.Equals
+    );
+    const first = datatypeTokens[0];
+    const last = datatypeTokens.at(-1);
+    if (!first || !last) {
+        return undefined;
+    }
+    return {
+        part: 'datatype',
+        span: { start: first.span.start, end: last.span.end },
+    };
+}
+
+function spansOverlapInterior(left: Span, right: Span): boolean {
+    return left.start.offset < right.end.offset && right.start.offset < left.end.offset;
 }
 
 function buildDescendantIndex(bindables: readonly Bindable[]): ReadonlyMap<string, DescendantIndex> {
