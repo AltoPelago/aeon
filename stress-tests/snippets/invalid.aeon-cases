@@ -151,16 +151,16 @@ blu:boolean = truet
 ---
 blu:boolean = tr_ue
 ---
-a:switch = yesno
+a:toggle = yesno
 ---
-a:switch = yes,no
+a:toggle = yes,no
 ---
-a:switch = yes
+a:toggle = yes
 no
 ---
-a:switch = true
+a:toggle = true
 ---
-a:switch = false
+a:toggle = false
 ---
 a:boolean = yes
 ---
@@ -176,11 +176,11 @@ a:boolean = False
 ---
 a:swith = Yes
 ---
-a:switch = Off
+a:toggle = Off
 ---
-a:switch = 0
+a:toggle = 0
 ---
-a:switch = 1
+a:toggle = 1
 ---
 a:string = \"hello world\"
 ---

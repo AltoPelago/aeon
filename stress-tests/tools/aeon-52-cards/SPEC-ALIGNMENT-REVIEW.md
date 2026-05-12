@@ -63,7 +63,7 @@ Not currently modeled:
 - host comments: `//!`
 - reserved line channels: `//{`, `//[`, `//(`
 - invalid separator chars: `,`, `;`, `[`, `]`
-- explicit datatype mismatch in transport mode, for example `state:switch = true`
+- explicit datatype mismatch in transport mode, for example `state:toggle = true`
 
 Affected files:
 - `src/model/features.js`

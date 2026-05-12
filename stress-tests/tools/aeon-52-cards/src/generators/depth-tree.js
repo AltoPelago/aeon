@@ -205,7 +205,7 @@ function buildLeaf(rng, referencePool, features, flags) {
 }
 
 function buildScalar(rng, features) {
-    const kind = pickOne(rng, ['string', 'number', 'boolean', 'switch', 'hex', 'date', 'datetime', 'time']);
+    const kind = pickOne(rng, ['string', 'number', 'boolean', 'toggle', 'hex', 'date', 'datetime', 'time']);
     features.add(`value-${kind}`);
     switch (kind) {
         case 'string':
@@ -214,8 +214,8 @@ function buildScalar(rng, features) {
             return { datatype: pickOne(rng, ['number', 'n', 'float']), kind, literal: pickOne(rng, ['42', '3.14', '0.5', '-2.0', '1.5e3']) };
         case 'boolean':
             return { datatype: 'boolean', kind, literal: pickOne(rng, ['true', 'false']) };
-        case 'switch':
-            return { datatype: 'switch', kind, literal: pickOne(rng, ['on', 'off', 'yes', 'no']) };
+        case 'toggle':
+            return { datatype: 'toggle', kind, literal: pickOne(rng, ['on', 'off', 'yes', 'no']) };
         case 'hex':
             return { datatype: 'hex', kind, literal: pickOne(rng, ['#ff00aa', '#00ff00', '#0000ff', '#abc']) };
         case 'date':
@@ -545,7 +545,7 @@ function applyCoverageSnippets(doc, index, options = {}) {
             buildCoverageSnippet('number-invalid-underscore-leading', index),
             buildCoverageSnippet('number-invalid-underscore-double', index),
             buildCoverageSnippet('number-invalid-underscore-trailing', index),
-            buildCoverageSnippet('type-switch-custom-invalid', index),
+            buildCoverageSnippet('type-toggle-custom-invalid', index),
             buildCoverageSnippet('type-transport-mismatch-invalid', index),
             buildCoverageSnippet('type-separator-char-comma-invalid', index),
             buildCoverageSnippet('type-separator-char-semicolon-invalid', index),
@@ -822,7 +822,7 @@ function buildCoverageSnippet(featureId, index) {
                 featureId,
                 text: `cov_num_bad_trailing_${suffix}:number = 100_`,
             };
-        case 'type-switch-custom-invalid':
+        case 'type-toggle-custom-invalid':
             return {
                 featureId,
                 text: `cov_type_switch_bad_${suffix}:mySwitch = yes`,
@@ -830,7 +830,7 @@ function buildCoverageSnippet(featureId, index) {
         case 'type-transport-mismatch-invalid':
             return {
                 featureId,
-                text: `cov_type_mismatch_${suffix}:switch = true`,
+                text: `cov_type_mismatch_${suffix}:toggle = true`,
             };
         case 'type-separator-char-comma-invalid':
             return {

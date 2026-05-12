@@ -62,10 +62,10 @@ test002:o = {
 */
 
 test003:o = {
-	switch1:switch = yes
-	switch2:switch = no
-	switch3:switch = on
-	switch4:switch = off
+	switch1:toggle = yes
+	switch2:toggle = no
+	switch3:toggle = on
+	switch4:toggle = off
 }
 
 
@@ -334,7 +334,7 @@ test012:o = {
 		}
 	}
 	o3:o = {
-		a:n = 0, b:switch=yes, c:switch=no, d:boolean=true,
+		a:n = 0, b:toggle=yes, c:toggle=no, d:boolean=true,
 		e:string = "  "
 		f:number = 24.23
 		g:sep = ^233.2333
@@ -387,7 +387,7 @@ test014:o = {
 	list004:list<number> = [1, 2, 3]
 	list005:list<string> = ["alpha", "beta", "gamma"]
 	list006:list<boolean> = [true, false, true]
-	list007:list<switch> = [yes, no, on, off]
+	list007:list<toggle> = [yes, no, on, off]
 	list008:list = [
 		"a"
 		"b"

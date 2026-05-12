@@ -223,7 +223,7 @@ class UntypedValueInStrictModeError(AeonError):
 class UntypedSwitchLiteralError(AeonError):
     def __init__(self, path: str, span: Span) -> None:
         super().__init__(
-            message=f"Untyped switch literal in typed mode: '{path}' requires ':switch' type annotation",
+            message=f"Untyped toggle literal in typed mode: '{path}' requires ':toggle' type annotation",
             span=span,
             code="UNTYPED_SWITCH_LITERAL",
             path=path,
@@ -234,8 +234,8 @@ class CustomSwitchAliasNotAllowedError(AeonError):
     def __init__(self, path: str, datatype: str, span: Span) -> None:
         super().__init__(
             message=(
-                f"Custom switch alias not allowed in strict mode at '{path}': "
-                f"use ':switch' instead of ':{datatype}'"
+                f"Custom toggle alias not allowed in strict mode at '{path}': "
+                f"use ':toggle' instead of ':{datatype}'"
             ),
             span=span,
             code="CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",

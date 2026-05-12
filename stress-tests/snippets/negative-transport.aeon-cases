@@ -141,7 +141,7 @@ b:boolean<boolean> = true
 ---
 b:bool<bool> = false
 ---
-s:switch<switch> = yes
+s:toggle<toggle> = yes
 ---
 h:hex<hex> = #fff
 ---
@@ -207,7 +207,7 @@ b:boolean[2] = true
 ---
 b:bool[2] = false
 ---
-s:switch[2] = yes
+s:toggle[2] = yes
 ---
 h:hex[2] = #fff
 ---

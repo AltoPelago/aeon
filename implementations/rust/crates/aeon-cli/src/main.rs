@@ -2534,7 +2534,7 @@ fn render_value_json_string(value: &Value) -> String {
                 .map(|name| {
                     format!(
                         "{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}",
-                        escape_json(name)
+                        escape_json(canonical_datatype_name(name))
                     )
                 })
                 .unwrap_or_else(|| String::from("null"));
@@ -2681,6 +2681,14 @@ fn render_value_json_string(value: &Value) -> String {
             "{{\"type\":\"PointerReference\",\"path\":{}}}",
             render_reference_segments_json_string(segments)
         ),
+    }
+}
+
+fn canonical_datatype_name(name: &str) -> &str {
+    if name == "switch" {
+        "toggle"
+    } else {
+        name
     }
 }
 
@@ -4144,7 +4152,7 @@ mod tests {
         assert!(normalized.contains("- Mode: strict"));
         assert!(normalized.contains("- Errors: 0"));
         assert!(normalized.contains("## Assignment Events"));
-        assert!(normalized.contains(":switch"));
+        assert!(normalized.contains(":toggle"));
         assert!(normalized.contains("$.friend"));
     }
 

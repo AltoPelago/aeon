@@ -2118,7 +2118,7 @@
     {
       "id": "canonical-strict-0100",
       "kind": "compile",
-      "source": "s:switch = yes",
+      "source": "s:toggle = yes",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2131,7 +2131,7 @@
           "$.s"
         ],
         "datatypes": {
-          "$.s": "switch"
+          "$.s": "toggle"
         }
       }
     },
@@ -4770,7 +4770,7 @@
     {
       "id": "canonical-custom-0002",
       "kind": "compile",
-      "source": "debug:switch = yes",
+      "source": "debug:toggle = yes",
       "mode": "custom",
       "source_ref": "positive-custom.aeon-cases",
       "options": {
@@ -4783,7 +4783,7 @@
           "$.debug"
         ],
         "datatypes": {
-          "$.debug": "switch"
+          "$.debug": "toggle"
         }
       }
     },

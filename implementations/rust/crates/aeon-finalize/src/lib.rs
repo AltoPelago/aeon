@@ -10,6 +10,14 @@ use aeon_core::{
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
 
+fn canonical_datatype_name(name: &str) -> &str {
+    if name == "switch" {
+        "toggle"
+    } else {
+        name
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinalizeMode {
     Strict,
@@ -296,7 +304,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "type": "TypedValue",
             "datatype": datatype.as_ref().map(|name| json!({
                 "type": "TypeAnnotation",
-                "name": name,
+                "name": canonical_datatype_name(name),
             })),
             "value": value_to_ast_json(value),
         }),
@@ -406,7 +414,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "type": "NodeLiteral",
             "raw": raw,
             "tag": tag,
-            "datatype": datatype.as_ref().map(|name| json!({ "type": "TypeAnnotation", "name": name })),
+            "datatype": datatype.as_ref().map(|name| json!({ "type": "TypeAnnotation", "name": canonical_datatype_name(name) })),
             "attributes": attributes.iter().map(attribute_entries_to_ast_json).collect::<Vec<_>>(),
             "children": children.iter().map(value_to_ast_json).collect::<Vec<_>>(),
         }),
@@ -1200,7 +1208,7 @@ fn attribute_entry_to_ast_json(entry: &AttributeValue) -> JsonValue {
         entry
             .datatype
             .as_ref()
-            .map(|name| json!({ "type": "TypeAnnotation", "name": name }))
+            .map(|name| json!({ "type": "TypeAnnotation", "name": canonical_datatype_name(name) }))
             .unwrap_or(JsonValue::Null),
     );
     if let Some(value) = &entry.value {

@@ -57,7 +57,7 @@ RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "float", "float32", "float64",
-    "string", "trimtick", "prose", "boolean", "bool", "switch", "infinity", "nan",
+    "string", "trimtick", "prose", "boolean", "bool", "toggle", "switch", "infinity", "nan",
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",

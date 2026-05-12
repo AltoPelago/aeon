@@ -2758,7 +2758,7 @@ mod tests {
     fn rejects_meaningless_reserved_datatype_adornments_during_canonicalization() {
         for source in [
             "a:n<string> = 3\n",
-            "b:boolean<switch> = true\n",
+            "b:boolean<toggle> = true\n",
             "b:string[333] = \"hello world\"\n",
             "r:radix2[4] = %111\n",
         ] {

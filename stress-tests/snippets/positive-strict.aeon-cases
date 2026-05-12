@@ -265,7 +265,7 @@ b:boolean = true
 ---
 b:bool = false
 ---
-s:switch = yes
+s:toggle = yes
 ---
 h:hex = #fff
 ---

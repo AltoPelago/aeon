@@ -1495,6 +1495,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "prose"
             | "boolean"
             | "bool"
+            | "toggle"
             | "switch"
             | "infinity"
             | "nan"

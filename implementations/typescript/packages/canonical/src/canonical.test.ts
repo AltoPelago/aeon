@@ -671,12 +671,12 @@ test('canonicalize rejects invalid non-introducer node syntax', () => {
     assert.ok(result.errors.length > 0);
 });
 
-test('canonicalizes switch literals and preserves round-trip parseability', () => {
-    const input = 'state:switch = on';
+test('canonicalizes toggle literals and preserves round-trip parseability', () => {
+    const input = 'state:toggle = on';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('state:switch = on'));
+    assert.ok(result.text.includes('state:toggle = on'));
 
     const relex = tokenize(result.text);
     assert.equal(relex.errors.length, 0);

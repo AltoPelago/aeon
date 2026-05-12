@@ -390,7 +390,7 @@ pub(crate) fn validate_datatypes(
                     Diagnostic::new(
                         "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
                         format!(
-                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            "Custom toggle alias not allowed in strict mode at '{}': use ':toggle' instead of ':{datatype}'",
                             path
                         ),
                     )
@@ -473,7 +473,7 @@ pub(crate) fn validate_datatypes_light(
                     Diagnostic::new(
                         "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
                         format!(
-                            "Custom switch alias not allowed in strict mode at '{}': use ':switch' instead of ':{datatype}'",
+                            "Custom toggle alias not allowed in strict mode at '{}': use ':toggle' instead of ':{datatype}'",
                             event.path
                         ),
                     )
@@ -856,7 +856,7 @@ fn validate_switch_literal_in_value(
                     Diagnostic::new(
                         "UNTYPED_SWITCH_LITERAL",
                         format!(
-                            "Untyped switch literal in typed mode: '{}' requires ':switch' type annotation",
+                            "Untyped toggle literal in typed mode: '{}' requires ':toggle' type annotation",
                             format_path(path)
                         ),
                     )
@@ -868,7 +868,7 @@ fn validate_switch_literal_in_value(
         Value::ObjectNode { .. } => {}
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             let nested_datatype = if datatype.is_some() {
-                Some("switch")
+                Some("toggle")
             } else {
                 None
             };
@@ -1045,6 +1045,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "prose"
             | "boolean"
             | "bool"
+            | "toggle"
             | "switch"
             | "hex"
             | "radix"
@@ -1085,7 +1086,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "string" => Some(vec!["StringLiteral"]),
         "trimtick" | "prose" => Some(vec!["TrimtickStringLiteral"]),
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
-        "switch" => Some(vec!["SwitchLiteral"]),
+        "toggle" | "switch" => Some(vec!["SwitchLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),
         "radix" | "radix2" | "radix6" | "radix8" | "radix12" => Some(vec!["RadixLiteral"]),
         "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
@@ -1237,7 +1238,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             }
         ),
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
-        "switch" => matches!(value, Value::SwitchLiteral { .. }),
+        "toggle" | "switch" => matches!(value, Value::SwitchLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
         "radix" | "radix2" | "radix6" | "radix8" | "radix12" => {
             matches!(value, Value::RadixLiteral { raw } if has_valid_radix_literal(raw))

@@ -92,6 +92,7 @@ RESERVED_KIND_MAP = {
     "string": ("StringLiteral",),
     "boolean": ("BooleanLiteral",),
     "bool": ("BooleanLiteral",),
+    "toggle": ("SwitchLiteral",),
     "switch": ("SwitchLiteral",),
     "infinity": ("InfinityLiteral",),
     "nan": ("NaNLiteral",),
@@ -1091,20 +1092,22 @@ def has_valid_encoding_literal(raw: str) -> bool:
 def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     if datatype is None:
         return None
+    name = "toggle" if datatype.name == "switch" else datatype.name
     generic = ""
     if datatype.generic_args:
         generic = "<" + ", ".join(datatype.generic_args) + ">"
     radix = f"[{datatype.radix_base}]" if datatype.radix_base is not None else ""
     separators = "".join(f"[{item}]" for item in datatype.separators)
-    return f"{datatype.name}{generic}{radix}{separators}"
+    return f"{name}{generic}{radix}{separators}"
 
 
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
     if datatype is None:
         return None
+    name = "toggle" if datatype.name == "switch" else datatype.name
     return {
         "type": "TypeAnnotation",
-        "name": datatype.name,
+        "name": name,
         "genericArgs": datatype.generic_args,
         "radixBase": datatype.radix_base,
         "separators": datatype.separators,

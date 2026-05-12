@@ -1293,9 +1293,9 @@ class Parser {
         }
 
         throw new SyntaxError(
-            `Unexpected switch literal '${token.value}'`,
+            `Unexpected toggle literal '${token.value}'`,
             token.span,
-            'switch literal',
+            'toggle literal',
             token.value
         );
     }
@@ -1753,7 +1753,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',
     'float', 'float32', 'float64',
-    'string', 'trimtick', 'prose', 'boolean', 'bool', 'switch', 'infinity', 'nan',
+    'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'switch', 'infinity', 'nan',
     'hex', 'date', 'time', 'datetime', 'zrut',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',

@@ -600,7 +600,7 @@ describe('AEON CLI output contract', () => {
             assert.ok(out.includes('## Assignment Events'));
         });
 
-        it('reports untyped switch literal in strict mode (fail-closed)', async () => {
+        it('reports untyped toggle literal in strict mode (fail-closed)', async () => {
             const { code, stdout } = await runCli(['inspect', fixture('untyped-switch-strict.aeon')]);
             assert.strictEqual(code, 1);
             const out = normalize(stdout);
@@ -608,7 +608,7 @@ describe('AEON CLI output contract', () => {
             assert.ok(!out.includes('## Assignment Events'));
         });
 
-        it('accepts typed switch literal in strict mode', async () => {
+        it('accepts typed toggle literal in strict mode', async () => {
             const { code, stdout, stderr } = await runCli(['inspect', fixture('typed-switch-strict.aeon')]);
             assert.strictEqual(code, 0);
             assert.strictEqual(stderr, '');
@@ -616,7 +616,7 @@ describe('AEON CLI output contract', () => {
             assert.ok(out.includes('Mode: strict'));
             assert.ok(out.includes('Errors: 0'));
             assert.ok(out.includes('## Assignment Events'));
-            assert.ok(out.includes(':switch'));
+            assert.ok(out.includes(':toggle'));
             assert.ok(out.includes('$.friend'));
         });
 

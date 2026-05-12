@@ -169,7 +169,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
 
     def test_strict_mode_rejects_custom_switch_alias_even_with_allow_custom(self) -> None:
-        source = 'aeon:mode = "strict"\ns:toggle = on'
+        source = 'aeon:mode = "strict"\ns:mySwitch = on'
         result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
         self.assertEqual(["CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
 
@@ -189,7 +189,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
 
     def test_custom_mode_allows_custom_switch_aliases(self) -> None:
-        source = 'aeon:mode = "custom"\ns:toggle = on'
+        source = 'aeon:mode = "custom"\ns:mySwitch = on'
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
@@ -488,7 +488,7 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "strict"\ndebug = yes')
         self.assertEqual(["UNTYPED_SWITCH_LITERAL"], [error.code for error in result.errors])
         self.assertEqual(
-            "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation",
+            "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation",
             result.errors[0].message,
         )
 

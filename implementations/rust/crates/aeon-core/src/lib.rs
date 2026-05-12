@@ -1052,7 +1052,7 @@ mod tests {
     #[test]
     fn strict_mode_rejects_custom_switch_alias_even_with_allow_custom() {
         let result = compile(
-            "aeon:mode = \"strict\"\ns:toggle = on\n",
+            "aeon:mode = \"strict\"\ns:mySwitch = on\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
@@ -1062,7 +1062,7 @@ mod tests {
         assert_eq!(result.errors[0].code, "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED");
         assert_eq!(
             result.errors[0].message,
-            "Custom switch alias not allowed in strict mode at '$.s': use ':switch' instead of ':toggle'"
+            "Custom toggle alias not allowed in strict mode at '$.s': use ':toggle' instead of ':mySwitch'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.s"));
         assert!(result.events.is_empty());
@@ -1071,7 +1071,7 @@ mod tests {
     #[test]
     fn custom_mode_allows_custom_switch_aliases() {
         let result = compile(
-            "aeon:mode = \"custom\"\ns:toggle = on\n",
+            "aeon:mode = \"custom\"\ns:mySwitch = on\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1431,7 +1431,7 @@ mod tests {
         assert_eq!(result.errors[0].code, "UNTYPED_SWITCH_LITERAL");
         assert_eq!(
             result.errors[0].message,
-            "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation"
+            "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.debug"));
         assert!(result.errors[0].span.is_some());
@@ -2004,7 +2004,7 @@ mod tests {
     fn rejects_meaningless_reserved_datatype_adornments() {
         for source in [
             "a:n<string> = 3\n",
-            "b:boolean<switch> = true\n",
+            "b:boolean<toggle> = true\n",
             "b:string[333] = \"hello world\"\n",
             "r:radix2[4] = %111\n",
         ] {

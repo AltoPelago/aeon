@@ -681,7 +681,7 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors[0]!.code, 'UNTYPED_SWITCH_LITERAL');
             assert.strictEqual(
                 result.errors[0]!.message,
-                "Untyped switch literal in typed mode: '$.debug' requires ':switch' type annotation"
+                "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation"
             );
             assert.strictEqual((result.errors[0] as { path?: string }).path, '$.debug');
             assert.ok(result.errors[0]!.span);
@@ -787,8 +787,8 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
-        it('should reject custom switch aliases in strict mode even when datatypePolicy is allow_custom', () => {
-            const result = compile('aeon:mode = "strict"\ns:toggle = on', {
+        it('should reject custom toggle aliases in strict mode even when datatypePolicy is allow_custom', () => {
+            const result = compile('aeon:mode = "strict"\ns:mySwitch = on', {
                 datatypePolicy: 'allow_custom',
             });
             assert.strictEqual(result.events.length, 0);
@@ -821,8 +821,8 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
-        it('should allow custom switch aliases in custom mode', () => {
-            const result = compile('aeon:mode = "custom"\ns:toggle = on');
+        it('should allow custom toggle aliases in custom mode', () => {
+            const result = compile('aeon:mode = "custom"\ns:mySwitch = on');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

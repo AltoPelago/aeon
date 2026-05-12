@@ -106,7 +106,7 @@ describe('Parser', () => {
             assert.strictEqual(result.document.bindings[0]!.value.type, 'BooleanLiteral');
         });
 
-        it('should parse switch literal as SwitchLiteral', () => {
+        it('should parse toggle literal as SwitchLiteral', () => {
             const tokens = tokenize('feature = yes').tokens;
             const result = parse(tokens);
 
@@ -1023,7 +1023,7 @@ describe('Parser', () => {
         });
 
         it('should reject meaningless generics on reserved boolean datatypes', () => {
-            const tokens = tokenize('b:boolean<switch> = true').tokens;
+            const tokens = tokenize('b:boolean<toggle> = true').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);

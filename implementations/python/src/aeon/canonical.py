@@ -277,7 +277,7 @@ def render_attributes(attributes: list[Attribute]) -> str:
 def render_type(datatype: TypeAnnotation | None) -> str:
     if datatype is None:
         return ""
-    text = datatype.name
+    text = "toggle" if datatype.name == "switch" else datatype.name
     if datatype.generic_args:
         text += "<" + ", ".join(datatype.generic_args) + ">"
     if datatype.radix_base is not None:

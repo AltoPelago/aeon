@@ -13,11 +13,11 @@ outcome = "pass"
 [[stress]]
 description = "Switch"
 key = "a"
-type = { strict = ":switch", custom = ":toggle", transport = "" }
+type = { strict = ":toggle", custom = ":toggle", transport = "" }
 value = [
   ["yes", "no", "on", "off"],
 ]
-string = "|KEY||TYPE| = |0| // switch"
+string = "|KEY||TYPE| = |0| // toggle"
 outcome = "pass"
 
 [[stress]]

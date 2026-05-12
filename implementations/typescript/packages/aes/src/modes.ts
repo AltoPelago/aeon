@@ -75,12 +75,12 @@ export class UntypedValueInStrictModeError extends ModeEnforcementError {
 }
 
 /**
- * Error: Switch literal requires :switch in typed mode
+ * Error: toggle literal requires :toggle in typed mode
  */
 export class UntypedSwitchLiteralError extends ModeEnforcementError {
     constructor(span: Span, path: string) {
         super(
-            `Untyped switch literal in typed mode: '${path}' requires ':switch' type annotation`,
+            `Untyped toggle literal in typed mode: '${path}' requires ':toggle' type annotation`,
             span,
             'UNTYPED_SWITCH_LITERAL',
             path
@@ -92,7 +92,7 @@ export class UntypedSwitchLiteralError extends ModeEnforcementError {
 export class CustomSwitchAliasNotAllowedError extends ModeEnforcementError {
     constructor(span: Span, path: string, datatype: string) {
         super(
-            `Custom switch alias not allowed in strict mode at '${path}': use ':switch' instead of ':${datatype}'`,
+            `Custom toggle alias not allowed in strict mode at '${path}': use ':toggle' instead of ':${datatype}'`,
             span,
             'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED',
             path
@@ -235,7 +235,7 @@ export function extractMode(header: Header | null): Mode {
  * - Every binding must have an explicit type annotation
  *
  * In strict mode only:
- * - Untyped switch literals (yes/no/on/off) require :switch type
+ * - Untyped toggle literals (yes/no/on/off) require :toggle type
  *
  * In transport mode:
  * - Untyped values are allowed (stay raw, no semantic interpretation)
@@ -693,10 +693,11 @@ function validateNodeHeadDatatypes(
 }
 
 function formatTypeAnnotation(datatype: NonNullable<Extract<Value, { type: 'NodeLiteral' }>['datatype']>): string {
+    const name = datatype.name === 'switch' ? 'toggle' : datatype.name;
     const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
     const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
     const separators = datatype.separators.map((separator) => `[${separator}]`).join('');
-    return `${datatype.name}${generics}${radixBase}${separators}`;
+    return `${name}${generics}${radixBase}${separators}`;
 }
 
 type ResolutionContext = {
@@ -864,7 +865,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'string') return ['StringLiteral'];
     if (base === 'trimtick' || base === 'prose') return ['TrimtickStringLiteral'];
     if (base === 'boolean' || base === 'bool') return ['BooleanLiteral'];
-    if (base === 'switch') return ['SwitchLiteral'];
+    if (base === 'toggle' || base === 'switch') return ['SwitchLiteral'];
     if (base === 'hex') return ['HexLiteral'];
     if (RADIX_TYPES.has(base)) return ['RadixLiteral'];
     if (ENCODING_TYPES.has(base)) return ['EncodingLiteral'];

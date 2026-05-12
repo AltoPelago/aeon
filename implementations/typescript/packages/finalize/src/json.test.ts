@@ -301,7 +301,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.document.big, '9007199254740993');
     });
 
-    it('materializes switch literal as JSON boolean', () => {
+    it('materializes toggle literal as JSON boolean', () => {
         const events = compileToEvents('debug = yes');
         const result = finalizeJson(events, { mode: 'loose' });
         assert.strictEqual(result.document.debug, true);
