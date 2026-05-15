@@ -142,3 +142,47 @@ test('accepts closed-world schema contracts and rejects unexpected bindings', ()
 
     assert.ok(diagnostics.some((diag) => diag.code === 'unexpected_binding'));
 });
+
+test('warns when configured schema overrides a declared header schema', () => {
+    const diagnostics = getConfiguredDiagnostics(
+        'aeon:header = {\n  schema = "aeon.declared.schema.v1"\n}\napp = { name = "demo" }\n',
+        null,
+        {
+            schema: 'aeon.applied.schema.v1',
+        },
+    );
+
+    assert.ok(diagnostics.some((diag) => diag.code === 'DECLARED_SCHEMA_OVERRIDDEN'));
+});
+
+test('reads declared schema after structured schema context maps', () => {
+    const diagnostics = getConfiguredDiagnostics(
+        [
+            'aeon:header = {',
+            '  schemas = {',
+            '    authoring = "aeon.authoring.schema.v1"',
+            '  }',
+            '  schema = "aeon.declared.schema.v1"',
+            '}',
+            'app = { name = "demo" }',
+        ].join('\n'),
+        null,
+        {
+            schema: 'aeon.applied.schema.v1',
+        },
+    );
+
+    assert.ok(diagnostics.some((diag) => diag.code === 'DECLARED_SCHEMA_OVERRIDDEN'));
+});
+
+test('warns when configured profile overrides a declared header profile', () => {
+    const diagnostics = getConfiguredDiagnostics(
+        'aeon:header = {\n  profile = "aeon.declared.profile.v1"\n}\napp = { name = "demo" }\n',
+        null,
+        {
+            profile: 'aeon.applied.profile.v1',
+        },
+    );
+
+    assert.ok(diagnostics.some((diag) => diag.code === 'DECLARED_PROFILE_OVERRIDDEN'));
+});

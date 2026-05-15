@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { compile as compileCore, type AEONError } from '@altopelago/aeon-core';
 import { finalizeJson } from '@altopelago/aeon-finalize';
 import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@altopelago/aeon-profiles';
+import { inspectHeader } from '@altopelago/aeon-transport';
 import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@altopelago/aeos-core';
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node.js';
 
@@ -33,7 +34,7 @@ export function getConfiguredDiagnostics(text: string, documentPath: string | nu
     if (config.enabled === false) return [];
 
     const diagnostics: Diagnostic[] = [];
-    const resolved = resolveValidationInputs(documentPath, config, diagnostics);
+    const resolved = resolveValidationInputs(text, documentPath, config, diagnostics);
     if (!resolved) return diagnostics;
 
     const compileResult = compileProfile(text, {
@@ -67,18 +68,32 @@ export function getConfiguredDiagnostics(text: string, documentPath: string | nu
 }
 
 function resolveValidationInputs(
+    text: string,
     documentPath: string | null,
     config: ValidationConfig,
     diagnostics: Diagnostic[],
 ): { profile: string | null; schema: SchemaV1 | null } | null {
     const baseDir = documentPath ? path.dirname(documentPath) : process.cwd();
-    const headerInfo = extractHeaderInfo(documentPath ? safeRead(documentPath) : null);
+    const headerInfo = extractHeaderInfo(text);
     const registryPath = config.contractRegistry
         ? resolvePath(baseDir, config.contractRegistry)
         : null;
     const registry = registryPath ? readContractRegistry(registryPath, diagnostics) : null;
     if (registryPath && !registry) {
         return null;
+    }
+
+    if (config.profile && headerInfo.profile && config.profile !== headerInfo.profile) {
+        diagnostics.push(contractWarningDiagnostic(
+            `Applied profile '${config.profile}' overrides document-declared profile '${headerInfo.profile}'`,
+            'DECLARED_PROFILE_OVERRIDDEN',
+        ));
+    }
+    if (config.schema && headerInfo.schema && config.schema !== headerInfo.schema) {
+        diagnostics.push(contractWarningDiagnostic(
+            `Applied schema '${config.schema}' overrides document-declared schema '${headerInfo.schema}'`,
+            'DECLARED_SCHEMA_OVERRIDDEN',
+        ));
     }
 
     const profileId = config.profile ?? headerInfo.profile;
@@ -151,6 +166,19 @@ function fromSchemaDiagnostic(diag: SchemaDiagnostic, text: string, severity: Di
 function simpleDiagnostic(message: string, code: string): Diagnostic {
     return {
         severity: DiagnosticSeverity.Error,
+        message,
+        source: 'aeon-lsp',
+        code,
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 1 },
+        },
+    };
+}
+
+function contractWarningDiagnostic(message: string, code: string): Diagnostic {
+    return {
+        severity: DiagnosticSeverity.Warning,
         message,
         source: 'aeon-lsp',
         code,
@@ -389,24 +417,13 @@ function fromCoreError(error: AEONError): Diagnostic {
     };
 }
 
-function safeRead(file: string | null): string {
-    if (!file) return '';
-    try {
-        return fs.readFileSync(file, 'utf-8');
-    } catch {
-        return '';
-    }
-}
 
-function extractHeaderInfo(input: string | null): { profile: string | null; schema: string | null } {
-    if (!input) return { profile: null, schema: null };
-    const profileShorthand = input.match(/aeon:profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const schemaShorthand = input.match(/aeon:schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const headerBody = input.match(/aeon:header\s*=\s*\{([\s\S]*?)\}/i)?.[1] ?? '';
-    const profileHeader = headerBody.match(/profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const schemaHeader = headerBody.match(/schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
+function extractHeaderInfo(input: string | null): { profile: string | null; schema: string | null; schemas: Record<string, string> } {
+    if (!input) return { profile: null, schema: null, schemas: {} };
+    const header = inspectHeader(input).header;
     return {
-        profile: profileShorthand ?? profileHeader,
-        schema: schemaShorthand ?? schemaHeader,
+        profile: header.profile ?? null,
+        schema: header.schema ?? null,
+        schemas: { ...(header.schemas ?? {}) },
     };
 }

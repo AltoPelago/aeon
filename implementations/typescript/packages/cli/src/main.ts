@@ -70,6 +70,7 @@ import {
 } from '@altopelago/aeon-integrity';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse, type Binding, type Value } from '@altopelago/aeon-parser';
+import { inspectHeader } from '@altopelago/aeon-transport';
 import { runTypedRuntime } from './runtime-bind.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
@@ -432,7 +433,7 @@ function inspect(args: string[]): void {
     const mode = headerInfo.mode;
 
     if (jsonOutput) {
-        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations });
+        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations }, headerInfo);
     } else {
         outputMarkdown(file, result, {
             recovery,
@@ -440,6 +441,7 @@ function inspect(args: string[]): void {
             version: headerInfo.version,
             profile: headerInfo.profile,
             schema: headerInfo.schema,
+            schemas: headerInfo.schemas,
             includeAnnotations: includeAnnotations || annotationsOnly,
             annotationsOnly,
             sortAnnotations,
@@ -648,9 +650,9 @@ function bind(args: string[]): void {
         }
     }
 
-    let schema: SchemaV1;
+    let loadedSchema: LoadedSchemaContract;
     if (schemaPath) {
-        schema = schemaPath.toLowerCase().endsWith('.aeon')
+        loadedSchema = isSchemaContractAeonPath(schemaPath)
             ? readSchemaContractAeonFile(schemaPath)
             : readSchemaFile(schemaPath);
     } else {
@@ -670,11 +672,11 @@ function bind(args: string[]): void {
         if (!verified.ok) {
             failContract(verified.code, verified.error);
         }
-        schema = readSchemaContractAeonFile(verified.resolvedPath, entry.id);
+        loadedSchema = readSchemaContractAeonFile(verified.resolvedPath, entry.id);
     }
 
     const result = runTypedRuntime<unknown>(input, {
-        schema,
+        schema: loadedSchema.schema,
         mode,
         ...(datatypePolicy ? { datatypePolicy } : {}),
         includeAnnotations,
@@ -684,6 +686,13 @@ function bind(args: string[]): void {
         ...(trailingSeparatorDelimiterPolicy ? { trailingSeparatorDelimiterPolicy } : {}),
         ...(effectiveProfile ? { profile: effectiveProfile } : {}),
     });
+    const contractWarnings = collectDeclaredContractOverrideWarnings(headerInfo, loadedSchema.schemaId, effectiveProfile);
+    const contractMeta = buildBindContractMeta(headerInfo, loadedSchema.schemaId, effectiveProfile);
+    const meta = {
+        ...result.meta,
+        warnings: [...result.meta.warnings, ...contractWarnings],
+        ...(contractMeta ? { contracts: contractMeta } : {}),
+    };
 
     const annotations = includeAnnotations && result.annotations
         ? (sortAnnotations ? sortAnnotationRecords(result.annotations) : result.annotations)
@@ -692,10 +701,10 @@ function bind(args: string[]): void {
     console.log(JSON.stringify({
         ...(result.document !== undefined ? { document: result.document } : {}),
         ...(annotations !== undefined ? { annotations } : {}),
-        meta: result.meta,
+        meta,
     }, null, 2));
 
-    if (result.meta.errors.length > 0) {
+    if (meta.errors.length > 0) {
         process.exit(1);
     }
 }
@@ -1312,7 +1321,11 @@ function integritySign(args: string[]): void {
 /**
  * JSON output (--json flag)
  */
-function outputJSON(result: CompileResult, options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean }): void {
+function outputJSON(
+    result: CompileResult,
+    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean },
+    headerInfo?: HeaderInfo,
+): void {
     const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
     const annotations = options.sortAnnotations
         ? sortAnnotationRecords(result.annotations ?? [])
@@ -1358,6 +1371,10 @@ function outputJSON(result: CompileResult, options: { includeAnnotations: boolea
     };
     if (options.includeAnnotations) {
         output.annotations = annotations;
+    }
+    const contractMeta = headerInfo ? buildDeclaredInspectContractMeta(headerInfo) : null;
+    if (contractMeta) {
+        Object.assign(output, { contracts: contractMeta });
     }
     console.log(JSON.stringify(output, null, 2));
 }
@@ -1790,7 +1807,7 @@ function ensureTrailingNewline(text: string): string {
     return text.endsWith('\n') ? text : `${text}\n`;
 }
 
-function readSchemaFile(file: string): SchemaV1 {
+function readSchemaFile(file: string): LoadedSchemaContract {
     const raw = readFile(file);
     let parsed: unknown;
     try {
@@ -1805,18 +1822,19 @@ function readSchemaFile(file: string): SchemaV1 {
         process.exit(2);
     }
 
-    return normalizeSchemaContractDoc(parsed as Record<string, unknown>, file);
+    return normalizeLegacySchemaContractDoc(parsed as Record<string, unknown>, file);
 }
 
-function normalizeSchemaContractDoc(
+function normalizeLegacySchemaContractDoc(
     doc: Record<string, unknown>,
     file: string,
     expectedSchemaId?: string
-): SchemaV1 {
+): LoadedSchemaContract {
     const schemaId = doc['schema_id'];
     const schemaVersion = doc['schema_version'];
     const rulesRaw = doc['rules'];
     const world = doc['world'];
+    const referencePolicy = doc['reference_policy'];
     const datatypeRules = doc['datatype_rules'];
     const datatypeAllowlist = doc['datatype_allowlist'];
     const allowedTopLevel = new Set([
@@ -1824,6 +1842,7 @@ function normalizeSchemaContractDoc(
         'schema_version',
         'rules',
         'world',
+        'reference_policy',
         'datatype_rules',
         'datatype_allowlist',
     ]);
@@ -1853,6 +1872,10 @@ function normalizeSchemaContractDoc(
     }
     if (world !== undefined && world !== 'open' && world !== 'closed') {
         console.error(`Error: Schema contract field 'world' must be "open" or "closed": ${file}`);
+        process.exit(2);
+    }
+    if (referencePolicy !== undefined && referencePolicy !== 'allow' && referencePolicy !== 'forbid') {
+        console.error(`Error: Schema contract field 'reference_policy' must be "allow" or "forbid": ${file}`);
         process.exit(2);
     }
     if (datatypeRules !== undefined) {
@@ -1890,23 +1913,25 @@ function normalizeSchemaContractDoc(
         }
         return {
             path: ruleObj.path,
-            constraints: ruleObj.constraints as Record<string, unknown>,
+            constraints: projectConstraints(ruleObj.constraints as Record<string, unknown>, String(ruleObj.path), file),
         };
     });
 
-    return {
+    const schema = {
         rules,
         ...(world !== undefined ? { world: world as 'open' | 'closed' } : {}),
+        ...(referencePolicy !== undefined ? { reference_policy: referencePolicy as 'allow' | 'forbid' } : {}),
         ...(datatypeRules && typeof datatypeRules === 'object' && !Array.isArray(datatypeRules)
-            ? { datatype_rules: datatypeRules as Record<string, Record<string, unknown>> }
+            ? { datatype_rules: projectDatatypeRules(datatypeRules as Record<string, Record<string, unknown>>, file) }
             : {}),
         ...(Array.isArray(datatypeAllowlist)
             ? { datatype_allowlist: datatypeAllowlist as string[] }
             : {}),
     } as SchemaV1;
+    return { schema, schemaId };
 }
 
-function readSchemaContractAeonFile(file: string, expectedSchemaId?: string): SchemaV1 {
+function readSchemaContractAeonFile(file: string, expectedSchemaId?: string): LoadedSchemaContract {
     const source = readFile(file);
     const compiled = compile(source, { datatypePolicy: 'allow_custom' });
     if (compiled.errors.length > 0) {
@@ -1926,7 +1951,179 @@ function readSchemaContractAeonFile(file: string, expectedSchemaId?: string): Sc
         process.exit(2);
     }
 
-    return normalizeSchemaContractDoc(finalized.document as Record<string, unknown>, file, expectedSchemaId);
+    const document = finalized.document as Record<string, unknown>;
+    const rootEvent = findAeosSchemaRootEvent(compiled.events);
+    if (!rootEvent) {
+        return normalizeLegacySchemaContractDoc(document, file, expectedSchemaId);
+    }
+    const aeosRoot = document['aeos'];
+    if (!aeosRoot || typeof aeosRoot !== 'object' || Array.isArray(aeosRoot)) {
+        console.error(`Error: Schema document missing required '$.aeos' object: ${file}`);
+        process.exit(2);
+    }
+
+    return normalizeAeosSchemaDoc(aeosRoot as Record<string, unknown>, file, expectedSchemaId);
+}
+
+function normalizeAeosSchemaDoc(
+    doc: Record<string, unknown>,
+    file: string,
+    expectedSchemaId?: string,
+): LoadedSchemaContract {
+    const schemaId = doc['id'];
+    const schemaVersion = doc['version'];
+    const rulesRaw = doc['rules'];
+    const world = doc['world'];
+    const referencePolicy = doc['reference_policy'];
+    const datatypeRules = doc['datatype_rules'];
+    const datatypeAllowlist = doc['datatype_allowlist'];
+    const allowedTopLevel = new Set([
+        'id',
+        'version',
+        'rules',
+        'patterns',
+        'charsets',
+        'world',
+        'reference_policy',
+        'datatype_rules',
+        'datatype_allowlist',
+    ]);
+
+    for (const key of Object.keys(doc)) {
+        if (!allowedTopLevel.has(key)) {
+            console.error(`Error: Unknown schema document key '${key}' in ${file}`);
+            process.exit(2);
+        }
+    }
+
+    if (typeof schemaId !== 'string' || schemaId.length === 0) {
+        console.error(`Error: Schema document missing required string field 'id': ${file}`);
+        process.exit(2);
+    }
+    if (expectedSchemaId && schemaId !== expectedSchemaId) {
+        console.error(`Error: Schema contract id mismatch. Expected '${expectedSchemaId}', found '${schemaId}' in ${file}`);
+        process.exit(2);
+    }
+    if (typeof schemaVersion !== 'string' || schemaVersion.length === 0) {
+        console.error(`Error: Schema document missing required string field 'version': ${file}`);
+        process.exit(2);
+    }
+    if (!rulesRaw || (typeof rulesRaw !== 'object')) {
+        console.error(`Error: Schema document missing required field 'rules': ${file}`);
+        process.exit(2);
+    }
+    if (world !== undefined && world !== 'open' && world !== 'closed') {
+        console.error(`Error: Schema document field 'world' must be "open" or "closed": ${file}`);
+        process.exit(2);
+    }
+    if (referencePolicy !== undefined && referencePolicy !== 'allow' && referencePolicy !== 'forbid') {
+        console.error(`Error: Schema document field 'reference_policy' must be "allow" or "forbid": ${file}`);
+        process.exit(2);
+    }
+    if (datatypeRules !== undefined && (!datatypeRules || typeof datatypeRules !== 'object' || Array.isArray(datatypeRules))) {
+        console.error(`Error: Schema document field 'datatype_rules' must be object: ${file}`);
+        process.exit(2);
+    }
+    if (datatypeAllowlist !== undefined) {
+        if (!Array.isArray(datatypeAllowlist) || datatypeAllowlist.some((v) => typeof v !== 'string')) {
+            console.error(`Error: Schema document field 'datatype_allowlist' must be array<string>: ${file}`);
+            process.exit(2);
+        }
+    }
+
+    const rules = normalizeAeosRules(rulesRaw as Record<string, unknown>, file);
+    const schema = {
+        rules,
+        ...(world !== undefined ? { world: world as 'open' | 'closed' } : {}),
+        ...(referencePolicy !== undefined ? { reference_policy: referencePolicy as 'allow' | 'forbid' } : {}),
+        ...(datatypeRules && typeof datatypeRules === 'object' && !Array.isArray(datatypeRules)
+            ? { datatype_rules: projectDatatypeRules(datatypeRules as Record<string, Record<string, unknown>>, file) }
+            : {}),
+        ...(Array.isArray(datatypeAllowlist)
+            ? { datatype_allowlist: datatypeAllowlist as string[] }
+            : {}),
+    } as SchemaV1;
+    return { schema, schemaId };
+}
+
+function normalizeAeosRules(rulesRaw: Record<string, unknown>, file: string): Array<{ path: string; constraints: Record<string, unknown> }> {
+    return Object.entries(rulesRaw).map(([rulePath, constraints]) => {
+        if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) {
+            console.error(`Error: Schema rule '${rulePath}' must be an object of constraints: ${file}`);
+            process.exit(2);
+        }
+        return {
+            path: rulePath,
+            constraints: projectConstraints(constraints as Record<string, unknown>, rulePath, file),
+        };
+    });
+}
+
+function projectDatatypeRules(
+    datatypeRules: Record<string, Record<string, unknown>>,
+    file: string,
+): Record<string, Record<string, unknown>> {
+    const projected: Record<string, Record<string, unknown>> = {};
+    for (const [key, value] of Object.entries(datatypeRules)) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            console.error(`Error: Schema contract datatype_rules['${key}'] must be object: ${file}`);
+            process.exit(2);
+        }
+        projected[key] = projectConstraints(value, `datatype_rules.${key}`, file);
+    }
+    return projected;
+}
+
+function projectConstraints(
+    constraints: Record<string, unknown>,
+    owner: string,
+    file: string,
+): Record<string, unknown> {
+    const projected = { ...constraints };
+    const pathSelector = projected.reference_target_path;
+    delete projected.reference_target_path;
+    if (pathSelector !== undefined) {
+        if (projected.reference_target_pattern !== undefined) {
+            console.error(`Error: Schema rule '${owner}' cannot declare both 'reference_target_path' and 'reference_target_pattern': ${file}`);
+            process.exit(2);
+        }
+        if (typeof pathSelector !== 'string' || pathSelector.length === 0) {
+            console.error(`Error: Schema rule '${owner}' field 'reference_target_path' must be a non-empty string: ${file}`);
+            process.exit(2);
+        }
+        projected.reference_target_pattern = referenceTargetPathToPattern(pathSelector);
+    }
+    return projected;
+}
+
+function referenceTargetPathToPattern(selector: string): string {
+    if (selector.replaceAll('[*]', '').includes('*')) {
+        console.error(`Error: Unsupported reference_target_path selector: ${selector}`);
+        process.exit(2);
+    }
+    const placeholder = '__AEOS_WILDCARD_INDEX__';
+    return `^${escapeRegex(selector.replaceAll('[*]', placeholder)).replace(
+        escapeRegex(placeholder),
+        String.raw`\[\d+\]`,
+    )}$`;
+}
+
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findAeosSchemaRootEvent(events: readonly AssignmentEvent[]): AssignmentEvent | null {
+    for (const event of events) {
+        if (event.key === 'aeos' && event.datatype === 'schema' && formatPath(event.path) === '$.aeos') {
+            return event;
+        }
+    }
+    return null;
+}
+
+function isSchemaContractAeonPath(file: string): boolean {
+    const lower = file.toLowerCase();
+    return lower.endsWith('.aeon') || lower.endsWith('.aeos');
 }
 
 type ContractKind = 'profile' | 'schema';
@@ -2206,51 +2403,99 @@ type HeaderInfo = {
     version: string | null;
     profile: string | null;
     schema: string | null;
+    schemas: Readonly<Record<string, string>>;
 };
 
+type LoadedSchemaContract = {
+    schema: SchemaV1;
+    schemaId: string;
+};
+
+function declaredContractOverrideWarning(
+    phase: 5 | 6,
+    code: 'DECLARED_PROFILE_OVERRIDDEN' | 'DECLARED_SCHEMA_OVERRIDDEN',
+    message: string,
+) {
+    return {
+        level: 'warning' as const,
+        phase,
+        phaseLabel: phase === 5 ? 'Profile Compilation' as const : 'Schema Validation' as const,
+        code,
+        message,
+    };
+}
+
+function collectDeclaredContractOverrideWarnings(
+    headerInfo: HeaderInfo,
+    appliedSchemaId: string | undefined,
+    appliedProfile: string | null | undefined,
+) {
+    const warnings = [];
+    if (headerInfo.schema && appliedSchemaId && headerInfo.schema !== appliedSchemaId) {
+        warnings.push(
+            declaredContractOverrideWarning(
+                6,
+                'DECLARED_SCHEMA_OVERRIDDEN',
+                `Applied schema '${appliedSchemaId}' overrides document-declared schema '${headerInfo.schema}'`,
+            ),
+        );
+    }
+    if (appliedProfile && headerInfo.profile && appliedProfile !== headerInfo.profile) {
+        warnings.push(
+            declaredContractOverrideWarning(
+                5,
+                'DECLARED_PROFILE_OVERRIDDEN',
+                `Applied profile '${appliedProfile}' overrides document-declared profile '${headerInfo.profile}'`,
+            ),
+        );
+    }
+    return warnings;
+}
+
+function buildBindContractMeta(
+    headerInfo: HeaderInfo,
+    appliedSchemaId: string | undefined,
+    appliedProfile: string | null | undefined,
+) {
+    const declared = {
+        ...(headerInfo.schema ? { schema: headerInfo.schema } : {}),
+        ...(headerInfo.profile ? { profile: headerInfo.profile } : {}),
+        ...(Object.keys(headerInfo.schemas).length > 0 ? { schemas: headerInfo.schemas } : {}),
+    };
+    const applied = {
+        ...(appliedSchemaId ? { schema: appliedSchemaId } : {}),
+        ...(appliedProfile ? { profile: appliedProfile } : {}),
+    };
+    if (Object.keys(declared).length === 0 && Object.keys(applied).length === 0) {
+        return null;
+    }
+    return {
+        ...(Object.keys(declared).length > 0 ? { declared } : {}),
+        ...(Object.keys(applied).length > 0 ? { applied } : {}),
+    };
+}
+
+function buildDeclaredInspectContractMeta(headerInfo: HeaderInfo) {
+    const declared = {
+        ...(headerInfo.schema ? { schema: headerInfo.schema } : {}),
+        ...(headerInfo.profile ? { profile: headerInfo.profile } : {}),
+        ...(Object.keys(headerInfo.schemas).length > 0 ? { schemas: headerInfo.schemas } : {}),
+    };
+    return Object.keys(declared).length > 0 ? { declared } : null;
+}
+
 function extractHeaderInfo(input: string): HeaderInfo {
-    // Lightweight header extraction without depending on the parser/lexer.
-    // This intentionally uses simple regexes to find header shorthand or
-    // structured header fields. It's only used for human-readable metadata
-    // in the CLI output and must not affect compilation behavior.
     try {
-        let mode: HeaderInfo['mode'] = 'transport';
-        let version: string | null = null;
-        let profile: string | null = null;
-        let schema: string | null = null;
-
-        // Shorthand header fields: aeon:mode = "strict"
-        const modeMatch = input.match(/aeon:mode\s*=\s*"(strict|transport|custom)"/i);
-        const modeGroup = modeMatch?.[1];
-        if (modeGroup) mode = modeGroup.toLowerCase() as HeaderInfo['mode'];
-
-        const vMatch = input.match(/aeon:version\s*=\s*"([^"]*)"/i);
-        version = vMatch?.[1] ?? null;
-
-        const pMatch = input.match(/aeon:profile\s*=\s*"([^"]*)"/i);
-        profile = pMatch?.[1] ?? null;
-
-        const sMatch = input.match(/aeon:schema\s*=\s*"([^"]*)"/i);
-        schema = sMatch?.[1] ?? null;
-
-        // Structured header: aeon:header = { ... }
-        const headerMatch = input.match(/aeon:header\s*=\s*\{([\s\S]*?)\}/i);
-        if (headerMatch) {
-            const body = headerMatch[1] ?? '';
-            const hv = body.match(/version\s*=\s*"([^"]*)"/i);
-            version = hv?.[1] ?? version;
-            const hp = body.match(/profile\s*=\s*"([^"]*)"/i);
-            profile = hp?.[1] ?? profile;
-            const hs = body.match(/schema\s*=\s*"([^"]*)"/i);
-            schema = hs?.[1] ?? schema;
-            const hm = body.match(/mode\s*=\s*"(strict|transport)"/i);
-            const hmGroup = hm?.[1];
-            if (hmGroup) mode = hmGroup.toLowerCase() as HeaderInfo['mode'];
-        }
-
-        return { mode, version, profile, schema };
+        const header = inspectHeader(input).header;
+        return {
+            mode: header.mode ?? 'transport',
+            version: header.version ?? null,
+            profile: header.profile ?? null,
+            schema: header.schema ?? null,
+            schemas: header.schemas ?? {},
+        };
     } catch {
-        return { mode: 'transport', version: null, profile: null, schema: null };
+        return { mode: 'transport', version: null, profile: null, schema: null, schemas: {} };
     }
 }
 
@@ -2563,6 +2808,7 @@ function outputMarkdown(
         version: string | null;
         profile: string | null;
         schema: string | null;
+        schemas: Readonly<Record<string, string>>;
         includeAnnotations: boolean;
         annotationsOnly: boolean;
         sortAnnotations: boolean;
@@ -2606,6 +2852,15 @@ function outputMarkdown(
         console.log(`- Annotations: ${annotations.length}`);
     }
     console.log(`- Errors: ${result.errors.length}`);
+    if (info.profile || info.schema || Object.keys(info.schemas).length > 0) {
+        console.log('');
+        console.log('## Declared Contracts');
+        if (info.profile) console.log(`- Profile: ${info.profile}`);
+        if (info.schema) console.log(`- Schema: ${info.schema}`);
+        for (const [context, value] of Object.entries(info.schemas)) {
+            console.log(`- Schema Context (${context}): ${value}`);
+        }
+    }
 
     if (result.errors.length > 0) {
         console.log('');

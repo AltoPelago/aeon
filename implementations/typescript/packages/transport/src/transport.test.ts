@@ -78,6 +78,27 @@ value = 1`;
     assert.equal(result.header.schema, '{demo}');
 });
 
+test('inspectHeader parses contextual schema maps from structured headers', () => {
+    const input = `aeon:header = {
+  schema = "altopelago.main_schema.v1"
+  schemas = {
+    authoring = "altopelago.authoring_schema.v1"
+    validation = "altopelago.validation_schema.v1"
+    vendor_acme = "acme.vendor_schema.v1"
+    vendor-acme = "acme.vendor_dash_schema.v1"
+  }
+}
+value = 1`;
+    const result = inspectHeader(input);
+    assert.equal(result.header.schema, 'altopelago.main_schema.v1');
+    assert.deepStrictEqual(result.header.schemas, {
+        authoring: 'altopelago.authoring_schema.v1',
+        validation: 'altopelago.validation_schema.v1',
+        vendor_acme: 'acme.vendor_schema.v1',
+        'vendor-acme': 'acme.vendor_dash_schema.v1',
+    });
+});
+
 test('frame encoder/decoder streams roundtrip', async () => {
     const encoder = createFrameEncoderStream();
     const decoder = createFrameDecoderStream();

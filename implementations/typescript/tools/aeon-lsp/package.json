@@ -22,6 +22,7 @@
     "@altopelago/aeon-lexer": "workspace:*",
     "@altopelago/aeon-parser": "workspace:*",
     "@altopelago/aeon-profiles": "workspace:*",
+    "@altopelago/aeon-transport": "workspace:*",
     "@altopelago/aeos-core": "workspace:*",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"

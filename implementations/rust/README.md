@@ -91,7 +91,7 @@ Current CLI status:
 - `finalize --map`
 - `finalize --max-materialized-weight <n>` for clone-expansion budgets
 - `finalize --max-reference-depth <n>` for clone-resolution depth budgets
-- minimal `bind --schema <schema.json>`
+- minimal `bind --schema <schema.json|schema.aeos>`
 - direct schema JSON validation for canonical metadata keys and required fields
 - `bind --annotations` and `--sort-annotations`
 - `bind --trailing-separator-delimiter-policy <off|warn|error>`
@@ -118,6 +118,7 @@ Implementation note:
 - AEOS reference-form behavior is part of shared conformance.
 - `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - `--max-reference-depth` is an implementation/runtime control, not a Core or AEOS language guarantee.
+- the Rust SDK can now load AEOS schema documents directly from `.aeos` and project them into the internal `Schema` model before validation.
 
 Run the starter test suite with:
 
