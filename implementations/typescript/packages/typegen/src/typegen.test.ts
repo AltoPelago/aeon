@@ -155,7 +155,7 @@ test('emits runtime binder helper when requested', () => {
     });
 
     assert.equal(result.diagnostics.length, 0);
-    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from '@aeon\/runtime';/);
+    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from '@altopelago\/aeon-runtime';/);
     assert.match(result.code, /export const AppConfigSchema: SchemaV1 = \{/);
     assert.match(result.code, /export function bindAppConfig\(options: TypedBinderOptions<AppConfig> = \{\}\): \(input: string\) => TypedRuntimeResult<AppConfig> \{/);
 });
