@@ -106,15 +106,15 @@ describe('Parser', () => {
             assert.strictEqual(result.document.bindings[0]!.value.type, 'BooleanLiteral');
         });
 
-        it('should parse toggle literal as SwitchLiteral', () => {
+        it('should parse toggle literal as ToggleLiteral', () => {
             const tokens = tokenize('feature = yes').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.document);
             const value = result.document.bindings[0]!.value;
-            assert.strictEqual(value.type, 'SwitchLiteral');
-            if (value.type === 'SwitchLiteral') {
+            assert.strictEqual(value.type, 'ToggleLiteral');
+            if (value.type === 'ToggleLiteral') {
                 assert.strictEqual(value.value, 'yes');
                 assert.strictEqual(value.raw, 'yes');
             }

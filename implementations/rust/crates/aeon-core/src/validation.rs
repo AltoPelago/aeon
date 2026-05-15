@@ -382,15 +382,30 @@ pub(crate) fn validate_datatypes(
             }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
-            if !is_reserved_datatype(datatype)
-                && mode == BehaviorMode::Strict
-                && resolved_value.value_kind() == "SwitchLiteral"
+            if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
             {
                 errors.push(
                     Diagnostic::new(
-                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
                         format!(
-                            "Custom toggle alias not allowed in strict mode at '{}': use ':toggle' instead of ':{datatype}'",
+                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
+                            path
+                        ),
+                    )
+                    .at_path(path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "ToggleLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
                             path
                         ),
                     )
@@ -465,15 +480,30 @@ pub(crate) fn validate_datatypes_light(
             }
             let resolved_value = resolve_reference_value_light(&event.value, events, event_lookup)
                 .unwrap_or(&event.value);
-            if !is_reserved_datatype(datatype)
-                && mode == BehaviorMode::Strict
-                && resolved_value.value_kind() == "SwitchLiteral"
+            if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
             {
                 errors.push(
                     Diagnostic::new(
-                        "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED",
+                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
                         format!(
-                            "Custom toggle alias not allowed in strict mode at '{}': use ':toggle' instead of ':{datatype}'",
+                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
+                            event.path
+                        ),
+                    )
+                    .at_path(event.path.clone())
+                    .with_span(event.span),
+                );
+                continue;
+            }
+            if !is_reserved_datatype(datatype)
+                && mode == BehaviorMode::Strict
+                && resolved_value.value_kind() == "ToggleLiteral"
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
+                        format!(
+                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
                             event.path
                         ),
                     )
@@ -748,7 +778,7 @@ fn validate_typed_mode_rules_in_scope(
         let should_emit_untyped_value_error = !binding.key.starts_with("aeon:")
             && binding.datatype.is_none()
             && !(matches!(mode, BehaviorMode::Strict)
-                && matches!(binding.value, Value::SwitchLiteral { .. }));
+                && matches!(binding.value, Value::ToggleLiteral { .. }));
         if should_emit_untyped_value_error {
             errors.push(
                 Diagnostic::new(
@@ -850,11 +880,11 @@ fn validate_switch_literal_in_value(
     errors: &mut Vec<Diagnostic>,
 ) {
     match value {
-        Value::SwitchLiteral { .. } => {
+        Value::ToggleLiteral { .. } => {
             if matches!(mode, BehaviorMode::Strict) && datatype.is_none() {
                 errors.push(
                     Diagnostic::new(
-                        "UNTYPED_SWITCH_LITERAL",
+                        "UNTYPED_TOGGLE_LITERAL",
                         format!(
                             "Untyped toggle literal in typed mode: '{}' requires ':toggle' type annotation",
                             format_path(path)
@@ -1046,7 +1076,6 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "boolean"
             | "bool"
             | "toggle"
-            | "switch"
             | "hex"
             | "radix"
             | "radix2"
@@ -1086,7 +1115,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "string" => Some(vec!["StringLiteral"]),
         "trimtick" | "prose" => Some(vec!["TrimtickStringLiteral"]),
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
-        "toggle" | "switch" => Some(vec!["SwitchLiteral"]),
+        "toggle" => Some(vec!["ToggleLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),
         "radix" | "radix2" | "radix6" | "radix8" | "radix12" => Some(vec!["RadixLiteral"]),
         "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
@@ -1238,7 +1267,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             }
         ),
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
-        "toggle" | "switch" => matches!(value, Value::SwitchLiteral { .. }),
+        "toggle" => matches!(value, Value::ToggleLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
         "radix" | "radix2" | "radix6" | "radix8" | "radix12" => {
             matches!(value, Value::RadixLiteral { raw } if has_valid_radix_literal(raw))

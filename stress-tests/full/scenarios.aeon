@@ -58,7 +58,7 @@ test002:o = {
 
 
 /*
-	Switch
+	Toggle
 */
 
 test003:o = {

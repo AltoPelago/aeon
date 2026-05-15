@@ -68,7 +68,7 @@
     "name": "strict mode untyped toggle literal",
     "source": "aeon:mode = \"strict\"\ndebug = yes",
     "expected": {
-      "code": "UNTYPED_SWITCH_LITERAL",
+      "code": "UNTYPED_TOGGLE_LITERAL",
       "message": "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation",
       "path": "$.debug",
       "span": {

@@ -482,7 +482,7 @@ function valueToMatterNode(
             );
         case 'BooleanLiteral':
             return new MatterScalarNode(owner, value.value, value.span);
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return new MatterScalarNode(owner, value.value === 'yes' || value.value === 'on', value.span);
         case 'HexLiteral':
         case 'RadixLiteral':
@@ -701,7 +701,7 @@ function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
             return value.mode === 'reserved' && value.value === 'none' ? null : value.raw;
         case 'BooleanLiteral':
             return value.value;
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
         case 'RadixLiteral':

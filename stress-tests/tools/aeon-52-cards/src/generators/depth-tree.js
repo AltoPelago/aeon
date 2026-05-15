@@ -825,7 +825,7 @@ function buildCoverageSnippet(featureId, index) {
         case 'type-toggle-custom-invalid':
             return {
                 featureId,
-                text: `cov_type_switch_bad_${suffix}:mySwitch = yes`,
+                text: `cov_type_switch_bad_${suffix}:myToggle = yes`,
             };
         case 'type-transport-mismatch-invalid':
             return {

@@ -653,7 +653,7 @@ impl<'a> TokenParser<'a> {
                 raw: self.advance().text.clone(),
             }),
             TokenKind::Yes | TokenKind::No | TokenKind::On | TokenKind::Off => {
-                Ok(Value::SwitchLiteral {
+                Ok(Value::ToggleLiteral {
                     raw: self.advance().text.clone(),
                 })
             }
@@ -1506,7 +1506,6 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "boolean"
             | "bool"
             | "toggle"
-            | "switch"
             | "infinity"
             | "nan"
             | "hex"

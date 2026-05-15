@@ -11,11 +11,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
 
 fn canonical_datatype_name(name: &str) -> &str {
-    if name == "switch" {
-        "toggle"
-    } else {
-        name
-    }
+    name
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,8 +356,8 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             }
             JsonValue::Object(object)
         }
-        Value::SwitchLiteral { raw } => json!({
-            "type": "SwitchLiteral",
+        Value::ToggleLiteral { raw } => json!({
+            "type": "ToggleLiteral",
             "value": raw,
         }),
         Value::BooleanLiteral { raw } => json!({
@@ -719,7 +715,7 @@ fn value_to_json_with_active_key(
                 JsonValue::String(raw.clone())
             }
         }
-        Value::SwitchLiteral { raw } => {
+        Value::ToggleLiteral { raw } => {
             JsonValue::Bool(matches!(raw.as_str(), "yes" | "on" | "true"))
         }
         Value::BooleanLiteral { raw } => JsonValue::Bool(raw == "true"),
@@ -1062,7 +1058,7 @@ fn measure_materialized_weight(
         | Value::InfinityLiteral { .. }
         | Value::NaNLiteral { .. }
         | Value::NullLiteral { .. }
-        | Value::SwitchLiteral { .. }
+        | Value::ToggleLiteral { .. }
         | Value::BooleanLiteral { .. }
         | Value::HexLiteral { .. }
         | Value::SeparatorLiteral { .. }

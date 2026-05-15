@@ -185,8 +185,8 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                 : scalarNode('String', value.raw, value.raw, meta);
         case 'BooleanLiteral':
             return scalarNode('Boolean', value.value, value.raw, meta);
-        case 'SwitchLiteral':
-            return scalarNode('Switch', value.value, value.raw, meta);
+        case 'ToggleLiteral':
+            return scalarNode('Toggle', value.value, value.raw, meta);
         case 'HexLiteral':
             return scalarNode('Hex', value.value, value.raw, meta);
         case 'RadixLiteral':

@@ -26,8 +26,8 @@ function valueSignature(value) {
             return `NumberLiteral:${value.raw ?? value.value}`;
         case 'BooleanLiteral':
             return `BooleanLiteral:${value.value}`;
-        case 'SwitchLiteral':
-            return `SwitchLiteral:${value.value}`;
+        case 'ToggleLiteral':
+            return `ToggleLiteral:${value.value}`;
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'EncodingLiteral':

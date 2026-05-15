@@ -240,7 +240,7 @@ pub enum Value {
         delimiter: char,
         trimticks: Option<TrimtickMetadata>,
     },
-    SwitchLiteral {
+    ToggleLiteral {
         raw: String,
     },
     BooleanLiteral {
@@ -354,7 +354,7 @@ impl Value {
                     "StringLiteral"
                 }
             }
-            Self::SwitchLiteral { .. } => "SwitchLiteral",
+            Self::ToggleLiteral { .. } => "ToggleLiteral",
             Self::BooleanLiteral { .. } => "BooleanLiteral",
             Self::HexLiteral { .. } => "HexLiteral",
             Self::SeparatorLiteral { .. } => "SeparatorLiteral",
@@ -1052,32 +1052,42 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_rejects_custom_switch_alias_even_with_allow_custom() {
+    fn strict_mode_rejects_custom_toggle_alias_even_with_allow_custom() {
         let result = compile(
-            "aeon:mode = \"strict\"\ns:mySwitch = on\n",
+            "aeon:mode = \"strict\"\ns:myToggle = on\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
             },
         );
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED");
+        assert_eq!(result.errors[0].code, "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED");
         assert_eq!(
             result.errors[0].message,
-            "Custom toggle alias not allowed in strict mode at '$.s': use ':toggle' instead of ':mySwitch'"
+            "Custom toggle alias not allowed at '$.s': use ':toggle' instead of ':myToggle'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.s"));
         assert!(result.events.is_empty());
     }
 
     #[test]
-    fn custom_mode_allows_custom_switch_aliases() {
+    fn custom_mode_allows_custom_toggle_aliases() {
         let result = compile(
-            "aeon:mode = \"custom\"\ns:mySwitch = on\n",
+            "aeon:mode = \"custom\"\ns:myToggle = on\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn custom_mode_rejects_removed_toggle_datatype_spelling() {
+        let result = compile(
+            "aeon:mode = \"custom\"\ns:switch = on\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED");
     }
 
     #[test]
@@ -1424,13 +1434,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_untyped_switch_literals_in_strict_mode_with_aligned_message() {
+    fn rejects_untyped_toggle_literals_in_strict_mode_with_aligned_message() {
         let result = compile(
             "aeon:mode = \"strict\"\ndebug = yes\n",
             CompileOptions::default(),
         );
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "UNTYPED_SWITCH_LITERAL");
+        assert_eq!(result.errors[0].code, "UNTYPED_TOGGLE_LITERAL");
         assert_eq!(
             result.errors[0].message,
             "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation"
@@ -1441,7 +1451,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_mode_treats_untyped_switch_literals_like_other_untyped_values() {
+    fn custom_mode_treats_untyped_toggle_literals_like_other_untyped_values() {
         let result = compile(
             "aeon:mode = \"custom\"\ndebug = yes\n",
             CompileOptions::default(),
@@ -1457,7 +1467,7 @@ mod tests {
             !result
                 .errors
                 .iter()
-                .any(|error| error.code == "UNTYPED_SWITCH_LITERAL"
+                .any(|error| error.code == "UNTYPED_TOGGLE_LITERAL"
                     && error.path.as_deref() == Some("$.debug"))
         );
         assert!(result.events.is_empty());

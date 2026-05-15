@@ -281,9 +281,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'SELF_REFERENCE':
         case 'ATTRIBUTE_DEPTH_EXCEEDED':
             return 'Reference Validation';
-        case 'UNTYPED_SWITCH_LITERAL':
+        case 'UNTYPED_TOGGLE_LITERAL':
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
-        case 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED':
+        case 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
         case 'INVALID_NODE_HEAD_DATATYPE':
             return 'Mode Enforcement';
@@ -601,15 +601,15 @@ describe('AEON CLI output contract', () => {
         });
 
         it('reports untyped toggle literal in strict mode (fail-closed)', async () => {
-            const { code, stdout } = await runCli(['inspect', fixture('untyped-switch-strict.aeon')]);
+            const { code, stdout } = await runCli(['inspect', fixture('untyped-toggle-strict.aeon')]);
             assert.strictEqual(code, 1);
             const out = normalize(stdout);
-            assert.ok(out.includes('[UNTYPED_SWITCH_LITERAL]'));
+            assert.ok(out.includes('[UNTYPED_TOGGLE_LITERAL]'));
             assert.ok(!out.includes('## Assignment Events'));
         });
 
         it('accepts typed toggle literal in strict mode', async () => {
-            const { code, stdout, stderr } = await runCli(['inspect', fixture('typed-switch-strict.aeon')]);
+            const { code, stdout, stderr } = await runCli(['inspect', fixture('typed-toggle-strict.aeon')]);
             assert.strictEqual(code, 0);
             assert.strictEqual(stderr, '');
             const out = normalize(stdout);

@@ -2467,7 +2467,7 @@ function readLiteralString(value: Value): string | null {
             return String(value.raw);
         case 'NumberLiteral':
         case 'BooleanLiteral':
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
         case 'CloneReference':
         case 'PointerReference':
         case 'ObjectNode':
@@ -2741,9 +2741,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'SELF_REFERENCE':
         case 'ATTRIBUTE_DEPTH_EXCEEDED':
             return 'Reference Validation';
-        case 'UNTYPED_SWITCH_LITERAL':
+        case 'UNTYPED_TOGGLE_LITERAL':
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
-        case 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED':
+        case 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
         case 'INVALID_NODE_HEAD_DATATYPE':
             return 'Mode Enforcement';
@@ -2787,7 +2787,7 @@ function renderValue(value: Record<string, unknown>): string {
             return String(value.raw ?? value.value ?? '');
         case 'BooleanLiteral':
             return String(value.raw ?? value.value ?? '');
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return String(value.raw ?? value.value ?? '');
         case 'HexLiteral':
         case 'RadixLiteral':

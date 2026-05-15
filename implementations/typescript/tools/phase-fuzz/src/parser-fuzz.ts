@@ -193,7 +193,7 @@ function normalizeValue(value: Value): object {
         case 'TimeLiteral':
             return { ...base, value: value.value, raw: value.raw };
         case 'BooleanLiteral':
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return { ...base, value: value.value, raw: value.raw };
         case 'CloneReference':
         case 'PointerReference':

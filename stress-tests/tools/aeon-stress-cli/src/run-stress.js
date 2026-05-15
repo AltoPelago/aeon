@@ -35,7 +35,7 @@ const cases = [
     path: 'flag',
     datatype: 'myBool',
   },
-  { name: 'toggle-custom-type', binding: 'feature:mySwitch = yes', expectPass: false },
+  { name: 'toggle-custom-type', binding: 'feature:myToggle = yes', expectPass: false },
   { name: 'toggle-builtin-type', binding: 'feature:toggle = yes', expectPass: true, path: 'feature', datatype: 'toggle' },
   { name: 'hex-custom-type', binding: 'color:myHex = #FF00AA', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'color', datatype: 'myHex' },
   { name: 'radix-custom-type', binding: 'bits:myBits = %1011', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'bits', datatype: 'myBits' },

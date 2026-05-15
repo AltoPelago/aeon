@@ -205,8 +205,8 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             raw.clone(),
             JsonValue::Bool(raw == "true"),
         ),
-        Value::SwitchLiteral { raw } => {
-            scalar_value("SwitchLiteral", raw.clone(), JsonValue::String(raw.clone()))
+        Value::ToggleLiteral { raw } => {
+            scalar_value("ToggleLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
         Value::HexLiteral { raw } => scalar_value(
             "HexLiteral",

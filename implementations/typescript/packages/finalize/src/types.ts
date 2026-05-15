@@ -102,7 +102,7 @@ export interface FinalizedScalarNode extends FinalizedNodeBase {
         | 'String'
         | 'Number'
         | 'Boolean'
-        | 'Switch'
+        | 'Toggle'
         | 'Hex'
         | 'Radix'
         | 'Encoding'

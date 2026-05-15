@@ -30,7 +30,7 @@ from .ast import (
     ReferencePathSegment,
     SeparatorLiteral,
     StringLiteral,
-    SwitchLiteral,
+    ToggleLiteral,
     TimeLiteral,
     TupleLiteral,
     TypedValue,
@@ -57,7 +57,7 @@ RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "float", "float32", "float64",
-    "string", "trimtick", "prose", "boolean", "bool", "toggle", "switch", "infinity", "nan",
+    "string", "trimtick", "prose", "boolean", "bool", "toggle", "infinity", "nan",
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
@@ -718,7 +718,7 @@ class Parser:
             return BooleanLiteral(value=token.value == "true", raw=token.value, span=token.span)
         if token.kind in {"YES", "NO", "ON", "OFF"}:
             self.advance()
-            return SwitchLiteral(value=cast(str, token.value), raw=token.value, span=token.span)
+            return ToggleLiteral(value=cast(str, token.value), raw=token.value, span=token.span)
         if token.kind == "HEX":
             self.advance()
             return HexLiteral(value=token.value[1:], raw=token.value, span=token.span)

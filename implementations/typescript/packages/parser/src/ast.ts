@@ -91,7 +91,7 @@ export type Value =
     | NaNLiteral
     | NullLiteral
     | BooleanLiteral
-    | SwitchLiteral
+    | ToggleLiteral
     | HexLiteral
     | RadixLiteral
     | EncodingLiteral
@@ -175,10 +175,10 @@ export interface BooleanLiteral extends ASTNode {
 }
 
 /**
- * Switch literal (yes/no/on/off)
+ * Toggle literal (yes/no/on/off)
  */
-export interface SwitchLiteral extends ASTNode {
-    readonly type: 'SwitchLiteral';
+export interface ToggleLiteral extends ASTNode {
+    readonly type: 'ToggleLiteral';
     readonly value: 'yes' | 'no' | 'on' | 'off';
     readonly raw: string;
 }

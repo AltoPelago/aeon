@@ -106,8 +106,8 @@ class BooleanLiteral:
 
 
 @dataclass(slots=True)
-class SwitchLiteral:
-    type: Literal["SwitchLiteral"] = "SwitchLiteral"
+class ToggleLiteral:
+    type: Literal["ToggleLiteral"] = "ToggleLiteral"
     value: Literal["yes", "no", "on", "off"] = "on"
     raw: str = ""
     span: Span | None = None
@@ -245,7 +245,7 @@ Value = (
     | NaNLiteral
     | NullLiteral
     | BooleanLiteral
-    | SwitchLiteral
+    | ToggleLiteral
     | HexLiteral
     | RadixLiteral
     | EncodingLiteral

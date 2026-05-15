@@ -26,7 +26,7 @@ from .ast import (
     RadixLiteral,
     SeparatorLiteral,
     StringLiteral,
-    SwitchLiteral,
+    ToggleLiteral,
     TimeLiteral,
     TupleLiteral,
     TypedValue,
@@ -179,7 +179,7 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
         return [format_null_literal(value)]
     if isinstance(value, BooleanLiteral):
         return ["true" if value.value else "false"]
-    if isinstance(value, SwitchLiteral):
+    if isinstance(value, ToggleLiteral):
         return [value.value]
     if isinstance(value, HexLiteral):
         return [f"#{value.value.replace('_', '').lower()}"]
@@ -277,7 +277,7 @@ def render_attributes(attributes: list[Attribute]) -> str:
 def render_type(datatype: TypeAnnotation | None) -> str:
     if datatype is None:
         return ""
-    text = "toggle" if datatype.name == "switch" else datatype.name
+    text = datatype.name
     if datatype.generic_args:
         text += "<" + ", ".join(datatype.generic_args) + ">"
     if datatype.radix_base is not None:
@@ -308,7 +308,7 @@ def render_compact_inline_value(value: Value) -> str:
         return format_null_literal(value)
     if isinstance(value, BooleanLiteral):
         return "true" if value.value else "false"
-    if isinstance(value, SwitchLiteral):
+    if isinstance(value, ToggleLiteral):
         return value.value
     if isinstance(value, HexLiteral):
         return f"#{value.value.replace('_', '').lower()}"
@@ -461,7 +461,7 @@ def is_simple_value(value: Value) -> bool:
         NaNLiteral,
         NullLiteral,
         BooleanLiteral,
-            SwitchLiteral,
+            ToggleLiteral,
             HexLiteral,
             RadixLiteral,
             EncodingLiteral,

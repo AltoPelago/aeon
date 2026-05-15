@@ -673,12 +673,12 @@ describe('Core - compile()', () => {
             });
         });
 
-        it('should fail-closed with UNTYPED_SWITCH_LITERAL in strict mode', () => {
+        it('should fail-closed with UNTYPED_TOGGLE_LITERAL in strict mode', () => {
             const result = compile('aeon:mode = "strict"\ndebug = yes');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.code, 'UNTYPED_SWITCH_LITERAL');
+            assert.strictEqual(result.errors[0]!.code, 'UNTYPED_TOGGLE_LITERAL');
             assert.strictEqual(
                 result.errors[0]!.message,
                 "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation"
@@ -788,11 +788,11 @@ describe('Core - compile()', () => {
         });
 
         it('should reject custom toggle aliases in strict mode even when datatypePolicy is allow_custom', () => {
-            const result = compile('aeon:mode = "strict"\ns:mySwitch = on', {
+            const result = compile('aeon:mode = "strict"\ns:myToggle = on', {
                 datatypePolicy: 'allow_custom',
             });
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'));
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED'));
         });
 
         it('should treat uppercase reserved-looking names as custom datatypes in strict mode', () => {
@@ -822,7 +822,7 @@ describe('Core - compile()', () => {
         });
 
         it('should allow custom toggle aliases in custom mode', () => {
-            const result = compile('aeon:mode = "custom"\ns:mySwitch = on');
+            const result = compile('aeon:mode = "custom"\ns:myToggle = on');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

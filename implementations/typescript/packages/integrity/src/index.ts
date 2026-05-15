@@ -443,7 +443,7 @@ export function serializeCanonicalValue(value: Value): string {
                 : `"${escapeString(value.raw)}"`;
         case 'BooleanLiteral':
             return value.value ? 'true' : 'false';
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return `"${escapeString(value.raw)}"`;
         case 'HexLiteral':
             return `"#${value.value.replace(/_/g, '').toLowerCase()}"`;

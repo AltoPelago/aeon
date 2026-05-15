@@ -7,7 +7,7 @@ export function formatDatatypeAnnotation(datatype: {
     if (!datatype) {
         return '';
     }
-    const name = datatype.name === 'switch' ? 'toggle' : datatype.name;
+    const name = datatype.name;
     const genericArgs = datatype.genericArgs ?? [];
     const separatorsList = datatype.separators ?? [];
     const generics = genericArgs.length > 0

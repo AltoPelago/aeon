@@ -226,7 +226,7 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
             return null_to_json(value, ctx, path)
         if value_type == "BooleanLiteral":
             return value.get("value")
-        if value_type == "SwitchLiteral":
+        if value_type == "ToggleLiteral":
             return value.get("value") in {"yes", "on"}
         if value_type == "HexLiteral":
             return str(value.get("value", "")).replace("_", "")
@@ -505,7 +505,7 @@ def measure_materialized_weight(
         "NaNLiteral",
         "NullLiteral",
         "BooleanLiteral",
-        "SwitchLiteral",
+        "ToggleLiteral",
         "HexLiteral",
         "RadixLiteral",
         "EncodingLiteral",

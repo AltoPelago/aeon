@@ -3,7 +3,7 @@
  * 
  * Enforces:
  * - Transport vs Strict mode typing rules
- * - Switch typing rules (no semantic switch unless typed)
+ * - Toggle typing rules (no semantic toggle unless typed)
  * - Header correctness
  * 
  * Non-negotiable constraints:
@@ -30,8 +30,8 @@ export type DatatypePolicy = 'reserved_only' | 'allow_custom';
  */
 export type ModeEnforcementErrorCode =
     | 'UNTYPED_VALUE_IN_STRICT_MODE'
-    | 'UNTYPED_SWITCH_LITERAL'
-    | 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'
+    | 'UNTYPED_TOGGLE_LITERAL'
+    | 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED'
     | 'DATATYPE_LITERAL_MISMATCH'
     | 'CUSTOM_DATATYPE_NOT_ALLOWED'
     | 'INVALID_NODE_HEAD_DATATYPE'
@@ -77,27 +77,27 @@ export class UntypedValueInStrictModeError extends ModeEnforcementError {
 /**
  * Error: toggle literal requires :toggle in typed mode
  */
-export class UntypedSwitchLiteralError extends ModeEnforcementError {
+export class UntypedToggleLiteralError extends ModeEnforcementError {
     constructor(span: Span, path: string) {
         super(
             `Untyped toggle literal in typed mode: '${path}' requires ':toggle' type annotation`,
             span,
-            'UNTYPED_SWITCH_LITERAL',
+            'UNTYPED_TOGGLE_LITERAL',
             path
         );
-        this.name = 'UntypedSwitchLiteralError';
+        this.name = 'UntypedToggleLiteralError';
     }
 }
 
-export class CustomSwitchAliasNotAllowedError extends ModeEnforcementError {
+export class CustomToggleAliasNotAllowedError extends ModeEnforcementError {
     constructor(span: Span, path: string, datatype: string) {
         super(
-            `Custom toggle alias not allowed in strict mode at '${path}': use ':toggle' instead of ':${datatype}'`,
+            `Custom toggle alias not allowed at '${path}': use ':toggle' instead of ':${datatype}'`,
             span,
-            'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED',
+            'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED',
             path
         );
-        this.name = 'CustomSwitchAliasNotAllowedError';
+        this.name = 'CustomToggleAliasNotAllowedError';
     }
 }
 
@@ -277,8 +277,8 @@ export function enforceMode(
 
         if (!event.datatype) {
             if (mode === 'strict' || mode === 'custom') {
-                if (mode === 'strict' && event.value.type === 'SwitchLiteral') {
-                    errors.push(new UntypedSwitchLiteralError(event.span, formatPath(event.path)));
+                if (mode === 'strict' && event.value.type === 'ToggleLiteral') {
+                    errors.push(new UntypedToggleLiteralError(event.span, formatPath(event.path)));
                 } else {
                     errors.push(new UntypedValueInStrictModeError(event.span, formatPath(event.path)));
                 }
@@ -287,13 +287,17 @@ export function enforceMode(
         }
 
         const expectedKinds = expectedKindsForReservedDatatype(event.datatype);
+        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex) ?? event.value.type;
+        if (datatypeBase(event.datatype) === 'switch' && actualKind === 'ToggleLiteral') {
+            errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
+            continue;
+        }
         if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
             errors.push(new CustomDatatypeNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
-        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex) ?? event.value.type;
-        if (mode === 'strict' && !expectedKinds && actualKind === 'SwitchLiteral') {
-            errors.push(new CustomSwitchAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
+        if (mode === 'strict' && !expectedKinds && actualKind === 'ToggleLiteral') {
+            errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
         if (expectedKinds && !expectedKinds.includes(actualKind)) {
@@ -466,13 +470,15 @@ function validateAnonymousTypedValues(
         if (value.datatype) {
             const datatype = formatTypeAnnotation(value.datatype);
             const expectedKinds = expectedKindsForReservedDatatype(datatype);
-            if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
+            const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
+            const actualKind = resolvedValueKind(resolved);
+            if (datatypeBase(datatype) === 'switch' && actualKind === 'ToggleLiteral') {
+                errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
+            } else if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(value.span, ownerPath, datatype));
             } else {
-                const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
-                const actualKind = resolvedValueKind(resolved);
-                if (mode === 'strict' && !expectedKinds && actualKind === 'SwitchLiteral') {
-                    errors.push(new CustomSwitchAliasNotAllowedError(value.span, ownerPath, datatype));
+                if (mode === 'strict' && !expectedKinds && actualKind === 'ToggleLiteral') {
+                    errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
                 } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
                 } else if (!expectedKinds) {
@@ -693,7 +699,7 @@ function validateNodeHeadDatatypes(
 }
 
 function formatTypeAnnotation(datatype: NonNullable<Extract<Value, { type: 'NodeLiteral' }>['datatype']>): string {
-    const name = datatype.name === 'switch' ? 'toggle' : datatype.name;
+    const name = datatype.name;
     const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
     const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
     const separators = datatype.separators.map((separator) => `[${separator}]`).join('');
@@ -865,7 +871,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'string') return ['StringLiteral'];
     if (base === 'trimtick' || base === 'prose') return ['TrimtickStringLiteral'];
     if (base === 'boolean' || base === 'bool') return ['BooleanLiteral'];
-    if (base === 'toggle' || base === 'switch') return ['SwitchLiteral'];
+    if (base === 'toggle') return ['ToggleLiteral'];
     if (base === 'hex') return ['HexLiteral'];
     if (RADIX_TYPES.has(base)) return ['RadixLiteral'];
     if (ENCODING_TYPES.has(base)) return ['EncodingLiteral'];

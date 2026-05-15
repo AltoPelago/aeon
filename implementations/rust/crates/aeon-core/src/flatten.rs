@@ -834,7 +834,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
             delimiter: *delimiter,
             trimticks: trimticks.clone(),
         },
-        Value::SwitchLiteral { .. } => Value::SwitchLiteral { raw: String::new() },
+        Value::ToggleLiteral { .. } => Value::ToggleLiteral { raw: String::new() },
         Value::BooleanLiteral { .. } => Value::BooleanLiteral { raw: String::new() },
         Value::HexLiteral { .. } => Value::HexLiteral { raw: String::new() },
         Value::SeparatorLiteral { .. } => Value::SeparatorLiteral { raw: String::new() },

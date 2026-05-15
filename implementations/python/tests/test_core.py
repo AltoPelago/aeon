@@ -168,10 +168,10 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
         self.assertEqual([], result.errors)
 
-    def test_strict_mode_rejects_custom_switch_alias_even_with_allow_custom(self) -> None:
-        source = 'aeon:mode = "strict"\ns:mySwitch = on'
+    def test_strict_mode_rejects_custom_toggle_alias_even_with_allow_custom(self) -> None:
+        source = 'aeon:mode = "strict"\ns:myToggle = on'
         result = compile_source(source, CompileOptions(datatype_policy="allow_custom"))
-        self.assertEqual(["CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
+        self.assertEqual(["CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
 
     def test_custom_datatype_allowed_in_transport_mode_by_default(self) -> None:
         source = 'aeon:mode = "transport"\ncolor:stroke = #ff00ff'
@@ -188,10 +188,15 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
-    def test_custom_mode_allows_custom_switch_aliases(self) -> None:
-        source = 'aeon:mode = "custom"\ns:mySwitch = on'
+    def test_custom_mode_allows_custom_toggle_aliases(self) -> None:
+        source = 'aeon:mode = "custom"\ns:myToggle = on'
         result = compile_source(source)
         self.assertEqual([], result.errors)
+
+    def test_custom_mode_rejects_removed_toggle_datatype_spelling(self) -> None:
+        source = 'aeon:mode = "custom"\ns:switch = on'
+        result = compile_source(source)
+        self.assertEqual(["CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"], [error.code for error in result.errors])
 
     def test_prose_reserved_alias_accepts_trimticks_in_strict_mode(self) -> None:
         source = 'aeon:mode = "strict"\nbody:prose = >`\n  # Heading\n\n  Markdown-ish content.\n`'
@@ -484,9 +489,9 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
         self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
-    def test_strict_mode_untyped_switch_uses_aligned_message(self) -> None:
+    def test_strict_mode_untyped_toggle_uses_aligned_message(self) -> None:
         result = compile_source('aeon:mode = "strict"\ndebug = yes')
-        self.assertEqual(["UNTYPED_SWITCH_LITERAL"], [error.code for error in result.errors])
+        self.assertEqual(["UNTYPED_TOGGLE_LITERAL"], [error.code for error in result.errors])
         self.assertEqual(
             "Untyped toggle literal in typed mode: '$.debug' requires ':toggle' type annotation",
             result.errors[0].message,
@@ -627,7 +632,7 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "transport"\na = 1-1\n')
         self.assertEqual(["INVALID_NUMBER"], [error.code for error in result.errors])
 
-    def test_custom_mode_untyped_switch_uses_general_typed_mode_error(self) -> None:
+    def test_custom_mode_untyped_toggle_uses_general_typed_mode_error(self) -> None:
         result = compile_source('aeon:mode = "custom"\nflag = yes\n')
         self.assertEqual(["UNTYPED_VALUE_IN_STRICT_MODE"], [error.code for error in result.errors])
 

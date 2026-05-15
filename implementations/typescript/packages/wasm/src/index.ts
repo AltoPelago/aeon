@@ -178,15 +178,7 @@ function normalizeEvent(event: EventSummary): EventSummary {
   return {
     path: event.path,
     key: event.key,
-    datatype: normalizeDatatype(event.datatype ?? null),
-    valueType: normalizeValueType(event.valueType),
+    datatype: event.datatype ?? null,
+    valueType: event.valueType,
   };
-}
-
-function normalizeDatatype(datatype: string | null): string | null {
-  return datatype === 'switch' ? 'toggle' : datatype;
-}
-
-function normalizeValueType(valueType: string): string {
-  return valueType === 'SwitchLiteral' ? 'ToggleLiteral' : valueType;
 }

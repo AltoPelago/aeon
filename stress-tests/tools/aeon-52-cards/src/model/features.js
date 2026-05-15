@@ -155,7 +155,7 @@ const valueFeatures = [
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('sw');
-      return { text: `${k}:toggle = on`, expectPass: true, isBinding: true, metadata: { valueType: 'SwitchLiteral' } };
+      return { text: `${k}:toggle = on`, expectPass: true, isBinding: true, metadata: { valueType: 'ToggleLiteral' } };
     },
   },
   {
@@ -165,7 +165,7 @@ const valueFeatures = [
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('sw');
-      return { text: `${k}:toggle = off`, expectPass: true, isBinding: true, metadata: { valueType: 'SwitchLiteral' } };
+      return { text: `${k}:toggle = off`, expectPass: true, isBinding: true, metadata: { valueType: 'ToggleLiteral' } };
     },
   },
   {
@@ -599,7 +599,7 @@ const typeAnnotationFeatures = [
     contexts: ['top'],
     generate() {
       const k = uniqueKey('tp');
-      return { text: `${k}:mySwitch = yes`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'toggle-custom-type' } };
+      return { text: `${k}:myToggle = yes`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'toggle-custom-type' } };
     },
   },
   {
