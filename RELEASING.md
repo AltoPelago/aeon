@@ -1,33 +1,41 @@
 # Releasing
 
-This repository is not publishing to npm yet, but the TypeScript workspace is prepared for a workspace-aware release flow when that decision is made.
+The TypeScript implementation publishes public packages to npm under the
+`@altopelago` scope.
 
 For cross-repo branching and per-implementation release strategy, see
 [`docs/release-strategy.md`](./docs/release-strategy.md).
 
 ## Scope
 
-The intended first npm release wave is the application-facing TypeScript implementation surface:
+The public npm implementation surface is:
 
-- `@altopelago/aeon-lexer`
-- `@altopelago/aeon-parser`
 - `@altopelago/aeon-aes`
 - `@altopelago/aeon-annotation-stream`
+- `@altopelago/aeon-canonical`
+- `@altopelago/aeon-cli`
 - `@altopelago/aeon-core`
 - `@altopelago/aeon-finalize`
-- `@altopelago/aeon-canonical`
+- `@altopelago/aeon-integrity`
+- `@altopelago/aeon-lexer`
+- `@altopelago/aeon-parser`
+- `@altopelago/aeon-profiles`
 - `@altopelago/aeon-runtime`
+- `@altopelago/aeon-sdk`
+- `@altopelago/aeon-tonic`
+- `@altopelago/aeon-transport`
+- `@altopelago/aeon-typegen`
+- `@altopelago/aeon-wasm`
 - `@altopelago/aeos-core`
 
-Tooling, CTS helpers, fuzzing, and internal support packages should not be published as part of the first wave.
+Tooling, CTS helpers, fuzzing, and internal support packages should not be published.
 
 ## Why Publish From The Workspace Root
 
 Several packages depend on one another using `workspace:*`.
 The release flow should therefore run from the TypeScript workspace root so pnpm can:
 
-- publish packages in dependency order
-- rewrite internal `workspace:*` dependencies to the released version
+- pack packages with internal `workspace:*` dependencies rewritten to the released version
 - use the already-defined workspace build scripts
 
 Avoid ad hoc folder-by-folder `npm publish`.
@@ -44,18 +52,15 @@ From `implementations/typescript/`:
 Recommended commands:
 
 ```bash
-pnpm install
-pnpm build
-pnpm test:cts:all
-pnpm test
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm ci
+pnpm publish:preflight
 ```
 
-Optional dry-run pack verification for the first wave:
+Optional dry-run npm publish verification:
 
 ```bash
-for pkg in lexer parser aes annotation-stream core finalize canonical runtime aeos; do
-  (cd packages/$pkg && npm pack --dry-run --json)
-done
+pnpm publish:npm:dry-run
 ```
 
 The expected tarballs should:
@@ -66,21 +71,27 @@ The expected tarballs should:
 
 ## Publish Flow
 
-Run the publish from `implementations/typescript/`:
+Preferred release path:
+
+1. Configure npm trusted publishing for each public package, pointing at
+   `AltoPelago/aeon` and `.github/workflows/npm-publish.yml`.
+2. Run the `npm Publish` workflow from GitHub Actions with `dry_run` enabled.
+3. If the dry run is clean, rerun the workflow with `dry_run` disabled.
+
+The workflow uses GitHub OIDC (`id-token: write`) and npm provenance rather than
+long-lived npm tokens. It packs with `pnpm pack`, then publishes the resulting
+tarballs with `npm publish --provenance --access public` in local dependency
+order.
+
+Manual local publishing is a fallback only. If it is needed, run from
+`implementations/typescript/` after the full preflight:
 
 ```bash
-pnpm -r \
-  --filter @altopelago/aeon-lexer \
-  --filter @altopelago/aeon-parser \
-  --filter @altopelago/aeon-aes \
-  --filter @altopelago/aeon-annotation-stream \
-  --filter @altopelago/aeon-core \
-  --filter @altopelago/aeon-finalize \
-  --filter @altopelago/aeon-canonical \
-  --filter @altopelago/aeon-runtime \
-  --filter @altopelago/aeos-core \
-  publish --access public --no-git-checks
+pnpm publish:preflight
+pnpm publish:npm --no-provenance
 ```
+
+Prefer the CI path for public releases so npm can attach package provenance.
 
 ## Notes
 
@@ -95,7 +106,7 @@ pnpm -r \
 - The current `@types/node 25.8.0` uplift is also an intentional workspace
   toolchain baseline change and should be reviewed with the same
   publish-surface policy even though it is a developer-tooling update.
-- If public package names or the first-wave package set changes, update this document first.
+- If public package names or the package set changes, update this document first.
 - Specs and CTS remain authoritative in sibling repos:
   - [aeonite-specs](https://github.com/aeonite-org/aeonite-specs)
   - [aeonite-cts](https://github.com/aeonite-org/aeonite-cts)

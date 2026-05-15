@@ -30,16 +30,24 @@ const policyDocs = new Set([
   'docs/release-strategy.md',
 ]);
 
-const firstWavePackageJsons = new Set([
-  'implementations/typescript/packages/lexer/package.json',
-  'implementations/typescript/packages/parser/package.json',
+const publicPackageJsons = new Set([
+  'implementations/typescript/packages/aeos/package.json',
   'implementations/typescript/packages/aes/package.json',
   'implementations/typescript/packages/annotation-stream/package.json',
+  'implementations/typescript/packages/canonical/package.json',
+  'implementations/typescript/packages/cli/package.json',
   'implementations/typescript/packages/core/package.json',
   'implementations/typescript/packages/finalize/package.json',
-  'implementations/typescript/packages/canonical/package.json',
+  'implementations/typescript/packages/integrity/package.json',
+  'implementations/typescript/packages/lexer/package.json',
+  'implementations/typescript/packages/parser/package.json',
+  'implementations/typescript/packages/profiles/package.json',
   'implementations/typescript/packages/runtime/package.json',
-  'implementations/typescript/packages/aeos/package.json',
+  'implementations/typescript/packages/sdk/package.json',
+  'implementations/typescript/packages/tonic/package.json',
+  'implementations/typescript/packages/transport/package.json',
+  'implementations/typescript/packages/typegen/package.json',
+  'implementations/typescript/packages/wasm/package.json',
 ]);
 
 const publishFields = [
@@ -102,7 +110,7 @@ for (const file of changedFiles) {
     continue;
   }
 
-  if (firstWavePackageJsons.has(file)) {
+  if (publicPackageJsons.has(file)) {
     continue;
   }
 

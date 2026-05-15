@@ -1,6 +1,8 @@
 {
   "name": "@altopelago/aeon-aes",
   "version": "0.9.0",
+  "description": "AEON encoded string helpers for the TypeScript implementation.",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,6 +19,29 @@
     "!dist/**/*.test.js",
     "!dist/**/*.test.js.map"
   ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AltoPelago/aeon.git",
+    "directory": "implementations/typescript/packages/aes"
+  },
+  "bugs": {
+    "url": "https://github.com/AltoPelago/aeon/issues"
+  },
+  "homepage": "https://github.com/AltoPelago/aeon/tree/main/implementations/typescript/packages/aes#readme",
+  "keywords": [
+    "aeon",
+    "aeonite",
+    "parser",
+    "schema",
+    "typescript"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/*.test.js",

@@ -1,6 +1,8 @@
 {
   "name": "@altopelago/aeon-cli",
   "version": "0.9.0",
+  "description": "Command-line tools for parsing, finalizing, and inspecting AEON documents.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "aeon": "./dist/main.js"
@@ -12,6 +14,29 @@
     "!dist/**/*.test.js",
     "!dist/**/*.test.js.map"
   ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AltoPelago/aeon.git",
+    "directory": "implementations/typescript/packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/AltoPelago/aeon/issues"
+  },
+  "homepage": "https://github.com/AltoPelago/aeon/tree/main/implementations/typescript/packages/cli#readme",
+  "keywords": [
+    "aeon",
+    "aeonite",
+    "parser",
+    "schema",
+    "typescript"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
