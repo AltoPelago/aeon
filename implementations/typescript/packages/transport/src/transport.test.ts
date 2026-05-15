@@ -85,6 +85,7 @@ test('inspectHeader parses contextual schema maps from structured headers', () =
     authoring = "altopelago.authoring_schema.v1"
     validation = "altopelago.validation_schema.v1"
     vendor_acme = "acme.vendor_schema.v1"
+    vendor-acme = "acme.vendor_dash_schema.v1"
   }
 }
 value = 1`;
@@ -94,6 +95,7 @@ value = 1`;
         authoring: 'altopelago.authoring_schema.v1',
         validation: 'altopelago.validation_schema.v1',
         vendor_acme: 'acme.vendor_schema.v1',
+        'vendor-acme': 'acme.vendor_dash_schema.v1',
     });
 });
 

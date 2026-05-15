@@ -27,6 +27,7 @@
     "@altopelago/aeon-lexer": "workspace:*",
     "@altopelago/aeon-parser": "workspace:*",
     "@altopelago/aeon-profiles": "workspace:*",
+    "@altopelago/aeon-transport": "workspace:*",
     "@altopelago/aeon-tonic": "workspace:*",
     "@altopelago/aeos-core": "workspace:*"
   }

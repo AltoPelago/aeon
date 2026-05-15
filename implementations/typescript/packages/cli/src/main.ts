@@ -70,6 +70,7 @@ import {
 } from '@altopelago/aeon-integrity';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse, type Binding, type Value } from '@altopelago/aeon-parser';
+import { inspectHeader } from '@altopelago/aeon-transport';
 import { runTypedRuntime } from './runtime-bind.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
@@ -2474,17 +2475,6 @@ function buildBindContractMeta(
     };
 }
 
-function extractSchemaContexts(headerBody: string): Record<string, string> {
-    const match = headerBody.match(/schemas(?:\s*:[^=\n]+)?\s*=\s*\{([\s\S]*?)\n[ \t]*\}/i);
-    if (!match) return {};
-    const body = match[1] ?? '';
-    const contexts: Record<string, string> = {};
-    for (const entry of body.matchAll(/(?:^|\n)[ \t]*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"/g)) {
-        contexts[entry[1]!] = entry[2]!;
-    }
-    return contexts;
-}
-
 function buildDeclaredInspectContractMeta(headerInfo: HeaderInfo) {
     const declared = {
         ...(headerInfo.schema ? { schema: headerInfo.schema } : {}),
@@ -2495,93 +2485,18 @@ function buildDeclaredInspectContractMeta(headerInfo: HeaderInfo) {
 }
 
 function extractHeaderInfo(input: string): HeaderInfo {
-    // Lightweight header extraction without depending on the parser/lexer.
-    // This intentionally uses simple regexes to find header shorthand or
-    // structured header fields. It's only used for human-readable metadata
-    // in the CLI output and must not affect compilation behavior.
     try {
-        let mode: HeaderInfo['mode'] = 'transport';
-        let version: string | null = null;
-        let profile: string | null = null;
-        let schema: string | null = null;
-        let schemas: Record<string, string> = {};
-
-        // Shorthand header fields: aeon:mode = "strict"
-        const modeMatch = input.match(/aeon:mode\s*=\s*"(strict|transport|custom)"/i);
-        const modeGroup = modeMatch?.[1];
-        if (modeGroup) mode = modeGroup.toLowerCase() as HeaderInfo['mode'];
-
-        const vMatch = input.match(/aeon:version\s*=\s*"([^"]*)"/i);
-        version = vMatch?.[1] ?? null;
-
-        const pMatch = input.match(/aeon:profile\s*=\s*"([^"]*)"/i);
-        profile = pMatch?.[1] ?? null;
-
-        const sMatch = input.match(/aeon:schema\s*=\s*"([^"]*)"/i);
-        schema = sMatch?.[1] ?? null;
-
-        const body = extractStructuredHeaderBody(input);
-        if (body !== null) {
-            const hv = body.match(/version\s*=\s*"([^"]*)"/i);
-            version = hv?.[1] ?? version;
-            const hp = body.match(/profile\s*=\s*"([^"]*)"/i);
-            profile = hp?.[1] ?? profile;
-            const hs = body.match(/schema\s*=\s*"([^"]*)"/i);
-            schema = hs?.[1] ?? schema;
-            schemas = extractSchemaContexts(body);
-            const hm = body.match(/mode\s*=\s*"(strict|transport)"/i);
-            const hmGroup = hm?.[1];
-            if (hmGroup) mode = hmGroup.toLowerCase() as HeaderInfo['mode'];
-        }
-
-        return { mode, version, profile, schema, schemas };
+        const header = inspectHeader(input).header;
+        return {
+            mode: header.mode ?? 'transport',
+            version: header.version ?? null,
+            profile: header.profile ?? null,
+            schema: header.schema ?? null,
+            schemas: header.schemas ?? {},
+        };
     } catch {
         return { mode: 'transport', version: null, profile: null, schema: null, schemas: {} };
     }
-}
-
-function extractStructuredHeaderBody(input: string): string | null {
-    const headerStart = input.match(/aeon:header\s*=/i);
-    if (headerStart?.index === undefined) return null;
-    const searchStart = headerStart.index + headerStart[0].length;
-    const openIndex = input.indexOf('{', searchStart);
-    if (openIndex < 0) return null;
-
-    let depth = 0;
-    let quote: '"' | "'" | '`' | null = null;
-    let escaped = false;
-    for (let i = openIndex; i < input.length; i++) {
-        const char = input[i]!;
-        if (quote !== null) {
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (quote !== '`' && char === '\\') {
-                escaped = true;
-                continue;
-            }
-            if (char === quote) {
-                quote = null;
-            }
-            continue;
-        }
-        if (char === '"' || char === "'" || char === '`') {
-            quote = char;
-            continue;
-        }
-        if (char === '{') {
-            depth += 1;
-            continue;
-        }
-        if (char === '}') {
-            depth -= 1;
-            if (depth === 0) {
-                return input.slice(openIndex + 1, i);
-            }
-        }
-    }
-    return null;
 }
 
 function createCanonicalReceipt(

@@ -80,6 +80,9 @@ importers:
       '@altopelago/aeon-tonic':
         specifier: workspace:*
         version: link:../tonic
+      '@altopelago/aeon-transport':
+        specifier: workspace:*
+        version: link:../transport
       '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../aeos
@@ -220,6 +223,9 @@ importers:
       '@altopelago/aeon-profiles':
         specifier: workspace:*
         version: link:../../packages/profiles
+      '@altopelago/aeon-transport':
+        specifier: workspace:*
+        version: link:../../packages/transport
       '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../../packages/aeos

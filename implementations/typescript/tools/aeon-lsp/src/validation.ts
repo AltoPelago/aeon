@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { compile as compileCore, type AEONError } from '@altopelago/aeon-core';
 import { finalizeJson } from '@altopelago/aeon-finalize';
 import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@altopelago/aeon-profiles';
+import { inspectHeader } from '@altopelago/aeon-transport';
 import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@altopelago/aeos-core';
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node.js';
 
@@ -419,69 +420,10 @@ function fromCoreError(error: AEONError): Diagnostic {
 
 function extractHeaderInfo(input: string | null): { profile: string | null; schema: string | null; schemas: Record<string, string> } {
     if (!input) return { profile: null, schema: null, schemas: {} };
-    const profileShorthand = input.match(/aeon:profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const schemaShorthand = input.match(/aeon:schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const headerBody = extractStructuredHeaderBody(input) ?? '';
-    const profileHeader = headerBody.match(/profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const schemaHeader = headerBody.match(/schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const schemas = extractSchemaContexts(headerBody);
+    const header = inspectHeader(input).header;
     return {
-        profile: profileShorthand ?? profileHeader,
-        schema: schemaShorthand ?? schemaHeader,
-        schemas,
+        profile: header.profile ?? null,
+        schema: header.schema ?? null,
+        schemas: { ...(header.schemas ?? {}) },
     };
-}
-
-function extractStructuredHeaderBody(input: string): string | null {
-    const headerStart = input.match(/aeon:header\s*=/i);
-    if (headerStart?.index === undefined) return null;
-    const openIndex = input.indexOf('{', headerStart.index + headerStart[0].length);
-    if (openIndex < 0) return null;
-
-    let depth = 0;
-    let quote: '"' | "'" | '`' | null = null;
-    let escaped = false;
-    for (let i = openIndex; i < input.length; i++) {
-        const char = input[i]!;
-        if (quote !== null) {
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (quote !== '`' && char === '\\') {
-                escaped = true;
-                continue;
-            }
-            if (char === quote) quote = null;
-            continue;
-        }
-        if (char === '"' || char === "'" || char === '`') {
-            quote = char;
-            continue;
-        }
-        if (char === '{') {
-            depth += 1;
-            continue;
-        }
-        if (char === '}') {
-            depth -= 1;
-            if (depth === 0) return input.slice(openIndex + 1, i);
-        }
-    }
-    return null;
-}
-
-function extractSchemaContexts(headerBody: string): Record<string, string> {
-    const match = headerBody.match(/schemas\s*=\s*\{([\s\S]*?)\}/i);
-    if (!match) return {};
-    const body = match[1] ?? '';
-    const contexts: Record<string, string> = {};
-    for (const rawLine of body.split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        const entry = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]*)"$/);
-        if (!entry) continue;
-        contexts[entry[1]!] = entry[2]!;
-    }
-    return contexts;
 }
