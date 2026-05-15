@@ -1,25 +1,26 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use aeon_aeos::{
     AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ReferencePathSegment,
     ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions, validate,
 };
 use aeon_core::{
-    AssignmentEvent, CompileOptions, Diagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
-    Value, compile, normalize_number_literal,
+    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
+    ReferenceSegment, Value, compile, normalize_number_literal,
 };
 use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
 use serde::de::DeserializeOwned;
-use serde_json::{Value as JsonValue, json};
+use serde_json::{Map as JsonMap, Value as JsonValue, json};
 
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
     pub compile: CompileOptions,
     pub finalize: FinalizeOptions,
     pub schema: Option<Schema>,
+    pub schema_file: Option<PathBuf>,
     pub validation: ValidationOptions,
 }
 
@@ -34,6 +35,7 @@ pub struct LoadedDocument<T> {
 pub enum AeonLoadError {
     Read(std::io::Error),
     Compile(Vec<Diagnostic>),
+    SchemaLoad(String),
     Schema(ResultEnvelope),
     Finalize(aeon_finalize::FinalizeMeta),
     Deserialize(serde_json::Error),
@@ -46,6 +48,7 @@ impl fmt::Display for AeonLoadError {
             Self::Compile(errors) => {
                 write!(f, "AEON compile failed with {} error(s)", errors.len())
             }
+            Self::SchemaLoad(message) => write!(f, "{message}"),
             Self::Schema(result) => {
                 write!(
                     f,
@@ -72,7 +75,7 @@ impl std::error::Error for AeonLoadError {
         match self {
             Self::Read(error) => Some(error),
             Self::Deserialize(error) => Some(error),
-            Self::Compile(_) | Self::Schema(_) | Self::Finalize(_) => None,
+            Self::Compile(_) | Self::SchemaLoad(_) | Self::Schema(_) | Self::Finalize(_) => None,
         }
     }
 }
@@ -86,7 +89,15 @@ pub fn load_str<T: DeserializeOwned>(
         return Err(AeonLoadError::Compile(compiled.errors));
     }
 
-    let validation = if let Some(schema) = options.schema {
+    let schema = if let Some(schema) = options.schema {
+        Some(schema)
+    } else if let Some(schema_file) = options.schema_file.as_ref() {
+        Some(load_schema_file(schema_file)?)
+    } else {
+        None
+    };
+
+    let validation = if let Some(schema) = schema {
         let result = validate(&ValidationEnvelope {
             aes: core_events_to_aeos(&compiled.events),
             schema: Some(schema),
@@ -118,6 +129,23 @@ pub fn load_file<T: DeserializeOwned, P: AsRef<Path>>(
     load_str(&source, options)
 }
 
+pub fn load_schema_file<P: AsRef<Path>>(path: P) -> Result<Schema, AeonLoadError> {
+    let path_ref = path.as_ref();
+    let source = fs::read_to_string(path_ref).map_err(AeonLoadError::Read)?;
+    if path_ref
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+    {
+        return load_schema_str_with_label(&source, &path_ref.display().to_string(), true);
+    }
+    load_schema_str_with_label(&source, &path_ref.display().to_string(), false)
+}
+
+pub fn load_schema_str(source: &str) -> Result<Schema, AeonLoadError> {
+    load_schema_str_with_label(source, "<memory>", false)
+}
+
 impl From<MaterializeError> for AeonLoadError {
     fn from(value: MaterializeError) -> Self {
         match value {
@@ -126,6 +154,339 @@ impl From<MaterializeError> for AeonLoadError {
             MaterializeError::Deserialize(error) => Self::Deserialize(error),
         }
     }
+}
+
+fn load_schema_str_with_label(
+    source: &str,
+    label: &str,
+    force_json: bool,
+) -> Result<Schema, AeonLoadError> {
+    if force_json || source.trim_start().starts_with('{') {
+        let parsed: JsonValue = serde_json::from_str(source).map_err(|error| {
+            AeonLoadError::SchemaLoad(format!("failed to parse schema {label}: {error}"))
+        })?;
+        return normalize_legacy_schema_contract_value(parsed, label)
+            .map_err(AeonLoadError::SchemaLoad);
+    }
+
+    let compiled = compile(
+        source,
+        CompileOptions {
+            datatype_policy: Some(DatatypePolicy::AllowCustom),
+            ..CompileOptions::default()
+        },
+    );
+    if !compiled.errors.is_empty() {
+        return Err(AeonLoadError::SchemaLoad(format!(
+            "Schema contract AEON file failed to parse: {label}"
+        )));
+    }
+    let document: JsonValue =
+        finalize_into(&compiled.events, FinalizeOptions::default()).map_err(AeonLoadError::from)?;
+    if !has_aeos_schema_root(&compiled.events) {
+        return normalize_legacy_schema_contract_value(document, label)
+            .map_err(AeonLoadError::SchemaLoad);
+    }
+    let aeos_root = document
+        .as_object()
+        .and_then(|object| object.get("aeos"))
+        .and_then(JsonValue::as_object)
+        .cloned()
+        .ok_or_else(|| {
+            AeonLoadError::SchemaLoad(format!(
+                "Schema document missing required '$.aeos' object: {label}"
+            ))
+        })?;
+    normalize_aeos_schema_value(JsonValue::Object(aeos_root), label)
+        .map_err(AeonLoadError::SchemaLoad)
+}
+
+fn has_aeos_schema_root(events: &[AssignmentEvent]) -> bool {
+    events.iter().any(|event| {
+        event.key == "aeos"
+            && event.datatype.as_deref() == Some("schema")
+            && matches!(event.path.segments.as_slice(), [PathSegment::Root, PathSegment::Member(key)] if key == "aeos")
+    })
+}
+
+fn normalize_legacy_schema_contract_value(parsed: JsonValue, file: &str) -> Result<Schema, String> {
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| format!("Schema file must be a JSON object: {file}"))?;
+    let allowed_top_level = [
+        "schema_id",
+        "schema_version",
+        "rules",
+        "world",
+        "reference_policy",
+        "datatype_rules",
+        "datatype_allowlist",
+    ];
+    for key in object.keys() {
+        if !allowed_top_level.contains(&key.as_str()) {
+            return Err(format!("Unknown schema contract key '{key}' in {file}"));
+        }
+    }
+    match object.get("schema_id") {
+        Some(JsonValue::String(value)) if !value.is_empty() => {}
+        _ => {
+            return Err(format!(
+                "Schema contract missing required string field 'schema_id': {file}"
+            ));
+        }
+    }
+    match object.get("schema_version") {
+        Some(JsonValue::String(value)) if !value.is_empty() => {}
+        _ => {
+            return Err(format!(
+                "Schema contract missing required string field 'schema_version': {file}"
+            ));
+        }
+    }
+    materialize_schema(
+        object.get("rules").ok_or_else(|| {
+            format!("Schema contract missing required array field 'rules': {file}")
+        })?,
+        object.get("world"),
+        object.get("reference_policy"),
+        object.get("datatype_allowlist"),
+        object.get("datatype_rules"),
+        file,
+        false,
+    )
+}
+
+fn normalize_aeos_schema_value(parsed: JsonValue, file: &str) -> Result<Schema, String> {
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| format!("Schema document root must be an object: {file}"))?;
+    let allowed_top_level = [
+        "id",
+        "version",
+        "rules",
+        "patterns",
+        "charsets",
+        "world",
+        "reference_policy",
+        "datatype_rules",
+        "datatype_allowlist",
+    ];
+    for key in object.keys() {
+        if !allowed_top_level.contains(&key.as_str()) {
+            return Err(format!("Unknown schema document key '{key}' in {file}"));
+        }
+    }
+    match object.get("id") {
+        Some(JsonValue::String(value)) if !value.is_empty() => {}
+        _ => {
+            return Err(format!(
+                "Schema document missing required string field 'id': {file}"
+            ));
+        }
+    }
+    match object.get("version") {
+        Some(JsonValue::String(value)) if !value.is_empty() => {}
+        _ => {
+            return Err(format!(
+                "Schema document missing required string field 'version': {file}"
+            ));
+        }
+    }
+    materialize_schema(
+        object
+            .get("rules")
+            .ok_or_else(|| format!("Schema document missing required field 'rules': {file}"))?,
+        object.get("world"),
+        object.get("reference_policy"),
+        object.get("datatype_allowlist"),
+        object.get("datatype_rules"),
+        file,
+        true,
+    )
+}
+
+fn materialize_schema(
+    rules_raw: &JsonValue,
+    world: Option<&JsonValue>,
+    reference_policy: Option<&JsonValue>,
+    datatype_allowlist: Option<&JsonValue>,
+    datatype_rules: Option<&JsonValue>,
+    file: &str,
+    allow_object_rules: bool,
+) -> Result<Schema, String> {
+    let world_value = match world {
+        Some(JsonValue::String(value)) if value == "open" || value == "closed" => value.clone(),
+        Some(_) => {
+            return Err(format!(
+                "Schema contract field 'world' must be \"open\" or \"closed\": {file}"
+            ));
+        }
+        None => String::from("open"),
+    };
+    let reference_policy_value = match reference_policy {
+        Some(JsonValue::String(value)) if value == "allow" || value == "forbid" => {
+            Some(value.clone())
+        }
+        Some(_) => {
+            return Err(format!(
+                "Schema contract field 'reference_policy' must be \"allow\" or \"forbid\": {file}"
+            ));
+        }
+        None => None,
+    };
+    let datatype_allowlist_value = match datatype_allowlist {
+        Some(JsonValue::Array(items)) => {
+            let mut values = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(value) = item.as_str() else {
+                    return Err(format!(
+                        "Schema contract field 'datatype_allowlist' must be array<string>: {file}"
+                    ));
+                };
+                values.push(value.to_string());
+            }
+            values
+        }
+        Some(_) => {
+            return Err(format!(
+                "Schema contract field 'datatype_allowlist' must be array<string>: {file}"
+            ));
+        }
+        None => Vec::new(),
+    };
+    let datatype_rules_value = match datatype_rules {
+        Some(JsonValue::Object(map)) => {
+            let mut projected = std::collections::BTreeMap::new();
+            for (key, value) in map {
+                let projected_value =
+                    project_constraints(value, &format!("datatype_rules.{key}"), file)?;
+                projected.insert(key.clone(), projected_value);
+            }
+            projected
+        }
+        Some(_) => {
+            return Err(format!(
+                "Schema contract field 'datatype_rules' must be object: {file}"
+            ));
+        }
+        None => std::collections::BTreeMap::new(),
+    };
+    let rules = materialize_rules(rules_raw, file, allow_object_rules)?;
+
+    Ok(Schema {
+        rules,
+        datatype_rules: datatype_rules_value,
+        datatype_allowlist: datatype_allowlist_value,
+        world: world_value,
+        reference_policy: reference_policy_value,
+    })
+}
+
+fn materialize_rules(
+    rules_raw: &JsonValue,
+    file: &str,
+    allow_object_rules: bool,
+) -> Result<Vec<aeon_aeos::SchemaRule>, String> {
+    match rules_raw {
+        JsonValue::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, rule)| {
+                let object = rule.as_object().ok_or_else(|| {
+                    format!("Schema contract rule at index {index} is not an object: {file}")
+                })?;
+                let path = object
+                    .get("path")
+                    .and_then(JsonValue::as_str)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        format!(
+                            "Schema contract rule at index {index} missing string 'path': {file}"
+                        )
+                    })?;
+                let constraints = object.get("constraints").ok_or_else(|| {
+                    format!(
+                        "Schema contract rule at index {index} missing object 'constraints': {file}"
+                    )
+                })?;
+                Ok(aeon_aeos::SchemaRule {
+                    path: Some(path.to_string()),
+                    constraints: project_constraints(constraints, path, file)?,
+                })
+            })
+            .collect(),
+        JsonValue::Object(map) if allow_object_rules => map
+            .iter()
+            .map(|(path, constraints)| {
+                Ok(aeon_aeos::SchemaRule {
+                    path: Some(path.clone()),
+                    constraints: project_constraints(constraints, path, file)?,
+                })
+            })
+            .collect(),
+        _ if allow_object_rules => Err(format!(
+            "Schema contract field 'rules' must be object or array: {file}"
+        )),
+        _ => Err(format!(
+            "Schema contract missing required array field 'rules': {file}"
+        )),
+    }
+}
+
+fn project_constraints(
+    constraints: &JsonValue,
+    owner: &str,
+    file: &str,
+) -> Result<JsonValue, String> {
+    let object = constraints.as_object().ok_or_else(|| {
+        format!("Schema rule '{owner}' must define constraints as an object: {file}")
+    })?;
+    let mut projected: JsonMap<String, JsonValue> = object.clone();
+    if let Some(path_selector) = projected.remove("reference_target_path") {
+        if projected.contains_key("reference_target_pattern") {
+            return Err(format!(
+                "Schema rule '{owner}' cannot declare both 'reference_target_path' and 'reference_target_pattern': {file}"
+            ));
+        }
+        let selector = path_selector.as_str().filter(|value| !value.is_empty()).ok_or_else(|| {
+            format!(
+                "Schema rule '{owner}' field 'reference_target_path' must be a non-empty string: {file}"
+            )
+        })?;
+        projected.insert(
+            String::from("reference_target_pattern"),
+            JsonValue::String(reference_target_path_to_pattern(selector)?),
+        );
+    }
+    Ok(JsonValue::Object(projected))
+}
+
+fn reference_target_path_to_pattern(selector: &str) -> Result<String, String> {
+    if selector.replace("[*]", "").contains('*') {
+        return Err(format!(
+            "Unsupported reference_target_path selector: {selector}"
+        ));
+    }
+    let placeholder = "__AEOS_WILDCARD_INDEX__";
+    Ok(format!(
+        "^{}$",
+        escape_regex(&selector.replace("[*]", placeholder))
+            .replace(&escape_regex(placeholder), r"\[\d+\]",)
+    ))
+}
+
+fn escape_regex(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
@@ -312,6 +673,7 @@ fn reference_segment_to_json(segment: &ReferenceSegment) -> JsonValue {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::fs;
 
     use super::*;
     use aeon_aeos::{Schema, SchemaRule};
@@ -464,6 +826,51 @@ mod tests {
         )
         .expect_err("schema failure");
         assert!(matches!(error, AeonLoadError::Schema(_)));
+    }
+
+    #[test]
+    fn loads_schema_from_aeos_document() {
+        let schema = load_schema_str(
+            "aeos:schema = {\n  id = \"com.example.person\"\n  version = \"1\"\n  world = \"closed\"\n  rules = {\n    \"$.ages[*]\" = {\n      type = \"IntegerLiteral\"\n      reference_target_path = \"$.people[*].age\"\n    }\n  }\n}\n",
+        )
+        .expect("schema load success");
+        assert_eq!(schema.world, "closed");
+        assert_eq!(schema.rules[0].path.as_deref(), Some("$.ages[*]"));
+        assert_eq!(
+            schema.rules[0]
+                .constraints
+                .get("reference_target_pattern")
+                .and_then(JsonValue::as_str),
+            Some(r"^\$\.people\[\d+\]\.age$")
+        );
+    }
+
+    #[test]
+    fn loads_document_with_schema_file_option() {
+        let schema_path = std::env::temp_dir().join(format!(
+            "aeon-schema-{}.aeos",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("duration")
+                .as_nanos()
+        ));
+        fs::write(
+            &schema_path,
+            "aeos:schema = {\n  id = \"com.example.port\"\n  version = \"1\"\n  rules = {\n    \"$.port\" = { required = true, type = \"IntegerLiteral\" }\n  }\n}\n",
+        )
+        .expect("write schema");
+
+        let loaded = load_str::<BTreeMap<String, JsonValue>>(
+            "port = 8080\n",
+            LoadOptions {
+                schema_file: Some(schema_path.clone()),
+                ..LoadOptions::default()
+            },
+        )
+        .expect("load success");
+        assert!(loaded.validation.as_ref().is_some_and(|result| result.ok));
+
+        let _ = fs::remove_file(schema_path);
     }
 
     fn build_schema() -> Schema {

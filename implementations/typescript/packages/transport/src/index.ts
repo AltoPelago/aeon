@@ -10,6 +10,7 @@ export interface HeaderInfo {
     mode?: 'transport' | 'strict';
     profile?: string;
     schema?: string;
+    schemas?: Readonly<Record<string, string>>;
     encoding?: string;
 }
 
@@ -242,9 +243,18 @@ function parseHeaderLine(line: string): { key: string; value: string } | null {
 
 function parseStructuredHeader(body: string, header: HeaderInfo): void {
     const lines = body.split(/\r?\n/);
-    for (const raw of lines) {
+    for (let i = 0; i < lines.length; i += 1) {
+        const raw = lines[i] ?? '';
         const line = raw.trim();
         if (!line || line.startsWith('//')) continue;
+        if (line.startsWith('schemas')) {
+            const block = collectBraceBlock(lines, i);
+            if (block) {
+                header.schemas = parseHeaderSchemaContexts(block.body);
+                i = block.endIndex;
+                continue;
+            }
+        }
         const equals = findAssignmentEquals(line, 0);
         if (equals === -1) continue;
         const key = line.slice(0, equals).trim();
@@ -254,6 +264,23 @@ function parseStructuredHeader(body: string, header: HeaderInfo): void {
         const value = stripQuotes(rawValue);
         applyHeaderField(header, key, value);
     }
+}
+
+function parseHeaderSchemaContexts(body: string): Record<string, string> {
+    const contexts: Record<string, string> = {};
+    const lines = body.split(/\r?\n/);
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('//')) continue;
+        const equals = findAssignmentEquals(line, 0);
+        if (equals === -1) continue;
+        const key = line.slice(0, equals).trim();
+        if (!isHeaderFieldName(key)) continue;
+        const rawValue = line.slice(equals + 1).trim();
+        if (!rawValue) continue;
+        contexts[key] = stripQuotes(rawValue);
+    }
+    return contexts;
 }
 
 function findAssignmentEquals(line: string, start: number): number {

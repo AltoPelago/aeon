@@ -33,7 +33,7 @@ export function getConfiguredDiagnostics(text: string, documentPath: string | nu
     if (config.enabled === false) return [];
 
     const diagnostics: Diagnostic[] = [];
-    const resolved = resolveValidationInputs(documentPath, config, diagnostics);
+    const resolved = resolveValidationInputs(text, documentPath, config, diagnostics);
     if (!resolved) return diagnostics;
 
     const compileResult = compileProfile(text, {
@@ -67,18 +67,32 @@ export function getConfiguredDiagnostics(text: string, documentPath: string | nu
 }
 
 function resolveValidationInputs(
+    text: string,
     documentPath: string | null,
     config: ValidationConfig,
     diagnostics: Diagnostic[],
 ): { profile: string | null; schema: SchemaV1 | null } | null {
     const baseDir = documentPath ? path.dirname(documentPath) : process.cwd();
-    const headerInfo = extractHeaderInfo(documentPath ? safeRead(documentPath) : null);
+    const headerInfo = extractHeaderInfo(text);
     const registryPath = config.contractRegistry
         ? resolvePath(baseDir, config.contractRegistry)
         : null;
     const registry = registryPath ? readContractRegistry(registryPath, diagnostics) : null;
     if (registryPath && !registry) {
         return null;
+    }
+
+    if (config.profile && headerInfo.profile && config.profile !== headerInfo.profile) {
+        diagnostics.push(contractWarningDiagnostic(
+            `Applied profile '${config.profile}' overrides document-declared profile '${headerInfo.profile}'`,
+            'DECLARED_PROFILE_OVERRIDDEN',
+        ));
+    }
+    if (config.schema && headerInfo.schema && config.schema !== headerInfo.schema) {
+        diagnostics.push(contractWarningDiagnostic(
+            `Applied schema '${config.schema}' overrides document-declared schema '${headerInfo.schema}'`,
+            'DECLARED_SCHEMA_OVERRIDDEN',
+        ));
     }
 
     const profileId = config.profile ?? headerInfo.profile;
@@ -151,6 +165,19 @@ function fromSchemaDiagnostic(diag: SchemaDiagnostic, text: string, severity: Di
 function simpleDiagnostic(message: string, code: string): Diagnostic {
     return {
         severity: DiagnosticSeverity.Error,
+        message,
+        source: 'aeon-lsp',
+        code,
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 1 },
+        },
+    };
+}
+
+function contractWarningDiagnostic(message: string, code: string): Diagnostic {
+    return {
+        severity: DiagnosticSeverity.Warning,
         message,
         source: 'aeon-lsp',
         code,
@@ -389,24 +416,72 @@ function fromCoreError(error: AEONError): Diagnostic {
     };
 }
 
-function safeRead(file: string | null): string {
-    if (!file) return '';
-    try {
-        return fs.readFileSync(file, 'utf-8');
-    } catch {
-        return '';
-    }
-}
 
-function extractHeaderInfo(input: string | null): { profile: string | null; schema: string | null } {
-    if (!input) return { profile: null, schema: null };
+function extractHeaderInfo(input: string | null): { profile: string | null; schema: string | null; schemas: Record<string, string> } {
+    if (!input) return { profile: null, schema: null, schemas: {} };
     const profileShorthand = input.match(/aeon:profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
     const schemaShorthand = input.match(/aeon:schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
-    const headerBody = input.match(/aeon:header\s*=\s*\{([\s\S]*?)\}/i)?.[1] ?? '';
+    const headerBody = extractStructuredHeaderBody(input) ?? '';
     const profileHeader = headerBody.match(/profile\s*=\s*"([^"]*)"/i)?.[1] ?? null;
     const schemaHeader = headerBody.match(/schema\s*=\s*"([^"]*)"/i)?.[1] ?? null;
+    const schemas = extractSchemaContexts(headerBody);
     return {
         profile: profileShorthand ?? profileHeader,
         schema: schemaShorthand ?? schemaHeader,
+        schemas,
     };
+}
+
+function extractStructuredHeaderBody(input: string): string | null {
+    const headerStart = input.match(/aeon:header\s*=/i);
+    if (headerStart?.index === undefined) return null;
+    const openIndex = input.indexOf('{', headerStart.index + headerStart[0].length);
+    if (openIndex < 0) return null;
+
+    let depth = 0;
+    let quote: '"' | "'" | '`' | null = null;
+    let escaped = false;
+    for (let i = openIndex; i < input.length; i++) {
+        const char = input[i]!;
+        if (quote !== null) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (quote !== '`' && char === '\\') {
+                escaped = true;
+                continue;
+            }
+            if (char === quote) quote = null;
+            continue;
+        }
+        if (char === '"' || char === "'" || char === '`') {
+            quote = char;
+            continue;
+        }
+        if (char === '{') {
+            depth += 1;
+            continue;
+        }
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) return input.slice(openIndex + 1, i);
+        }
+    }
+    return null;
+}
+
+function extractSchemaContexts(headerBody: string): Record<string, string> {
+    const match = headerBody.match(/schemas\s*=\s*\{([\s\S]*?)\}/i);
+    if (!match) return {};
+    const body = match[1] ?? '';
+    const contexts: Record<string, string> = {};
+    for (const rawLine of body.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const entry = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]*)"$/);
+        if (!entry) continue;
+        contexts[entry[1]!] = entry[2]!;
+    }
+    return contexts;
 }

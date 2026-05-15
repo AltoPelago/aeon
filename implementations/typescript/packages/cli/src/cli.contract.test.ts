@@ -757,6 +757,32 @@ describe('AEON CLI output contract', () => {
                 assert.ok(prev <= next);
             }
         });
+
+        it('includes declared contract metadata in inspect JSON output', async () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-inspect-contracts-'));
+            const inputPath = path.join(tmpDir, 'input.aeon');
+            fs.writeFileSync(inputPath, [
+                'aeon:header = {',
+                '  version = "1"',
+                '  profile = "aeon.gp.profile.v1"',
+                '  schema = "altopelago.main_schema.v1"',
+                '  schemas = {',
+                '    authoring = "altopelago.authoring_schema.v1"',
+                '    validation = "altopelago.validation_schema.v1"',
+                '  }',
+                '}',
+                'app = { name = "demo" }',
+            ].join('\n'), 'utf-8');
+
+            const { code, stdout, stderr } = await runCli(['inspect', inputPath, '--json']);
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout);
+            assert.strictEqual(parsed.contracts?.declared?.profile, 'aeon.gp.profile.v1');
+            assert.strictEqual(parsed.contracts?.declared?.schema, 'altopelago.main_schema.v1');
+            assert.strictEqual(parsed.contracts?.declared?.schemas?.authoring, 'altopelago.authoring_schema.v1');
+            assert.strictEqual(parsed.contracts?.declared?.schemas?.validation, 'altopelago.validation_schema.v1');
+        });
     });
 
     describe('aeon inspect --annotations (markdown)', () => {
@@ -800,6 +826,31 @@ describe('AEON CLI output contract', () => {
             const out = normalize(stdout);
             assert.ok(out.includes('# AEON Annotations'));
             assert.ok(out.includes('## Annotation Records'));
+        });
+
+        it('shows declared contract metadata in inspect markdown summary', async () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-inspect-markdown-contracts-'));
+            const inputPath = path.join(tmpDir, 'input.aeon');
+            fs.writeFileSync(inputPath, [
+                'aeon:header = {',
+                '  version = "1"',
+                '  profile = "aeon.gp.profile.v1"',
+                '  schema = "altopelago.main_schema.v1"',
+                '  schemas = {',
+                '    authoring = "altopelago.authoring_schema.v1"',
+                '  }',
+                '}',
+                'app = { name = "demo" }',
+            ].join('\n'), 'utf-8');
+
+            const { code, stdout, stderr } = await runCli(['inspect', inputPath]);
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const out = normalize(stdout);
+            assert.ok(out.includes('## Declared Contracts'));
+            assert.ok(out.includes('- Profile: aeon.gp.profile.v1'));
+            assert.ok(out.includes('- Schema: altopelago.main_schema.v1'));
+            assert.ok(out.includes('- Schema Context (authoring): altopelago.authoring_schema.v1'));
         });
     });
 
@@ -919,7 +970,62 @@ describe('AEON CLI output contract', () => {
             const parsed = JSON.parse(stdout);
             assert.deepStrictEqual(parsed, {
                 document: expected.document,
-                meta: expected.meta,
+                meta: {
+                    ...expected.meta,
+                    contracts: {
+                        applied: {
+                            schema: 'aeon.gp.schema.v1',
+                        },
+                    },
+                },
+            });
+        });
+
+        it('supports aeos schema documents', async () => {
+            const input = fs.readFileSync(fixture('bind-valid.aeon'), 'utf-8');
+            const schemaDoc = [
+                'aeos:schema = {',
+                '  id = "aeon.test.schema.v1"',
+                '  version = "1"',
+                '  rules = {',
+                '    "$.app.name" = { required = true, type = "StringLiteral" }',
+                '    "$.app.port" = { required = true, type = "IntegerLiteral" }',
+                '  }',
+                '}',
+                '',
+            ].join('\n');
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.app.name', constraints: { required: true, type: 'StringLiteral' } },
+                    { path: '$.app.port', constraints: { required: true, type: 'IntegerLiteral' } },
+                ],
+            };
+            const expected = runTypedRuntime<unknown>(input, { schema, mode: 'strict' });
+
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-bind-aeos-'));
+            const schemaPath = path.join(tmpDir, 'schema.aeos');
+            fs.writeFileSync(schemaPath, schemaDoc, 'utf-8');
+
+            const { code, stdout, stderr } = await runCli([
+                'bind',
+                fixture('bind-valid.aeon'),
+                '--schema',
+                schemaPath,
+            ]);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            assert.deepStrictEqual(JSON.parse(stdout), {
+                document: expected.document,
+                meta: {
+                    ...expected.meta,
+                    contracts: {
+                        applied: {
+                            schema: 'aeon.test.schema.v1',
+                        },
+                    },
+                },
             });
         });
 
@@ -958,7 +1064,14 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(stderr, '');
             assert.deepStrictEqual(JSON.parse(stdout), {
                 document: expected.document,
-                meta: expected.meta,
+                meta: {
+                    ...expected.meta,
+                    contracts: {
+                        applied: {
+                            schema: 'aeon.test.schema.v1',
+                        },
+                    },
+                },
             });
         });
 
@@ -1474,12 +1587,66 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(stderr, '');
             const parsed = JSON.parse(stdout) as {
                 document?: { app?: { name?: string; port?: number } };
-                meta: { errors: unknown[] };
+                meta: { errors: unknown[]; contracts?: { declared?: { schema?: string; profile?: string }; applied?: { schema?: string; profile?: string } } };
             };
             assert.ok(parsed.document);
             assert.strictEqual(parsed.document?.app?.name, 'AEON');
             assert.strictEqual(parsed.document?.app?.port, 8080);
             assert.strictEqual(parsed.meta.errors.length, 0);
+            assert.strictEqual(parsed.meta.contracts?.declared?.schema, 'aeon.gp.schema.v1');
+            assert.strictEqual(parsed.meta.contracts?.declared?.profile, 'aeon.gp.profile.v1');
+            assert.strictEqual(parsed.meta.contracts?.applied?.schema, 'aeon.gp.schema.v1');
+            assert.strictEqual(parsed.meta.contracts?.applied?.profile, 'aeon.gp.profile.v1');
+        });
+
+        it('warns when explicit schema and profile override declared header contracts', async () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-contract-override-'));
+            const docPath = path.join(tmpDir, 'contract-bind.aeon');
+            const schemaPath = path.join(tmpDir, 'schema.json');
+
+            const source = [
+                'aeon:mode = "strict"',
+                'aeon:profile = "aeon.gp.profile.v1"',
+                'aeon:schema = "aeon.gp.schema.v1"',
+                'app:object = {',
+                '  name:string = "AEON"',
+                '  port:int32 = 8080',
+                '}',
+            ].join('\n');
+            fs.writeFileSync(docPath, source, 'utf-8');
+            fs.writeFileSync(schemaPath, JSON.stringify({
+                schema_id: 'altopelago.applied.schema.v1',
+                schema_version: '1.0.0',
+                rules: [
+                    { path: '$.app.name', constraints: { type: 'StringLiteral', required: true } },
+                    { path: '$.app.port', constraints: { type: 'NumberLiteral', required: true } },
+                ],
+            }, null, 2), 'utf-8');
+
+            const { code, stdout, stderr } = await runCli([
+                'bind',
+                docPath,
+                '--schema',
+                schemaPath,
+                '--profile',
+                'altopelago.core.v1',
+                '--strict',
+            ]);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                meta: {
+                    warnings: Array<{ code?: string }>;
+                    contracts?: { declared?: { schema?: string; profile?: string }; applied?: { schema?: string; profile?: string } };
+                };
+            };
+            assert.ok(parsed.meta.warnings.some((warning) => warning.code === 'DECLARED_SCHEMA_OVERRIDDEN'));
+            assert.ok(parsed.meta.warnings.some((warning) => warning.code === 'DECLARED_PROFILE_OVERRIDDEN'));
+            assert.strictEqual(parsed.meta.contracts?.declared?.schema, 'aeon.gp.schema.v1');
+            assert.strictEqual(parsed.meta.contracts?.declared?.profile, 'aeon.gp.profile.v1');
+            assert.strictEqual(parsed.meta.contracts?.applied?.schema, 'altopelago.applied.schema.v1');
+            assert.strictEqual(parsed.meta.contracts?.applied?.profile, 'altopelago.core.v1');
         });
 
         it('resolves schema/profile from repository baseline contracts registry', async () => {

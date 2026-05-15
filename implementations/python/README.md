@@ -121,6 +121,20 @@ print(loaded.get('$.numbers[1]'))
 PY
 ```
 
+Load an AEOS schema document directly from `.aeos` and validate through the convenience API:
+
+```bash
+cd implementations/python
+python3 - <<'PY'
+from aeon import load_schema_file, load_text, LoadOptions
+
+schema = load_schema_file('../../staging/aeon-examples-private-main/shared/reference-safe-schema/schema.aeos')
+loaded = load_text('person = { age = 42 }', LoadOptions(schema=schema))
+print(schema["rules"][0]["path"])
+print(loaded.validation["ok"])
+PY
+```
+
 Inspect only the file preamble:
 
 ```bash

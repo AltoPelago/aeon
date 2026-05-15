@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -71,6 +72,12 @@ struct InspectCaseResult {
     index: usize,
     ok: bool,
     errors: JsonValue,
+}
+
+struct ResolvedBindContracts {
+    schema: Schema,
+    applied_schema_id: String,
+    applied_profile_id: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -275,9 +282,21 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             println!("  \"annotations\": {}", render_annotations(&annotations));
             println!("}}");
         } else {
+            let declared_contracts = inspect_declared_contracts_json(
+                result.header.as_ref(),
+                header_field_value(result.header.as_ref(), "profile"),
+                header_field_value(result.header.as_ref(), "schema"),
+            );
             println!("{{");
             println!("  \"events\": {},", render_events(&result.events));
             println!("  \"errors\": {}", render_errors(&result.errors));
+            if let Some(contracts) = declared_contracts {
+                println!(",");
+                println!(
+                    "  \"contracts\": {}",
+                    serde_json::to_string(&contracts).unwrap_or_else(|_| String::from("{}"))
+                );
+            }
             if include_annotations {
                 println!(",");
                 println!("  \"annotations\": {}", render_annotations(&annotations));
@@ -300,6 +319,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                     version: header_field_value(result.header.as_ref(), "version"),
                     profile: header_field_value(result.header.as_ref(), "profile"),
                     schema: header_field_value(result.header.as_ref(), "schema"),
+                    schema_contexts: header_schema_contexts(result.header.as_ref()),
                 },
             )
         );
@@ -1074,13 +1094,15 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             ..CompileOptions::default()
         },
     );
-    let (schema, profile) = resolve_bind_contracts(
+    let declared_schema_id = header_field_value(header_probe.header.as_ref(), "schema");
+    let declared_profile_id = header_field_value(header_probe.header.as_ref(), "profile");
+    let resolved_contracts = resolve_bind_contracts(
         &file,
         &source,
         header_probe.header.as_ref(),
-        schema_path,
+        schema_path.clone(),
         contract_registry_path,
-        profile,
+        profile.clone(),
     )?;
 
     let recovery = matches!(mode, FinalizeMode::Loose);
@@ -1101,7 +1123,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
 
     let validation = validate(&ValidationEnvelope {
         aes: core_events_to_aeos(&result.events),
-        schema: Some(schema),
+        schema: Some(resolved_contracts.schema),
         options: ValidationOptions {
             trailing_separator_delimiter_policy: trailing_separator_policy,
             ..ValidationOptions::default()
@@ -1163,10 +1185,37 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         .iter()
         .map(schema_diagnostic_to_json)
         .collect::<Vec<_>>();
-    if let Some(profile_id) = profile {
+    if let Some(declared_schema_id) = declared_schema_id.as_deref()
+        && declared_schema_id != resolved_contracts.applied_schema_id
+    {
+        warnings.push(declared_schema_overridden_warning(
+            declared_schema_id,
+            &resolved_contracts.applied_schema_id,
+        ));
+    }
+    if let (Some(declared_profile_id), Some(profile_id)) = (
+        declared_profile_id.as_deref(),
+        resolved_contracts.applied_profile_id.as_deref(),
+    ) && declared_profile_id != profile_id
+    {
+        warnings.push(declared_profile_overridden_warning(
+            declared_profile_id,
+            profile_id,
+        ));
+    }
+    if let Some(profile_id) = resolved_contracts.applied_profile_id.as_deref() {
         warnings.push(profile_processors_skipped_warning(&profile_id));
     }
     meta.insert(String::from("warnings"), JsonValue::Array(warnings));
+    meta.insert(
+        String::from("contracts"),
+        bind_contracts_meta_json(
+            declared_schema_id.as_deref(),
+            declared_profile_id.as_deref(),
+            &resolved_contracts.applied_schema_id,
+            resolved_contracts.applied_profile_id.as_deref(),
+        ),
+    );
     top.insert(String::from("meta"), JsonValue::Object(meta));
 
     Ok((
@@ -2366,6 +2415,7 @@ struct InspectRenderOptions {
     version: Option<String>,
     profile: Option<String>,
     schema: Option<String>,
+    schema_contexts: BTreeMap<String, String>,
 }
 
 fn render_inspect_markdown(
@@ -2411,11 +2461,11 @@ fn render_inspect_markdown(
     lines.push(format!("- Mode: {}", options.mode));
     lines.push(format!(
         "- Profile: {}",
-        options.profile.unwrap_or_else(|| String::from("—"))
+        options.profile.as_deref().unwrap_or("—")
     ));
     lines.push(format!(
         "- Schema: {}",
-        options.schema.unwrap_or_else(|| String::from("—"))
+        options.schema.as_deref().unwrap_or("—")
     ));
     lines.push(format!(
         "- Recovery: {}",
@@ -2426,6 +2476,20 @@ fn render_inspect_markdown(
         lines.push(format!("- Annotations: {}", annotations.len()));
     }
     lines.push(format!("- Errors: {}", result.errors.len()));
+    if options.profile.is_some() || options.schema.is_some() || !options.schema_contexts.is_empty()
+    {
+        lines.push(String::new());
+        lines.push(String::from("## Declared Contracts"));
+        if let Some(profile) = options.profile.as_ref() {
+            lines.push(format!("- Profile: {profile}"));
+        }
+        if let Some(schema) = options.schema.as_ref() {
+            lines.push(format!("- Schema: {schema}"));
+        }
+        for (context, value) in &options.schema_contexts {
+            lines.push(format!("- Schema Context ({context}): {value}"));
+        }
+    }
 
     if !result.errors.is_empty() {
         lines.push(String::new());
@@ -2522,6 +2586,34 @@ fn render_errors(errors: &[Diagnostic]) -> String {
         })
         .collect::<Vec<_>>();
     serde_json::to_string(&items).unwrap_or_else(|_| String::from("[]"))
+}
+
+fn inspect_declared_contracts_json(
+    header: Option<&aeon_core::HeaderFields>,
+    profile: Option<String>,
+    schema: Option<String>,
+) -> Option<JsonValue> {
+    let schema_contexts = header_schema_contexts(header);
+    if profile.is_none() && schema.is_none() && schema_contexts.is_empty() {
+        return None;
+    }
+    let mut declared = Map::new();
+    if let Some(profile) = profile {
+        declared.insert(String::from("profile"), JsonValue::String(profile));
+    }
+    if let Some(schema) = schema {
+        declared.insert(String::from("schema"), JsonValue::String(schema));
+    }
+    if !schema_contexts.is_empty() {
+        let contexts = schema_contexts
+            .into_iter()
+            .map(|(key, value)| (key, JsonValue::String(value)))
+            .collect::<Map<_, _>>();
+        declared.insert(String::from("schemas"), JsonValue::Object(contexts));
+    }
+    let mut top = Map::new();
+    top.insert(String::from("declared"), JsonValue::Object(declared));
+    Some(JsonValue::Object(top))
 }
 
 fn render_value_json_string(value: &Value) -> String {
@@ -3108,6 +3200,31 @@ fn header_field_value(header: Option<&aeon_core::HeaderFields>, key: &str) -> Op
     })
 }
 
+fn header_schema_contexts(header: Option<&aeon_core::HeaderFields>) -> BTreeMap<String, String> {
+    let mut contexts = BTreeMap::new();
+    let Some(Value::ObjectNode { bindings }) = header.and_then(|value| value.fields.get("schemas"))
+    else {
+        return contexts;
+    };
+    for binding in bindings {
+        let value = match &binding.value {
+            Value::StringLiteral { value, .. } => value.clone(),
+            Value::NumberLiteral { raw }
+            | Value::BooleanLiteral { raw }
+            | Value::ToggleLiteral { raw }
+            | Value::HexLiteral { raw }
+            | Value::SeparatorLiteral { raw }
+            | Value::EncodingLiteral { raw }
+            | Value::RadixLiteral { raw }
+            | Value::TimeLiteral { raw }
+            | Value::NodeLiteral { raw, .. } => raw.clone(),
+            _ => continue,
+        };
+        contexts.insert(binding.key.clone(), value);
+    }
+    contexts
+}
+
 fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
     events
         .iter()
@@ -3569,12 +3686,16 @@ fn resolve_bind_contracts(
     schema_path: Option<String>,
     contract_registry_path: Option<String>,
     explicit_profile: Option<String>,
-) -> Result<(Schema, Option<String>), String> {
+) -> Result<ResolvedBindContracts, String> {
     if let Some(schema_path) = schema_path {
         let schema_source = fs::read_to_string(&schema_path)
             .map_err(|error| format!("failed to read {schema_path}: {error}"))?;
-        let schema = normalize_schema_contract_doc(&schema_source, &schema_path)?;
-        return Ok((schema, explicit_profile));
+        let (schema, schema_id) = normalize_schema_contract_doc(&schema_source, &schema_path)?;
+        return Ok(ResolvedBindContracts {
+            schema,
+            applied_schema_id: schema_id,
+            applied_profile_id: explicit_profile,
+        });
     }
 
     let registry_path = contract_registry_path
@@ -3590,7 +3711,8 @@ fn resolve_bind_contracts(
     let schema_entry = resolve_contract_entry(&registry, &schema_id, "schema")
         .ok_or_else(|| format!("Error [CONTRACT_UNKNOWN_SCHEMA_ID]: Unknown schema contract id in registry: {schema_id}"))?;
     let schema_artifact = verify_contract_artifact(schema_entry, &registry_path)?;
-    let schema = read_schema_contract_aeon_file(&schema_artifact, Some(&schema_id))?;
+    let (schema, resolved_schema_id) =
+        read_schema_contract_aeon_file(&schema_artifact, Some(&schema_id))?;
 
     if let Some(profile_id) = profile_id.clone() {
         let profile_entry = resolve_contract_entry(&registry, &profile_id, "profile")
@@ -3599,16 +3721,26 @@ fn resolve_bind_contracts(
     }
 
     let _ = file;
-    Ok((schema, profile_id))
+    Ok(ResolvedBindContracts {
+        schema,
+        applied_schema_id: resolved_schema_id,
+        applied_profile_id: profile_id,
+    })
 }
 
-fn normalize_schema_contract_doc(schema_source: &str, file: &str) -> Result<Schema, String> {
+fn normalize_schema_contract_doc(
+    schema_source: &str,
+    file: &str,
+) -> Result<(Schema, String), String> {
     let parsed: JsonValue = serde_json::from_str(schema_source)
         .map_err(|error| format!("failed to parse schema {file}: {error}"))?;
     normalize_schema_contract_value(parsed, file)
 }
 
-fn normalize_schema_contract_value(parsed: JsonValue, file: &str) -> Result<Schema, String> {
+fn normalize_schema_contract_value(
+    parsed: JsonValue,
+    file: &str,
+) -> Result<(Schema, String), String> {
     let object = parsed
         .as_object()
         .ok_or_else(|| format!("Schema file must be a JSON object: {file}"))?;
@@ -3627,14 +3759,14 @@ fn normalize_schema_contract_value(parsed: JsonValue, file: &str) -> Result<Sche
         }
     }
 
-    match object.get("schema_id") {
-        Some(JsonValue::String(value)) if !value.is_empty() => {}
+    let schema_id = match object.get("schema_id") {
+        Some(JsonValue::String(value)) if !value.is_empty() => value.clone(),
         _ => {
             return Err(format!(
                 "Schema contract missing required string field 'schema_id': {file}"
             ));
         }
-    }
+    };
     match object.get("schema_version") {
         Some(JsonValue::String(value)) if !value.is_empty() => {}
         _ => {
@@ -3688,14 +3820,15 @@ fn normalize_schema_contract_value(parsed: JsonValue, file: &str) -> Result<Sche
         }
     }
 
-    serde_json::from_value(parsed)
-        .map_err(|error| format!("failed to parse normalized schema {file}: {error}"))
+    let schema = serde_json::from_value(parsed)
+        .map_err(|error| format!("failed to parse normalized schema {file}: {error}"))?;
+    Ok((schema, schema_id))
 }
 
 fn read_schema_contract_aeon_file(
     file: &str,
     expected_schema_id: Option<&str>,
-) -> Result<Schema, String> {
+) -> Result<(Schema, String), String> {
     let source =
         fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
     let compiled = compile(
@@ -3824,6 +3957,68 @@ fn profile_processors_skipped_warning(profile_id: &str) -> JsonValue {
     })
 }
 
+fn declared_schema_overridden_warning(declared_schema_id: &str, schema_source: &str) -> JsonValue {
+    json!({
+        "code": "DECLARED_SCHEMA_OVERRIDDEN",
+        "phase": 6,
+        "message": format!(
+            "Applied schema '{schema_source}' overrides document-declared schema '{declared_schema_id}'."
+        ),
+    })
+}
+
+fn declared_profile_overridden_warning(
+    declared_profile_id: &str,
+    applied_profile_id: &str,
+) -> JsonValue {
+    json!({
+        "code": "DECLARED_PROFILE_OVERRIDDEN",
+        "phase": 5,
+        "message": format!(
+            "Applied profile '{applied_profile_id}' overrides document-declared profile '{declared_profile_id}'."
+        ),
+    })
+}
+
+fn bind_contracts_meta_json(
+    declared_schema_id: Option<&str>,
+    declared_profile_id: Option<&str>,
+    applied_schema_id: &str,
+    applied_profile_id: Option<&str>,
+) -> JsonValue {
+    let mut top = Map::new();
+    let mut declared = Map::new();
+    if let Some(schema) = declared_schema_id {
+        declared.insert(
+            String::from("schema"),
+            JsonValue::String(String::from(schema)),
+        );
+    }
+    if let Some(profile) = declared_profile_id {
+        declared.insert(
+            String::from("profile"),
+            JsonValue::String(String::from(profile)),
+        );
+    }
+    if !declared.is_empty() {
+        top.insert(String::from("declared"), JsonValue::Object(declared));
+    }
+
+    let mut applied = Map::new();
+    applied.insert(
+        String::from("schema"),
+        JsonValue::String(String::from(applied_schema_id)),
+    );
+    if let Some(profile) = applied_profile_id {
+        applied.insert(
+            String::from("profile"),
+            JsonValue::String(String::from(profile)),
+        );
+    }
+    top.insert(String::from("applied"), JsonValue::Object(applied));
+    JsonValue::Object(top)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3904,6 +4099,43 @@ mod tests {
             String::from("]"),
         ]
         .join("\n")
+    }
+
+    #[test]
+    fn header_field_value_reads_structured_schema_binding() {
+        let result = compile(
+            "aeon:header = {\n  schema = \"altopelago.main_schema.v1\"\n}\nvalue = 1\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(
+            header_field_value(result.header.as_ref(), "schema").as_deref(),
+            Some("altopelago.main_schema.v1")
+        );
+    }
+
+    #[test]
+    fn header_schema_contexts_reads_structured_schema_map() {
+        let result = compile(
+            "aeon:header = {\n  schema = \"altopelago.main_schema.v1\"\n  schemas = {\n    authoring = \"altopelago.authoring_schema.v1\"\n    validation = \"altopelago.validation_schema.v1\"\n    vendor_acme = \"acme.vendor_schema.v1\"\n  }\n}\nvalue = 1\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(
+            header_schema_contexts(result.header.as_ref()),
+            BTreeMap::from([
+                (
+                    String::from("authoring"),
+                    String::from("altopelago.authoring_schema.v1"),
+                ),
+                (
+                    String::from("validation"),
+                    String::from("altopelago.validation_schema.v1"),
+                ),
+                (
+                    String::from("vendor_acme"),
+                    String::from("acme.vendor_schema.v1"),
+                ),
+            ])
+        );
     }
 
     #[test]
@@ -4037,6 +4269,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let normalized = normalize(&rendered);
@@ -4060,6 +4293,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         assert!(rendered.contains("# AEON Inspect"));
@@ -4087,6 +4321,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let expected = "# AEON Inspect\n\n## Summary\n- File: valid.aeon\n- Version: —\n- Mode: transport\n- Profile: —\n- Schema: —\n- Recovery: false\n- Events: 2\n- Errors: 0\n\n## Assignment Events\n- $.a :int32 = 1\n- $.b = ~a\n\n## References\n- $.b = ~a\n";
@@ -4116,6 +4351,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         assert!(
@@ -4142,6 +4378,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let normalized = normalize(&rendered);
@@ -4169,6 +4406,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let normalized = normalize(&rendered);
@@ -4192,6 +4430,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let normalized = normalize(&rendered);
@@ -4314,10 +4553,62 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         assert!(rendered.contains("- $.ptr = ~>target.x"));
         assert!(rendered.contains("## References"));
+    }
+
+    #[test]
+    fn render_inspect_markdown_shows_declared_contracts() {
+        let result = compile(
+            "aeon:header = {\n  profile = \"aeon.gp.profile.v1\"\n  schema = \"altopelago.main_schema.v1\"\n  schemas = {\n    authoring = \"altopelago.authoring_schema.v1\"\n  }\n}\nvalue = 1\n",
+            CompileOptions::default(),
+        );
+        let rendered = render_inspect_markdown(
+            "contracts.aeon",
+            &result,
+            &[],
+            InspectRenderOptions {
+                recovery: false,
+                include_annotations: false,
+                annotations_only: false,
+                mode: String::from("transport"),
+                version: None,
+                profile: header_field_value(result.header.as_ref(), "profile"),
+                schema: header_field_value(result.header.as_ref(), "schema"),
+                schema_contexts: header_schema_contexts(result.header.as_ref()),
+            },
+        );
+        assert!(rendered.contains("## Declared Contracts"));
+        assert!(rendered.contains("- Profile: aeon.gp.profile.v1"));
+        assert!(rendered.contains("- Schema: altopelago.main_schema.v1"));
+        assert!(rendered.contains("- Schema Context (authoring): altopelago.authoring_schema.v1"));
+    }
+
+    #[test]
+    fn inspect_declared_contracts_json_includes_schema_contexts() {
+        let result = compile(
+            "aeon:header = {\n  profile = \"aeon.gp.profile.v1\"\n  schema = \"altopelago.main_schema.v1\"\n  schemas = {\n    authoring = \"altopelago.authoring_schema.v1\"\n    validation = \"altopelago.validation_schema.v1\"\n  }\n}\nvalue = 1\n",
+            CompileOptions::default(),
+        );
+        let contracts = inspect_declared_contracts_json(
+            result.header.as_ref(),
+            header_field_value(result.header.as_ref(), "profile"),
+            header_field_value(result.header.as_ref(), "schema"),
+        )
+        .expect("contracts");
+        assert_eq!(contracts["declared"]["profile"], "aeon.gp.profile.v1");
+        assert_eq!(contracts["declared"]["schema"], "altopelago.main_schema.v1");
+        assert_eq!(
+            contracts["declared"]["schemas"]["authoring"],
+            "altopelago.authoring_schema.v1"
+        );
+        assert_eq!(
+            contracts["declared"]["schemas"]["validation"],
+            "altopelago.validation_schema.v1"
+        );
     }
 
     #[test]
@@ -4336,6 +4627,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         assert!(rendered.starts_with("# AEON Annotations"));
@@ -4361,6 +4653,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let expected = "# AEON Annotations\n\n- Count: 3\n\n## Annotation Records\n- doc line -> $.a raw=\"//# document a\"\n- hint line -> $.a raw=\"//? required\"\n- annotation line -> $.b raw=\"//@ tag(\\\"x\\\")\"\n";
@@ -4384,6 +4677,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let normalized = normalize(&rendered);
@@ -4411,6 +4705,7 @@ mod tests {
                 version: None,
                 profile: None,
                 schema: None,
+                schema_contexts: BTreeMap::new(),
             },
         );
         let expected = "# AEON Annotations\n\n- Count: 3\n\n## Annotation Records\n- doc line -> $.a raw=\"//# document a\"\n- hint line -> $.a raw=\"//? required\"\n- annotation line -> $.b raw=\"//@ tag(\\\"x\\\")\"\n";
@@ -5073,7 +5368,12 @@ mod tests {
                 },
                 "meta": {
                     "errors": [],
-                    "warnings": []
+                    "warnings": [],
+                    "contracts": {
+                        "applied": {
+                            "schema": "aeon.gp.schema.v1"
+                        }
+                    }
                 }
             })
         );
@@ -5126,7 +5426,12 @@ mod tests {
                 },
                 "meta": {
                     "errors": [],
-                    "warnings": []
+                    "warnings": [],
+                    "contracts": {
+                        "applied": {
+                            "schema": "aeon.test.schema.v1"
+                        }
+                    }
                 }
             })
         );
@@ -5780,6 +6085,87 @@ mod tests {
                 .iter()
                 .any(|warning| warning["code"] == "PROFILE_PROCESSORS_SKIPPED")
         );
+        assert_eq!(
+            output["meta"]["contracts"]["declared"]["schema"],
+            "aeon.gp.schema.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["declared"]["profile"],
+            "aeon.gp.profile.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["applied"]["schema"],
+            "aeon.gp.schema.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["applied"]["profile"],
+            "aeon.gp.profile.v1"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bind_warns_when_explicit_schema_and_profile_override_header_contracts() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-bind-override-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let input = dir.join("contract-bind.aeon");
+        let schema = dir.join("schema.json");
+
+        fs::write(
+            &input,
+            "aeon:mode = \"strict\"\naeon:profile = \"aeon.gp.profile.v1\"\naeon:schema = \"aeon.gp.schema.v1\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
+        )
+        .expect("input");
+        fs::write(
+            &schema,
+            r#"{"schema_id":"altopelago.applied.schema.v1","schema_version":"1.0.0","rules":[{"path":"$.app.name","constraints":{"type":"StringLiteral","required":true}},{"path":"$.app.port","constraints":{"type":"NumberLiteral","required":true}}]}"#,
+        )
+        .expect("schema");
+
+        let (code, output) = execute_bind(&[
+            input.to_string_lossy().into_owned(),
+            String::from("--schema"),
+            schema.to_string_lossy().into_owned(),
+            String::from("--profile"),
+            String::from("altopelago.applied.profile.v1"),
+            String::from("--strict"),
+        ])
+        .expect("bind result");
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(
+            output["meta"]["warnings"]
+                .as_array()
+                .expect("warnings")
+                .iter()
+                .any(|warning| warning["code"] == "DECLARED_SCHEMA_OVERRIDDEN")
+        );
+        assert!(
+            output["meta"]["warnings"]
+                .as_array()
+                .expect("warnings")
+                .iter()
+                .any(|warning| warning["code"] == "DECLARED_PROFILE_OVERRIDDEN")
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["declared"]["schema"],
+            "aeon.gp.schema.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["declared"]["profile"],
+            "aeon.gp.profile.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["applied"]["schema"],
+            "altopelago.applied.schema.v1"
+        );
+        assert_eq!(
+            output["meta"]["contracts"]["applied"]["profile"],
+            "altopelago.applied.profile.v1"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -6015,7 +6401,17 @@ mod tests {
                             "phase": 5,
                             "message": "Profile 'aeon.gp.profile.v1' processors were skipped to enforce phase order (schema before resolve)."
                         }
-                    ]
+                    ],
+                    "contracts": {
+                        "declared": {
+                            "schema": "aeon.gp.schema.v1",
+                            "profile": "aeon.gp.profile.v1"
+                        },
+                        "applied": {
+                            "schema": "aeon.gp.schema.v1",
+                            "profile": "aeon.gp.profile.v1"
+                        }
+                    }
                 }
             })
         );

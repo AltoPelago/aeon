@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon import AeonLoadError, LoadOptions, load_file, load_text
+from aeon import AeonLoadError, LoadOptions, load_file, load_schema_file, load_text
 
 
 class ApiConvenienceTests(unittest.TestCase):
@@ -68,6 +68,58 @@ class ApiConvenienceTests(unittest.TestCase):
             loaded = load_file(path)
             loaded.require_ok()
             self.assertEqual("Hello from file", loaded.require("$.greeting"))
+
+    def test_load_schema_file_projects_aeos_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            schema_path = Path(temp_dir) / "person.aeos"
+            schema_path.write_text(
+                "\n".join(
+                    [
+                        "aeos:schema = {",
+                        '  id = "com.example.person"',
+                        '  version = "1"',
+                        '  world = "closed"',
+                        "  rules = {",
+                        '    "$.ages[*]" = {',
+                        '      type = "IntegerLiteral"',
+                        '      reference_target_path = "$.people[*].age"',
+                        "    }",
+                        "  }",
+                        "}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            schema = load_schema_file(schema_path)
+            self.assertEqual("closed", schema["world"])
+            self.assertEqual("$.ages[*]", schema["rules"][0]["path"])
+            self.assertEqual(
+                r"^\$\.people\[\d+\]\.age$",
+                schema["rules"][0]["constraints"]["reference_target_pattern"],
+            )
+
+    def test_load_text_supports_schema_file_option(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            schema_path = Path(temp_dir) / "port.aeos"
+            schema_path.write_text(
+                "\n".join(
+                    [
+                        "aeos:schema = {",
+                        '  id = "com.example.port"',
+                        '  version = "1"',
+                        "  rules = {",
+                        '    "$.port" = { required = true, type = "IntegerLiteral" }',
+                        "  }",
+                        "}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            loaded = load_text('port:number = 8080', LoadOptions(schema_file=schema_path))
+            loaded.require_ok()
+            self.assertTrue(loaded.ok)
 
 
 if __name__ == "__main__":
