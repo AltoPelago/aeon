@@ -89,7 +89,7 @@ pnpm -r \
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,
   `VERSIONING.md`, `README.md`, or `docs/release-strategy.md`.
-- The current `typescript 6.0.2` uplift is one such intentional workspace
+- The current `typescript 6.0.3` uplift is one such intentional workspace
   toolchain baseline change and should be reviewed as publish-surface policy,
   even though it is a developer-tooling update.
 - The current `@types/node 25.8.0` uplift is also an intentional workspace
