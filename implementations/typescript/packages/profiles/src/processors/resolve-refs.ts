@@ -1,5 +1,5 @@
 import type { Processor } from '../types.js';
-import { resolveRefs } from '@aeon/aes';
+import { resolveRefs } from '@altopelago/aeon-aes';
 
 export function createResolveRefsProcessor(mode?: 'strict' | 'loose'): Processor {
     return {

@@ -1,10 +1,10 @@
 # Core API
 
-Informative status: implementation documentation for `@aeon/core`.
+Informative status: implementation documentation for `@altopelago/aeon-core`.
 
 ## Package
 
-- Module: `@aeon/core`
+- Module: `@altopelago/aeon-core`
 - Entry point: [`implementations/typescript/packages/core/src/index.ts`](../../../../implementations/typescript/packages/core/src/index.ts)
 
 ## Primary entry point
@@ -144,7 +144,7 @@ For production processing, prefer the default fail-closed behavior and treat `re
 ## Example
 
 ```ts
-import { compile } from '@aeon/core';
+import { compile } from '@altopelago/aeon-core';
 
 const result = compile('aeon:mode = "strict"\nopens:time = 09:30:00Z');
 

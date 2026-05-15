@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @aeon/cli - AEON Command Line Interface
+ * @altopelago/aeon-cli - AEON Command Line Interface
  * 
  * Commands:
  * - aeon version                 Show version
@@ -54,10 +54,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { canonicalize } from '@aeon/canonical';
-import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@aeon/core';
-import type { Span } from '@aeon/lexer';
-import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@aeon/finalize';
+import { canonicalize } from '@altopelago/aeon-canonical';
+import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import type { Span } from '@altopelago/aeon-lexer';
+import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
     buildCanonicalReceipt,
     computeCanonicalHash,
@@ -67,11 +67,11 @@ import {
     type CanonicalReceipt,
     verifyStringPayloadSignature,
     type EnvelopeDiagnostic,
-} from '@aeon/integrity';
-import { tokenize } from '@aeon/lexer';
-import { parse, type Binding, type Value } from '@aeon/parser';
+} from '@altopelago/aeon-integrity';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse, type Binding, type Value } from '@altopelago/aeon-parser';
 import { runTypedRuntime } from './runtime-bind.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 const GP_SECURITY_CONVENTIONS = [
     'aeon.gp.security.v1',
@@ -1548,12 +1548,12 @@ function runDoctor(options: { contractRegistryPath: string }): DoctorResult {
     });
 
     const requiredPackages = [
-        '@aeon/core',
-        '@aeon/finalize',
-        '@aeon/integrity',
-        '@aeon/profiles',
-        '@aeon/tonic',
-        '@aeos/core',
+        '@altopelago/aeon-core',
+        '@altopelago/aeon-finalize',
+        '@altopelago/aeon-integrity',
+        '@altopelago/aeon-profiles',
+        '@altopelago/aeon-tonic',
+        '@altopelago/aeos-core',
     ];
     const packageStatuses = requiredPackages.map((packageName) => resolveInstalledPackage(packageName));
     const missingPackages = packageStatuses.filter((entry) => !entry.ok);
@@ -2467,7 +2467,7 @@ function readLiteralString(value: Value): string | null {
             return String(value.raw);
         case 'NumberLiteral':
         case 'BooleanLiteral':
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
         case 'CloneReference':
         case 'PointerReference':
         case 'ObjectNode':
@@ -2741,9 +2741,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'SELF_REFERENCE':
         case 'ATTRIBUTE_DEPTH_EXCEEDED':
             return 'Reference Validation';
-        case 'UNTYPED_SWITCH_LITERAL':
+        case 'UNTYPED_TOGGLE_LITERAL':
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
-        case 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED':
+        case 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
         case 'INVALID_NODE_HEAD_DATATYPE':
             return 'Mode Enforcement';
@@ -2787,7 +2787,7 @@ function renderValue(value: Record<string, unknown>): string {
             return String(value.raw ?? value.value ?? '');
         case 'BooleanLiteral':
             return String(value.raw ?? value.value ?? '');
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return String(value.raw ?? value.value ?? '');
         case 'HexLiteral':
         case 'RadixLiteral':

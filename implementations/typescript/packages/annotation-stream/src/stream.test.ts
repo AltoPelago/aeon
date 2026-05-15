@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
-import type { AssignmentEvent } from '@aeon/aes';
+import { tokenize } from '@altopelago/aeon-lexer';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
 import { buildAnnotationStream } from './stream.js';
 
 function createEvent(path: string, start: number, end: number, line: number): AssignmentEvent {
@@ -21,6 +21,30 @@ function createEvent(path: string, start: number, end: number, line: number): As
         span: {
             start: { offset: start, line, column: 1 },
             end: { offset: end, line, column: 1 },
+        },
+    };
+}
+
+function createStringEvent(path: string, source: string): AssignmentEvent {
+    const valueStart = source.indexOf('"hello"');
+    const valueEnd = valueStart + '"hello"'.length;
+    return {
+        path: { segments: pathToSegments(path) },
+        key: path.split('.').at(-1) ?? 'x',
+        datatype: 'string',
+        value: {
+            type: 'StringLiteral',
+            raw: 'hello',
+            value: 'hello',
+            delimiter: '"',
+            span: {
+                start: { offset: valueStart, line: 1, column: valueStart + 1 },
+                end: { offset: valueEnd, line: 1, column: valueEnd + 1 },
+            },
+        } as AssignmentEvent['value'],
+        span: {
+            start: { offset: 0, line: 1, column: 1 },
+            end: { offset: valueEnd, line: 1, column: valueEnd + 1 },
         },
     };
 }
@@ -73,6 +97,7 @@ describe('annotation stream', () => {
 
         assert.strictEqual(records.length, 1);
         assert.deepStrictEqual(records[0]?.target, { kind: 'path', path: '$.a' });
+        assert.deepStrictEqual(records[0]?.placement, { after: 'value' });
     });
 
     it('binds standalone structured comments forward', () => {
@@ -83,6 +108,46 @@ describe('annotation stream', () => {
 
         assert.strictEqual(records.length, 1);
         assert.deepStrictEqual(records[0]?.target, { kind: 'path', path: '$.a' });
+        assert.deepStrictEqual(records[0]?.placement, { before: 'key' });
+    });
+
+    it('reports binding-head placement for comments between assignment landmarks', () => {
+        const cases = [
+            {
+                source: 'a:string= /?comment?/ "hello"',
+                placement: { after: 'equals', before: 'value' },
+            },
+            {
+                source: 'b:string /?comment?/ = "hello"',
+                placement: { after: 'datatype', before: 'equals' },
+            },
+            {
+                source: 'c:/?comment?/ string = "hello"',
+                placement: { after: 'datatype-colon', before: 'datatype' },
+            },
+            {
+                source: 'd /?comment?/ :string = "hello"',
+                placement: { after: 'key', before: 'datatype-colon' },
+            },
+            {
+                source: 'e @{a:n=2} /?comment?/ :string = "hello"',
+                placement: { after: 'attributes', before: 'datatype-colon' },
+            },
+            {
+                source: 'f /?comment?/ @{a:n=2} :string = "hello"',
+                placement: { after: 'key', before: 'attributes' },
+            },
+        ] as const;
+
+        for (const { source, placement } of cases) {
+            const event = createStringEvent(`$.${source[0]}`, source);
+            const lexResult = tokenize(source, { includeComments: true });
+            const records = buildAnnotationStream({ tokens: lexResult.tokens, events: [event] });
+
+            assert.strictEqual(records.length, 1, source);
+            assert.deepStrictEqual(records[0]?.target, { kind: 'path', path: `$.${source[0]}` }, source);
+            assert.deepStrictEqual(records[0]?.placement, placement, source);
+        }
     });
 
     it('binds infix comments to nearest indexed element inside a container', () => {

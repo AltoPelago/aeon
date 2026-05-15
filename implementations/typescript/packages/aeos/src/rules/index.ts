@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules Index
+ * @altopelago/aeos-core - Rules Index
  */
 
 export * from './schemaIndex.js';

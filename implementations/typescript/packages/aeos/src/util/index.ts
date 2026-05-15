@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Util Index
+ * @altopelago/aeos-core - Util Index
  */
 
 export * from './digits.js';

@@ -6,9 +6,9 @@
         "ignoreDeprecations": "6.0",
         "baseUrl": ".",
         "paths": {
-            "@aeon/core": ["../core/dist/index.d.ts"],
-            "@aeon/aes": ["../aes/dist/index.d.ts"],
-            "@aeon/lexer": ["../lexer/dist/index.d.ts"]
+            "@altopelago/aeon-core": ["../core/dist/index.d.ts"],
+            "@altopelago/aeon-aes": ["../aes/dist/index.d.ts"],
+            "@altopelago/aeon-lexer": ["../lexer/dist/index.d.ts"]
         }
     },
     "include": [

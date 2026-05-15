@@ -28,7 +28,7 @@ from .ast import (
 from .errors import (
     AeonError,
     AttributeDepthExceededError,
-    CustomSwitchAliasNotAllowedError,
+    CustomToggleAliasNotAllowedError,
     CustomDatatypeNotAllowedError,
     DatatypeLiteralMismatchError,
     DuplicateCanonicalPathError,
@@ -40,7 +40,7 @@ from .errors import (
     SelfReferenceError,
     SyntaxError,
     InputSizeExceededError,
-    UntypedSwitchLiteralError,
+    UntypedToggleLiteralError,
     UntypedValueInStrictModeError,
 )
 from .lexer import tokenize
@@ -92,7 +92,7 @@ RESERVED_KIND_MAP = {
     "string": ("StringLiteral",),
     "boolean": ("BooleanLiteral",),
     "bool": ("BooleanLiteral",),
-    "switch": ("SwitchLiteral",),
+    "toggle": ("ToggleLiteral",),
     "infinity": ("InfinityLiteral",),
     "nan": ("NaNLiteral",),
     "null": ("NullLiteral",),
@@ -414,19 +414,28 @@ def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_p
             continue
         if binding.datatype is None:
             if mode in {"strict", "custom"}:
-                if mode == "strict" and value_kind(binding.value) == "SwitchLiteral":
-                    errors.append(UntypedSwitchLiteralError(format_path(binding.path), binding.span))
+                if mode == "strict" and value_kind(binding.value) == "ToggleLiteral":
+                    errors.append(UntypedToggleLiteralError(format_path(binding.path), binding.span))
                 else:
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))
             continue
         expected = expected_kinds_for_reserved_datatype(binding.datatype)
+        actual_kind = datatype_check_kind(binding, lookup)
+        if datatype_base(binding.datatype) == "switch" and actual_kind == "ToggleLiteral":
+            errors.append(
+                CustomToggleAliasNotAllowedError(
+                    format_path(binding.path),
+                    binding.datatype,
+                    binding.span,
+                )
+            )
+            continue
         if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
             errors.append(CustomDatatypeNotAllowedError(format_path(binding.path), binding.datatype, binding.span))
             continue
-        actual_kind = datatype_check_kind(binding, lookup)
-        if mode == "strict" and expected is None and actual_kind == "SwitchLiteral":
+        if mode == "strict" and expected is None and actual_kind == "ToggleLiteral":
             errors.append(
-                CustomSwitchAliasNotAllowedError(
+                CustomToggleAliasNotAllowedError(
                     format_path(binding.path),
                     binding.datatype,
                     binding.span,
@@ -496,13 +505,15 @@ def validate_anonymous_typed_values(
         datatype = format_datatype(value.datatype)
         if datatype is not None and value.value is not None:
             expected = expected_kinds_for_reserved_datatype(datatype)
-            if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
+            actual_value = resolve_reference_value(value.value, lookup) or value.value
+            actual_kind = value_kind(actual_value)
+            if datatype_base(datatype) == "switch" and actual_kind == "ToggleLiteral":
+                errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
+            elif mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
                 errors.append(CustomDatatypeNotAllowedError(owner_path, datatype, value.span or span))
             else:
-                actual_value = resolve_reference_value(value.value, lookup) or value.value
-                actual_kind = value_kind(actual_value)
-                if mode == "strict" and expected is None and actual_kind == "SwitchLiteral":
-                    errors.append(CustomSwitchAliasNotAllowedError(owner_path, datatype, value.span or span))
+                if mode == "strict" and expected is None and actual_kind == "ToggleLiteral":
+                    errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
                 elif expected is not None and actual_kind not in expected:
                     errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, expected, value.span or span))
                 elif expected is None:
@@ -1091,20 +1102,22 @@ def has_valid_encoding_literal(raw: str) -> bool:
 def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     if datatype is None:
         return None
+    name = datatype.name
     generic = ""
     if datatype.generic_args:
         generic = "<" + ", ".join(datatype.generic_args) + ">"
     radix = f"[{datatype.radix_base}]" if datatype.radix_base is not None else ""
     separators = "".join(f"[{item}]" for item in datatype.separators)
-    return f"{datatype.name}{generic}{radix}{separators}"
+    return f"{name}{generic}{radix}{separators}"
 
 
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
     if datatype is None:
         return None
+    name = datatype.name
     return {
         "type": "TypeAnnotation",
-        "name": datatype.name,
+        "name": name,
         "genericArgs": datatype.generic_args,
         "radixBase": datatype.radix_base,
         "separators": datatype.separators,

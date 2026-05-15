@@ -1,5 +1,5 @@
 /**
- * @aeos/core - AEOS™ Validate
+ * @altopelago/aeos-core - AEOS™ Validate
  *
  * Main validation orchestrator for AEOS™ (Another Easy Object Schema).
  */

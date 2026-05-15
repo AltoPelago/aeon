@@ -80,7 +80,7 @@ echo "== Canonical CTS =="
 echo
 
 echo "-- TypeScript canonical package tests"
-(cd "$TS_DIR" && pnpm --filter @aeon/canonical test)
+(cd "$TS_DIR" && pnpm --filter @altopelago/aeon-canonical test)
 echo
 
 echo "-- Python implementation tests"

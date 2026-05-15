@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules: String Form
+ * @altopelago/aeos-core - Rules: String Form
  *
  * Phase 7: String form constraints (min_length, max_length, pattern).
  */

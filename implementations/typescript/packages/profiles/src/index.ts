@@ -1,5 +1,5 @@
 /**
- * @aeon/profiles - Profile Compiler Engine
+ * @altopelago/aeon-profiles - Profile Compiler Engine
  *
  * Provides profile registration and a single compile entry point that
  * emits AES (Assignment Event Stream) with optional diagnostics metadata.

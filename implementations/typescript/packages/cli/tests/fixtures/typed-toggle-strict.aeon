@@ -1,2 +1,2 @@
 aeon:mode = "strict"
-friend:switch = yes
+friend:toggle = yes

@@ -1,4 +1,4 @@
-# @aeon/profiles
+# @altopelago/aeon-profiles
 
 Minimal profile compiler engine for AEON.
 
@@ -13,7 +13,7 @@ registered in a registry and are responsible for emitting AES only.
 ## Usage
 
 ```ts
-import { compile } from '@aeon/profiles';
+import { compile } from '@altopelago/aeon-profiles';
 
 const result = compile('key = "value"', {
   profile: 'altopelago.core.v1',

@@ -1,0 +1,20 @@
+{
+  "name": "aeon-wasm",
+  "type": "module",
+  "version": "0.9.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/altopelago/Aeon"
+  },
+  "files": [
+    "aeon_wasm_bg.wasm",
+    "aeon_wasm.js",
+    "aeon_wasm.d.ts"
+  ],
+  "main": "aeon_wasm.js",
+  "types": "aeon_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

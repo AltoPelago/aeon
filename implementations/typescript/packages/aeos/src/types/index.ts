@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Types Index
+ * @altopelago/aeos-core - Types Index
  *
  * Re-exports all type definitions.
  */

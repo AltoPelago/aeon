@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/runtime",
+  "name": "@altopelago/aeon-runtime",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,11 +24,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeon/aes": "workspace:*",
-    "@aeon/core": "workspace:*",
-    "@aeon/finalize": "workspace:*",
-    "@aeon/profiles": "workspace:*",
-    "@aeon/tonic": "workspace:*",
-    "@aeos/core": "workspace:*"
+    "@altopelago/aeon-aes": "workspace:*",
+    "@altopelago/aeon-core": "workspace:*",
+    "@altopelago/aeon-finalize": "workspace:*",
+    "@altopelago/aeon-profiles": "workspace:*",
+    "@altopelago/aeon-tonic": "workspace:*",
+    "@altopelago/aeos-core": "workspace:*"
   }
 }

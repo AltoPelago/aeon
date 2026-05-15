@@ -1,5 +1,5 @@
 /**
- * @aeon/aes - AEON Assignment Event Stream Package
+ * @altopelago/aeon-aes - AEON Assignment Event Stream Package
  * 
  * Produces Assignment Events from parsed AEON documents.
  */

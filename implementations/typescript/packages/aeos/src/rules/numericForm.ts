@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules: Numeric Form
+ * @altopelago/aeos-core - Rules: Numeric Form
  *
  * Phase 6: Numeric form constraints (sign, digit count).
  */

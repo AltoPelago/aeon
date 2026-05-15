@@ -1,4 +1,4 @@
-# @aeon/tonic
+# @altopelago/aeon-tonic
 
 AES-in materialization boundary scaffold.
 
@@ -9,7 +9,7 @@ It does not yet build a materialized `document`.
 ## Quick Start
 
 ```ts
-import { materialize } from '@aeon/tonic';
+import { materialize } from '@altopelago/aeon-tonic';
 
 const result = materialize({
   aes: [],
@@ -27,19 +27,19 @@ console.log(result.aes);
 
 ## When To Use This Package
 
-Use `@aeon/tonic` only if you want the explicit materialization boundary package surface.
+Use `@altopelago/aeon-tonic` only if you want the explicit materialization boundary package surface.
 
 If you need:
 
-- compile-only behavior, use `@aeon/core`
-- validation over AES, use `@aeos/core`
-- an orchestrated end-to-end runtime, use `@aeon/runtime`
+- compile-only behavior, use `@altopelago/aeon-core`
+- validation over AES, use `@altopelago/aeos-core`
+- an orchestrated end-to-end runtime, use `@altopelago/aeon-runtime`
 
 ## API
 
 ```ts
-import type { AssignmentEvent } from '@aeon/aes';
-import type { AnnotationRecord } from '@aeon/annotation-stream';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 
 export interface TonicInput {
 	aes: readonly AssignmentEvent[];

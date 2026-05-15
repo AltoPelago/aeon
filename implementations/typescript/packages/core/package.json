@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/core",
+  "name": "@altopelago/aeon-core",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,9 +24,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeon/lexer": "workspace:*",
-    "@aeon/parser": "workspace:*",
-    "@aeon/aes": "workspace:*",
-    "@aeon/annotation-stream": "workspace:*"
+    "@altopelago/aeon-lexer": "workspace:*",
+    "@altopelago/aeon-parser": "workspace:*",
+    "@altopelago/aeon-aes": "workspace:*",
+    "@altopelago/aeon-annotation-stream": "workspace:*"
   }
 }

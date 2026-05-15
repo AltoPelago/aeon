@@ -25,7 +25,7 @@ The current Rust work also makes one boundary explicit:
 
 ## Toolchain
 
-- MSRV: Rust `1.88`
+- MSRV: Rust `1.93.1`
 - Edition: Rust `2024`
 
 ## Phase 1 Target
@@ -67,7 +67,7 @@ Current verified status:
 - `annotations` CTS: green
 - `aeos` CTS: green
 - `canonical` CTS: green
-- promoted fail-closed Core semantics (`DUPLICATE_CANONICAL_PATH`, `HEADER_CONFLICT`, strict untyped switch rejection) now live in shared CTS too
+- promoted fail-closed Core semantics (`DUPLICATE_CANONICAL_PATH`, `HEADER_CONFLICT`, strict untyped toggle rejection) now live in shared CTS too
 - exact Rust-side CLI contract tests cover `check`, `fmt`, `inspect`, `finalize`, `bind`, `doctor`, and `integrity`
 - a first Rust stress-smoke pass against the repository stress corpus exposed follow-up parser hardening work in:
   - slash-channel and unterminated structured comment handling

@@ -1,12 +1,16 @@
 {
-  "name": "@aeon/cli",
+  "name": "@altopelago/aeon-cli",
   "version": "0.9.0",
   "type": "module",
   "bin": {
     "aeon": "./dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -15,15 +19,15 @@
     "test": "node --test dist/*.test.js"
   },
   "dependencies": {
-    "@aeon/aes": "workspace:*",
-    "@aeon/canonical": "workspace:*",
-    "@aeon/core": "workspace:*",
-    "@aeon/finalize": "workspace:*",
-    "@aeon/integrity": "workspace:*",
-    "@aeon/lexer": "workspace:*",
-    "@aeon/parser": "workspace:*",
-    "@aeon/profiles": "workspace:*",
-    "@aeon/tonic": "workspace:*",
-    "@aeos/core": "workspace:*"
+    "@altopelago/aeon-aes": "workspace:*",
+    "@altopelago/aeon-canonical": "workspace:*",
+    "@altopelago/aeon-core": "workspace:*",
+    "@altopelago/aeon-finalize": "workspace:*",
+    "@altopelago/aeon-integrity": "workspace:*",
+    "@altopelago/aeon-lexer": "workspace:*",
+    "@altopelago/aeon-parser": "workspace:*",
+    "@altopelago/aeon-profiles": "workspace:*",
+    "@altopelago/aeon-tonic": "workspace:*",
+    "@altopelago/aeos-core": "workspace:*"
   }
 }

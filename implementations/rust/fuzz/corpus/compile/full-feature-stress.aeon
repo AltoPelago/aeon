@@ -13,7 +13,7 @@ environment:string = "dev" //@env(selected=true)
 build:int32 = 42
 
 flag:boolean = true
-toggle:switch = on
+toggle:toggle = on
 count:n = 123
 ratio:float64 = 3.14159
 big:int64 = 9223372036854775807

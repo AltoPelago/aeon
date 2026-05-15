@@ -6,7 +6,7 @@ Lanes:
 - `stress`
   - strict-mode datatype enforcement
   - built-in vs custom datatype policy (`reserved_only` vs `allow_custom`)
-  - switch literals
+  - toggle literals
   - hex/radix/encoding/separator literals
   - date/datetime/ZRUT
   - tuples

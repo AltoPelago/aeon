@@ -1,6 +1,6 @@
 import { createHash, sign as signData, verify as verifyData, generateKeyPairSync } from 'node:crypto';
-import type { AssignmentEvent } from '@aeon/aes';
-import { formatPath } from '@aeon/aes';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import { formatPath } from '@altopelago/aeon-aes';
 
 type Value = AssignmentEvent['value'];
 type ObjectValue = Extract<Value, { type: 'ObjectNode'; bindings: readonly unknown[] }>;
@@ -443,7 +443,7 @@ export function serializeCanonicalValue(value: Value): string {
                 : `"${escapeString(value.raw)}"`;
         case 'BooleanLiteral':
             return value.value ? 'true' : 'false';
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return `"${escapeString(value.raw)}"`;
         case 'HexLiteral':
             return `"#${value.value.replace(/_/g, '').toLowerCase()}"`;

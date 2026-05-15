@@ -5,9 +5,9 @@
  * a generated AEON document. Returns { passed, invariant, details }.
  */
 
-import { readAeon } from '@aeon/sdk-internal';
-import { compile } from '@aeon/core';
-import { canonicalize } from '@aeon/canonical';
+import { readAeon } from '@altopelago/aeon-sdk-internal';
+import { compile } from '@altopelago/aeon-core';
+import { canonicalize } from '@altopelago/aeon-canonical';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -26,8 +26,8 @@ function valueSignature(value) {
             return `NumberLiteral:${value.raw ?? value.value}`;
         case 'BooleanLiteral':
             return `BooleanLiteral:${value.value}`;
-        case 'SwitchLiteral':
-            return `SwitchLiteral:${value.value}`;
+        case 'ToggleLiteral':
+            return `ToggleLiteral:${value.value}`;
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'EncodingLiteral':

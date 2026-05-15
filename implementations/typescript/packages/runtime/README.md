@@ -1,4 +1,4 @@
-# @aeon/runtime
+# @altopelago/aeon-runtime
 
 Phase-ordered runtime orchestration for AEON.
 
@@ -18,7 +18,7 @@ It enforces `schema -> resolve` ordering by skipping profile-level processors.
 ## Quick Start
 
 ```ts
-import { runRuntime } from '@aeon/runtime';
+import { runRuntime } from '@altopelago/aeon-runtime';
 
 const result = runRuntime('name = "AEON"\ncopy = ~name', {
   mode: 'strict',
@@ -37,12 +37,12 @@ if (!result.meta.errors.length) {
 
 ## When To Use This Package
 
-Use `@aeon/runtime` when you need the full orchestrated pipeline.
+Use `@altopelago/aeon-runtime` when you need the full orchestrated pipeline.
 
 If you only need:
 
-- compile-only behavior, use `@aeon/core`
-- AEOS validation over AES, use `@aeos/core`
+- compile-only behavior, use `@altopelago/aeon-core`
+- AEOS validation over AES, use `@altopelago/aeos-core`
 
 ## Common Patterns
 
@@ -152,7 +152,7 @@ export function createTypedRuntimeBinder<TDocument>(
 Example:
 
 ```ts
-import { runTypedRuntime } from '@aeon/runtime';
+import { runTypedRuntime } from '@altopelago/aeon-runtime';
 import type { AppConfig } from './generated-types.js';
 
 const result = runTypedRuntime<AppConfig>('name = "AEON"\\nport = 8080', {

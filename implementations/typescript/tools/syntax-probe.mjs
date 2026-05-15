@@ -120,7 +120,7 @@ test('Keyword as key',
 test('Boolean token as key',
     'false = 1');
 
-test('Switch token as key',
+test('Toggle token as key',
     'yes = 1');
 
 test('Null-like as key',

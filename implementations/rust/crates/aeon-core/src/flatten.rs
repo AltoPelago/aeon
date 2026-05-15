@@ -811,8 +811,14 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
     }
     match unwrap_typed_value(value) {
         Value::NumberLiteral { raw } => Value::NumberLiteral { raw: raw.clone() },
-        Value::InfinityLiteral { raw } => Value::InfinityLiteral { raw: raw.clone() },
-        Value::NaNLiteral { raw } => Value::NaNLiteral { raw: raw.clone() },
+        Value::InfinityLiteral { raw, span } => Value::InfinityLiteral {
+            raw: raw.clone(),
+            span: *span,
+        },
+        Value::NaNLiteral { raw, span } => Value::NaNLiteral {
+            raw: raw.clone(),
+            span: *span,
+        },
         Value::NullLiteral { mode, value, raw } => Value::NullLiteral {
             mode: mode.clone(),
             value: value.clone(),
@@ -828,7 +834,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
             delimiter: *delimiter,
             trimticks: trimticks.clone(),
         },
-        Value::SwitchLiteral { .. } => Value::SwitchLiteral { raw: String::new() },
+        Value::ToggleLiteral { .. } => Value::ToggleLiteral { raw: String::new() },
         Value::BooleanLiteral { .. } => Value::BooleanLiteral { raw: String::new() },
         Value::HexLiteral { .. } => Value::HexLiteral { raw: String::new() },
         Value::SeparatorLiteral { .. } => Value::SeparatorLiteral { raw: String::new() },

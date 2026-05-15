@@ -2074,11 +2074,11 @@ fn serialize_canonical_value(value: &Value) -> String {
     match value {
         Value::TypedValue { value, .. } => serialize_canonical_value(value),
         Value::StringLiteral { value, .. } => format!("\"{}\"", escape_json(value)),
-        Value::InfinityLiteral { raw } => raw.clone(),
-        Value::NaNLiteral { raw } => raw.clone(),
+        Value::InfinityLiteral { raw, .. } => raw.clone(),
+        Value::NaNLiteral { raw, .. } => raw.clone(),
         Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
-        | Value::SwitchLiteral { raw }
+        | Value::ToggleLiteral { raw }
         | Value::BooleanLiteral { raw }
         | Value::EncodingLiteral { raw }
         | Value::SeparatorLiteral { raw }
@@ -2217,7 +2217,7 @@ fn envelope_literal_value(value: &Value) -> Option<String> {
     match value {
         Value::StringLiteral { value, .. } => Some(value.clone()),
         Value::NumberLiteral { raw }
-        | Value::SwitchLiteral { raw }
+        | Value::ToggleLiteral { raw }
         | Value::BooleanLiteral { raw }
         | Value::HexLiteral { raw }
         | Value::SeparatorLiteral { raw }
@@ -2534,7 +2534,7 @@ fn render_value_json_string(value: &Value) -> String {
                 .map(|name| {
                     format!(
                         "{{\"type\":\"TypeAnnotation\",\"name\":\"{}\"}}",
-                        escape_json(name)
+                        escape_json(canonical_datatype_name(name))
                     )
                 })
                 .unwrap_or_else(|| String::from("null"));
@@ -2544,12 +2544,12 @@ fn render_value_json_string(value: &Value) -> String {
                 render_value_json_string(value)
             )
         }
-        Value::InfinityLiteral { raw } => format!(
+        Value::InfinityLiteral { raw, .. } => format!(
             "{{\"type\":\"InfinityLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
             escape_json(raw)
         ),
-        Value::NaNLiteral { raw } => format!(
+        Value::NaNLiteral { raw, .. } => format!(
             "{{\"type\":\"NaNLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
             escape_json(raw)
@@ -2592,8 +2592,8 @@ fn render_value_json_string(value: &Value) -> String {
                 trimticks_json
             )
         }
-        Value::SwitchLiteral { raw } => format!(
-            "{{\"type\":\"SwitchLiteral\",\"value\":\"{}\"}}",
+        Value::ToggleLiteral { raw } => format!(
+            "{{\"type\":\"ToggleLiteral\",\"value\":\"{}\"}}",
             escape_json(raw)
         ),
         Value::BooleanLiteral { raw } => format!(
@@ -2684,6 +2684,10 @@ fn render_value_json_string(value: &Value) -> String {
     }
 }
 
+fn canonical_datatype_name(name: &str) -> &str {
+    name
+}
+
 fn render_reference_segments_json_string(segments: &[ReferenceSegment]) -> String {
     let items = segments
         .iter()
@@ -2742,12 +2746,12 @@ fn render_human_value(value: &Value) -> String {
         Value::StringLiteral { value, .. } => {
             serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
         }
-        Value::InfinityLiteral { raw } => raw.clone(),
-        Value::NaNLiteral { raw } => raw.clone(),
+        Value::InfinityLiteral { raw, .. } => raw.clone(),
+        Value::NaNLiteral { raw, .. } => raw.clone(),
         Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::BooleanLiteral { raw }
-        | Value::SwitchLiteral { raw }
+        | Value::ToggleLiteral { raw }
         | Value::HexLiteral { raw }
         | Value::SeparatorLiteral { raw }
         | Value::EncodingLiteral { raw }
@@ -2980,9 +2984,9 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "FORWARD_REFERENCE"
         | "SELF_REFERENCE"
         | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
-        "UNTYPED_SWITCH_LITERAL"
+        "UNTYPED_TOGGLE_LITERAL"
         | "UNTYPED_VALUE_IN_STRICT_MODE"
-        | "CUSTOM_SWITCH_ALIAS_NOT_ALLOWED"
+        | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
         | "CUSTOM_DATATYPE_NOT_ALLOWED"
         | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
         "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
@@ -3093,7 +3097,7 @@ fn header_field_value(header: Option<&aeon_core::HeaderFields>, key: &str) -> Op
         Value::StringLiteral { value, .. } => value.clone(),
         Value::NumberLiteral { raw }
         | Value::BooleanLiteral { raw }
-        | Value::SwitchLiteral { raw }
+        | Value::ToggleLiteral { raw }
         | Value::HexLiteral { raw }
         | Value::SeparatorLiteral { raw }
         | Value::EncodingLiteral { raw }
@@ -3151,14 +3155,14 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
         Value::TypedValue { value, .. } => core_value_to_aeos(value),
-        Value::InfinityLiteral { raw } => EventValue {
+        Value::InfinityLiteral { raw, .. } => EventValue {
             value_type: String::from("InfinityLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
         },
-        Value::NaNLiteral { raw } => EventValue {
+        Value::NaNLiteral { raw, .. } => EventValue {
             value_type: String::from("NaNLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
@@ -3199,8 +3203,8 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             path: None,
             elements: Vec::new(),
         },
-        Value::SwitchLiteral { raw } => EventValue {
-            value_type: String::from("SwitchLiteral"),
+        Value::ToggleLiteral { raw } => EventValue {
+            value_type: String::from("ToggleLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
             path: None,
@@ -4123,11 +4127,11 @@ mod tests {
     }
 
     #[test]
-    fn inspect_markdown_typed_switch_strict_matches_fixture_contract() {
-        let source = fs::read_to_string(fixture_path("typed-switch-strict.aeon")).expect("fixture");
+    fn inspect_markdown_typed_toggle_strict_matches_fixture_contract() {
+        let source = fs::read_to_string(fixture_path("typed-toggle-strict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
-            "typed-switch-strict.aeon",
+            "typed-toggle-strict.aeon",
             &result,
             &[],
             InspectRenderOptions {
@@ -4144,17 +4148,17 @@ mod tests {
         assert!(normalized.contains("- Mode: strict"));
         assert!(normalized.contains("- Errors: 0"));
         assert!(normalized.contains("## Assignment Events"));
-        assert!(normalized.contains(":switch"));
+        assert!(normalized.contains(":toggle"));
         assert!(normalized.contains("$.friend"));
     }
 
     #[test]
-    fn inspect_markdown_untyped_switch_strict_is_fail_closed() {
+    fn inspect_markdown_untyped_toggle_strict_is_fail_closed() {
         let source =
-            fs::read_to_string(fixture_path("untyped-switch-strict.aeon")).expect("fixture");
+            fs::read_to_string(fixture_path("untyped-toggle-strict.aeon")).expect("fixture");
         let result = compile(&source, CompileOptions::default());
         let rendered = render_inspect_markdown(
-            "untyped-switch-strict.aeon",
+            "untyped-toggle-strict.aeon",
             &result,
             &[],
             InspectRenderOptions {
@@ -4168,7 +4172,7 @@ mod tests {
             },
         );
         let normalized = normalize(&rendered);
-        assert!(normalized.contains("[UNTYPED_SWITCH_LITERAL]"));
+        assert!(normalized.contains("[UNTYPED_TOGGLE_LITERAL]"));
         assert!(!normalized.contains("## Assignment Events"));
     }
 

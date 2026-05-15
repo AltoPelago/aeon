@@ -1,6 +1,6 @@
-import { compile, formatPath, type CompileOptions, type CompileResult } from '@aeon/core';
-import { finalizeJson, type FinalizeJsonResult, type FinalizeOptions } from '@aeon/finalize';
-import { emitFromObject, type EmitObjectOptions, type EmitResult } from '@aeon/canonical';
+import { compile, formatPath, type CompileOptions, type CompileResult } from '@altopelago/aeon-core';
+import { finalizeJson, type FinalizeJsonResult, type FinalizeOptions } from '@altopelago/aeon-finalize';
+import { emitFromObject, type EmitObjectOptions, type EmitResult } from '@altopelago/aeon-canonical';
 
 export interface ReadAeonOptions {
   readonly compile?: CompileOptions;

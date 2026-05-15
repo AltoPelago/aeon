@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Util: Digits
+ * @altopelago/aeos-core - Util: Digits
  *
  * Helpers for counting ASCII digits in numeric literals.
  */

@@ -1,5 +1,5 @@
 /**
- * @aeos/cts-runner - Types
+ * @altopelago/aeos-cts-runner - Types
  */
 
 export type Span = [number, number] | null;

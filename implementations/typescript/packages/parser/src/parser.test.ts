@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
+import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from './parser.js';
 
 describe('Parser', () => {
@@ -106,15 +106,15 @@ describe('Parser', () => {
             assert.strictEqual(result.document.bindings[0]!.value.type, 'BooleanLiteral');
         });
 
-        it('should parse switch literal as SwitchLiteral', () => {
+        it('should parse toggle literal as ToggleLiteral', () => {
             const tokens = tokenize('feature = yes').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.document);
             const value = result.document.bindings[0]!.value;
-            assert.strictEqual(value.type, 'SwitchLiteral');
-            if (value.type === 'SwitchLiteral') {
+            assert.strictEqual(value.type, 'ToggleLiteral');
+            if (value.type === 'ToggleLiteral') {
                 assert.strictEqual(value.value, 'yes');
                 assert.strictEqual(value.raw, 'yes');
             }
@@ -1023,7 +1023,7 @@ describe('Parser', () => {
         });
 
         it('should reject meaningless generics on reserved boolean datatypes', () => {
-            const tokens = tokenize('b:boolean<switch> = true').tokens;
+            const tokens = tokenize('b:boolean<toggle> = true').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);

@@ -1,4 +1,4 @@
-import { tokenize, TokenType, type LexerError, type LexResult, type LexerOptions, type Token } from '@aeon/lexer';
+import { tokenize, TokenType, type LexerError, type LexResult, type LexerOptions, type Token } from '@altopelago/aeon-lexer';
 import { buildLexerCorpus } from './corpus.js';
 import { createPrng } from './prng.js';
 import { LEXER_REGRESSION_CASES } from './regressions.js';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from './compile.js';
 import { createDefaultRegistry, createRegistry } from './registry.js';
-import { formatPath } from '@aeon/aes';
+import { formatPath } from '@altopelago/aeon-aes';
 import type { Profile } from './types.js';
 
 const sourceOk = 'ok';

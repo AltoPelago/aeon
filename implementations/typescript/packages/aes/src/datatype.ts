@@ -1,6 +1,7 @@
-import type { TypeAnnotation } from '@aeon/parser';
+import type { TypeAnnotation } from '@altopelago/aeon-parser';
 
 export function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
+    const name = datatype.name;
     const generics = datatype.genericArgs.length > 0
         ? `<${datatype.genericArgs.join(', ')}>`
         : '';
@@ -10,5 +11,5 @@ export function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
     const separators = datatype.separators.length > 0
         ? datatype.separators.map((separator) => `[${separator}]`).join('')
         : '';
-    return `${datatype.name}${generics}${radixBase}${separators}`;
+    return `${name}${generics}${radixBase}${separators}`;
 }

@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Schema Index Tests
+ * @altopelago/aeos-core - Schema Index Tests
  */
 
 import { describe, it } from 'node:test';

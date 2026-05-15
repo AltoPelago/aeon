@@ -272,7 +272,7 @@ b:Boolean = true
 ---
 b:Bool = false
 ---
-s:Switch = yes
+s:Toggle = yes
 ---
 h:Hex = #FFF
 ---

@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/profiles",
+  "name": "@altopelago/aeon-profiles",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -21,8 +25,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeon/core": "workspace:*",
-    "@aeon/aes": "workspace:*",
-    "@aeon/lexer": "workspace:*"
+    "@altopelago/aeon-core": "workspace:*",
+    "@altopelago/aeon-aes": "workspace:*",
+    "@altopelago/aeon-lexer": "workspace:*"
   }
 }

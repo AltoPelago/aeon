@@ -7,6 +7,7 @@ export function formatDatatypeAnnotation(datatype: {
     if (!datatype) {
         return '';
     }
+    const name = datatype.name;
     const genericArgs = datatype.genericArgs ?? [];
     const separatorsList = datatype.separators ?? [];
     const generics = genericArgs.length > 0
@@ -18,5 +19,5 @@ export function formatDatatypeAnnotation(datatype: {
     const separators = separatorsList.length > 0
         ? separatorsList.map((separator) => `[${separator}]`).join('')
         : '';
-    return `${datatype.name}${generics}${radixBase}${separators}`;
+    return `${name}${generics}${radixBase}${separators}`;
 }

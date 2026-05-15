@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @aeos/core - CTS Validator Adapter
+ * @altopelago/aeos-core - CTS Validator Adapter
  *
  * CTS-compatible CLI entry point for the AEOS validator.
  *

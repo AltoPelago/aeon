@@ -68,7 +68,7 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[1]!.type, TokenType.False);
         });
 
-        it('should tokenize switch keywords', () => {
+        it('should tokenize toggle keywords', () => {
             const result = tokenize('yes no on off');
             const types = result.tokens.slice(0, 4).map(t => t.type);
             assert.deepStrictEqual(types, [

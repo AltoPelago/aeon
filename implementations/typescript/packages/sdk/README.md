@@ -1,11 +1,11 @@
-# @aeon/sdk
+# @altopelago/aeon-sdk
 
 Application-facing convenience layer for common AEON read/write flows.
 
 ## Quick Start
 
 ```ts
-import { readAeonChecked, writeAeon } from '@aeon/sdk';
+import { readAeonChecked, writeAeon } from '@altopelago/aeon-sdk';
 
 const parsed = readAeonChecked('greeting:string = "Hello"');
 console.log(parsed.finalized.document);
@@ -16,8 +16,8 @@ console.log(emitted.text);
 
 ## What This Package Does
 
-- wraps common read flows around `@aeon/core` and `@aeon/finalize`
-- wraps object emission via `@aeon/canonical`
+- wraps common read flows around `@altopelago/aeon-core` and `@altopelago/aeon-finalize`
+- wraps object emission via `@altopelago/aeon-canonical`
 - exposes a canonical-path event index for app code and examples
 
 ## API
@@ -32,5 +32,5 @@ console.log(emitted.text);
 ## Notes
 
 - Prefer this package for simple application examples.
-- Use `@aeon/core` when you only need compile-only behavior.
-- Use `@aeon/runtime` when you need the full orchestrated runtime pipeline.
+- Use `@altopelago/aeon-core` when you only need compile-only behavior.
+- Use `@altopelago/aeon-runtime` when you need the full orchestrated runtime pipeline.

@@ -42,7 +42,7 @@ By default, the CLI MUST behave fail-closed:
 - If `compile().errors.length > 0`, the CLI MUST NOT show any events.
 - Errors MUST still be shown.
 
-This matches the canonical fail-closed contract of `@aeon/core`.
+This matches the canonical fail-closed contract of `@altopelago/aeon-core`.
 
 ### 4.2 Recovery Mode (`--recovery`)
 

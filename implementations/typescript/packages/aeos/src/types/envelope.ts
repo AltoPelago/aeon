@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Types: Envelope
+ * @altopelago/aeos-core - Types: Envelope
  *
  * Canonical Result Envelope for AEOS validation.
  * This shape is normative and must match the CTS runner expectations.

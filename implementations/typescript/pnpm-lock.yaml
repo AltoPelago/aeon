@@ -17,111 +17,111 @@ importers:
 
   packages/aeos:
     devDependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
 
   packages/aes:
     dependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
 
   packages/annotation-stream:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
 
   packages/canonical:
     dependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
 
   packages/cli:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/canonical':
+      '@altopelago/aeon-canonical':
         specifier: workspace:*
         version: link:../canonical
-      '@aeon/core':
+      '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../core
-      '@aeon/finalize':
+      '@altopelago/aeon-finalize':
         specifier: workspace:*
         version: link:../finalize
-      '@aeon/integrity':
+      '@altopelago/aeon-integrity':
         specifier: workspace:*
         version: link:../integrity
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
-      '@aeon/profiles':
+      '@altopelago/aeon-profiles':
         specifier: workspace:*
         version: link:../profiles
-      '@aeon/tonic':
+      '@altopelago/aeon-tonic':
         specifier: workspace:*
         version: link:../tonic
-      '@aeos/core':
+      '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../aeos
 
   packages/core:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/annotation-stream':
+      '@altopelago/aeon-annotation-stream':
         specifier: workspace:*
         version: link:../annotation-stream
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
 
   packages/finalize:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
     devDependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
 
   packages/integrity:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
     devDependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../parser
 
@@ -129,67 +129,67 @@ importers:
 
   packages/parser:
     dependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
 
   packages/profiles:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/core':
+      '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../core
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
 
   packages/runtime:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/core':
+      '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../core
-      '@aeon/finalize':
+      '@altopelago/aeon-finalize':
         specifier: workspace:*
         version: link:../finalize
-      '@aeon/profiles':
+      '@altopelago/aeon-profiles':
         specifier: workspace:*
         version: link:../profiles
-      '@aeon/tonic':
+      '@altopelago/aeon-tonic':
         specifier: workspace:*
         version: link:../tonic
-      '@aeos/core':
+      '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../aeos
 
   packages/sdk:
     dependencies:
-      '@aeon/canonical':
+      '@altopelago/aeon-canonical':
         specifier: workspace:*
         version: link:../canonical
-      '@aeon/core':
+      '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../core
-      '@aeon/finalize':
+      '@altopelago/aeon-finalize':
         specifier: workspace:*
         version: link:../finalize
 
   packages/sdk-internal:
     dependencies:
-      '@aeon/sdk':
+      '@altopelago/aeon-sdk':
         specifier: workspace:*
         version: link:../sdk
 
   packages/tonic:
     dependencies:
-      '@aeon/aes':
+      '@altopelago/aeon-aes':
         specifier: workspace:*
         version: link:../aes
-      '@aeon/annotation-stream':
+      '@altopelago/aeon-annotation-stream':
         specifier: workspace:*
         version: link:../annotation-stream
 
@@ -197,28 +197,30 @@ importers:
 
   packages/typegen:
     dependencies:
-      '@aeos/core':
+      '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../aeos
 
+  packages/wasm: {}
+
   tools/aeon-lsp:
     dependencies:
-      '@aeon/core':
+      '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@aeon/finalize':
+      '@altopelago/aeon-finalize':
         specifier: workspace:*
         version: link:../../packages/finalize
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../../packages/lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../../packages/parser
-      '@aeon/profiles':
+      '@altopelago/aeon-profiles':
         specifier: workspace:*
         version: link:../../packages/profiles
-      '@aeos/core':
+      '@altopelago/aeos-core':
         specifier: workspace:*
         version: link:../../packages/aeos
       vscode-languageserver:
@@ -252,10 +254,10 @@ importers:
 
   tools/phase-fuzz:
     dependencies:
-      '@aeon/lexer':
+      '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../../packages/lexer
-      '@aeon/parser':
+      '@altopelago/aeon-parser':
         specifier: workspace:*
         version: link:../../packages/parser
     devDependencies:

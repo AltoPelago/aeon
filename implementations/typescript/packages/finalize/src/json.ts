@@ -1,4 +1,4 @@
-import { formatPath, type AssignmentEvent, type AttributeEntry } from '@aeon/aes';
+import { formatPath, type AssignmentEvent, type AttributeEntry } from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,
@@ -308,7 +308,7 @@ function valueToJson(
             return value.raw;
         case 'BooleanLiteral':
             return value.value;
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
             return value.value.replace(/_/g, '');
@@ -568,7 +568,7 @@ function measureMaterializedWeight(
         case 'NaNLiteral':
         case 'NullLiteral':
         case 'BooleanLiteral':
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'EncodingLiteral':

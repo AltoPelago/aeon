@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Types: Schema
+ * @altopelago/aeos-core - Types: Schema
  *
  * AEOS Constraint Model v1 types.
  */

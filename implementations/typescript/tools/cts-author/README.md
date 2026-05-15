@@ -1,4 +1,4 @@
-# @aeon/cts-author
+# @altopelago/aeon-cts-author
 
 CTS authoring utilities for AEON and AEOS conformance suites.
 

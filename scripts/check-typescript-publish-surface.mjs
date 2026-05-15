@@ -59,7 +59,11 @@ const publishFields = [
 ];
 
 function git(args) {
-  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trimEnd();
+  return execFileSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trimEnd();
 }
 
 function tryGit(args) {
@@ -99,6 +103,10 @@ for (const file of changedFiles) {
   }
 
   if (firstWavePackageJsons.has(file)) {
+    continue;
+  }
+
+  if (hasExplicitReleasePolicyChange) {
     continue;
   }
 

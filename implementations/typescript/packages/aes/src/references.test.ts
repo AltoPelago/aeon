@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { validateReferences, type ReferenceValidationResult } from './references.js';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
 import { resolvePaths, emitEvents } from './index.js';
 
 describe('Reference Validation', () => {

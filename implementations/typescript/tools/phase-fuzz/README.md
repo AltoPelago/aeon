@@ -1,15 +1,15 @@
 # AEON Phase Fuzz
 
-Deterministic hostile-input fuzz lanes for `@aeon/lexer` and `@aeon/parser`.
+Deterministic hostile-input fuzz lanes for `@altopelago/aeon-lexer` and `@altopelago/aeon-parser`.
 
 ## Commands
 
 ```bash
-pnpm --filter @aeon/phase-fuzz test
-pnpm --filter @aeon/phase-fuzz fuzz:lexer
-pnpm --filter @aeon/phase-fuzz fuzz:parser
-pnpm --filter @aeon/phase-fuzz fuzz:nightly
-pnpm --filter @aeon/phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
+pnpm --filter @altopelago/aeon-phase-fuzz test
+pnpm --filter @altopelago/aeon-phase-fuzz fuzz:lexer
+pnpm --filter @altopelago/aeon-phase-fuzz fuzz:parser
+pnpm --filter @altopelago/aeon-phase-fuzz fuzz:nightly
+pnpm --filter @altopelago/aeon-phase-fuzz fuzz:promote -- --lane lexer --id lexer-example --note "short note" --source-file /tmp/case.aeon
 ```
 
 ## Profiles

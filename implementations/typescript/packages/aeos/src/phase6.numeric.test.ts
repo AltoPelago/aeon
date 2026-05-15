@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Phase 6 Numeric Form Tests (draft)
+ * @altopelago/aeos-core - Phase 6 Numeric Form Tests (draft)
  *
  * These tests mirror the CTS Phase 6 cases and are intended to be
  * enabled once Phase 6 numeric-form validation is implemented.

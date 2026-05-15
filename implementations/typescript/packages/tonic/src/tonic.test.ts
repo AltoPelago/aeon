@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { AssignmentEvent } from '@aeon/aes';
-import type { AnnotationRecord } from '@aeon/annotation-stream';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 import { materialize } from './tonic.js';
 import { materializeMatter } from './matter.js';
 

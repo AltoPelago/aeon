@@ -1,4 +1,4 @@
-import type { AssignmentEvent } from '@aeon/aes';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
 
 type Span = AssignmentEvent['span'];
 type Value = AssignmentEvent['value'];
@@ -102,7 +102,7 @@ export interface FinalizedScalarNode extends FinalizedNodeBase {
         | 'String'
         | 'Number'
         | 'Boolean'
-        | 'Switch'
+        | 'Toggle'
         | 'Hex'
         | 'Radix'
         | 'Encoding'

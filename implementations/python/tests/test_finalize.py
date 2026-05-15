@@ -181,8 +181,8 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertTrue(any(error["code"] == "FINALIZE_REFERENCE_CYCLE" for error in result["meta"]["errors"]))
 
     def test_materializes_switch_and_time_literals(self) -> None:
-        switch = finalize_json(compile_events("debug = yes"), FinalizeOptions(mode="loose"))
-        self.assertEqual(True, switch["document"]["debug"])
+        toggle = finalize_json(compile_events("debug = yes"), FinalizeOptions(mode="loose"))
+        self.assertEqual(True, toggle["document"]["debug"])
 
         time = finalize_json(compile_events("opens = 09:30:00+02:40"), FinalizeOptions(mode="loose"))
         self.assertEqual("09:30:00+02:40", time["document"]["opens"])

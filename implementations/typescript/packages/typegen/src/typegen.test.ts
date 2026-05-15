@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateTypes } from './index.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 test('generates nested interface with required and optional fields', () => {
     const schema: SchemaV1 = {
@@ -155,7 +155,7 @@ test('emits runtime binder helper when requested', () => {
     });
 
     assert.equal(result.diagnostics.length, 0);
-    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from '@aeon\/runtime';/);
+    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from '@altopelago\/aeon-runtime';/);
     assert.match(result.code, /export const AppConfigSchema: SchemaV1 = \{/);
     assert.match(result.code, /export function bindAppConfig\(options: TypedBinderOptions<AppConfig> = \{\}\): \(input: string\) => TypedRuntimeResult<AppConfig> \{/);
 });

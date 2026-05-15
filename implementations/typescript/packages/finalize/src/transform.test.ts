@@ -2,9 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { finalizeNode } from './node.js';
 import { transformDocument } from './transform.js';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
-import { resolvePaths, emitEvents } from '@aeon/aes';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
+import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string) {
     const tokens = tokenize(input).tokens;

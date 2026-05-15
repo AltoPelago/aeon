@@ -1,10 +1,10 @@
 # Parser API
 
-Informative status: implementation documentation for `@aeon/parser`.
+Informative status: implementation documentation for `@altopelago/aeon-parser`.
 
 ## Package
 
-- Module: `@aeon/parser`
+- Module: `@altopelago/aeon-parser`
 - Entry point: [`implementations/typescript/packages/parser/src/index.ts`](../../../../implementations/typescript/packages/parser/src/index.ts)
 
 ## Primary entry point
@@ -48,14 +48,14 @@ interface ParseResult {
 ## Notes
 
 - These options are implementation controls, not AEON document syntax.
-- The parser expects token input from `@aeon/lexer`.
-- If you need the canonical high-level processing entry point, use `@aeon/core` instead of calling parser phases manually.
+- The parser expects token input from `@altopelago/aeon-lexer`.
+- If you need the canonical high-level processing entry point, use `@altopelago/aeon-core` instead of calling parser phases manually.
 
 ## Example
 
 ```ts
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
 
 const lexed = tokenize('config = { port = 8080 }');
 const parsed = parse(lexed.tokens, {

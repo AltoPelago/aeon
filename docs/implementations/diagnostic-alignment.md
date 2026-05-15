@@ -72,7 +72,7 @@ These areas now have explicit parity work behind them:
 - `UNTERMINATED_STRING` now carries the same delimiter-aware message shape
 - temporal literals now align on `INVALID_DATE`, `INVALID_TIME`, and
   `INVALID_DATETIME`, including span attachment
-- typed-mode diagnostics now align for `UNTYPED_SWITCH_LITERAL`,
+- typed-mode diagnostics now align for `UNTYPED_TOGGLE_LITERAL`,
   `CUSTOM_DATATYPE_NOT_ALLOWED`, `INVALID_NODE_HEAD_DATATYPE`, and
   `DATATYPE_LITERAL_MISMATCH`
 - missing reference targets now report source ownership and tighter Rust spans
@@ -109,7 +109,7 @@ need deliberate follow-through.
 Remaining targets:
 
 - `UNTYPED_VALUE_IN_STRICT_MODE` should be reviewed alongside the newly aligned
-  `UNTYPED_SWITCH_LITERAL` behavior
+  `UNTYPED_TOGGLE_LITERAL` behavior
 - attribute-level datatype diagnostics in Rust still do not always carry
   attribute-precise spans because those values do not yet preserve their own
   spans through the model

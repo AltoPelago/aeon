@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
+import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from './parser.js';
 import { resolveCanonicalPaths } from './path-resolver.js';
 

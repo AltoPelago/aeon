@@ -1,10 +1,10 @@
 # Profiles API
 
-Informative status: implementation documentation for `@aeon/profiles`.
+Informative status: implementation documentation for `@altopelago/aeon-profiles`.
 
 ## Package
 
-- Module: `@aeon/profiles`
+- Module: `@altopelago/aeon-profiles`
 - Entry point: [`implementations/typescript/packages/profiles/src/index.ts`](../../../../implementations/typescript/packages/profiles/src/index.ts)
 
 ## Primary entry point
@@ -56,7 +56,7 @@ interface CompileOptions {
 ## Example
 
 ```ts
-import { compile, createDefaultRegistry } from '@aeon/profiles';
+import { compile, createDefaultRegistry } from '@altopelago/aeon-profiles';
 
 const result = compile(source, {
   profile: 'altopelago.core.v1',

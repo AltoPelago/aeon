@@ -1,5 +1,5 @@
 /**
- * @aeon/parser - AEON Parser Package
+ * @altopelago/aeon-parser - AEON Parser Package
  * 
  * Parses AEON tokens into an Abstract Syntax Tree.
  */

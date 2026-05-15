@@ -16,9 +16,9 @@ import {
     verifyStringPayloadSignature,
     verifyCanonicalStreamSignature,
 } from './index.js';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
-import { resolvePaths, emitEvents } from '@aeon/aes';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
+import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string) {
     const tokens = tokenize(input).tokens;

@@ -1,5 +1,5 @@
-import { tokenize, type LexerError } from '@aeon/lexer';
-import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@aeon/parser';
+import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
+import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
@@ -284,7 +284,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return [formatNullLiteral(value)];
         case 'BooleanLiteral':
             return [formatBoolean(value)];
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return [value.value];
         case 'HexLiteral':
             return [`#${value.value.replace(/_/g, '').toLowerCase()}`];
@@ -442,7 +442,7 @@ function renderCompactInlineValue(value: Value): string {
             return formatNullLiteral(value);
         case 'BooleanLiteral':
             return formatBoolean(value);
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return value.value;
         case 'HexLiteral':
             return `#${value.value.replace(/_/g, '').toLowerCase()}`;
@@ -806,7 +806,7 @@ function isSimpleValue(value: Value): boolean {
         case 'NaNLiteral':
         case 'NullLiteral':
         case 'BooleanLiteral':
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'EncodingLiteral':

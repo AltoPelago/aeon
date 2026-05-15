@@ -1,10 +1,10 @@
 # Finalize API
 
-Informative status: implementation documentation for `@aeon/finalize`.
+Informative status: implementation documentation for `@altopelago/aeon-finalize`.
 
 ## Package
 
-- Module: `@aeon/finalize`
+- Module: `@altopelago/aeon-finalize`
 - Entry point: [`implementations/typescript/packages/finalize/src/index.ts`](../../../../implementations/typescript/packages/finalize/src/index.ts)
 
 ## Primary entry points
@@ -58,14 +58,14 @@ Each result may include `meta.errors` and `meta.warnings`.
 
 ## Notes
 
-- `@aeon/finalize` consumes AES. It is downstream of parsing and emission.
+- `@altopelago/aeon-finalize` consumes AES. It is downstream of parsing and emission.
 - Finalization options are implementation controls, not AEON document syntax.
 
 ## Example
 
 ```ts
-import { compile } from '@aeon/core';
-import { finalizeJson } from '@aeon/finalize';
+import { compile } from '@altopelago/aeon-core';
+import { finalizeJson } from '@altopelago/aeon-finalize';
 
 const compiled = compile('app = { name = "aeon" }');
 const finalized = finalizeJson(compiled.events, {

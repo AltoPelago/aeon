@@ -8,7 +8,7 @@ import type {
     FinalizedEntry,
     FinalizedMap,
 } from './types.js';
-import { formatPath } from '@aeon/aes';
+import { formatPath } from '@altopelago/aeon-aes';
 import { createProjectionState, shouldIncludeProjectedPath } from './projection.js';
 
 function toDiagnostic(level: 'error' | 'warning', message: string, path?: string, span?: unknown): Diagnostic {

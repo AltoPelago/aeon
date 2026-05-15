@@ -1,4 +1,4 @@
-# @aeon/annotation-cts-runner
+# @altopelago/aeon-annotation-cts-runner
 
 Annotation stream conformance runner for AEON.
 

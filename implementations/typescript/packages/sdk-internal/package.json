@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/sdk-internal",
+  "name": "@altopelago/aeon-sdk-internal",
   "version": "0.9.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -21,6 +25,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeon/sdk": "workspace:*"
+    "@altopelago/aeon-sdk": "workspace:*"
   }
 }

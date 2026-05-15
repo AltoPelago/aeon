@@ -1,4 +1,4 @@
-# @aeon/canonical
+# @altopelago/aeon-canonical
 
 Canonical AEON emitter.
 
@@ -10,7 +10,7 @@ hashing, diffing, and signing.
 ### Canonicalize existing AEON text
 
 ```ts
-import { canonicalize } from '@aeon/canonical';
+import { canonicalize } from '@altopelago/aeon-canonical';
 
 const result = canonicalize('b = 1\na = 2', {
   maxSeparatorDepth: 8,
@@ -24,7 +24,7 @@ if (result.errors.length === 0) {
 ### Emit AEON from a plain object
 
 ```ts
-import { emitFromObject } from '@aeon/canonical';
+import { emitFromObject } from '@altopelago/aeon-canonical';
 
 const result = emitFromObject(
   {

@@ -1,4 +1,4 @@
-# Release notes — @aeon/annotation-cts-runner
+# Release notes — @altopelago/aeon-annotation-cts-runner
 
 ## 0.9.0 (unreleased)
 

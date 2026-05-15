@@ -1,11 +1,11 @@
 /**
- * @aeon/core - AEON Core Package
+ * @altopelago/aeon-core - AEON Core Package
  * 
  * The canonical, safe entry point for AEON processing.
  * 
  * Usage:
  * ```ts
- * import { compile } from '@aeon/core';
+ * import { compile } from '@altopelago/aeon-core';
  * 
  * const result = compile('key = "value"');
  * if (result.errors.length === 0) {
@@ -14,8 +14,8 @@
  * ```
  */
 
-import { tokenize, type LexerError } from '@aeon/lexer';
-import { parse, SyntaxError as ParserSyntaxError, type ParserError, type Document, type Value, type Binding } from '@aeon/parser';
+import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
+import { parse, SyntaxError as ParserSyntaxError, type ParserError, type Document, type Value, type Binding } from '@altopelago/aeon-parser';
 import {
     resolvePaths,
     emitEvents,
@@ -27,8 +27,8 @@ import {
     type ReferenceValidationError,
     type ModeEnforcementError,
     type DatatypePolicy,
-} from '@aeon/aes';
-import { buildAnnotationStreamFromSourceAndSpans, type AnnotationRecord } from '@aeon/annotation-stream';
+} from '@altopelago/aeon-aes';
+import { buildAnnotationStreamFromSourceAndSpans, type AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type HostDirectiveKind } from './preamble.js';
 
 // =============================================================================
@@ -251,12 +251,12 @@ function normalizeLexerErrors(input: string, errors: readonly LexerError[]): rea
 // =============================================================================
 
 // Core types consumers need to work with compile() result
-export type { AssignmentEvent, CanonicalPath } from '@aeon/aes';
-export type { AnnotationRecord } from '@aeon/annotation-stream';
-export type { Span, Position } from '@aeon/lexer';
+export type { AssignmentEvent, CanonicalPath } from '@altopelago/aeon-aes';
+export type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
+export type { Span, Position } from '@altopelago/aeon-lexer';
 
 // Utility for formatting paths (commonly needed)
-export { formatPath } from '@aeon/aes';
+export { formatPath } from '@altopelago/aeon-aes';
 
 function stripLeadingBom(input: string): string {
     return input.startsWith('\uFEFF') ? input.slice(1) : input;

@@ -91,7 +91,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
-          toolchain: stable
+          toolchain: 1.93.1
 
       - name: Install TypeScript workspace dependencies
         working-directory: implementations/typescript

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
 import { resolvePaths, emitEvents } from './index.js';
 import { validateReferences } from './references.js';
 import { datatypeHasGenericArgs, enforceMode, type ModeEnforcementResult } from './modes.js';
@@ -267,14 +267,14 @@ describe('Mode Enforcement', () => {
         });
 
         it('should reject explicit reserved datatype mismatch in transport mode', () => {
-            const result = enforce('aeon:mode = "transport"\nstate:switch = true');
+            const result = enforce('aeon:mode = "transport"\nstate:toggle = true');
 
             assert.ok(result.errors.length > 0);
             assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
         });
 
         it('should allow explicit reserved datatype match in transport mode', () => {
-            const result = enforce('aeon:mode = "transport"\nstate:switch = on');
+            const result = enforce('aeon:mode = "transport"\nstate:toggle = on');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -311,8 +311,8 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should allow custom switch aliases in custom mode', () => {
-            const result = enforce('aeon:mode = "custom"\ns:toggle = on');
+        it('should allow custom toggle aliases in custom mode', () => {
+            const result = enforce('aeon:mode = "custom"\ns:myToggle = on');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -323,11 +323,11 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should treat untyped switch literals like other untyped bindings in custom mode', () => {
+        it('should treat untyped toggle literals like other untyped bindings in custom mode', () => {
             const result = enforce('aeon:mode = "custom"\ndebug = yes');
 
             assert.ok(result.errors.some((e) => e.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
-            assert.ok(!result.errors.some((e) => e.code === 'UNTYPED_SWITCH_LITERAL'));
+            assert.ok(!result.errors.some((e) => e.code === 'UNTYPED_TOGGLE_LITERAL'));
         });
 
         it('should reject scalar values for generic custom datatypes in custom mode', () => {
@@ -381,44 +381,50 @@ describe('Mode Enforcement', () => {
     // SWITCH TYPING RULE (Red Team required)
     // ============================================
 
-    describe('switch typing rule', () => {
-        it('should error on untyped switch literal in strict mode', () => {
+    describe('toggle typing rule', () => {
+        it('should error on untyped toggle literal in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\ndebug = yes');
 
             assert.ok(result.errors.length > 0);
-            assert.ok(result.errors.some(e => e.code === 'UNTYPED_SWITCH_LITERAL'));
+            assert.ok(result.errors.some(e => e.code === 'UNTYPED_TOGGLE_LITERAL'));
         });
 
-        it('should pass typed switch literal in strict mode', () => {
-            const result = enforce('aeon:mode = "strict"\ndebug:switch = yes');
+        it('should pass typed toggle literal in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\ndebug:toggle = yes');
 
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should reject custom switch aliases in strict mode even when datatypePolicy is allow_custom', () => {
-            const result = enforce('aeon:mode = "strict"\ns:toggle = on', {
+        it('should reject custom toggle aliases in strict mode even when datatypePolicy is allow_custom', () => {
+            const result = enforce('aeon:mode = "strict"\ns:myToggle = on', {
                 datatypePolicy: 'allow_custom',
             });
 
-            assert.ok(result.errors.some(e => e.code === 'CUSTOM_SWITCH_ALIAS_NOT_ALLOWED'));
+            assert.ok(result.errors.some(e => e.code === 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED'));
         });
 
-        it('should error if switch literal is typed as a non-switch', () => {
+        it('should reject removed :switch datatype spelling in custom mode', () => {
+            const result = enforce('aeon:mode = "custom"\ns:switch = on');
+
+            assert.ok(result.errors.some(e => e.code === 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED'));
+        });
+
+        it('should error if toggle literal is typed as a non-toggle', () => {
             const result = enforce('aeon:mode = "strict"\ndebug:int32 = yes');
 
             assert.ok(result.errors.length > 0);
             assert.ok(result.errors.some(e => e.code === 'DATATYPE_LITERAL_MISMATCH'));
         });
 
-        it('should allow untyped switch in transport mode (stays raw)', () => {
+        it('should allow untyped toggle in transport mode (stays raw)', () => {
             const result = enforce('aeon:mode = "transport"\ndebug = yes');
 
-            // Transport mode allows untyped - value stays raw, no semantic switch
+            // Transport mode allows untyped - value stays raw, no semantic toggle
             assert.strictEqual(result.errors.length, 0);
             const debugEvent = result.events.find((event) => event.key === 'debug');
             assert.ok(debugEvent);
-            assert.strictEqual(debugEvent!.value.type, 'SwitchLiteral');
-            if (debugEvent!.value.type === 'SwitchLiteral') {
+            assert.strictEqual(debugEvent!.value.type, 'ToggleLiteral');
+            if (debugEvent!.value.type === 'ToggleLiteral') {
                 assert.strictEqual(debugEvent!.value.raw, 'yes');
             }
         });

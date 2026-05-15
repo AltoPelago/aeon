@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Validate Tests
+ * @altopelago/aeos-core - Validate Tests
  *
  * Phase 0/1 tests: envelope shape and basic contract.
  */

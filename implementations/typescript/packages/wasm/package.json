@@ -1,0 +1,30 @@
+{
+  "name": "@altopelago/aeon-wasm",
+  "version": "0.9.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "pkg",
+    "README.md",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:wasm": "node ./scripts/build-wasm.mjs",
+    "test": "node --test dist/*.test.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean:wasm": "rm -rf pkg"
+  }
+}

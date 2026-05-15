@@ -1,10 +1,10 @@
 # Convenience Layer Proposal
 
-Informative status: proposal for a public TypeScript convenience surface to replace example usage of `@aeon/sdk-internal`.
+Informative status: proposal for a public TypeScript convenience surface to replace example usage of `@altopelago/aeon-sdk-internal`.
 
 ## Problem
 
-The current TypeScript examples already converge on one application-facing helper layer, but they do so through the internal package name `@aeon/sdk-internal`.
+The current TypeScript examples already converge on one application-facing helper layer, but they do so through the internal package name `@altopelago/aeon-sdk-internal`.
 
 That creates two problems:
 
@@ -15,16 +15,16 @@ That creates two problems:
 
 Today the implementation surface is roughly:
 
-- `@aeon/core`
+- `@altopelago/aeon-core`
   - compile-only, fail-closed AEON processing
-- `@aeon/runtime`
+- `@altopelago/aeon-runtime`
   - full orchestrated pipeline with profiles, AEOS validation, reference resolution, and finalization
-- `@aeon/canonical`
+- `@altopelago/aeon-canonical`
   - object-to-AEON emission
-- `@aeon/sdk-internal`
+- `@altopelago/aeon-sdk-internal`
   - convenience helpers built on top of the above
 
-The examples mainly rely on these `@aeon/sdk-internal` helpers:
+The examples mainly rely on these `@altopelago/aeon-sdk-internal` helpers:
 
 - `readAeon(...)`
 - `readAeonChecked(...)`
@@ -35,17 +35,17 @@ The examples mainly rely on these `@aeon/sdk-internal` helpers:
 
 ## Recommendation
 
-Do not fold `writeAeon(...)` into `@aeon/runtime`.
+Do not fold `writeAeon(...)` into `@altopelago/aeon-runtime`.
 
-`@aeon/runtime` is the right home for read/validate/finalize orchestration, but not for object emission. `writeAeon(...)` is fundamentally a canonicalization/emission helper, so putting it into runtime would blur the package boundary.
+`@altopelago/aeon-runtime` is the right home for read/validate/finalize orchestration, but not for object emission. `writeAeon(...)` is fundamentally a canonicalization/emission helper, so putting it into runtime would blur the package boundary.
 
 Instead, promote the current convenience layer into a real public package:
 
-- proposed name: `@aeon/sdk`
+- proposed name: `@altopelago/aeon-sdk`
 
 ## Proposed package role
 
-`@aeon/sdk` should be the app-facing convenience layer for common application tasks:
+`@altopelago/aeon-sdk` should be the app-facing convenience layer for common application tasks:
 
 - load AEON text
 - require successful compile/finalize before continuing
@@ -79,34 +79,34 @@ requireNoFinalizeErrors(result)
 
 Recommended package boundaries after promotion:
 
-- keep in `@aeon/core`
+- keep in `@altopelago/aeon-core`
   - low-level compile entry
-- keep in `@aeon/runtime`
+- keep in `@altopelago/aeon-runtime`
   - full pipeline orchestration
   - AEOS/schema-aware typed runtime helpers
-- keep in `@aeon/canonical`
+- keep in `@altopelago/aeon-canonical`
   - canonical object emission primitives
-- move to `@aeon/sdk`
+- move to `@altopelago/aeon-sdk`
   - convenience wrappers that compose `core`, `finalize`, and `canonical`
 
 ## Example guidance
 
-Once `@aeon/sdk` exists:
+Once `@altopelago/aeon-sdk` exists:
 
-- simple application examples should prefer `@aeon/sdk`
+- simple application examples should prefer `@altopelago/aeon-sdk`
 - compile-only or infrastructure-heavy examples can still use lower-level packages directly
-- `@aeon/sdk-internal` should disappear from public example READMEs and package manifests
+- `@altopelago/aeon-sdk-internal` should disappear from public example READMEs and package manifests
 
 ## Migration path
 
-1. Create public `@aeon/sdk` with the existing `sdk-internal` exports.
-2. Repoint examples from `@aeon/sdk-internal` to `@aeon/sdk`.
-3. Keep `@aeon/sdk-internal` as a short-lived compatibility alias only if needed.
-4. Remove or archive `@aeon/sdk-internal` once examples and docs no longer depend on it.
+1. Create public `@altopelago/aeon-sdk` with the existing `sdk-internal` exports.
+2. Repoint examples from `@altopelago/aeon-sdk-internal` to `@altopelago/aeon-sdk`.
+3. Keep `@altopelago/aeon-sdk-internal` as a short-lived compatibility alias only if needed.
+4. Remove or archive `@altopelago/aeon-sdk-internal` once examples and docs no longer depend on it.
 
-## Why this is better than using `@aeon/runtime` alone
+## Why this is better than using `@altopelago/aeon-runtime` alone
 
-`@aeon/runtime` is intentionally broader and more opinionated:
+`@altopelago/aeon-runtime` is intentionally broader and more opinionated:
 
 - profiles
 - schema validation
@@ -127,5 +127,5 @@ The main problem is that it is currently named and documented as internal.
 
 The cleanest next step is:
 
-- promote `@aeon/sdk-internal` into public `@aeon/sdk`
-- keep `@aeon/runtime` focused on full-pipeline orchestration
+- promote `@altopelago/aeon-sdk-internal` into public `@altopelago/aeon-sdk`
+- keep `@altopelago/aeon-runtime` focused on full-pipeline orchestration

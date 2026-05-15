@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules: Schema Index
+ * @altopelago/aeos-core - Rules: Schema Index
  *
  * Build a fast lookup index from schema rules.
  */

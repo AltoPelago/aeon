@@ -149,23 +149,23 @@ const valueFeatures = [
     },
   },
   {
-    id: 'switch-on',
+    id: 'toggle-on',
     category: 'values',
     priority: 'high',
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('sw');
-      return { text: `${k}:switch = on`, expectPass: true, isBinding: true, metadata: { valueType: 'SwitchLiteral' } };
+      return { text: `${k}:toggle = on`, expectPass: true, isBinding: true, metadata: { valueType: 'ToggleLiteral' } };
     },
   },
   {
-    id: 'switch-off',
+    id: 'toggle-off',
     category: 'values',
     priority: 'medium',
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('sw');
-      return { text: `${k}:switch = off`, expectPass: true, isBinding: true, metadata: { valueType: 'SwitchLiteral' } };
+      return { text: `${k}:toggle = off`, expectPass: true, isBinding: true, metadata: { valueType: 'ToggleLiteral' } };
     },
   },
   {
@@ -593,13 +593,13 @@ const typeAnnotationFeatures = [
     },
   },
   {
-    id: 'type-switch-custom-invalid',
+    id: 'type-toggle-custom-invalid',
     category: 'types',
     priority: 'high',
     contexts: ['top'],
     generate() {
       const k = uniqueKey('tp');
-      return { text: `${k}:mySwitch = yes`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'switch-custom-type' } };
+      return { text: `${k}:myToggle = yes`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'toggle-custom-type' } };
     },
   },
   {
@@ -610,7 +610,7 @@ const typeAnnotationFeatures = [
     needsTransport: true,
     generate() {
       const k = uniqueKey('tp');
-      return { text: `${k}:switch = true`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'transport-explicit-datatype-mismatch' } };
+      return { text: `${k}:toggle = true`, expectPass: false, isBinding: true, metadata: { negative: true, reason: 'transport-explicit-datatype-mismatch' } };
     },
   },
   {

@@ -1,5 +1,5 @@
-import { formatPath, type AssignmentEvent } from '@aeon/aes';
-import type { AnnotationRecord } from '@aeon/annotation-stream';
+import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 import type { TonicInput } from './tonic.js';
 
 export type MatterKind = 'object' | 'list' | 'scalar' | 'reference' | 'node';
@@ -482,7 +482,7 @@ function valueToMatterNode(
             );
         case 'BooleanLiteral':
             return new MatterScalarNode(owner, value.value, value.span);
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return new MatterScalarNode(owner, value.value === 'yes' || value.value === 'on', value.span);
         case 'HexLiteral':
         case 'RadixLiteral':
@@ -701,7 +701,7 @@ function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
             return value.mode === 'reserved' && value.value === 'none' ? null : value.raw;
         case 'BooleanLiteral':
             return value.value;
-        case 'SwitchLiteral':
+        case 'ToggleLiteral':
             return value.value === 'yes' || value.value === 'on';
         case 'HexLiteral':
         case 'RadixLiteral':

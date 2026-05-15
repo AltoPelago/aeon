@@ -1,10 +1,10 @@
 # AEOS API
 
-Informative status: implementation documentation for `@aeos/core`.
+Informative status: implementation documentation for `@altopelago/aeos-core`.
 
 ## Package
 
-- Module: `@aeos/core`
+- Module: `@altopelago/aeos-core`
 - Entry point: [`implementations/typescript/packages/aeos/src/index.ts`](../../../../implementations/typescript/packages/aeos/src/index.ts)
 
 ## Primary entry point
@@ -55,7 +55,7 @@ The envelope intentionally excludes the original AES payload.
 ## Example
 
 ```ts
-import { validate } from '@aeos/core';
+import { validate } from '@altopelago/aeos-core';
 
 const result = validate(aes, schema, {
   trailingSeparatorDelimiterPolicy: 'warn',

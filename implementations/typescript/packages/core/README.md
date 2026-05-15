@@ -1,11 +1,11 @@
-# @aeon/core
+# @altopelago/aeon-core
 
 The canonical, safe entry point for AEON processing.
 
 ## Installation
 
 ```bash
-pnpm add @aeon/core
+pnpm add @altopelago/aeon-core
 ```
 
 Implementation docs:
@@ -15,7 +15,7 @@ Implementation docs:
 ## Quick Start
 
 ```ts
-import { compile } from '@aeon/core';
+import { compile } from '@altopelago/aeon-core';
 
 const input = `
 config = {
@@ -64,7 +64,7 @@ console.log(result.errors); // all known issues
 
 ### Typical next step
 
-If you need schema validation after compile, pass `result.events` to `@aeos/core`.
+If you need schema validation after compile, pass `result.events` to `@altopelago/aeos-core`.
 
 ### Inspect the file preamble without full parsing
 
@@ -73,7 +73,7 @@ Use `inspectFilePreamble()` to read only the allowed file-header slot for:
 - a `//! format:<id>` host directive on line 1, or line 2 after a shebang
 
 ```ts
-import { inspectFilePreamble } from '@aeon/core';
+import { inspectFilePreamble } from '@altopelago/aeon-core';
 
 const info = inspectFilePreamble('#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue = {');
 console.log(info.format); // "aeon.test.v1"
@@ -122,11 +122,11 @@ Reads only the file-header preamble slot and returns:
 
 For advanced tooling, lower-level packages are available but considered unstable:
 
-- `@aeon/lexer` — Tokenization
-- `@aeon/parser` — AST construction
-- `@aeon/aes` — Event emission and validation
+- `@altopelago/aeon-lexer` — Tokenization
+- `@altopelago/aeon-parser` — AST construction
+- `@altopelago/aeon-aes` — Event emission and validation
 
-These APIs may evolve. Prefer `@aeon/core` for stable usage.
+These APIs may evolve. Prefer `@altopelago/aeon-core` for stable usage.
 
 For the implementation-defined option surface and security-oriented controls, see:
 
