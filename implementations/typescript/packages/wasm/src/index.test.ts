@@ -28,13 +28,14 @@ test('processes a basic document through the generated wasm artifact', async () 
 test('normalizes internal switch literal naming to toggle literal naming', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);
-  const result = runtime.processAeon('state:toggle = on\n', {
+  const result = runtime.processAeon('state:switch = on\n', {
     validationMode: 'strict',
     maxSeparatorDepth: 8,
     finalizeScope: 'payload',
   });
 
   assert.equal(result.errors.length, 0);
+  assert.equal(result.events[0]?.datatype, 'toggle');
   assert.equal(result.events[0]?.valueType, 'ToggleLiteral');
   assert.deepEqual(result.finalized.document, { state: true });
 });

@@ -11,9 +11,11 @@ pnpm add @altopelago/aeon-parser
 ## Usage
 
 ```ts
+import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 
-const result = parse('answer = 42');
+const tokens = tokenize('answer = 42').tokens;
+const result = parse(tokens);
 
 if (result.errors.length === 0) {
   console.log(result.root);

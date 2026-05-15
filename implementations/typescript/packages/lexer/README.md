@@ -11,9 +11,9 @@ pnpm add @altopelago/aeon-lexer
 ## Usage
 
 ```ts
-import { lex } from '@altopelago/aeon-lexer';
+import { tokenize } from '@altopelago/aeon-lexer';
 
-const result = lex('answer = 42');
+const result = tokenize('answer = 42');
 
 for (const token of result.tokens) {
   console.log(token.kind, token.raw);

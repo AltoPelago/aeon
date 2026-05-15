@@ -178,9 +178,13 @@ function normalizeEvent(event: EventSummary): EventSummary {
   return {
     path: event.path,
     key: event.key,
-    datatype: event.datatype ?? null,
+    datatype: normalizeDatatype(event.datatype ?? null),
     valueType: normalizeValueType(event.valueType),
   };
+}
+
+function normalizeDatatype(datatype: string | null): string | null {
+  return datatype === 'switch' ? 'toggle' : datatype;
 }
 
 function normalizeValueType(valueType: string): string {

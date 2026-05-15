@@ -11,7 +11,7 @@ string = "|KEY||TYPE| = |0|// boolean"
 outcome = "pass"
 
 [[stress]]
-description = "Switch"
+description = "Toggle"
 key = "a"
 type = { strict = ":toggle", custom = ":toggle", transport = "" }
 value = [
