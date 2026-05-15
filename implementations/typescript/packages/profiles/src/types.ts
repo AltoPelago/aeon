@@ -1,5 +1,5 @@
-import type { AssignmentEvent } from '@aeon/aes';
-import type { Span } from '@aeon/lexer';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { Span } from '@altopelago/aeon-lexer';
 
 export type DiagnosticLevel = 'error' | 'warning';
 

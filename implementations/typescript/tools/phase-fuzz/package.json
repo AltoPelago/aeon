@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/phase-fuzz",
+  "name": "@altopelago/aeon-phase-fuzz",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,8 +23,8 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@aeon/lexer": "workspace:*",
-    "@aeon/parser": "workspace:*"
+    "@altopelago/aeon-lexer": "workspace:*",
+    "@altopelago/aeon-parser": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.5.2"

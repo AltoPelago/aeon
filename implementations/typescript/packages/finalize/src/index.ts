@@ -1,5 +1,5 @@
 /**
- * @aeon/finalize - Finalization utilities
+ * @altopelago/aeon-finalize - Finalization utilities
  *
  * Converts AES into a deterministic document model for downstream consumers.
  */

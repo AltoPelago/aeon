@@ -5,8 +5,8 @@
  * minimal reproduction by stripping feature fragments one at a time.
  */
 
-import { readAeon } from '@aeon/sdk-internal';
-import { compile } from '@aeon/core';
+import { readAeon } from '@altopelago/aeon-sdk-internal';
+import { compile } from '@altopelago/aeon-core';
 
 /**
  * Attempt to minimize a failing document source.

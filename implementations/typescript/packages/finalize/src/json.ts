@@ -1,4 +1,4 @@
-import { formatPath, type AssignmentEvent, type AttributeEntry } from '@aeon/aes';
+import { formatPath, type AssignmentEvent, type AttributeEntry } from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,

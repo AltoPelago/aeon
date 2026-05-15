@@ -1,5 +1,5 @@
-import { tokenize, type Span } from '@aeon/lexer';
-import { parse, type ASTNode, type Document, type ParserError, type Value, type Binding, type Attribute, type AttributeValue } from '@aeon/parser';
+import { tokenize, type Span } from '@altopelago/aeon-lexer';
+import { parse, type ASTNode, type Document, type ParserError, type Value, type Binding, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { buildParserCorpus } from './corpus.js';
 import { createPrng } from './prng.js';
 import type { FuzzRunOptions, FuzzRunSummary } from './lexer-fuzz.js';

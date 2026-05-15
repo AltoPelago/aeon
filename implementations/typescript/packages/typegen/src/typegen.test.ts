@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateTypes } from './index.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 test('generates nested interface with required and optional fields', () => {
     const schema: SchemaV1 = {

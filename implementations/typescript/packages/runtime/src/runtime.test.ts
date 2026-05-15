@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTypedRuntimeBinder, runRuntime, runTypedRuntime } from './index.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     const schema: SchemaV1 = {

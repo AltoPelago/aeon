@@ -1,4 +1,4 @@
-import type { ReferencePathSegment } from '@aeon/parser';
+import type { ReferencePathSegment } from '@altopelago/aeon-parser';
 import { formatPath, type CanonicalPath } from './paths.js';
 
 export function canonicalPathFromReferenceSegments(segments: readonly ReferencePathSegment[]): CanonicalPath {

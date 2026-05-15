@@ -1,5 +1,5 @@
-import type { Span } from '@aeon/lexer';
-import type { Document, Binding, Value, ObjectNode, ListNode } from '@aeon/parser';
+import type { Span } from '@altopelago/aeon-lexer';
+import type { Document, Binding, Value, ObjectNode, ListNode } from '@altopelago/aeon-parser';
 
 /**
  * Canonical path to a binding

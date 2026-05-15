@@ -1,4 +1,4 @@
-# @aeos/cts-runner
+# @altopelago/aeos-cts-runner
 
 AEOS Conformance Test Suite Runner
 

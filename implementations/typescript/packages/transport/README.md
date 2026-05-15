@@ -1,4 +1,4 @@
-# @aeon/transport
+# @altopelago/aeon-transport
 
 Transport framing helpers for AEON document units.
 
@@ -13,7 +13,7 @@ import {
   decodeFrame,
   FrameDecoder,
   inspectHeader,
-} from '@aeon/transport';
+} from '@altopelago/aeon-transport';
 
 const framed = encodeFrame('a = 1');
 const decoded = decodeFrame(framed);

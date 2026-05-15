@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules: Presence
+ * @altopelago/aeos-core - Rules: Presence
  *
  * Phase 4: Presence checks for required fields.
  */

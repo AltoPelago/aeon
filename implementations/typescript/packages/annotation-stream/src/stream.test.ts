@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
-import type { AssignmentEvent } from '@aeon/aes';
+import { tokenize } from '@altopelago/aeon-lexer';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
 import { buildAnnotationStream } from './stream.js';
 
 function createEvent(path: string, start: number, end: number, line: number): AssignmentEvent {

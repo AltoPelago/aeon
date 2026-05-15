@@ -1,4 +1,4 @@
-Publish instructions for @aeon/annotation-cts-runner
+Publish instructions for @altopelago/aeon-annotation-cts-runner
 
 1. Verify Node >= 20 is active.
 2. From repository root or package folder run:

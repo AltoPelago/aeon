@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @aeos/cts-runner - CLI Entry Point
+ * @altopelago/aeos-cts-runner - CLI Entry Point
  *
  * AEOS Conformance Test Suite Runner
  *

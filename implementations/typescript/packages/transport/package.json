@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/transport",
+  "name": "@altopelago/aeon-transport",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

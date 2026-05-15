@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
 import { resolvePaths, formatPath, formatNormalizedPath, DuplicateCanonicalPathError } from './paths.js';
 
 describe('Canonical Path Resolution', () => {

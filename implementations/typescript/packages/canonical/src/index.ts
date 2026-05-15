@@ -1,5 +1,5 @@
-import { tokenize, type LexerError } from '@aeon/lexer';
-import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@aeon/parser';
+import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
+import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 

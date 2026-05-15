@@ -223,9 +223,11 @@ pub enum Value {
     },
     InfinityLiteral {
         raw: String,
+        span: Span,
     },
     NaNLiteral {
         raw: String,
+        span: Span,
     },
     NullLiteral {
         mode: NullLiteralMode,

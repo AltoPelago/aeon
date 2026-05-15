@@ -1,5 +1,5 @@
-import { compile, formatPath, type AEONError } from '@aeon/core';
-import { tokenize, type Span } from '@aeon/lexer';
+import { compile, formatPath, type AEONError } from '@altopelago/aeon-core';
+import { tokenize, type Span } from '@altopelago/aeon-lexer';
 import {
     parse,
     type Attribute,
@@ -8,7 +8,7 @@ import {
     type ReferencePathSegment,
     type TypeAnnotation,
     type Value,
-} from '@aeon/parser';
+} from '@altopelago/aeon-parser';
 import {
     CodeAction,
     CodeActionKind,

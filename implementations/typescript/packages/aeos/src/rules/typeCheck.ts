@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Rules: Type Check
+ * @altopelago/aeos-core - Rules: Type Check
  *
  * Phase 5: Literal kind validation.
  */

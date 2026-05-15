@@ -5,10 +5,10 @@ import {
     type Profile,
     type ProfileRef,
     type ProfileRegistry,
-} from '@aeon/profiles';
-import { compile as compileCore, type AnnotationRecord } from '@aeon/core';
-import { resolveRefs, type AssignmentEvent, type ResolveDiagnostic, type ResolveMeta } from '@aeon/aes';
-import { materialize } from '@aeon/tonic';
+} from '@altopelago/aeon-profiles';
+import { compile as compileCore, type AnnotationRecord } from '@altopelago/aeon-core';
+import { resolveRefs, type AssignmentEvent, type ResolveDiagnostic, type ResolveMeta } from '@altopelago/aeon-aes';
+import { materialize } from '@altopelago/aeon-tonic';
 import {
     finalizeJson,
     finalizeLinkedJson,
@@ -21,8 +21,8 @@ import {
     type FinalizeMeta,
     type FinalizeScope,
     type JsonObject,
-} from '@aeon/finalize';
-import { validate, type Diag as SchemaDiagnostic, type ResultEnvelope, type SchemaV1 } from '@aeos/core';
+} from '@altopelago/aeon-finalize';
+import { validate, type Diag as SchemaDiagnostic, type ResultEnvelope, type SchemaV1 } from '@altopelago/aeos-core';
 
 export type RuntimeMode = 'strict' | 'loose';
 export type RuntimeOutput = 'json' | 'linked-json' | 'map' | 'node';

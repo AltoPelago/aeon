@@ -1,5 +1,5 @@
-import { formatPath, type AssignmentEvent } from '@aeon/aes';
-import type { AnnotationRecord } from '@aeon/annotation-stream';
+import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 import type { TonicInput } from './tonic.js';
 
 export type MatterKind = 'object' | 'list' | 'scalar' | 'reference' | 'node';

@@ -1,4 +1,4 @@
-import type { Span } from '@aeon/lexer';
+import type { Span } from '@altopelago/aeon-lexer';
 import type { TrimtickMetadata } from './trimticks.js';
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/typegen",
+  "name": "@altopelago/aeon-typegen",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -20,6 +24,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aeos/core": "workspace:*"
+    "@altopelago/aeos-core": "workspace:*"
   }
 }

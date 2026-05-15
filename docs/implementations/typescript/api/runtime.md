@@ -1,10 +1,10 @@
 # Runtime API
 
-Informative status: implementation documentation for `@aeon/runtime`.
+Informative status: implementation documentation for `@altopelago/aeon-runtime`.
 
 ## Package
 
-- Module: `@aeon/runtime`
+- Module: `@altopelago/aeon-runtime`
 - Entry point: [`implementations/typescript/packages/runtime/src/index.ts`](../../../../implementations/typescript/packages/runtime/src/index.ts)
 
 ## Primary entry point

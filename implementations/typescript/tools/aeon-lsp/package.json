@@ -1,5 +1,5 @@
 {
-  "name": "@aeon/aeon-lsp",
+  "name": "@altopelago/aeon-lsp",
   "version": "0.9.0",
   "type": "module",
   "main": "./dist/server.js",
@@ -17,12 +17,12 @@
     "test": "node --test dist/*.test.js"
   },
   "dependencies": {
-    "@aeon/finalize": "workspace:*",
-    "@aeon/core": "workspace:*",
-    "@aeon/lexer": "workspace:*",
-    "@aeon/parser": "workspace:*",
-    "@aeon/profiles": "workspace:*",
-    "@aeos/core": "workspace:*",
+    "@altopelago/aeon-finalize": "workspace:*",
+    "@altopelago/aeon-core": "workspace:*",
+    "@altopelago/aeon-lexer": "workspace:*",
+    "@altopelago/aeon-parser": "workspace:*",
+    "@altopelago/aeon-profiles": "workspace:*",
+    "@altopelago/aeos-core": "workspace:*",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
   },

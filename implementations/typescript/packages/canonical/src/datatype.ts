@@ -1,4 +1,4 @@
-import type { TypeAnnotation } from '@aeon/parser';
+import type { TypeAnnotation } from '@altopelago/aeon-parser';
 
 export function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
     const name = datatype.name === 'switch' ? 'toggle' : datatype.name;

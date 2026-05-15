@@ -1,5 +1,5 @@
 /**
- * @aeos/cts-runner - Runner
+ * @altopelago/aeos-cts-runner - Runner
  *
  * CTS test execution and verification.
  */

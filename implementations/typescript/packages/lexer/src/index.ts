@@ -1,5 +1,5 @@
 /**
- * @aeon/lexer - AEON Lexer Package
+ * @altopelago/aeon-lexer - AEON Lexer Package
  * 
  * Tokenizes AEON documents into a stream of tokens with span information.
  */

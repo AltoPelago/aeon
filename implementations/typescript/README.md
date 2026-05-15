@@ -32,7 +32,7 @@ pnpm build
 TypeScript workspace note:
 - run `pnpm` build/test/typecheck commands from this workspace root, not from the repo root;
 - this workspace provides the local `typescript` toolchain used by package scripts such as `tsc -p tsconfig.json`;
-- for package-specific commands, stay inside this workspace and use `pnpm --filter ...`, for example `pnpm --filter @aeon/parser build`.
+- for package-specific commands, stay inside this workspace and use `pnpm --filter ...`, for example `pnpm --filter @altopelago/aeon-parser build`.
 - `dist/` directories are generated outputs and are expected to be recreated locally.
 
 ## Common Commands
@@ -56,11 +56,30 @@ The CTS commands now check for the required built outputs first and will tell yo
 Package-scoped examples from this workspace:
 
 ```bash
-pnpm --filter @aeon/parser build
-pnpm --filter @aeon/parser test
-pnpm --filter @aeon/cli build
-pnpm --filter @aeon/cli test
+pnpm --filter @altopelago/aeon-parser build
+pnpm --filter @altopelago/aeon-parser test
+pnpm --filter @altopelago/aeon-cli build
+pnpm --filter @altopelago/aeon-cli test
 ```
+
+## Package Publish Preflight
+
+Use `pnpm` for publish packaging from this workspace. `pnpm pack` rewrites
+`workspace:*` ranges in packed manifests to the concrete package version; plain
+`npm pack` does not, and can produce tarballs that still contain local workspace
+ranges.
+
+Before publishing TypeScript packages, run:
+
+```bash
+pnpm publish:preflight
+```
+
+The preflight builds the workspace, packs every non-private package with `pnpm`,
+then inspects each generated tarball for unresolved `workspace:`, `file:`,
+`link:`, `portal:`, or absolute-path dependency ranges. It also checks that
+manifest entry points are present in the packed files, including the Rust WASM
+binary for `@altopelago/aeon-wasm`.
 
 ## Common Paths
 
@@ -83,10 +102,10 @@ Backward-compatible alias:
 
 ### Parse an AEON document
 
-Use `@aeon/core`:
+Use `@altopelago/aeon-core`:
 
 ```ts
-import { compile } from '@aeon/core';
+import { compile } from '@altopelago/aeon-core';
 
 const result = compile('port:int32 = 8080');
 
@@ -97,11 +116,11 @@ if (result.errors.length === 0) {
 
 ### Validate against an AEOS schema
 
-Use `@aeon/core` plus `@aeos/core`:
+Use `@altopelago/aeon-core` plus `@altopelago/aeos-core`:
 
 ```ts
-import { compile } from '@aeon/core';
-import { validate } from '@aeos/core';
+import { compile } from '@altopelago/aeon-core';
+import { validate } from '@altopelago/aeos-core';
 
 const compiled = compile('port = 8080');
 if (compiled.errors.length > 0) throw new Error('compile failed');
@@ -115,10 +134,10 @@ console.log(validation.ok);
 
 ### Run the end-to-end runtime
 
-Use `@aeon/runtime` when you need phase orchestration beyond compile-only workflows:
+Use `@altopelago/aeon-runtime` when you need phase orchestration beyond compile-only workflows:
 
 ```ts
-import { runRuntime } from '@aeon/runtime';
+import { runRuntime } from '@altopelago/aeon-runtime';
 
 const result = runRuntime('name = "AEON"', { output: 'json' });
 console.log(result.document);

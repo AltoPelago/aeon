@@ -59,7 +59,7 @@ Instead, add a small public convenience crate:
 That would make it the Rust counterpart to:
 
 - Python `load_text(...)` / `load_file(...)`
-- TypeScript `@aeon/sdk`
+- TypeScript `@altopelago/aeon-sdk`
 
 ## Proposed API shape
 

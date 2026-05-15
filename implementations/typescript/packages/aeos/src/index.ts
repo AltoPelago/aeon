@@ -1,11 +1,11 @@
 /**
- * @aeos/core - AEOS™ Schema Validation Engine
+ * @altopelago/aeos-core - AEOS™ Schema Validation Engine
  *
  * AEOS™ (Another Easy Object Schema) — the canonical entry point for validation.
  *
  * Usage:
  * ```ts
- * import { validate } from '@aeos/core';
+ * import { validate } from '@altopelago/aeos-core';
  *
  * const result = validate(aes, schema);
  * if (result.ok) {
@@ -39,7 +39,7 @@ export { spanToTuple } from './types/spans.js';
 // Schema types
 export type { SchemaV1, SchemaRule, ConstraintsV1 } from './types/schema.js';
 
-// AES types (re-exported from @aeon/aes)
+// AES types (re-exported from @altopelago/aeon-aes)
 export type { AES, AssignmentEvent } from './types/aes.js';
 
 // =============================================================================

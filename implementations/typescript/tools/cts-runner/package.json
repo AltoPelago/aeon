@@ -1,5 +1,5 @@
 {
-    "name": "@aeos/cts-runner",
+    "name": "@altopelago/aeos-cts-runner",
     "version": "0.9.0",
     "type": "module",
     "main": "./dist/index.js",

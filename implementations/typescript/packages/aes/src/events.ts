@@ -1,5 +1,5 @@
-import type { Span } from '@aeon/lexer';
-import type { Value, TypeAnnotation, Attribute } from '@aeon/parser';
+import type { Span } from '@altopelago/aeon-lexer';
+import type { Value, TypeAnnotation, Attribute } from '@altopelago/aeon-parser';
 import {
     type CanonicalPath,
     type CanonicalBinding,

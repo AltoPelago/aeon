@@ -9,15 +9,15 @@ For cross-repo branching and per-implementation release strategy, see
 
 The intended first npm release wave is the application-facing TypeScript implementation surface:
 
-- `@aeon/lexer`
-- `@aeon/parser`
-- `@aeon/aes`
-- `@aeon/annotation-stream`
-- `@aeon/core`
-- `@aeon/finalize`
-- `@aeon/canonical`
-- `@aeon/runtime`
-- `@aeos/core`
+- `@altopelago/aeon-lexer`
+- `@altopelago/aeon-parser`
+- `@altopelago/aeon-aes`
+- `@altopelago/aeon-annotation-stream`
+- `@altopelago/aeon-core`
+- `@altopelago/aeon-finalize`
+- `@altopelago/aeon-canonical`
+- `@altopelago/aeon-runtime`
+- `@altopelago/aeos-core`
 
 Tooling, CTS helpers, fuzzing, and internal support packages should not be published as part of the first wave.
 
@@ -70,15 +70,15 @@ Run the publish from `implementations/typescript/`:
 
 ```bash
 pnpm -r \
-  --filter @aeon/lexer \
-  --filter @aeon/parser \
-  --filter @aeon/aes \
-  --filter @aeon/annotation-stream \
-  --filter @aeon/core \
-  --filter @aeon/finalize \
-  --filter @aeon/canonical \
-  --filter @aeon/runtime \
-  --filter @aeos/core \
+  --filter @altopelago/aeon-lexer \
+  --filter @altopelago/aeon-parser \
+  --filter @altopelago/aeon-aes \
+  --filter @altopelago/aeon-annotation-stream \
+  --filter @altopelago/aeon-core \
+  --filter @altopelago/aeon-finalize \
+  --filter @altopelago/aeon-canonical \
+  --filter @altopelago/aeon-runtime \
+  --filter @altopelago/aeos-core \
   publish --access public --no-git-checks
 ```
 

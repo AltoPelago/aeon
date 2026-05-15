@@ -1,4 +1,4 @@
-import type { ConstraintsV1, SchemaV1 } from '@aeos/core';
+import type { ConstraintsV1, SchemaV1 } from '@altopelago/aeos-core';
 
 export interface TypegenOptions {
     readonly rootName?: string;
@@ -246,8 +246,8 @@ function buildRuntimeBinderBlock(
     options: TypegenOptions,
     diagnostics: TypegenDiagnostic[]
 ): string {
-    const runtimeModule = options.runtimeModule ?? '@aeon/runtime';
-    const schemaModule = options.schemaModule ?? '@aeos/core';
+    const runtimeModule = options.runtimeModule ?? '@altopelago/aeon-runtime';
+    const schemaModule = options.schemaModule ?? '@altopelago/aeos-core';
     const schemaConstName = resolveIdentifier(
         options.schemaConstName,
         `${documentTypeName}Schema`,

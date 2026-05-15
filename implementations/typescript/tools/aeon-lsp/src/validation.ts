@@ -1,10 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { compile as compileCore, type AEONError } from '@aeon/core';
-import { finalizeJson } from '@aeon/finalize';
-import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@aeon/profiles';
-import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@aeos/core';
+import { compile as compileCore, type AEONError } from '@altopelago/aeon-core';
+import { finalizeJson } from '@altopelago/aeon-finalize';
+import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@altopelago/aeon-profiles';
+import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@altopelago/aeos-core';
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node.js';
 
 export interface ValidationConfig {

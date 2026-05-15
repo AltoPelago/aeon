@@ -1,4 +1,4 @@
-# @aeon/integrity
+# @altopelago/aeon-integrity
 
 Canonical hash utilities for AEON integrity envelopes.
 
@@ -15,7 +15,7 @@ import {
   generateEd25519KeyPair,
   signCanonicalStream,
   validateEnvelopeEvents,
-} from '@aeon/integrity';
+} from '@altopelago/aeon-integrity';
 
 const result = computeCanonicalHash(aes, { algorithm: 'sha-256' });
 console.log(result.hash);

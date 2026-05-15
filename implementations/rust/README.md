@@ -25,7 +25,7 @@ The current Rust work also makes one boundary explicit:
 
 ## Toolchain
 
-- MSRV: Rust `1.88`
+- MSRV: Rust `1.93.1`
 - Edition: Rust `2024`
 
 ## Phase 1 Target

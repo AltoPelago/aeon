@@ -1,5 +1,5 @@
 /**
- * @aeos/cts-runner - Utilities
+ * @altopelago/aeos-cts-runner - Utilities
  */
 
 import { createHash } from 'node:crypto';

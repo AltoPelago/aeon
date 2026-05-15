@@ -610,21 +610,30 @@ impl<'a> TokenParser<'a> {
                 }
                 Ok(Value::NumberLiteral { raw })
             }
-            TokenKind::Identifier if token.text == "Infinity" => Ok(Value::InfinityLiteral {
-                raw: self.advance().text.clone(),
-            }),
-            TokenKind::Identifier if token.text == "NaN" => Ok(Value::NaNLiteral {
-                raw: self.advance().text.clone(),
-            }),
+            TokenKind::Identifier if token.text == "Infinity" => {
+                let token = self.advance();
+                Ok(Value::InfinityLiteral {
+                    raw: token.text.clone(),
+                    span: token.span,
+                })
+            }
+            TokenKind::Identifier if token.text == "NaN" => {
+                let token = self.advance();
+                Ok(Value::NaNLiteral {
+                    raw: token.text.clone(),
+                    span: token.span,
+                })
+            }
             TokenKind::Symbol
                 if token.text == "-"
                     && self.peek_next().kind == TokenKind::Identifier
                     && self.peek_next().text == "Infinity" =>
             {
-                self.advance();
-                self.advance();
+                let start = self.advance().span.start;
+                let end = self.advance().span.end;
                 Ok(Value::InfinityLiteral {
                     raw: String::from("-Infinity"),
+                    span: Span { start, end },
                 })
             }
             TokenKind::Symbol
@@ -632,10 +641,11 @@ impl<'a> TokenParser<'a> {
                     && self.peek_next().kind == TokenKind::Identifier
                     && self.peek_next().text == "NaN" =>
             {
-                self.advance();
-                self.advance();
+                let start = self.advance().span.start;
+                let end = self.advance().span.end;
                 Ok(Value::NaNLiteral {
                     raw: String::from("-NaN"),
+                    span: Span { start, end },
                 })
             }
             TokenKind::Symbol if token.text == "!" => self.parse_null_literal(),

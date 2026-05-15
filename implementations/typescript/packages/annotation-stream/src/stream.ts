@@ -1,5 +1,5 @@
-import { formatPath, type AssignmentEvent } from '@aeon/aes';
-import { tokenize, type Span, type Token, TokenType } from '@aeon/lexer';
+import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
+import { tokenize, type Span, type Token, TokenType } from '@altopelago/aeon-lexer';
 
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
 export type AnnotationForm = 'line' | 'block';

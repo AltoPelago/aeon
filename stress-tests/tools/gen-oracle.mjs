@@ -5,7 +5,7 @@
  * Captures a compile-oracle.v1.json corpus from the positive snippet files
  * using the TypeScript reference implementation as ground truth.
  *
- * Each snippet is compiled with @aeon/core, and the resulting paths and
+ * Each snippet is compiled with @altopelago/aeon-core, and the resulting paths and
  * datatypes are recorded as the oracle baseline.  This corpus can be consumed
  * by any implementation's test runner to verify conformance against TS output.
  *
@@ -42,7 +42,7 @@ const outputPath = flagValue('--output')
 const dryRun = args.includes('--dry-run');
 
 // ---------------------------------------------------------------------------
-// Load compiled @aeon/core
+// Load compiled @altopelago/aeon-core
 // ---------------------------------------------------------------------------
 
 const coreDistPath = resolve(
@@ -51,7 +51,7 @@ const coreDistPath = resolve(
 );
 
 if (!existsSync(coreDistPath)) {
-    console.error(`Error: @aeon/core not built. Run: npm --prefix implementations/typescript run build`);
+    console.error(`Error: @altopelago/aeon-core not built. Run: npm --prefix implementations/typescript run build`);
     process.exit(1);
 }
 

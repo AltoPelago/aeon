@@ -1,6 +1,6 @@
-import { compile as compileAeon, type AEONError } from '@aeon/core';
-import type { AssignmentEvent } from '@aeon/aes';
-import type { Span } from '@aeon/lexer';
+import { compile as compileAeon, type AEONError } from '@altopelago/aeon-core';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { Span } from '@altopelago/aeon-lexer';
 import type { CompileCtx, Diagnostic } from '../types.js';
 
 function errorToDiagnostic(error: AEONError): Omit<Diagnostic, 'level'> {

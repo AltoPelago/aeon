@@ -1,5 +1,5 @@
-import type { AssignmentEvent } from '@aeon/aes';
-import type { AnnotationRecord } from '@aeon/annotation-stream';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 
 export interface TonicInput {
   readonly aes: readonly AssignmentEvent[];

@@ -1,4 +1,4 @@
-# @aeon/typegen
+# @altopelago/aeon-typegen
 
 TypeScript type generation from AEOS schemas.
 
@@ -8,7 +8,7 @@ TypeScript interface definition.
 ## Quick Start
 
 ```ts
-import { generateTypes } from '@aeon/typegen';
+import { generateTypes } from '@altopelago/aeon-typegen';
 
 const schema = {
   rules: [
@@ -102,8 +102,8 @@ export function generateTypes(schema: SchemaV1, options?: TypegenOptions): Typeg
 - `emitRuntimeBinder` - emit schema const + typed runtime binder helper
 - `schemaConstName` - override emitted schema constant name
 - `binderName` - override emitted binder function name
-- `runtimeModule` - runtime import path (default `@aeon/runtime`)
-- `schemaModule` - schema type import path (default `@aeos/core`)
+- `runtimeModule` - runtime import path (default `@altopelago/aeon-runtime`)
+- `schemaModule` - schema type import path (default `@altopelago/aeos-core`)
 
 `TypegenResult`:
 

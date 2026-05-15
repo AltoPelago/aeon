@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Diagnostics: Error Codes
+ * @altopelago/aeos-core - Diagnostics: Error Codes
  *
  * Centralized error code registry.
  *

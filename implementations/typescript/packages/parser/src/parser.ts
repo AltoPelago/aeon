@@ -1,4 +1,4 @@
-import { type Token, TokenType, createSpan, type Span } from '@aeon/lexer';
+import { type Token, TokenType, createSpan, type Span } from '@altopelago/aeon-lexer';
 import type {
     Document,
     Header,

@@ -1,5 +1,5 @@
 /**
- * @aeos/cts-runner - SUT Invoker
+ * @altopelago/aeos-cts-runner - SUT Invoker
  *
  * Invokes the System Under Test via CLI protocol.
  */

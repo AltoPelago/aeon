@@ -313,12 +313,12 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "raw": raw,
             "value": normalize_number_literal(raw),
         }),
-        Value::InfinityLiteral { raw } => json!({
+        Value::InfinityLiteral { raw, .. } => json!({
             "type": "InfinityLiteral",
             "raw": raw,
             "value": raw,
         }),
-        Value::NaNLiteral { raw } => json!({
+        Value::NaNLiteral { raw, .. } => json!({
             "type": "NaNLiteral",
             "raw": raw,
             "value": raw,
@@ -488,6 +488,7 @@ fn header_to_json(
                     errors,
                     warnings,
                     None,
+                    None,
                     active_paths,
                     tracker,
                 ),
@@ -536,6 +537,7 @@ fn payload_to_json(
                 errors,
                 warnings,
                 event.datatype.as_deref(),
+                Some(event.span),
                 active_paths,
                 tracker,
             ),
@@ -586,6 +588,7 @@ fn value_to_json(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
+    source_span: Option<Span>,
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
@@ -599,6 +602,7 @@ fn value_to_json(
         errors,
         warnings,
         datatype,
+        source_span,
         active_paths,
         tracker,
     )
@@ -614,6 +618,7 @@ fn value_to_json_with_active_key(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
     datatype: Option<&str>,
+    source_span: Option<Span>,
     active_paths: &mut BTreeSet<String>,
     tracker: &mut MaterializationTracker,
 ) -> JsonValue {
@@ -631,6 +636,7 @@ fn value_to_json_with_active_key(
             errors,
             warnings,
             datatype.as_deref(),
+            source_span,
             active_paths,
             tracker,
         );
@@ -651,12 +657,17 @@ fn value_to_json_with_active_key(
         Value::TypedValue { .. } => unreachable!("typed values are unwrapped before finalization"),
         Value::StringLiteral { value, .. } => JsonValue::String(value.clone()),
         Value::NumberLiteral { raw } => parse_number(raw, path, mode, errors, warnings),
-        Value::InfinityLiteral { raw } => {
+        Value::InfinityLiteral { raw, span } => {
             let diag = Diagnostic::new(
                 "FINALIZE_JSON_PROFILE_INFINITY",
                 format!("Infinity literal is not representable in the strict JSON profile: {raw}"),
             )
             .at_path(path);
+            let diag = if let Some(span) = Some(*span).or(source_span) {
+                diag.with_span(span)
+            } else {
+                diag
+            };
             if matches!(mode, FinalizeMode::Strict) {
                 errors.push(diag);
             } else {
@@ -664,12 +675,17 @@ fn value_to_json_with_active_key(
             }
             JsonValue::String(raw.clone())
         }
-        Value::NaNLiteral { raw } => {
+        Value::NaNLiteral { raw, span } => {
             let diag = Diagnostic::new(
                 "FINALIZE_JSON_PROFILE_NAN",
                 format!("NaN literal is not representable in the strict JSON profile: {raw}"),
             )
             .at_path(path);
+            let diag = if let Some(span) = Some(*span).or(source_span) {
+                diag.with_span(span)
+            } else {
+                diag
+            };
             if matches!(mode, FinalizeMode::Strict) {
                 errors.push(diag);
             } else {
@@ -690,6 +706,11 @@ fn value_to_json_with_active_key(
                     format!("Null literal is not losslessly representable in the strict JSON profile: {raw}"),
                 )
                 .at_path(path);
+                let diag = if let Some(span) = source_span {
+                    diag.with_span(span)
+                } else {
+                    diag
+                };
                 if matches!(mode, FinalizeMode::Strict) {
                     errors.push(diag);
                 } else {
@@ -719,6 +740,11 @@ fn value_to_json_with_active_key(
                     format!("Radix literal exceeds declared radix {base}: {raw}"),
                 )
                 .at_path(path);
+                let diag = if let Some(span) = source_span {
+                    diag.with_span(span)
+                } else {
+                    diag
+                };
                 if matches!(mode, FinalizeMode::Strict) {
                     errors.push(diag);
                 } else {
@@ -769,6 +795,7 @@ fn value_to_json_with_active_key(
                                 errors,
                                 warnings,
                                 None,
+                                source_span,
                                 active_paths,
                                 tracker,
                             )
@@ -792,6 +819,7 @@ fn value_to_json_with_active_key(
                         errors,
                         warnings,
                         None,
+                        source_span,
                         active_paths,
                         tracker,
                     ));
@@ -826,6 +854,7 @@ fn value_to_json_with_active_key(
                             errors,
                             warnings,
                             binding.datatype.as_deref(),
+                            Some(binding.span),
                             active_paths,
                             tracker,
                         ),
@@ -867,7 +896,7 @@ fn value_to_json_with_active_key(
             }
             JsonValue::Object(output)
         }
-        Value::CloneReference { segments, .. } => {
+        Value::CloneReference { segments, span } => {
             let target = reference_target_path(segments);
             if let Some(resolved) = path_values.get(&target) {
                 if active_paths.contains(&target) {
@@ -916,6 +945,7 @@ fn value_to_json_with_active_key(
                         errors,
                         warnings,
                         datatype,
+                        source_span,
                         active_paths,
                         tracker,
                     );
@@ -929,17 +959,19 @@ fn value_to_json_with_active_key(
                     warnings,
                     path,
                     &format!("~{}", render_reference_segments(segments)),
+                    Some(*span).or(source_span),
                 );
                 JsonValue::String(format!("~{}", render_reference_segments(segments)))
             }
         }
-        Value::PointerReference { segments, .. } => {
+        Value::PointerReference { segments, span } => {
             push_unresolved_reference_diagnostic(
                 mode,
                 errors,
                 warnings,
                 path,
                 &format!("~>{}", render_reference_segments(segments)),
+                Some(*span).or(source_span),
             );
             JsonValue::String(format!("~>{}", render_reference_segments(segments)))
         }
@@ -954,12 +986,18 @@ fn push_unresolved_reference_diagnostic(
     warnings: &mut Vec<Diagnostic>,
     path: &str,
     token: &str,
+    source_span: Option<Span>,
 ) {
     let diagnostic = Diagnostic::new(
         "FINALIZE_UNRESOLVED_REFERENCE",
         format!("Reference left unresolved during JSON finalization: {token}"),
     )
     .at_path(path);
+    let diagnostic = if let Some(span) = source_span {
+        diagnostic.with_span(span)
+    } else {
+        diagnostic
+    };
     match mode {
         FinalizeMode::Strict => errors.push(diagnostic),
         FinalizeMode::Loose => warnings.push(diagnostic),
@@ -1588,6 +1626,7 @@ fn attribute_value_to_json(
             errors,
             warnings,
             entry.datatype.as_deref(),
+            None,
             active_paths,
             tracker,
         );
@@ -2074,6 +2113,24 @@ mod tests {
     }
 
     #[test]
+    fn unresolved_pointer_diagnostics_use_reference_token_span() {
+        let source = "target = 99\nptr = ~>target\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        let error = finalized
+            .meta
+            .errors
+            .iter()
+            .find(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+            .expect("unresolved pointer diagnostic");
+
+        assert_eq!(error.path.as_deref(), Some("$.ptr"));
+        assert_eq!(error.span.expect("reference span").start.line, 2);
+        assert_eq!(error.span.expect("reference span").start.column, 7);
+        assert_eq!(error.span.expect("reference span").end.column, 15);
+    }
+
+    #[test]
     fn projected_clone_references_preserve_the_clone_path() {
         let source = "a = { x = 1 }\nb = ~a\n";
         let result = compile(source, CompileOptions::default());
@@ -2467,6 +2524,14 @@ mod tests {
         assert_eq!(
             finalized.meta.errors[0].code,
             "FINALIZE_JSON_PROFILE_INFINITY"
+        );
+        assert_eq!(
+            finalized.meta.errors[0]
+                .span
+                .expect("infinity literal span")
+                .start
+                .column,
+            18
         );
     }
 

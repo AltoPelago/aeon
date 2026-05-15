@@ -1,1 +1,1 @@
-export * from '@aeon/sdk';
+export * from '@altopelago/aeon-sdk';

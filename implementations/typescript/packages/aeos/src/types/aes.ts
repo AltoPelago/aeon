@@ -1,13 +1,13 @@
 /**
- * @aeos/core - Types: AES
+ * @altopelago/aeos-core - Types: AES
  *
- * Re-exports AES types from @aeon/aes.
+ * Re-exports AES types from @altopelago/aeon-aes.
  * These are type-only imports to maintain zero runtime dependencies.
  */
 
 // Type-only imports from AEON - no runtime dependency
-import type { AssignmentEvent } from '@aeon/aes';
-import type { Span as AeonSpan } from '@aeon/lexer';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { Span as AeonSpan } from '@altopelago/aeon-lexer';
 
 // Re-export for internal use
 export type { AssignmentEvent, AeonSpan };

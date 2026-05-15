@@ -326,7 +326,7 @@ Python implementation note:
 TypeScript implementation note:
 - the snippet harness invokes [main.js](../implementations/typescript/packages/cli/dist/main.js);
 - for ad hoc TypeScript build/test commands, prefer running them from [implementations/typescript](../implementations/typescript), where the workspace-local `typescript` toolchain is available;
-- a reliable pattern is `cd implementations/typescript && pnpm --filter @aeon/parser build` rather than invoking filtered TS builds from the repo root.
+- a reliable pattern is `cd implementations/typescript && pnpm --filter @altopelago/aeon-parser build` rather than invoking filtered TS builds from the repo root.
 
 The corpus file is split on lines containing only `---`. Each snippet is expected
 to fail. If any snippet unexpectedly passes for the selected implementation, the

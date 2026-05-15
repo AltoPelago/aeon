@@ -1,4 +1,4 @@
-# @aeos/core
+# @altopelago/aeos-core
 
 **AEOS™** (Another Easy Object Schema) — validates Assignment Event Streams (AES) against AEOS schemas.
 
@@ -9,14 +9,14 @@ Implementation docs:
 ## Installation
 
 ```bash
-pnpm add @aeos/core
+pnpm add @altopelago/aeos-core
 ```
 
 ## Quick Start
 
 ```ts
-import { validate } from '@aeos/core';
-import { compile } from '@aeon/core';
+import { validate } from '@altopelago/aeos-core';
+import { compile } from '@altopelago/aeon-core';
 
 const compiled = compile('port = 8080');
 if (compiled.errors.length > 0) throw new Error('compile failed');
@@ -55,8 +55,8 @@ AEOS does not:
 AEOS consumes AES, not raw AEON source text.
 The usual pipeline is:
 
-1. `compile(input)` with `@aeon/core`
-2. `validate(events, schema)` with `@aeos/core`
+1. `compile(input)` with `@altopelago/aeon-core`
+2. `validate(events, schema)` with `@altopelago/aeos-core`
 
 ### Read the result envelope
 

@@ -6,8 +6,8 @@
  */
 
 import type { AssignmentEvent } from './events.js';
-import type { Value, Attribute, AttributeValue, Binding, ReferencePathSegment } from '@aeon/parser';
-import type { Span } from '@aeon/lexer';
+import type { Value, Attribute, AttributeValue, Binding, ReferencePathSegment } from '@altopelago/aeon-parser';
+import type { Span } from '@altopelago/aeon-lexer';
 import { formatPath, type CanonicalPath } from './paths.js';
 import { formatReferenceTargetPath } from './reference-target.js';
 

@@ -1,4 +1,4 @@
-# @aeon/finalize
+# @altopelago/aeon-finalize
 
 Minimal finalization utilities for AEON.
 
@@ -9,7 +9,7 @@ semantics. It only aggregates AES into a canonical, path-indexed structure.
 ## Quick Start
 
 ```ts
-import { finalizeMap } from '@aeon/finalize';
+import { finalizeMap } from '@altopelago/aeon-finalize';
 
 const { document, meta } = finalizeMap(aes, { mode: 'strict' });
 if (!meta?.errors?.length) {
@@ -22,7 +22,7 @@ if (!meta?.errors?.length) {
 ### JSON output
 
 ```ts
-import { finalizeJson } from '@aeon/finalize';
+import { finalizeJson } from '@altopelago/aeon-finalize';
 
 const { document, meta } = finalizeJson(aes, { mode: 'strict' });
 if (!meta?.errors?.length) {
@@ -33,7 +33,7 @@ if (!meta?.errors?.length) {
 ### Linked JSON output
 
 ```ts
-import { finalizeLinkedJson } from '@aeon/finalize';
+import { finalizeLinkedJson } from '@altopelago/aeon-finalize';
 
 const { document, meta } = finalizeLinkedJson(aes, { mode: 'strict' });
 if (!meta?.errors?.length) {
@@ -44,7 +44,7 @@ if (!meta?.errors?.length) {
 ### Node output
 
 ```ts
-import { finalizeNode } from '@aeon/finalize';
+import { finalizeNode } from '@altopelago/aeon-finalize';
 
 const { document } = finalizeNode(aes, { mode: 'strict' });
 console.log(document.root);
@@ -65,7 +65,7 @@ const { document } = finalizeJson(aes, {
 ### Transform a finalized node document
 
 ```ts
-import { transformDocument } from '@aeon/finalize';
+import { transformDocument } from '@altopelago/aeon-finalize';
 
 const next = transformDocument(nodeDocument, {
   leave(node) {

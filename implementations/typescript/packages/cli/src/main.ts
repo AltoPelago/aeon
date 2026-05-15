@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @aeon/cli - AEON Command Line Interface
+ * @altopelago/aeon-cli - AEON Command Line Interface
  * 
  * Commands:
  * - aeon version                 Show version
@@ -54,10 +54,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { canonicalize } from '@aeon/canonical';
-import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@aeon/core';
-import type { Span } from '@aeon/lexer';
-import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@aeon/finalize';
+import { canonicalize } from '@altopelago/aeon-canonical';
+import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import type { Span } from '@altopelago/aeon-lexer';
+import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
     buildCanonicalReceipt,
     computeCanonicalHash,
@@ -67,11 +67,11 @@ import {
     type CanonicalReceipt,
     verifyStringPayloadSignature,
     type EnvelopeDiagnostic,
-} from '@aeon/integrity';
-import { tokenize } from '@aeon/lexer';
-import { parse, type Binding, type Value } from '@aeon/parser';
+} from '@altopelago/aeon-integrity';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse, type Binding, type Value } from '@altopelago/aeon-parser';
 import { runTypedRuntime } from './runtime-bind.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 const GP_SECURITY_CONVENTIONS = [
     'aeon.gp.security.v1',
@@ -1548,12 +1548,12 @@ function runDoctor(options: { contractRegistryPath: string }): DoctorResult {
     });
 
     const requiredPackages = [
-        '@aeon/core',
-        '@aeon/finalize',
-        '@aeon/integrity',
-        '@aeon/profiles',
-        '@aeon/tonic',
-        '@aeos/core',
+        '@altopelago/aeon-core',
+        '@altopelago/aeon-finalize',
+        '@altopelago/aeon-integrity',
+        '@altopelago/aeon-profiles',
+        '@altopelago/aeon-tonic',
+        '@altopelago/aeos-core',
     ];
     const packageStatuses = requiredPackages.map((packageName) => resolveInstalledPackage(packageName));
     const missingPackages = packageStatuses.filter((entry) => !entry.ok);

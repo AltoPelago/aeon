@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { resolveRefs } from './resolve.js';
-import { tokenize } from '@aeon/lexer';
-import { parse } from '@aeon/parser';
+import { tokenize } from '@altopelago/aeon-lexer';
+import { parse } from '@altopelago/aeon-parser';
 import { resolvePaths, emitEvents, formatPath } from './index.js';
 
 function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {

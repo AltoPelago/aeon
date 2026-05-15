@@ -40,18 +40,18 @@ for (const node of nodes) {
       if (toolNames.has(dep)) {
         problems.push(`${node.name} must not depend on tooling package ${dep}`);
       }
-      if (dep === '@aeon/runtime') {
-        problems.push(`${node.name} must not depend on @aeon/runtime`);
+      if (dep === '@altopelago/aeon-runtime') {
+        problems.push(`${node.name} must not depend on @altopelago/aeon-runtime`);
       }
     }
   }
 }
 
 const tripwires = [
-  ['@aeon/aes', '@aeon/finalize', '@aeon/aes must not import/depend on @aeon/finalize'],
-  ['@aeos/core', '@aeon/tonic', '@aeos/core must not import/depend on @aeon/tonic'],
-  ['@aeon/finalize', '@aeon/lexer', '@aeon/finalize must not import/depend on @aeon/lexer'],
-  ['@aeon/finalize', '@aeon/parser', '@aeon/finalize must not import/depend on @aeon/parser'],
+  ['@altopelago/aeon-aes', '@altopelago/aeon-finalize', '@altopelago/aeon-aes must not import/depend on @altopelago/aeon-finalize'],
+  ['@altopelago/aeos-core', '@altopelago/aeon-tonic', '@altopelago/aeos-core must not import/depend on @altopelago/aeon-tonic'],
+  ['@altopelago/aeon-finalize', '@altopelago/aeon-lexer', '@altopelago/aeon-finalize must not import/depend on @altopelago/aeon-lexer'],
+  ['@altopelago/aeon-finalize', '@altopelago/aeon-parser', '@altopelago/aeon-finalize must not import/depend on @altopelago/aeon-parser'],
 ];
 
 for (const [from, to, message] of tripwires) {

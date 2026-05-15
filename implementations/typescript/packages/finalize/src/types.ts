@@ -1,4 +1,4 @@
-import type { AssignmentEvent } from '@aeon/aes';
+import type { AssignmentEvent } from '@altopelago/aeon-aes';
 
 type Span = AssignmentEvent['span'];
 type Value = AssignmentEvent['value'];

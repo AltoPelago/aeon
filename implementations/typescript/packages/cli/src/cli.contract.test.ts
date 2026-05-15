@@ -7,11 +7,11 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { createHash } from 'node:crypto';
-import { compile, formatPath, type CompileResult, type AEONError } from '@aeon/core';
-import { finalizeJson, finalizeMap, type FinalizeMeta, type FinalizeOptions } from '@aeon/finalize';
-import { computeCanonicalHash, generateEd25519KeyPair, signStringPayload } from '@aeon/integrity';
+import { compile, formatPath, type CompileResult, type AEONError } from '@altopelago/aeon-core';
+import { finalizeJson, finalizeMap, type FinalizeMeta, type FinalizeOptions } from '@altopelago/aeon-finalize';
+import { computeCanonicalHash, generateEd25519KeyPair, signStringPayload } from '@altopelago/aeon-integrity';
 import { runTypedRuntime } from './runtime-bind.js';
-import type { SchemaV1 } from '@aeos/core';
+import type { SchemaV1 } from '@altopelago/aeos-core';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);

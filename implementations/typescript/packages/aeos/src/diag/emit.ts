@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Diagnostics: Emit
+ * @altopelago/aeos-core - Diagnostics: Emit
  *
  * Helper functions for creating diagnostic entries.
  */

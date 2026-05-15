@@ -1,5 +1,5 @@
 /**
- * @aeos/core - Diagnostics Index
+ * @altopelago/aeos-core - Diagnostics Index
  */
 
 export * from './codes.js';

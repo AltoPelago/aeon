@@ -9,8 +9,8 @@
  * - Fail-closed by default (no events if any reference validation error)
  */
 
-import type { Span } from '@aeon/lexer';
-import type { Value, Attribute, AttributeValue, ReferencePathSegment } from '@aeon/parser';
+import type { Span } from '@altopelago/aeon-lexer';
+import type { Value, Attribute, AttributeValue, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
 import { formatPath } from './paths.js';
 import { formatReferenceTargetPath } from './reference-target.js';
