@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::Path;
 
 use aeon_aeos::{
-    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ResultEnvelope, Schema,
-    SpanInput, ValidationEnvelope, ValidationOptions, validate,
+    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ReferencePathSegment,
+    ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions, validate,
 };
 use aeon_core::{
     AssignmentEvent, CompileOptions, Diagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
@@ -154,6 +155,7 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
             key: event.key.clone(),
             datatype: event.datatype.clone(),
             value: core_value_to_aeos(&event.value),
+            annotations: BTreeMap::new(),
             span: Some(SpanInput::Object {
                 start: OffsetOnly {
                     offset: event.span.start.offset,
@@ -169,12 +171,12 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
         Value::TypedValue { value, .. } => core_value_to_aeos(value),
-        Value::InfinityLiteral { raw } => scalar_value(
+        Value::InfinityLiteral { raw, .. } => scalar_value(
             "InfinityLiteral",
             raw.clone(),
             JsonValue::String(raw.clone()),
         ),
-        Value::NaNLiteral { raw } => {
+        Value::NaNLiteral { raw, .. } => {
             scalar_value("NaNLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
         Value::NullLiteral { mode, value, raw } => scalar_value(
@@ -244,18 +246,21 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("ListNode"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::TupleLiteral { items } => EventValue {
             value_type: String::from("TupleLiteral"),
             raw: None,
             value: None,
+            path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
         },
         Value::ObjectNode { .. } => EventValue {
             value_type: String::from("ObjectNode"),
             raw: None,
             value: None,
+            path: None,
             elements: Vec::new(),
         },
         Value::CloneReference { segments, .. } => reference_value("CloneReference", segments),
@@ -268,6 +273,7 @@ fn scalar_value(value_type: &str, raw: String, value: JsonValue) -> EventValue {
         value_type: String::from(value_type),
         raw: Some(raw),
         value: Some(value),
+        path: None,
         elements: Vec::new(),
     }
 }
@@ -279,7 +285,19 @@ fn reference_value(value_type: &str, segments: &[ReferenceSegment]) -> EventValu
         value: Some(JsonValue::Array(
             segments.iter().map(reference_segment_to_json).collect(),
         )),
+        path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
         elements: Vec::new(),
+    }
+}
+
+fn reference_segment_to_aeos(segment: &ReferenceSegment) -> ReferencePathSegment {
+    match segment {
+        ReferenceSegment::Key(key) => ReferencePathSegment::Member(key.clone()),
+        ReferenceSegment::Index(index) => ReferencePathSegment::Index(*index as i64),
+        ReferenceSegment::Attr(key) => ReferencePathSegment::Attribute {
+            segment_type: String::from("attr"),
+            key: key.clone(),
+        },
     }
 }
 

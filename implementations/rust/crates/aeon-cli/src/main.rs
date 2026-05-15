@@ -2074,8 +2074,8 @@ fn serialize_canonical_value(value: &Value) -> String {
     match value {
         Value::TypedValue { value, .. } => serialize_canonical_value(value),
         Value::StringLiteral { value, .. } => format!("\"{}\"", escape_json(value)),
-        Value::InfinityLiteral { raw } => raw.clone(),
-        Value::NaNLiteral { raw } => raw.clone(),
+        Value::InfinityLiteral { raw, .. } => raw.clone(),
+        Value::NaNLiteral { raw, .. } => raw.clone(),
         Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::SwitchLiteral { raw }
@@ -2544,12 +2544,12 @@ fn render_value_json_string(value: &Value) -> String {
                 render_value_json_string(value)
             )
         }
-        Value::InfinityLiteral { raw } => format!(
+        Value::InfinityLiteral { raw, .. } => format!(
             "{{\"type\":\"InfinityLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
             escape_json(raw)
         ),
-        Value::NaNLiteral { raw } => format!(
+        Value::NaNLiteral { raw, .. } => format!(
             "{{\"type\":\"NaNLiteral\",\"raw\":\"{}\",\"value\":\"{}\"}}",
             escape_json(raw),
             escape_json(raw)
@@ -2750,8 +2750,8 @@ fn render_human_value(value: &Value) -> String {
         Value::StringLiteral { value, .. } => {
             serde_json::to_string(value).unwrap_or_else(|_| String::from("\"\""))
         }
-        Value::InfinityLiteral { raw } => raw.clone(),
-        Value::NaNLiteral { raw } => raw.clone(),
+        Value::InfinityLiteral { raw, .. } => raw.clone(),
+        Value::NaNLiteral { raw, .. } => raw.clone(),
         Value::NullLiteral { raw, .. } => raw.clone(),
         Value::NumberLiteral { raw }
         | Value::BooleanLiteral { raw }
@@ -3159,14 +3159,14 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
 fn core_value_to_aeos(value: &Value) -> EventValue {
     match value {
         Value::TypedValue { value, .. } => core_value_to_aeos(value),
-        Value::InfinityLiteral { raw } => EventValue {
+        Value::InfinityLiteral { raw, .. } => EventValue {
             value_type: String::from("InfinityLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
         },
-        Value::NaNLiteral { raw } => EventValue {
+        Value::NaNLiteral { raw, .. } => EventValue {
             value_type: String::from("NaNLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
