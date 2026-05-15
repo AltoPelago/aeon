@@ -50,7 +50,7 @@ jobs:
         run: pnpm depcheck
 
       - name: Unit tests
-        run: pnpm -r --filter './packages/**' --filter './tools/**' --filter '!@aeon/phase-fuzz' test
+        run: pnpm -r --filter './packages/**' --filter './tools/**' --filter '!@altopelago/aeon-phase-fuzz' test
 
       - name: Phase fuzz (CI)
         run: pnpm test:fuzz

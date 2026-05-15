@@ -15,6 +15,14 @@ const dependencyFields = [
   'optionalDependencies',
   'peerDependencies',
 ];
+const lifecycleScripts = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'prepublish',
+  'prepublishOnly',
+  'prepare',
+];
 
 let failures = 0;
 
@@ -81,6 +89,36 @@ function auditDependencies(packageJson) {
         `${field}.${name} uses absolute path ${version}`,
       );
     }
+  }
+}
+
+function auditPackageMetadata(packageJson) {
+  check(typeof packageJson.description === 'string' && packageJson.description.length > 0, 'manifest is missing description');
+  check(packageJson.license === 'MIT', `manifest license is ${packageJson.license ?? 'missing'}`);
+  check(packageJson.sideEffects === false, 'manifest must declare sideEffects=false');
+  check(packageJson.engines?.node === '>=20.0.0', 'manifest must declare engines.node >=20.0.0');
+  check(packageJson.publishConfig?.access === 'public', 'manifest must declare publishConfig.access=public');
+  check(packageJson.repository?.type === 'git', 'manifest repository.type must be git');
+  check(packageJson.repository?.url === 'git+https://github.com/AltoPelago/aeon.git', 'manifest repository.url must point at AltoPelago/aeon');
+  check(
+    typeof packageJson.repository?.directory === 'string' &&
+      packageJson.repository.directory.startsWith('implementations/typescript/packages/'),
+    'manifest repository.directory must point at its package directory',
+  );
+  check(packageJson.bugs?.url === 'https://github.com/AltoPelago/aeon/issues', 'manifest bugs.url must point at the issue tracker');
+  check(
+    typeof packageJson.homepage === 'string' &&
+      packageJson.homepage.startsWith('https://github.com/AltoPelago/aeon/tree/main/implementations/typescript/packages/'),
+    'manifest homepage must point at its package README',
+  );
+  check(
+    Array.isArray(packageJson.keywords) &&
+      ['aeon', 'aeonite', 'typescript'].every((keyword) => packageJson.keywords.includes(keyword)),
+    'manifest keywords must include aeon, aeonite, and typescript',
+  );
+
+  for (const scriptName of lifecycleScripts) {
+    check(!packageJson.scripts?.[scriptName], `manifest must not include lifecycle script ${scriptName}`);
   }
 }
 
@@ -163,6 +201,7 @@ try {
       packedManifest.version === sourceManifest.version,
       `packed version is ${packedManifest.version}`,
     );
+    auditPackageMetadata(packedManifest);
     auditDependencies(packedManifest);
     auditEntryPaths(packedManifest, entries);
     console.log(`  packed ${relative(workspaceRoot, tarball)}`);
