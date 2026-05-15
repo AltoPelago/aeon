@@ -1036,7 +1036,12 @@ fn is_valid_minute_or_second(value: u32) -> bool {
 }
 
 fn normalize_datatype(raw: &str) -> String {
-    raw.replace(',', ", ")
+    let normalized = raw.replace(',', ", ");
+    if datatype_base(&normalized) == "switch" {
+        normalized.replacen("switch", "toggle", 1)
+    } else {
+        normalized
+    }
 }
 
 fn normalize_raw(raw: &str) -> String {
@@ -2752,6 +2757,16 @@ mod tests {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{:?}", result.errors);
         }
+    }
+
+    #[test]
+    fn canonicalizes_legacy_switch_datatype_to_toggle() {
+        let result = canonicalize("aeon:mode = \"strict\"\nstate:switch = on\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nstate:toggle = on\n"
+        );
     }
 
     #[test]

@@ -294,7 +294,7 @@ fn events_json(
             json!({
                 "path": format_path(&event.path),
                 "key": event.key,
-                "datatype": event.datatype,
+                "datatype": event.datatype.as_deref().map(canonical_datatype),
                 "valueType": value_type_name(&event.value),
             })
         }));
@@ -382,6 +382,21 @@ fn value_json(value: &Value) -> JsonValue {
     }
 }
 
+fn canonical_datatype(name: &str) -> String {
+    if datatype_base(name) == "switch" {
+        name.replacen("switch", "toggle", 1)
+    } else {
+        name.to_owned()
+    }
+}
+
+fn datatype_base(datatype: &str) -> &str {
+    datatype
+        .find(['<', '['])
+        .map(|idx| &datatype[..idx])
+        .unwrap_or(datatype)
+}
+
 #[allow(dead_code)]
 fn binding_json(binding: &aeon_core::Binding) -> JsonValue {
     json!({
@@ -442,5 +457,19 @@ mod tests {
         assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
         assert_eq!(parsed["finalized"]["a"], "ok");
         assert_eq!(parsed["events"][0]["path"], "$.a");
+    }
+
+    #[test]
+    fn events_canonicalize_legacy_switch_datatype_to_toggle() {
+        let output = process_aeon_json(
+            "state:switch = on\n",
+            r#"{"validationMode":"strict","maxSeparatorDepth":8,"finalizeScope":"payload"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
+        assert_eq!(parsed["events"][0]["datatype"], "toggle");
+        assert_eq!(parsed["events"][0]["valueType"], "SwitchLiteral");
     }
 }

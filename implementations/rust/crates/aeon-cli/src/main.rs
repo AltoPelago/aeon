@@ -2488,7 +2488,7 @@ fn render_events(events: &[AssignmentEvent]) -> String {
         let datatype = event
             .datatype
             .as_ref()
-            .map(|value| format!("\"{}\"", escape_json(value)))
+            .map(|value| format!("\"{}\"", escape_json(&canonical_datatype(value))))
             .unwrap_or_else(|| String::from("null"));
         out.push_str("{\"path\":\"");
         out.push_str(&escape_json(&path));
@@ -2685,10 +2685,14 @@ fn render_value_json_string(value: &Value) -> String {
 }
 
 fn canonical_datatype_name(name: &str) -> &str {
-    if name == "switch" {
-        "toggle"
+    if name == "switch" { "toggle" } else { name }
+}
+
+fn canonical_datatype(name: &str) -> String {
+    if datatype_base(name) == "switch" {
+        name.replacen("switch", "toggle", 1)
     } else {
-        name
+        name.to_owned()
     }
 }
 
@@ -2711,7 +2715,7 @@ fn format_event_line(event: &AssignmentEvent) -> String {
     let datatype = event
         .datatype
         .as_ref()
-        .map(|value| format!(" :{value}"))
+        .map(|value| format!(" :{}", canonical_datatype(value)))
         .unwrap_or_default();
     format!(
         "{}{} = {}",
@@ -4530,6 +4534,20 @@ mod tests {
         assert_eq!(by_key["rad"]["value"]["type"], "RadixLiteral");
         assert_eq!(by_key["rad"]["value"]["raw"], "%+A_!_&z");
         assert_eq!(by_key["rad"]["value"]["value"], "+A_!_&z");
+    }
+
+    #[test]
+    fn render_events_canonicalizes_legacy_switch_datatype_to_toggle() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nstate:switch = on\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let parsed: JsonValue =
+            serde_json::from_str(&render_events(&result.events)).expect("valid events json");
+        assert_eq!(parsed[0]["datatype"], "toggle");
+        assert_eq!(format_event_line(&result.events[0]), "$.state :toggle = on");
     }
 
     #[test]
