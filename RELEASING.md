@@ -92,6 +92,9 @@ pnpm -r \
 - The current `typescript 6.0.2` uplift is one such intentional workspace
   toolchain baseline change and should be reviewed as publish-surface policy,
   even though it is a developer-tooling update.
+- The current `@types/node 25.8.0` uplift is also an intentional workspace
+  toolchain baseline change and should be reviewed with the same
+  publish-surface policy even though it is a developer-tooling update.
 - If public package names or the first-wave package set changes, update this document first.
 - Specs and CTS remain authoritative in sibling repos:
   - [aeonite-specs](https://github.com/aeonite-org/aeonite-specs)
