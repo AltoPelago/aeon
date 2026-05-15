@@ -83,6 +83,10 @@ long-lived npm tokens. It packs with `pnpm pack`, then publishes the resulting
 tarballs with `npm publish --provenance --access public` in local dependency
 order.
 
+npm trusted publishing requires Node `22.14.0` or newer and npm `11.5.1` or
+newer. The publish workflow pins Node `22.14.0` and installs npm `11.14.1`
+with lifecycle scripts disabled before publishing.
+
 Manual local publishing is a fallback only. If it is needed, run from
 `implementations/typescript/` after the full preflight:
 
