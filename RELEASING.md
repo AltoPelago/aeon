@@ -65,7 +65,10 @@ pnpm publish:npm:dry-run
 
 Dry-run verification intentionally omits npm provenance because npm validates
 published versions differently when provenance is requested. The real publish
-workflow keeps provenance enabled.
+workflow keeps provenance enabled. When a package version already exists on
+npm, dry-run verification still packs the tarball but skips `npm publish
+--dry-run` for that exact package version because npm rejects republishing an
+existing version even in dry-run mode.
 
 The expected tarballs should:
 

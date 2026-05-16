@@ -28,6 +28,30 @@ function run(command, args, options = {}) {
   });
 }
 
+function npmEnv() {
+  return {
+    ...process.env,
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+    npm_config_update_notifier: 'false',
+    npm_config_cache: npmCache,
+  };
+}
+
+function publishedVersionExists(manifest) {
+  try {
+    execFileSync('npm', ['view', `${manifest.name}@${manifest.version}`, 'version', '--silent'], {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      stdio: 'pipe',
+      env: npmEnv(),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function packageTarballName(packageJson) {
   const packageName = packageJson.name.startsWith('@')
     ? packageJson.name.slice(1).replace('/', '-')
@@ -92,6 +116,11 @@ try {
     console.log(`\n${manifest.name}`);
     run('pnpm', ['--dir', dir, 'pack', '--pack-destination', artifactsDir]);
 
+    if (dryRun && publishedVersionExists(manifest)) {
+      console.log(`  skipped npm publish dry-run; ${manifest.name}@${manifest.version} already exists`);
+      continue;
+    }
+
     const publishArgs = ['publish', tarball, '--access', 'public'];
     if (provenance) {
       publishArgs.push('--provenance');
@@ -100,13 +129,7 @@ try {
       publishArgs.push('--dry-run');
     }
     run('npm', publishArgs, {
-      env: {
-        ...process.env,
-        npm_config_audit: 'false',
-        npm_config_fund: 'false',
-        npm_config_update_notifier: 'false',
-        npm_config_cache: npmCache,
-      },
+      env: npmEnv(),
     });
     console.log(`  published ${relative(workspaceRoot, tarball)}`);
   }
