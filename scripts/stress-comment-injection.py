@@ -37,7 +37,12 @@ name§:§string§=§"alignment playground"
 enabled§:§toggle§=§on
 settings§:§object§=§{port:number=8080,tags:list<string>=["browser","wasm","aeon"]}
 pair:tuple<number,string>=(1,"one")
-view:node=<panel@{role:string="main"}:node("hello",<button:node("ok")>)>
+view§:§node§=§<page(§
+§<section§ @{§type§:§string §= §"feature", §level§:§string §=§ "1"§} (
+<kicker§("Design Board")>§
+<title("Keep the recurring blocks visible in one place."§)>§
+)>§
+)§>
 """
 
 

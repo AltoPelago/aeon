@@ -60,6 +60,19 @@ struct PlacementLandmark {
     span: Span,
 }
 
+fn anonymous_value_landmarks(start: Position, end: Position) -> Vec<PlacementLandmark> {
+    vec![
+        PlacementLandmark {
+            part: AnnotationPlacementPart::Key,
+            span: Span { start, end },
+        },
+        PlacementLandmark {
+            part: AnnotationPlacementPart::Value,
+            span: Span { start, end },
+        },
+    ]
+}
+
 struct DatatypeSpan {
     start: Position,
     colon_end: Position,
@@ -524,7 +537,7 @@ impl<'a> AnnotationParser<'a> {
             }
             '[' => self.capture_sequence('[', ']', &path, &mut bindables),
             '(' => self.capture_sequence('(', ')', &path, &mut bindables),
-            '<' => self.capture_balanced('<', '>'),
+            '<' => self.capture_node(&path, &mut bindables),
             _ => self.capture_scalar(),
         };
         landmarks.push(PlacementLandmark {
@@ -590,10 +603,7 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
-                        landmarks: vec![PlacementLandmark {
-                            part: AnnotationPlacementPart::Value,
-                            span: Span { start, end },
-                        }],
+                        landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
                 Some('{') => {
@@ -601,10 +611,7 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
-                        landmarks: vec![PlacementLandmark {
-                            part: AnnotationPlacementPart::Value,
-                            span: Span { start, end },
-                        }],
+                        landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
                 Some('[') => {
@@ -612,10 +619,7 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
-                        landmarks: vec![PlacementLandmark {
-                            part: AnnotationPlacementPart::Value,
-                            span: Span { start, end },
-                        }],
+                        landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
                 Some('(') => {
@@ -623,10 +627,15 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
-                        landmarks: vec![PlacementLandmark {
-                            part: AnnotationPlacementPart::Value,
-                            span: Span { start, end },
-                        }],
+                        landmarks: anonymous_value_landmarks(start, end),
+                    });
+                }
+                Some('<') => {
+                    let end = self.capture_node(&item_path, bindables);
+                    bindables.push(Bindable {
+                        path: item_path.clone(),
+                        span: Span { start, end },
+                        landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
                 Some(_) => {
@@ -634,10 +643,7 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
-                        landmarks: vec![PlacementLandmark {
-                            part: AnnotationPlacementPart::Value,
-                            span: Span { start, end },
-                        }],
+                        landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
                 None => break,
@@ -677,7 +683,7 @@ impl<'a> AnnotationParser<'a> {
             Some('{') => self.capture_object(item_path, bindables),
             Some('[') => self.capture_sequence('[', ']', item_path, bindables),
             Some('(') => self.capture_sequence('(', ')', item_path, bindables),
-            Some('<') => self.capture_balanced('<', '>'),
+            Some('<') => self.capture_node(item_path, bindables),
             Some(_) => self.capture_scalar(),
             None => self.scanner.position(),
         }
@@ -702,6 +708,48 @@ impl<'a> AnnotationParser<'a> {
                 Some('/')
                     if self.scanner.peek_n(1) == Some('/')
                         || self.scanner.peek_n(1) == Some('*') =>
+                {
+                    self.skip_trivia(true);
+                }
+                Some(_) => {
+                    self.scanner.bump();
+                }
+                None => break,
+            }
+        }
+        self.scanner.position()
+    }
+
+    fn capture_node(&mut self, parent_path: &str, bindables: &mut Vec<Bindable>) -> Position {
+        if self.scanner.peek() != Some('<') {
+            return self.scanner.position();
+        }
+        self.scanner.bump();
+        while !self.scanner.is_eof() {
+            match self.scanner.peek() {
+                Some('>') => {
+                    self.scanner.bump();
+                    return self.scanner.position();
+                }
+                Some('(') => {
+                    let _ = self.capture_sequence('(', ')', parent_path, bindables);
+                    self.skip_trivia(true);
+                    if self.scanner.peek() == Some('>') {
+                        self.scanner.bump();
+                    }
+                    return self.scanner.position();
+                }
+                Some('{') => {
+                    self.capture_balanced('{', '}');
+                }
+                Some('[') => {
+                    self.capture_balanced('[', ']');
+                }
+                Some('"') | Some('\'') | Some('`') => self.scanner.read_string(),
+                Some('/')
+                    if self.scanner.peek_n(1) == Some('/')
+                        || self.scanner.peek_n(1) == Some('*')
+                        || self.scanner.peek_n(1).is_some_and(is_structured_marker) =>
                 {
                     self.skip_trivia(true);
                 }
@@ -1201,6 +1249,60 @@ mod tests {
             Some(AnnotationPlacement {
                 after: Some(AnnotationPlacementPart::Equals),
                 before: Some(AnnotationPlacementPart::Value),
+            })
+        );
+    }
+
+    #[test]
+    fn binds_node_internal_comments_to_descendant_paths() {
+        let records = extract_annotations(
+            "/# #/title/# #/:/# #/string/# #/=/# #/ \"AEON Design Board\"/# #/\n\
+             activePage/# #/:/# #/string /# #/= /# #/\"design-board\"/# #/\n\
+             /# #/\n\
+             page/# #/:/# #/node/# #/ =/# #/ <page(/# #/\n\
+               /# #/<section/# #/ @{/# #/type/# #/:/# #/string /# #/= /# #/\"feature\", /# #/level/# #/:/# #/string /# #/=/# #/ \"1\"/# #/} (\n\
+                 <kicker/# #/(\"Design Board\")>/# #/\n\
+                 <title(\"Keep the recurring blocks visible in one place.\"/# #/)>/# #/\n\
+               )>/# #/\n\
+             )/# #/>",
+        );
+        assert_eq!(records.len(), 36);
+        assert_eq!(
+            records[12].target,
+            AnnotationTarget::Path {
+                path: String::from("$.page[0]")
+            }
+        );
+        assert_eq!(
+            records[12].placement,
+            Some(AnnotationPlacement {
+                after: None,
+                before: Some(AnnotationPlacementPart::Key),
+            })
+        );
+        assert_eq!(
+            records[18].target,
+            AnnotationTarget::Path {
+                path: String::from("$.page[0][0]")
+            }
+        );
+        assert_eq!(
+            records[30].target,
+            AnnotationTarget::Path {
+                path: String::from("$.page[0][0][0]")
+            }
+        );
+        assert_eq!(
+            records[32].target,
+            AnnotationTarget::Path {
+                path: String::from("$.page[0][1][0]")
+            }
+        );
+        assert_eq!(
+            records[32].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Value),
+                before: None,
             })
         );
     }
