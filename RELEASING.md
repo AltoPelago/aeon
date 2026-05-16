@@ -48,6 +48,7 @@ From `implementations/typescript/`:
 2. Build the workspace.
 3. Run the relevant CTS and package tests.
 4. Confirm package tarballs are clean.
+5. Update [`CHANGELOG.md`](./CHANGELOG.md) for the package version being released.
 
 Recommended commands:
 
