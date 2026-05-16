@@ -63,6 +63,10 @@ Optional dry-run npm publish verification:
 pnpm publish:npm:dry-run
 ```
 
+Dry-run verification intentionally omits npm provenance because npm validates
+published versions differently when provenance is requested. The real publish
+workflow keeps provenance enabled.
+
 The expected tarballs should:
 
 - include built `dist/`
