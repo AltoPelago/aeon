@@ -162,6 +162,15 @@ fn resolve_nearest_by_offset<'a>(
     comment_span: Span,
     bindables: &'a [&'a Bindable],
 ) -> Option<&'a Bindable> {
+    let containing = bindables
+        .iter()
+        .filter(|bindable| span_contains(bindable.span, comment_span))
+        .min_by_key(|bindable| span_length(bindable.span))
+        .copied();
+    if containing.is_some() {
+        return containing;
+    }
+
     let trailing = bindables
         .iter()
         .filter(|bindable| bindable.span.end.offset <= comment_span.start.offset)
@@ -904,6 +913,20 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert!(
             matches!(records[0].target, AnnotationTarget::Path { ref path } if path == "$.a[1]")
+        );
+    }
+
+    #[test]
+    fn binds_block_comment_between_equals_and_value_to_current_field() {
+        let records = extract_annotations(
+            "app:object = {\n  name:string = \"alignment playground\"\n  enabled:boolean = /# h #/ true\n  port:number = 8080\n}\n",
+        );
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].target,
+            AnnotationTarget::Path {
+                path: String::from("$.app.enabled")
+            }
         );
     }
 

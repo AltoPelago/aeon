@@ -39,3 +39,20 @@ test('reports toggle literal naming from wasm events', async () => {
   assert.equal(result.events[0]?.valueType, 'ToggleLiteral');
   assert.deepEqual(result.finalized.document, { state: true });
 });
+
+test('binds block comments between equals and value to the current field', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const result = runtime.processAeon(
+    'app:object = {\n  name:string = "alignment playground"\n  enabled:boolean = /# h #/ true\n  port:number = 8080\n}\n',
+    {
+      validationMode: 'strict',
+      maxSeparatorDepth: 8,
+      finalizeScope: 'payload',
+    },
+  );
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.annotations[0]?.target.kind, 'path');
+  assert.equal(result.annotations[0]?.target.path, '$.app.enabled');
+});

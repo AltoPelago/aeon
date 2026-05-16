@@ -443,4 +443,17 @@ mod tests {
         assert_eq!(parsed["finalized"]["a"], "ok");
         assert_eq!(parsed["events"][0]["path"], "$.a");
     }
+
+    #[test]
+    fn binds_block_annotation_between_equals_and_value_to_current_field() {
+        let output = process_aeon_json(
+            "app:object = {\n  name:string = \"alignment playground\"\n  enabled:boolean = /# h #/ true\n  port:number = 8080\n}\n",
+            r#"{"validationMode":"strict","maxSeparatorDepth":8,"finalizeScope":"payload"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
+        assert_eq!(parsed["annotations"][0]["target"]["path"], "$.app.enabled");
+    }
 }
