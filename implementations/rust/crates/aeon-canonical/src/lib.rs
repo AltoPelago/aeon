@@ -1844,6 +1844,10 @@ impl<'a> Parser<'a> {
     fn parse_identifier_like(&mut self, stop: &[char]) -> Result<String, Diagnostic> {
         let start = self.index;
         while let Some(ch) = self.peek() {
+            if ch == '/' && (self.peek_next() == Some('/') || self.block_comment_close().is_some())
+            {
+                break;
+            }
             if stop.contains(&ch) {
                 break;
             }
@@ -1902,6 +1906,12 @@ impl<'a> Parser<'a> {
                 }
                 '@' | '=' | ',' | '{' | '}' | '(' | ')' | '\n' | '\r'
                     if angle_depth == 0 && bracket_depth == 0 =>
+                {
+                    break;
+                }
+                '/' if angle_depth == 0
+                    && bracket_depth == 0
+                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
                 {
                     break;
                 }
@@ -2176,6 +2186,21 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[x] = ^1920x1080\n"
+        );
+    }
+
+    #[test]
+    fn strips_binding_head_annotations_without_changing_keys_or_datatypes() {
+        let result = canonicalize(
+            "aname/#A#/ :string = \"alignment playground\"\n\
+             bname:/#B#/ string = \"alignment playground\"\n\
+             cname: string /#C#/ = \"alignment playground\"\n\
+             dname: string = /#D#/ \"alignment playground\"\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\naname:string = \"alignment playground\"\nbname:string = \"alignment playground\"\ncname:string = \"alignment playground\"\ndname:string = \"alignment playground\"\n"
         );
     }
 

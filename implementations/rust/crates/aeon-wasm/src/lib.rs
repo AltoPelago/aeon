@@ -268,10 +268,14 @@ fn annotation_json(record: &AnnotationRecord) -> JsonValue {
         },
     });
     if let Some(placement) = &record.placement {
-        payload["placement"] = json!({
-            "after": placement.after.map(|part| part.as_str()),
-            "before": placement.before.map(|part| part.as_str()),
-        });
+        let mut placement_json = json!({});
+        if let Some(after) = placement.after {
+            placement_json["after"] = json!(after.as_str());
+        }
+        if let Some(before) = placement.before {
+            placement_json["before"] = json!(before.as_str());
+        }
+        payload["placement"] = placement_json;
     }
     payload
 }
@@ -464,5 +468,21 @@ mod tests {
         assert_eq!(parsed["annotations"][0]["target"]["path"], "$.app.enabled");
         assert_eq!(parsed["annotations"][0]["placement"]["after"], "equals");
         assert_eq!(parsed["annotations"][0]["placement"]["before"], "value");
+    }
+
+    #[test]
+    fn omits_null_placement_sides() {
+        let output = process_aeon_json(
+            "/# top #/\nname:string = \"alignment playground\"\n",
+            r#"{"validationMode":"strict","maxSeparatorDepth":8,"finalizeScope":"payload"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+        let placement = parsed["annotations"][0]["placement"]
+            .as_object()
+            .expect("placement object");
+
+        assert!(!placement.contains_key("after"));
+        assert_eq!(placement.get("before").expect("before"), "key");
     }
 }

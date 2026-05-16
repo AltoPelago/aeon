@@ -63,6 +63,7 @@ struct PlacementLandmark {
 struct DatatypeSpan {
     start: Position,
     colon_end: Position,
+    datatype_start: Position,
     end: Position,
 }
 
@@ -468,6 +469,7 @@ impl<'a> AnnotationParser<'a> {
             part: AnnotationPlacementPart::Key,
             span: key_span,
         }];
+        self.skip_trivia(false);
         if let Some(datatype) = self.skip_type_annotation() {
             landmarks.push(PlacementLandmark {
                 part: AnnotationPlacementPart::DatatypeColon,
@@ -476,16 +478,17 @@ impl<'a> AnnotationParser<'a> {
                     end: datatype.colon_end,
                 },
             });
-            if datatype.colon_end.offset < datatype.end.offset {
+            if datatype.datatype_start.offset < datatype.end.offset {
                 landmarks.push(PlacementLandmark {
                     part: AnnotationPlacementPart::Datatype,
                     span: Span {
-                        start: datatype.colon_end,
+                        start: datatype.datatype_start,
                         end: datatype.end,
                     },
                 });
             }
         }
+        self.skip_trivia(false);
         if let Some(span) = self.skip_attributes() {
             landmarks.push(PlacementLandmark {
                 part: AnnotationPlacementPart::Attributes,
@@ -784,6 +787,12 @@ impl<'a> AnnotationParser<'a> {
                 let start = self.scanner.index;
                 if self.scanner.source[start..].starts_with("aeon:") {
                     while let Some(ch) = self.scanner.peek() {
+                        if ch == '/'
+                            && (self.scanner.peek_n(1).is_some_and(is_structured_marker)
+                                || self.scanner.peek_n(1) == Some('/'))
+                        {
+                            break;
+                        }
                         if matches!(ch, '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') {
                             break;
                         }
@@ -799,6 +808,12 @@ impl<'a> AnnotationParser<'a> {
                     ));
                 }
                 while let Some(ch) = self.scanner.peek() {
+                    if ch == '/'
+                        && (self.scanner.peek_n(1).is_some_and(is_structured_marker)
+                            || self.scanner.peek_n(1) == Some('/'))
+                    {
+                        break;
+                    }
                     if matches!(
                         ch,
                         ':' | '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']'
@@ -830,6 +845,8 @@ impl<'a> AnnotationParser<'a> {
         let start = self.scanner.position();
         self.scanner.bump();
         let colon_end = self.scanner.position();
+        self.skip_trivia(false);
+        let datatype_start = self.scanner.position();
         let mut brackets = 0usize;
         let mut angles = 0usize;
         while let Some(ch) = self.scanner.peek() {
@@ -860,6 +877,7 @@ impl<'a> AnnotationParser<'a> {
         Some(DatatypeSpan {
             start,
             colon_end,
+            datatype_start,
             end: self.scanner.position(),
         })
     }
@@ -1122,6 +1140,51 @@ mod tests {
             Some(AnnotationPlacement {
                 after: Some(AnnotationPlacementPart::Value),
                 before: None,
+            })
+        );
+    }
+
+    #[test]
+    fn reports_binding_head_gap_annotation_placement() {
+        let records = extract_annotations(
+            "aname/#A#/ :string = \"alignment playground\"\n\
+             bname:/#B#/ string = \"alignment playground\"\n\
+             cname: string /#C#/ = \"alignment playground\"\n\
+             dname: string = /#D#/ \"alignment playground\"\n",
+        );
+        assert_eq!(records.len(), 4);
+        assert_eq!(
+            records[0].target,
+            AnnotationTarget::Path {
+                path: String::from("$.aname")
+            }
+        );
+        assert_eq!(
+            records[0].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Key),
+                before: Some(AnnotationPlacementPart::DatatypeColon),
+            })
+        );
+        assert_eq!(
+            records[1].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::DatatypeColon),
+                before: Some(AnnotationPlacementPart::Datatype),
+            })
+        );
+        assert_eq!(
+            records[2].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Datatype),
+                before: Some(AnnotationPlacementPart::Equals),
+            })
+        );
+        assert_eq!(
+            records[3].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Equals),
+                before: Some(AnnotationPlacementPart::Value),
             })
         );
     }
