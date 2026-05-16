@@ -1365,11 +1365,18 @@ impl<'a> Parser<'a> {
         let key = self.parse_identifier_like(&[
             ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
         ])?;
-        if key == "aeon" && self.peek() == Some(':') {
-            self.index += 1;
-            let suffix =
-                self.parse_identifier_like(&['@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']'])?;
-            return Ok(format!("aeon:{suffix}"));
+        if key == "aeon" {
+            let before_separator = self.index;
+            self.skip_ws(true);
+            if self.peek() == Some(':') {
+                self.index += 1;
+                self.skip_ws(true);
+                let suffix = self.parse_identifier_like(&[
+                    '@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']',
+                ])?;
+                return Ok(format!("aeon:{suffix}"));
+            }
+            self.index = before_separator;
         }
         Ok(key)
     }
@@ -2161,6 +2168,23 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\na = {\n}\n"
         );
+    }
+
+    #[test]
+    fn treats_trivia_inside_aeon_header_key_as_separator_trivia() {
+        for source in [
+            "aeon :header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon: header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon : header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon: /# #/header = {\n  mode:string = \"strict\"\n}\n",
+        ] {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+            assert_eq!(
+                result.text,
+                "aeon:header = {\n  mode:string = \"strict\"\n}\n"
+            );
+        }
     }
 
     #[test]

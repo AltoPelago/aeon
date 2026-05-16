@@ -347,6 +347,20 @@ class FinalizeJsonTests(unittest.TestCase):
             full["document"],
         )
 
+    def test_infers_tokenized_structured_header_from_compile_result(self) -> None:
+        source = 'aeon : header /# gap #/= {\n  mode:string = "strict"\n  encoding:string = "utf-8"\n}\napp:string = "ok"'
+        result = finalize_json(
+            compile_source(source),
+            FinalizeOptions(mode="strict", scope="full"),
+        )
+        self.assertEqual(
+            {
+                "header": {"mode": "strict", "encoding": "utf-8"},
+                "payload": {"app": "ok"},
+            },
+            result["document"],
+        )
+
     def test_projected_map_preserves_assignment_chain_for_attribute_paths(self) -> None:
         result = compile_result(
             'title@{lang = "en", meta = { keep = 2 }} = "Hello"\n'

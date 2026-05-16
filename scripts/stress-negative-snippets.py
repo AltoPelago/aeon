@@ -123,10 +123,14 @@ def status_label(enabled: bool, label: str) -> str:
 
 
 def apply_mode(snippet: str, mode: str) -> str:
-    stripped = snippet.lstrip()
-    if stripped.startswith("aeon:mode") or stripped.startswith("aeon:header"):
+    if has_explicit_header(snippet):
         return snippet
     return f'aeon:mode = "{mode}"\n{snippet}'
+
+
+def has_explicit_header(snippet: str) -> bool:
+    compact = "".join(snippet.lstrip().split())
+    return compact.startswith("aeon:mode") or compact.startswith("aeon:header")
 
 
 def progress_line(done: int, total: int) -> str:

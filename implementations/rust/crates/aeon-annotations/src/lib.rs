@@ -833,28 +833,6 @@ impl<'a> AnnotationParser<'a> {
             }
             _ => {
                 let start = self.scanner.index;
-                if self.scanner.source[start..].starts_with("aeon:") {
-                    while let Some(ch) = self.scanner.peek() {
-                        if ch == '/'
-                            && (self.scanner.peek_n(1).is_some_and(is_structured_marker)
-                                || self.scanner.peek_n(1) == Some('/'))
-                        {
-                            break;
-                        }
-                        if matches!(ch, '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') {
-                            break;
-                        }
-                        self.scanner.bump();
-                    }
-                    let end = self.scanner.position();
-                    return Some((
-                        self.scanner.source[start..self.scanner.index].to_owned(),
-                        Span {
-                            start: start_position,
-                            end,
-                        },
-                    ));
-                }
                 while let Some(ch) = self.scanner.peek() {
                     if ch == '/'
                         && (self.scanner.peek_n(1).is_some_and(is_structured_marker)
@@ -873,9 +851,51 @@ impl<'a> AnnotationParser<'a> {
                 if self.scanner.index == start {
                     None
                 } else {
+                    let key = self.scanner.source[start..self.scanner.index].to_owned();
+                    if key == "aeon" {
+                        let saved_index = self.scanner.index;
+                        let saved_line = self.scanner.line;
+                        let saved_column = self.scanner.column;
+                        self.skip_trivia(true);
+                        if self.scanner.peek() == Some(':') {
+                            self.scanner.bump();
+                            self.skip_trivia(true);
+                            let suffix_start = self.scanner.index;
+                            while let Some(ch) = self.scanner.peek() {
+                                if ch == '/'
+                                    && (self.scanner.peek_n(1).is_some_and(is_structured_marker)
+                                        || self.scanner.peek_n(1) == Some('/'))
+                                {
+                                    break;
+                                }
+                                if matches!(
+                                    ch,
+                                    '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']'
+                                ) {
+                                    break;
+                                }
+                                self.scanner.bump();
+                            }
+                            if self.scanner.index > suffix_start {
+                                let suffix = self.scanner.source[suffix_start..self.scanner.index]
+                                    .to_owned();
+                                let end = self.scanner.position();
+                                return Some((
+                                    format!("aeon:{suffix}"),
+                                    Span {
+                                        start: start_position,
+                                        end,
+                                    },
+                                ));
+                            }
+                        }
+                        self.scanner.index = saved_index;
+                        self.scanner.line = saved_line;
+                        self.scanner.column = saved_column;
+                    }
                     let end = self.scanner.position();
                     Some((
-                        self.scanner.source[start..self.scanner.index].to_owned(),
+                        key,
                         Span {
                             start: start_position,
                             end,
@@ -1346,6 +1366,17 @@ mod tests {
         assert!(matches!(
             records[1].target,
             AnnotationTarget::Path { ref path } if path == "$.emptyList"
+        ));
+    }
+
+    #[test]
+    fn structured_header_key_trivia_targets_header_fields() {
+        let records = extract_annotations(
+            "aeon/#ns#/\n:/#field#/\nheader/#eq#/ = {\n  version = \"2.1\"\n}\n",
+        );
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().all(
+            |record| matches!(record.target, AnnotationTarget::Path { ref path } if path == "$.[\"aeon:version\"]")
         ));
     }
 }

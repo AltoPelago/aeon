@@ -652,6 +652,12 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("password = *secret-key*")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_structured_header_allows_newline_layout_between_key_tokens(self) -> None:
+        result = compile_source('aeon\n:\nheader = {\n  mode:\nstring = "strict"\n}\na:string = "ok"\n')
+        self.assertEqual([], result.errors)
+        self.assertEqual(["$.a"], [event["path"] for event in result.events])
+        self.assertEqual("strict", result.header["fields"]["mode"].value)
+
 
 if __name__ == "__main__":
     unittest.main()

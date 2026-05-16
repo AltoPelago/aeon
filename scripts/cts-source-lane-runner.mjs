@@ -252,6 +252,24 @@ function compareExpectedSubset(expected, actual, label) {
   return failures;
 }
 
+function stableJson(value) {
+  return JSON.stringify(sortObjectKeys(value));
+}
+
+function sortObjectKeys(value) {
+  if (Array.isArray(value)) {
+    return value.map(sortObjectKeys);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortObjectKeys(value[key])]),
+  );
+}
+
 async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
@@ -582,7 +600,7 @@ async function main() {
       } else if (args.lane === 'finalize-json') {
         if ('document' in (test.expected?.result ?? {})) {
           const expectedDocument = test.expected.result.document;
-          if (JSON.stringify(expectedDocument) !== JSON.stringify(result.document)) {
+          if (stableJson(expectedDocument) !== stableJson(result.document)) {
             failures.push(`document mismatch: expected ${JSON.stringify(expectedDocument)}, got ${JSON.stringify(result.document)}`);
           }
         }

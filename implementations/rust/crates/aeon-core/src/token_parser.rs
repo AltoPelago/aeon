@@ -230,15 +230,22 @@ impl<'a> TokenParser<'a> {
         let token = self.peek();
         match token.kind {
             TokenKind::Identifier => {
-                if token.text == "aeon" && self.peek_next().kind == TokenKind::Colon {
+                if token.text == "aeon" {
+                    let saved = self.current;
                     self.advance();
-                    self.advance();
-                    let field =
-                        self.consume(TokenKind::Identifier, "Expected header field after `aeon:`")?;
-                    Ok(format!("aeon:{}", field.text))
-                } else {
-                    Ok(self.advance().text.clone())
+                    self.skip_newlines();
+                    if self.check(TokenKind::Colon) {
+                        self.advance();
+                        self.skip_newlines();
+                        let field = self.consume(
+                            TokenKind::Identifier,
+                            "Expected header field after `aeon:`",
+                        )?;
+                        return Ok(format!("aeon:{}", field.text));
+                    }
+                    self.current = saved;
                 }
+                Ok(self.advance().text.clone())
             }
             TokenKind::String => {
                 if token.quote == Some('`') {

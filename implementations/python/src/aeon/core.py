@@ -64,6 +64,7 @@ class CompileResult:
     events: list[dict[str, object]]
     errors: list[AeonError]
     internal_events: list[dict[str, object]] | None = None
+    header: dict[str, object] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -188,7 +189,21 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         for event in internal_events
         if not str(event["key"]).startswith("aeon:")
     ]
-    return CompileResult(events=events, errors=all_errors, internal_events=internal_events)
+    return CompileResult(
+        events=events,
+        errors=all_errors,
+        internal_events=internal_events,
+        header=header_to_result(parse_result.document),
+    )
+
+
+def header_to_result(document: Document) -> dict[str, object] | None:
+    if document.header is None:
+        return None
+    return {
+        "fields": document.header.fields,
+        "span": document.header.span.to_json(),
+    }
 
 
 def strip_leading_bom(source: str) -> str:

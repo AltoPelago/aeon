@@ -1550,6 +1550,21 @@ mod tests {
     }
 
     #[test]
+    fn structured_header_allows_newline_layout_between_key_tokens() {
+        let result = compile(
+            "aeon\n:\nheader = {\n  mode:\nstring = \"strict\"\n}\na:string = \"ok\"\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors, Vec::new());
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(format_path(&result.events[0].path), "$.a");
+        assert!(matches!(
+            result.header.expect("header").fields.get("mode"),
+            Some(Value::StringLiteral { value, .. }) if value == "strict"
+        ));
+    }
+
+    #[test]
     fn supports_datatype_after_attribute_block() {
         let result = compile(
             "a@{ ns = \"alto.v1\" }:int32 = 3\n",

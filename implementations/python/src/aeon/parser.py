@@ -161,23 +161,46 @@ class Parser:
     def is_header_start(self) -> bool:
         if not self.check("IDENT") or self.peek().value != "aeon":
             return False
-        if not self.check_next("COLON"):
+        header = self.header_token_indices()
+        if header is None:
             return False
-        if self.current + 3 < len(self.tokens):
-            next_token = self.tokens[self.current + 2]
-            next_next = self.tokens[self.current + 3]
-            if next_token.kind == "IDENT" and next_token.value == "envelope" and next_next.kind == "EQUALS":
-                return False
+        _, field_index, equals_index = header
+        field_token = self.tokens[field_index]
+        equals_token = self.tokens[equals_index] if equals_index is not None else None
+        if field_token.kind == "IDENT" and field_token.value == "envelope" and equals_token is not None:
+            return False
         return True
 
     def is_structured_header_start(self) -> bool:
-        if not self.is_header_start():
+        header = self.header_token_indices()
+        if header is None:
             return False
-        if self.current + 3 >= len(self.tokens):
-            return False
-        field_token = self.tokens[self.current + 2]
-        equals_token = self.tokens[self.current + 3]
-        return field_token.kind == "IDENT" and field_token.value == "header" and equals_token.kind == "EQUALS"
+        _, field_index, equals_index = header
+        field_token = self.tokens[field_index]
+        return (
+            field_token.kind == "IDENT"
+            and field_token.value == "header"
+            and equals_index is not None
+        )
+
+    def skip_layout_index(self, index: int) -> int:
+        while index < len(self.tokens) and self.tokens[index].kind == "NEWLINE":
+            index += 1
+        return index
+
+    def header_token_indices(self) -> tuple[int, int, int | None] | None:
+        if not self.check("IDENT") or self.peek().value != "aeon":
+            return None
+        colon_index = self.skip_layout_index(self.current + 1)
+        if colon_index >= len(self.tokens) or self.tokens[colon_index].kind != "COLON":
+            return None
+        field_index = self.skip_layout_index(colon_index + 1)
+        if field_index >= len(self.tokens) or self.tokens[field_index].kind != "IDENT":
+            return None
+        equals_index = self.skip_layout_index(field_index + 1)
+        if equals_index >= len(self.tokens) or self.tokens[equals_index].kind != "EQUALS":
+            equals_index = None
+        return colon_index, field_index, equals_index
 
     def parse_header(self) -> Header:
         start = self.peek().span.start
@@ -188,9 +211,12 @@ class Parser:
         end = start
         while self.is_header_start():
             self.advance()
+            self.skip_separators()
             self.consume("COLON", "Expected ':' after 'aeon'")
+            self.skip_separators()
             field_token = self.consume("IDENT", "Expected header field name")
             field_name = field_token.value
+            self.skip_separators()
             self.consume("EQUALS", "Expected '=' in header")
             value = self.parse_value()
             end = self.previous().span.end

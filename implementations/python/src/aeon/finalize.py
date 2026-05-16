@@ -22,6 +22,7 @@ class FinalizeOptions:
 
 def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[str, object]:
     opts = options or FinalizeOptions()
+    header = opts.header if opts.header is not None else infer_header(aes)
     aes = normalize_aes_input(aes)
     strict = opts.mode == "strict"
     projection = Projection(opts.materialization, opts.include_paths)
@@ -48,9 +49,9 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
         active_paths=[],
     )
 
-    payload = payload_to_json(aes, ctx, opts.scope, opts.header)
-    header = header_to_json(opts.header, ctx, opts.scope)
-    document = scope_to_json_document(opts.scope, header, payload)
+    payload = payload_to_json(aes, ctx, opts.scope, header)
+    header_document = header_to_json(header, ctx, opts.scope)
+    document = scope_to_json_document(opts.scope, header_document, payload)
 
     result: dict[str, object] = {"document": document}
     meta: dict[str, object] = {}
@@ -65,6 +66,7 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
 
 def finalize_map(aes: object, options: FinalizeOptions | None = None) -> dict[str, object]:
     opts = options or FinalizeOptions()
+    header = opts.header if opts.header is not None else infer_header(aes)
     aes_events = normalize_aes_input(aes)
     projection = Projection(opts.materialization, opts.include_paths)
     entries: list[dict[str, object]] = []
@@ -629,6 +631,14 @@ def extract_header_keys(header: dict[str, object] | None) -> list[str]:
     if header is None:
         return []
     return [key for key, _ in header_field_items(header)]
+
+
+def infer_header(aes: object) -> dict[str, object] | None:
+    if isinstance(aes, dict):
+        header = aes.get("header")
+        return header if isinstance(header, dict) else None
+    header = getattr(aes, "header", None)
+    return header if isinstance(header, dict) else None
 
 
 def is_top_level_path(path: str) -> bool:

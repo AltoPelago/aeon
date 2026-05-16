@@ -28,7 +28,7 @@ PY_INSPECT_CMD = [str(ROOT / "implementations" / "python" / "bin" / "aeon-python
 RUST_INSPECT_CMD = [str(ROOT / "implementations" / "rust" / "target" / "debug" / "aeon-rust"), "inspect"]
 
 MARKER = "§"
-TEMPLATE = """aeon:header§=§{
+TEMPLATE = """aeon§:§header§=§{
 encoding§:§string§=§"utf-8",
 mode§:§string§=§"transport",
 profile§:§string§=§"core"
