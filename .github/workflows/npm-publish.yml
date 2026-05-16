@@ -54,6 +54,4 @@ jobs:
 
       - name: Dry-run npm publish
         if: ${{ inputs.dry_run }}
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
-        run: node ./tools/publish-npm-packages.mjs --dry-run
+        run: node ./tools/publish-npm-packages.mjs --dry-run --no-provenance
