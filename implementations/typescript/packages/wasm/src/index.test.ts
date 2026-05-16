@@ -55,4 +55,5 @@ test('binds block comments between equals and value to the current field', async
   assert.equal(result.errors.length, 0);
   assert.equal(result.annotations[0]?.target.kind, 'path');
   assert.equal(result.annotations[0]?.target.path, '$.app.enabled');
+  assert.deepEqual(result.annotations[0]?.placement, { after: 'equals', before: 'value' });
 });

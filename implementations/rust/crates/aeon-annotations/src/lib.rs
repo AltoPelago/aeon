@@ -14,12 +14,56 @@ pub struct AnnotationRecord {
     pub raw: String,
     pub span: Span,
     pub target: AnnotationTarget,
+    pub placement: Option<AnnotationPlacement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnotationPlacement {
+    pub after: Option<AnnotationPlacementPart>,
+    pub before: Option<AnnotationPlacementPart>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationPlacementPart {
+    Key,
+    Attributes,
+    DatatypeColon,
+    Datatype,
+    Equals,
+    Value,
+}
+
+impl AnnotationPlacementPart {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Key => "key",
+            Self::Attributes => "attributes",
+            Self::DatatypeColon => "datatype-colon",
+            Self::Datatype => "datatype",
+            Self::Equals => "equals",
+            Self::Value => "value",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Bindable {
     path: String,
     span: Span,
+    landmarks: Vec<PlacementLandmark>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlacementLandmark {
+    part: AnnotationPlacementPart,
+    span: Span,
+}
+
+struct DatatypeSpan {
+    start: Position,
+    colon_end: Position,
+    end: Position,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,13 +82,18 @@ pub fn extract_annotations(source: &str) -> Vec<AnnotationRecord> {
     let comments = scan_structured_comments(&source);
     comments
         .into_iter()
-        .map(|comment| AnnotationRecord {
-            kind: comment.kind,
-            form: comment.form,
-            subtype: comment.subtype,
-            raw: comment.raw,
-            span: comment.span,
-            target: resolve_target(comment.span, &bindables),
+        .map(|comment| {
+            let target = resolve_target(comment.span, &bindables);
+            let placement = resolve_placement(comment.span, &target, &bindables);
+            AnnotationRecord {
+                kind: comment.kind,
+                form: comment.form,
+                subtype: comment.subtype,
+                raw: comment.raw,
+                span: comment.span,
+                target,
+                placement,
+            }
         })
         .collect()
 }
@@ -203,6 +252,50 @@ fn span_contains(outer: Span, inner: Span) -> bool {
 
 fn span_length(span: Span) -> usize {
     span.end.offset.saturating_sub(span.start.offset)
+}
+
+fn resolve_placement(
+    comment_span: Span,
+    target: &AnnotationTarget,
+    bindables: &[Bindable],
+) -> Option<AnnotationPlacement> {
+    let AnnotationTarget::Path { path } = target else {
+        return None;
+    };
+    let bindable = bindables.iter().find(|candidate| &candidate.path == path)?;
+    if bindable.landmarks.is_empty() {
+        return None;
+    }
+    if bindable
+        .landmarks
+        .iter()
+        .any(|landmark| spans_overlap(landmark.span, comment_span))
+    {
+        return None;
+    }
+
+    let previous = bindable
+        .landmarks
+        .iter()
+        .filter(|landmark| landmark.span.end.offset <= comment_span.start.offset)
+        .next_back();
+    let next = bindable
+        .landmarks
+        .iter()
+        .find(|landmark| landmark.span.start.offset >= comment_span.end.offset);
+
+    if previous.is_none() && next.is_none() {
+        return None;
+    }
+
+    Some(AnnotationPlacement {
+        after: previous.map(|landmark| landmark.part),
+        before: next.map(|landmark| landmark.part),
+    })
+}
+
+fn spans_overlap(left: Span, right: Span) -> bool {
+    left.start.offset < right.end.offset && right.start.offset < left.end.offset
 }
 
 fn is_descendant_path(parent: &str, candidate: &str) -> bool {
@@ -370,68 +463,83 @@ impl<'a> AnnotationParser<'a> {
     fn parse_binding(&mut self, parent_path: &str) -> Option<Vec<Bindable>> {
         self.skip_trivia(false);
         let start = self.scanner.position();
-        let key = self.parse_key()?;
-        self.skip_type_annotation();
-        self.skip_attributes();
+        let (key, key_span) = self.parse_key_with_span()?;
+        let mut landmarks = vec![PlacementLandmark {
+            part: AnnotationPlacementPart::Key,
+            span: key_span,
+        }];
+        if let Some(datatype) = self.skip_type_annotation() {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::DatatypeColon,
+                span: Span {
+                    start: datatype.start,
+                    end: datatype.colon_end,
+                },
+            });
+            if datatype.colon_end.offset < datatype.end.offset {
+                landmarks.push(PlacementLandmark {
+                    part: AnnotationPlacementPart::Datatype,
+                    span: Span {
+                        start: datatype.colon_end,
+                        end: datatype.end,
+                    },
+                });
+            }
+        }
+        if let Some(span) = self.skip_attributes() {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::Attributes,
+                span,
+            });
+        }
         self.skip_trivia(false);
         if self.scanner.peek() != Some('=') {
             return None;
         }
+        let equals_start = self.scanner.position();
         self.scanner.bump();
+        let equals_end = self.scanner.position();
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::Equals,
+            span: Span {
+                start: equals_start,
+                end: equals_end,
+            },
+        });
         self.skip_trivia(false);
+        let value_start = self.scanner.position();
         let path = format_path(parent_path, &key);
         let mut bindables = Vec::new();
-        match self.scanner.peek()? {
+        let end = match self.scanner.peek()? {
             '{' => {
                 let child_parent_path = if parent_path == "$" && key == "aeon:header" {
                     AEON_HEADER_CHILD_PARENT
                 } else {
                     &path
                 };
-                let end = self.capture_object(child_parent_path, &mut bindables);
-                bindables.insert(
-                    0,
-                    Bindable {
-                        path,
-                        span: Span { start, end },
-                    },
-                );
+                self.capture_object(child_parent_path, &mut bindables)
             }
-            '[' => {
-                let end = self.capture_sequence('[', ']', &path, &mut bindables);
-                bindables.insert(
-                    0,
-                    Bindable {
-                        path,
-                        span: Span { start, end },
-                    },
-                );
-            }
-            '(' => {
-                let end = self.capture_sequence('(', ')', &path, &mut bindables);
-                bindables.insert(
-                    0,
-                    Bindable {
-                        path,
-                        span: Span { start, end },
-                    },
-                );
-            }
-            '<' => {
-                let end = self.capture_balanced('<', '>');
-                bindables.push(Bindable {
-                    path,
-                    span: Span { start, end },
-                });
-            }
-            _ => {
-                let end = self.capture_scalar();
-                bindables.push(Bindable {
-                    path,
-                    span: Span { start, end },
-                });
-            }
-        }
+            '[' => self.capture_sequence('[', ']', &path, &mut bindables),
+            '(' => self.capture_sequence('(', ')', &path, &mut bindables),
+            '<' => self.capture_balanced('<', '>'),
+            _ => self.capture_scalar(),
+        };
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::Value,
+            span: Span {
+                start: value_start,
+                end,
+            },
+        });
+        landmarks.sort_by_key(|landmark| landmark.span.start.offset);
+        bindables.insert(
+            0,
+            Bindable {
+                path,
+                span: Span { start, end },
+                landmarks,
+            },
+        );
         Some(bindables)
     }
 
@@ -479,6 +587,10 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
+                        landmarks: vec![PlacementLandmark {
+                            part: AnnotationPlacementPart::Value,
+                            span: Span { start, end },
+                        }],
                     });
                 }
                 Some('{') => {
@@ -486,6 +598,10 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        landmarks: vec![PlacementLandmark {
+                            part: AnnotationPlacementPart::Value,
+                            span: Span { start, end },
+                        }],
                     });
                 }
                 Some('[') => {
@@ -493,6 +609,10 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        landmarks: vec![PlacementLandmark {
+                            part: AnnotationPlacementPart::Value,
+                            span: Span { start, end },
+                        }],
                     });
                 }
                 Some('(') => {
@@ -500,6 +620,10 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        landmarks: vec![PlacementLandmark {
+                            part: AnnotationPlacementPart::Value,
+                            span: Span { start, end },
+                        }],
                     });
                 }
                 Some(_) => {
@@ -507,6 +631,10 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
+                        landmarks: vec![PlacementLandmark {
+                            part: AnnotationPlacementPart::Value,
+                            span: Span { start, end },
+                        }],
                     });
                 }
                 None => break,
@@ -531,11 +659,11 @@ impl<'a> AnnotationParser<'a> {
         bindables: &mut Vec<Bindable>,
     ) -> Position {
         if self.scanner.peek() == Some('@') {
-            self.skip_attributes();
+            let _ = self.skip_attributes();
             self.skip_trivia(true);
         }
         if self.scanner.peek() == Some(':') {
-            self.skip_type_annotation();
+            let _ = self.skip_type_annotation();
             self.skip_trivia(true);
         }
         if self.scanner.peek() == Some('=') {
@@ -637,10 +765,21 @@ impl<'a> AnnotationParser<'a> {
         self.scanner.position()
     }
 
-    fn parse_key(&mut self) -> Option<String> {
+    fn parse_key_with_span(&mut self) -> Option<(String, Span)> {
         self.skip_trivia(false);
+        let start_position = self.scanner.position();
         match self.scanner.peek()? {
-            '"' => self.scanner.read_quoted(),
+            '"' => {
+                let key = self.scanner.read_quoted()?;
+                let end = self.scanner.position();
+                Some((
+                    key,
+                    Span {
+                        start: start_position,
+                        end,
+                    },
+                ))
+            }
             _ => {
                 let start = self.scanner.index;
                 if self.scanner.source[start..].starts_with("aeon:") {
@@ -650,7 +789,14 @@ impl<'a> AnnotationParser<'a> {
                         }
                         self.scanner.bump();
                     }
-                    return Some(self.scanner.source[start..self.scanner.index].to_owned());
+                    let end = self.scanner.position();
+                    return Some((
+                        self.scanner.source[start..self.scanner.index].to_owned(),
+                        Span {
+                            start: start_position,
+                            end,
+                        },
+                    ));
                 }
                 while let Some(ch) = self.scanner.peek() {
                     if matches!(
@@ -664,17 +810,26 @@ impl<'a> AnnotationParser<'a> {
                 if self.scanner.index == start {
                     None
                 } else {
-                    Some(self.scanner.source[start..self.scanner.index].to_owned())
+                    let end = self.scanner.position();
+                    Some((
+                        self.scanner.source[start..self.scanner.index].to_owned(),
+                        Span {
+                            start: start_position,
+                            end,
+                        },
+                    ))
                 }
             }
         }
     }
 
-    fn skip_type_annotation(&mut self) {
+    fn skip_type_annotation(&mut self) -> Option<DatatypeSpan> {
         if self.scanner.peek() != Some(':') {
-            return;
+            return None;
         }
+        let start = self.scanner.position();
         self.scanner.bump();
+        let colon_end = self.scanner.position();
         let mut brackets = 0usize;
         let mut angles = 0usize;
         while let Some(ch) = self.scanner.peek() {
@@ -702,16 +857,30 @@ impl<'a> AnnotationParser<'a> {
                 }
             }
         }
+        Some(DatatypeSpan {
+            start,
+            colon_end,
+            end: self.scanner.position(),
+        })
     }
 
-    fn skip_attributes(&mut self) {
+    fn skip_attributes(&mut self) -> Option<Span> {
+        let mut start = None;
+        let mut end = None;
         while self.scanner.peek() == Some('@') {
+            start.get_or_insert_with(|| self.scanner.position());
             self.scanner.bump();
             if self.scanner.peek() != Some('{') {
-                return;
+                end = Some(self.scanner.position());
+                break;
             }
             self.capture_balanced('{', '}');
+            end = Some(self.scanner.position());
             self.skip_trivia(false);
+        }
+        match (start, end) {
+            (Some(start), Some(end)) => Some(Span { start, end }),
+            _ => None,
         }
     }
 
@@ -927,6 +1096,33 @@ mod tests {
             AnnotationTarget::Path {
                 path: String::from("$.app.enabled")
             }
+        );
+        assert_eq!(
+            records[0].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Equals),
+                before: Some(AnnotationPlacementPart::Value),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_forward_and_trailing_annotation_placement() {
+        let records = extract_annotations("//# docs\na = 1 //? required\n");
+        assert_eq!(records.len(), 2);
+        assert_eq!(
+            records[0].placement,
+            Some(AnnotationPlacement {
+                after: None,
+                before: Some(AnnotationPlacementPart::Key),
+            })
+        );
+        assert_eq!(
+            records[1].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Value),
+                before: None,
+            })
         );
     }
 

@@ -256,7 +256,7 @@ fn annotations_json(source: &str) -> Vec<JsonValue> {
 }
 
 fn annotation_json(record: &AnnotationRecord) -> JsonValue {
-    json!({
+    let mut payload = json!({
         "kind": record.kind,
         "form": record.form,
         "subtype": record.subtype,
@@ -266,7 +266,14 @@ fn annotation_json(record: &AnnotationRecord) -> JsonValue {
             AnnotationTarget::Path { path } => json!({ "kind": "path", "path": path }),
             AnnotationTarget::Unbound { reason } => json!({ "kind": "unbound", "reason": reason }),
         },
-    })
+    });
+    if let Some(placement) = &record.placement {
+        payload["placement"] = json!({
+            "after": placement.after.map(|part| part.as_str()),
+            "before": placement.before.map(|part| part.as_str()),
+        });
+    }
+    payload
 }
 
 fn events_json(
@@ -455,5 +462,7 @@ mod tests {
 
         assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
         assert_eq!(parsed["annotations"][0]["target"]["path"], "$.app.enabled");
+        assert_eq!(parsed["annotations"][0]["placement"]["after"], "equals");
+        assert_eq!(parsed["annotations"][0]["placement"]["before"], "value");
     }
 }

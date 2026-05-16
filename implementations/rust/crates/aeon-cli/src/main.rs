@@ -2392,11 +2392,18 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
                 .as_ref()
                 .map(|subtype| format!(",\"subtype\":\"{}\"", escape_json(subtype)))
                 .unwrap_or_default();
+            let placement = record
+                .placement
+                .as_ref()
+                .map(render_annotation_placement)
+                .map(|placement| format!(",\"placement\":{placement}"))
+                .unwrap_or_default();
             format!(
-                "{{\"kind\":\"{}\",\"form\":\"{}\"{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
+                "{{\"kind\":\"{}\",\"form\":\"{}\"{}{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
                 escape_json(&record.kind),
                 escape_json(&record.form),
                 subtype,
+                placement,
                 escape_json(&record.raw),
                 render_span(&record.span),
                 render_annotation_target(&record.target)
@@ -2405,6 +2412,17 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
         .collect::<Vec<_>>()
         .join(",");
     format!("[{items}]")
+}
+
+fn render_annotation_placement(placement: &aeon_annotations::AnnotationPlacement) -> String {
+    let mut fields = Vec::new();
+    if let Some(after) = placement.after {
+        fields.push(format!("\"after\":\"{}\"", escape_json(after.as_str())));
+    }
+    if let Some(before) = placement.before {
+        fields.push(format!("\"before\":\"{}\"", escape_json(before.as_str())));
+    }
+    format!("{{{}}}", fields.join(","))
 }
 
 struct InspectRenderOptions {

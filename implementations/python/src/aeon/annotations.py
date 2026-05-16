@@ -21,6 +21,13 @@ class BindableRecord:
     order: int
     path: str | None = None
     span_json: dict[str, object] | None = None
+    landmarks: list[PlacementLandmark] | None = None
+
+
+@dataclass(slots=True)
+class PlacementLandmark:
+    part: str
+    span: Span
 
 
 @dataclass(slots=True)
@@ -58,6 +65,44 @@ class AnnotationResolver:
         if span_target is not None:
             return span_target
         return {"kind": "unbound", "reason": "eof"}
+
+    def resolve_placement(self, comment_span: Span, target: dict[str, object]) -> dict[str, str] | None:
+        if target.get("kind") != "path":
+            return None
+        path = target.get("path")
+        if not isinstance(path, str):
+            return None
+        bindable = next((item for item in self.path_bindables if item.path == path), None)
+        if bindable is None or not bindable.landmarks:
+            return None
+        if any(spans_overlap(landmark.span, comment_span) for landmark in bindable.landmarks):
+            return None
+
+        previous = next(
+            (
+                landmark
+                for landmark in reversed(bindable.landmarks)
+                if landmark.span.end.offset <= comment_span.start.offset
+            ),
+            None,
+        )
+        next_landmark = next(
+            (
+                landmark
+                for landmark in bindable.landmarks
+                if landmark.span.start.offset >= comment_span.end.offset
+            ),
+            None,
+        )
+        if previous is None and next_landmark is None:
+            return None
+
+        placement: dict[str, str] = {}
+        if previous is not None:
+            placement["after"] = previous.part
+        if next_landmark is not None:
+            placement["before"] = next_landmark.part
+        return placement
 
     def resolve_path_target(self, comment_span: Span) -> dict[str, object] | None:
         self.path_cursor, self.path_active = advance_active_bindables(
@@ -110,7 +155,12 @@ def build_annotation_stream(
 ) -> list[dict[str, object]]:
     resolver = AnnotationResolver(
         path_bindables=[
-            BindableRecord(span=parse_span(event["span"]), order=index, path=str(event["path"]))
+            BindableRecord(
+                span=parse_span(event["span"]),
+                order=index,
+                path=str(event["path"]),
+                landmarks=binding_landmarks(source, event),
+            )
             for index, event in enumerate(events)
         ],
         span_bindables=[
@@ -128,6 +178,9 @@ def build_annotation_stream(
             "span": comment.span.to_json(),
             "target": target,
         }
+        placement = resolver.resolve_placement(comment.span, target)
+        if placement is not None:
+            record["placement"] = placement
         if comment.subtype is not None:
             record["subtype"] = comment.subtype
         records.append(record)
@@ -222,6 +275,18 @@ def nearest_descendant(
     bindables: list[BindableRecord],
 ) -> BindableRecord | None:
     assert container.path is not None
+    containing = [
+        candidate
+        for candidate in bindables
+        if candidate.path is not None
+        and candidate.path != container.path
+        and is_descendant_path(container.path, candidate.path)
+        and span_contains(container.span, candidate.span)
+        and span_contains(candidate.span, comment_span)
+    ]
+    if containing:
+        return min(containing, key=containing_key)
+
     trailing_hit: BindableRecord | None = None
     forward_hit: BindableRecord | None = None
     trailing_distance: int | None = None
@@ -383,12 +448,164 @@ def parse_span(raw: object) -> Span:
     )
 
 
+def binding_landmarks(source: str, event: dict[str, object]) -> list[PlacementLandmark]:
+    span = parse_span(event["span"])
+    value_span = event_value_span(event)
+    if value_span is None:
+        value_span = span
+
+    landmarks: list[PlacementLandmark] = []
+    key_span = scan_key_span(source, span.start.offset)
+    if key_span is not None:
+        landmarks.append(PlacementLandmark("key", key_span))
+        head_start = key_span.end.offset
+    else:
+        head_start = span.start.offset
+
+    equals_offset = source.rfind("=", span.start.offset, value_span.start.offset)
+    head_end = equals_offset if equals_offset >= 0 else value_span.start.offset
+    attributes_span = scan_attribute_span(source, head_start, head_end)
+    if attributes_span is not None:
+        landmarks.append(PlacementLandmark("attributes", attributes_span))
+
+    colon_offset = find_top_level_colon(source, attributes_span.end.offset if attributes_span else head_start, head_end)
+    if colon_offset is not None:
+        colon_start = position_at(source, colon_offset)
+        colon_end = position_at(source, colon_offset + 1)
+        landmarks.append(PlacementLandmark("datatype-colon", Span(colon_start, colon_end)))
+        datatype_start = skip_horizontal_space(source, colon_offset + 1, head_end)
+        datatype_end = trim_horizontal_space_end(source, head_end, datatype_start)
+        if datatype_start < datatype_end:
+            landmarks.append(PlacementLandmark("datatype", Span(position_at(source, datatype_start), position_at(source, datatype_end))))
+
+    if equals_offset >= 0:
+        landmarks.append(
+            PlacementLandmark(
+                "equals",
+                Span(position_at(source, equals_offset), position_at(source, equals_offset + 1)),
+            )
+        )
+    landmarks.append(PlacementLandmark("value", value_span))
+    return sorted(landmarks, key=lambda landmark: landmark.span.start.offset)
+
+
+def event_value_span(event: dict[str, object]) -> Span | None:
+    value = event.get("value")
+    if not isinstance(value, dict):
+        return None
+    span = value.get("span")
+    if not isinstance(span, dict):
+        return None
+    return parse_span(span)
+
+
+def scan_key_span(source: str, offset: int) -> Span | None:
+    start = skip_horizontal_space(source, offset, len(source))
+    if start >= len(source):
+        return None
+    if source[start] == '"':
+        end = start + 1
+        while end < len(source):
+            char = source[end]
+            end += 1
+            if char == "\\" and end < len(source):
+                end += 1
+                continue
+            if char == '"':
+                return Span(position_at(source, start), position_at(source, end))
+        return Span(position_at(source, start), position_at(source, end))
+
+    end = start
+    while end < len(source) and source[end] not in {":", "@", "=", " ", "\t", "\n", "\r", ",", "}", "]"}:
+        end += 1
+    if end == start:
+        return None
+    return Span(position_at(source, start), position_at(source, end))
+
+
+def scan_attribute_span(source: str, start: int, end: int) -> Span | None:
+    at = find_top_level_char(source, "@", start, end)
+    if at is None:
+        return None
+    stop = find_top_level_char(source, ":", at + 1, end)
+    if stop is None:
+        stop = end
+    stop = trim_horizontal_space_end(source, stop, at + 1)
+    return Span(position_at(source, at), position_at(source, stop))
+
+
+def find_top_level_colon(source: str, start: int, end: int) -> int | None:
+    return find_top_level_char(source, ":", start, end)
+
+
+def find_top_level_char(source: str, needle: str, start: int, end: int) -> int | None:
+    depth = 0
+    offset = start
+    while offset < min(end, len(source)):
+        char = source[offset]
+        if char in {'"', "'", "`"}:
+            offset = skip_string(source, offset, char)
+            continue
+        if char in "{[(":
+            depth += 1
+        elif char in "}])" and depth > 0:
+            depth -= 1
+        elif char == needle and depth == 0:
+            return offset
+        offset += 1
+    return None
+
+
+def skip_string(source: str, offset: int, delimiter: str) -> int:
+    offset += 1
+    raw = delimiter == "`"
+    while offset < len(source):
+        char = source[offset]
+        offset += 1
+        if char == "\\" and not raw and offset < len(source):
+            offset += 1
+            continue
+        if char == delimiter:
+            break
+        if char == "\n" and not raw:
+            break
+    return offset
+
+
+def skip_horizontal_space(source: str, start: int, end: int) -> int:
+    while start < end and source[start] in {" ", "\t"}:
+        start += 1
+    return start
+
+
+def trim_horizontal_space_end(source: str, end: int, lower_bound: int) -> int:
+    while end > lower_bound and source[end - 1] in {" ", "\t"}:
+        end -= 1
+    return end
+
+
+def position_at(source: str, offset: int) -> Position:
+    line = 1
+    column = 1
+    for char in source[:offset]:
+        if char == "\n":
+            line += 1
+            column = 1
+        else:
+            column += 1
+    return Position(line=line, column=column, offset=offset)
+
+
 def span_contains(outer: Span, inner: Span) -> bool:
     return outer.start.offset <= inner.start.offset and outer.end.offset >= inner.end.offset
 
 
 def span_length(span: Span) -> int:
     return span.end.offset - span.start.offset
+
+
+def spans_overlap(left: Span, right: Span) -> bool:
+    return left.start.offset < right.end.offset and right.start.offset < left.end.offset
 
 
 def is_descendant_path(parent_path: str, candidate_path: str) -> bool:
