@@ -13,13 +13,13 @@ Informative status: implementation documentation for `@altopelago/aeon-profiles`
 compile(input, options)
 ```
 
-Profiles provide a compile boundary that emits AES using a selected profile and optional registry.
+Profiles provide a compile boundary that emits AES using a selected profile and optional registry. If no profile is selected, `core` is used.
 
 ## Options
 
 ```ts
 interface CompileOptions {
-  readonly profile: ProfileRef;
+  readonly profile?: ProfileRef;
   readonly registry?: ProfileRegistry;
   readonly mode?: 'strict' | 'loose';
   readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
@@ -49,7 +49,7 @@ interface CompileOptions {
 
 - `createRegistry()`
 - `createDefaultRegistry()`
-- `altopelagoCoreProfile`
+- `coreProfile`
 - `aeonGpCoreProfile`
 - `jsonProfile`
 
@@ -59,7 +59,7 @@ interface CompileOptions {
 import { compile, createDefaultRegistry } from '@altopelago/aeon-profiles';
 
 const result = compile(source, {
-  profile: 'altopelago.core.v1',
+  profile: 'core',
   registry: createDefaultRegistry(),
   mode: 'strict',
 });

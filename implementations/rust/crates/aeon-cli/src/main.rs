@@ -6202,7 +6202,7 @@ mod tests {
 
         fs::write(
             &input,
-            "aeon:mode = \"strict\"\naeon:profile = \"altopelago.core.v1\"\naeon:schema = \"missing.schema.id\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
+            "aeon:mode = \"strict\"\naeon:profile = \"core\"\naeon:schema = \"missing.schema.id\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
         )
         .expect("input");
         let profile_artifact = "profile placeholder for hash verification";
@@ -6210,7 +6210,7 @@ mod tests {
         fs::write(
             &registry,
             format!(
-                "{{\"contracts\":[{{\"id\":\"altopelago.core.v1\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
+                "{{\"contracts\":[{{\"id\":\"core\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
                 sha256_hex(profile_artifact.as_bytes()),
             ),
         )
@@ -6286,17 +6286,17 @@ mod tests {
 
         fs::write(
             &input,
-            "aeon:mode = \"strict\"\naeon:profile = \"altopelago.core.v1\"\naeon:schema = \"aeon.gp.schema.v1\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
+            "aeon:mode = \"strict\"\naeon:profile = \"core\"\naeon:schema = \"aeon.gp.schema.v1\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
         )
         .expect("input");
         let schema_contract = format!("{}\n", schema_contract_aeon_text("aeon.gp.schema.v1"));
         fs::write(&schema, &schema_contract).expect("schema");
-        let profile_artifact = "profile_id = \"altopelago.core.v1\"\nprofile_version = \"1.0.0\"\n";
+        let profile_artifact = "profile_id = \"core\"\nprofile_version = \"1.0.0\"\n";
         fs::write(&profile, profile_artifact).expect("profile");
         fs::write(
             &registry,
             format!(
-                "{{\"contracts\":[{{\"id\":\"altopelago.core.v1\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}},{{\"id\":\"aeon.gp.schema.v1\",\"kind\":\"schema\",\"version\":\"1.0.0\",\"path\":\"schema.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
+                "{{\"contracts\":[{{\"id\":\"core\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}},{{\"id\":\"aeon.gp.schema.v1\",\"kind\":\"schema\",\"version\":\"1.0.0\",\"path\":\"schema.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
                 sha256_hex(profile_artifact.as_bytes()),
                 "0".repeat(64),
             ),
@@ -6328,15 +6328,15 @@ mod tests {
 
         fs::write(
             &input,
-            "aeon:mode = \"strict\"\naeon:profile = \"altopelago.core.v1\"\naeon:schema = \"aeon.gp.schema.v1\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
+            "aeon:mode = \"strict\"\naeon:profile = \"core\"\naeon:schema = \"aeon.gp.schema.v1\"\napp:object = {\n  name:string = \"AEON\"\n  port:int32 = 8080\n}\n",
         )
         .expect("input");
-        let profile_artifact = "profile_id = \"altopelago.core.v1\"\nprofile_version = \"1.0.0\"\n";
+        let profile_artifact = "profile_id = \"core\"\nprofile_version = \"1.0.0\"\n";
         fs::write(&profile, profile_artifact).expect("profile");
         fs::write(
             &registry,
             format!(
-                "{{\"contracts\":[{{\"id\":\"altopelago.core.v1\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}},{{\"id\":\"aeon.gp.schema.v1\",\"kind\":\"schema\",\"version\":\"1.0.0\",\"path\":\"missing-schema.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
+                "{{\"contracts\":[{{\"id\":\"core\",\"kind\":\"profile\",\"version\":\"1.0.0\",\"path\":\"profile.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}},{{\"id\":\"aeon.gp.schema.v1\",\"kind\":\"schema\",\"version\":\"1.0.0\",\"path\":\"missing-schema.aeon\",\"sha256\":\"{}\",\"status\":\"active\"}}]}}",
                 sha256_hex(profile_artifact.as_bytes()),
                 "0".repeat(64),
             ),

@@ -162,7 +162,7 @@ const result = runTypedRuntime<AppConfig>('name = "AEON"\\nport = 8080', {
 
 ## Notes
 
-- Default profile is `altopelago.core.v1`.
+- Default profile is `core`.
 - Strict mode stops at the first phase that emits errors.
 - Loose mode continues and aggregates diagnostics.
 - Output document format is selected via `output` (`json` default).

@@ -36,6 +36,18 @@ test('compile returns AES for registered profile', () => {
     assert.equal(result.meta?.profileId, 'test.profile');
 });
 
+test('compile defaults to core when profile is omitted', () => {
+    const result = compile('view:node = <panel("hello")>', {
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.equal(result.meta?.profileId, 'core');
+    assert.equal(result.aes.length, 2);
+    assert.equal(formatPath(result.aes[0]!.path), '$.view');
+});
+
 test('compile fails with unknown profile', () => {
     const result = compile(sourceOk, {
         profile: 'unknown.profile',

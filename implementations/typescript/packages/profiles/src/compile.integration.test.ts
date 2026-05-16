@@ -13,9 +13,9 @@ config = {
 
 const sourceForwardRef = 'a = ~b\nb = 1';
 
-test('integration: altopelago.core.v1 compiles AEON to AES', { skip: !shouldRun }, () => {
+test('integration: core compiles AEON to AES', { skip: !shouldRun }, () => {
     const result = compile(source, {
-        profile: 'altopelago.core.v1',
+        profile: 'core',
         mode: 'strict',
     });
 
@@ -25,7 +25,7 @@ test('integration: altopelago.core.v1 compiles AEON to AES', { skip: !shouldRun 
 
 test('integration: strict mode fails closed on reference errors', { skip: !shouldRun }, () => {
     const result = compile(sourceForwardRef, {
-        profile: 'altopelago.core.v1',
+        profile: 'core',
         mode: 'strict',
     });
 
@@ -35,7 +35,7 @@ test('integration: strict mode fails closed on reference errors', { skip: !shoul
 
 test('integration: loose mode returns events with errors', { skip: !shouldRun }, () => {
     const result = compile(sourceForwardRef, {
-        profile: 'altopelago.core.v1',
+        profile: 'core',
         mode: 'loose',
     });
 

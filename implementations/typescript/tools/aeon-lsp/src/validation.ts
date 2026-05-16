@@ -38,7 +38,7 @@ export function getConfiguredDiagnostics(text: string, documentPath: string | nu
     if (!resolved) return diagnostics;
 
     const compileResult = compileProfile(text, {
-        profile: resolved.profile ?? 'altopelago.core.v1',
+        profile: resolved.profile ?? 'core',
         registry: createDefaultRegistry(),
         mode: 'strict',
         datatypePolicy: 'reserved_only',
