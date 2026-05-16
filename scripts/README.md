@@ -58,6 +58,7 @@ For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 | `stress-canonical-snippets.py` | Canonical parity check for snippet corpora across implementations. | `python3 ./scripts/stress-canonical-snippets.py --mode all` |
 | `stress-diagnostic-snippets.py` | Diagnostic parity checks for curated syntax/error corpus. | `python3 ./scripts/stress-diagnostic-snippets.py --brief` |
 | `stress-whitespace-mutations.py` | Whitespace mutation fuzzer for canonical and diagnostic consistency checks. | `python3 ./scripts/stress-whitespace-mutations.py` |
+| `stress-comment-injection.py` | Compact grammar-rich source, inject structured comments at legal trivia slots, then compare canonical and annotation summaries. | `python3 ./scripts/stress-comment-injection.py` |
 | `stress-combinations.py` | Generates matrix-driven snippet combinations and validates expected outcomes. | `python3 ./scripts/stress-combinations.py` |
 
 ### Bench and local maintenance helpers

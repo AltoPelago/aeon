@@ -47,6 +47,18 @@ class AnnotationStreamTests(unittest.TestCase):
         self.assertEqual({"before": "key"}, annotations[0]["placement"])
         self.assertEqual({"after": "value"}, annotations[1]["placement"])
 
+    def test_binding_head_gap_comments_report_placement(self) -> None:
+        annotations = self.annotations_for(
+            'aname/#A#/ :string = "alignment playground"\n'
+            'bname:/#B#/ string = "alignment playground"\n'
+            'cname:string/#C#/= "alignment playground"\n'
+            'dname:string = /#D#/ "alignment playground"\n'
+        )
+        self.assertEqual({"after": "key", "before": "datatype-colon"}, annotations[0]["placement"])
+        self.assertEqual({"after": "datatype-colon", "before": "datatype"}, annotations[1]["placement"])
+        self.assertEqual({"after": "datatype", "before": "equals"}, annotations[2]["placement"])
+        self.assertEqual({"after": "equals", "before": "value"}, annotations[3]["placement"])
+
     def test_eof_comment_is_unbound(self) -> None:
         annotations = self.annotations_for("a = 1\n//? x")
         self.assertEqual({"kind": "unbound", "reason": "eof"}, annotations[0]["target"])

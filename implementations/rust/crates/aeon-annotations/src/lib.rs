@@ -869,6 +869,14 @@ impl<'a> AnnotationParser<'a> {
                 }
                 '@' | '=' if brackets == 0 && angles == 0 => break,
                 ' ' | '\t' | '\n' | '\r' if brackets == 0 && angles == 0 => break,
+                '/' if brackets == 0
+                    && angles == 0
+                    && (self.scanner.peek_n(1) == Some('/')
+                        || self.scanner.peek_n(1) == Some('*')
+                        || self.scanner.peek_n(1).is_some_and(is_structured_marker)) =>
+                {
+                    break;
+                }
                 _ => {
                     self.scanner.bump();
                 }
@@ -1150,9 +1158,10 @@ mod tests {
             "aname/#A#/ :string = \"alignment playground\"\n\
              bname:/#B#/ string = \"alignment playground\"\n\
              cname: string /#C#/ = \"alignment playground\"\n\
+             cnameCompact:string/#CC#/= \"alignment playground\"\n\
              dname: string = /#D#/ \"alignment playground\"\n",
         );
-        assert_eq!(records.len(), 4);
+        assert_eq!(records.len(), 5);
         assert_eq!(
             records[0].target,
             AnnotationTarget::Path {
@@ -1182,6 +1191,13 @@ mod tests {
         );
         assert_eq!(
             records[3].placement,
+            Some(AnnotationPlacement {
+                after: Some(AnnotationPlacementPart::Datatype),
+                before: Some(AnnotationPlacementPart::Equals),
+            })
+        );
+        assert_eq!(
+            records[4].placement,
             Some(AnnotationPlacement {
                 after: Some(AnnotationPlacementPart::Equals),
                 before: Some(AnnotationPlacementPart::Value),

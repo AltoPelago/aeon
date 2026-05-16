@@ -473,8 +473,8 @@ def binding_landmarks(source: str, event: dict[str, object]) -> list[PlacementLa
         colon_start = position_at(source, colon_offset)
         colon_end = position_at(source, colon_offset + 1)
         landmarks.append(PlacementLandmark("datatype-colon", Span(colon_start, colon_end)))
-        datatype_start = skip_horizontal_space(source, colon_offset + 1, head_end)
-        datatype_end = trim_horizontal_space_end(source, head_end, datatype_start)
+        datatype_start = skip_head_trivia(source, colon_offset + 1, head_end)
+        datatype_end = scan_datatype_end(source, datatype_start, head_end)
         if datatype_start < datatype_end:
             landmarks.append(PlacementLandmark("datatype", Span(position_at(source, datatype_start), position_at(source, datatype_end))))
 
@@ -516,7 +516,11 @@ def scan_key_span(source: str, offset: int) -> Span | None:
         return Span(position_at(source, start), position_at(source, end))
 
     end = start
-    while end < len(source) and source[end] not in {":", "@", "=", " ", "\t", "\n", "\r", ",", "}", "]"}:
+    while end < len(source):
+        if starts_comment(source, end):
+            break
+        if source[end] in {":", "@", "=", " ", "\t", "\n", "\r", ",", "}", "]"}:
+            break
         end += 1
     if end == start:
         return None
@@ -576,6 +580,77 @@ def skip_horizontal_space(source: str, start: int, end: int) -> int:
     while start < end and source[start] in {" ", "\t"}:
         start += 1
     return start
+
+
+def skip_head_trivia(source: str, start: int, end: int) -> int:
+    while start < end:
+        if source[start] in {" ", "\t"}:
+            start += 1
+            continue
+        if starts_structured_or_plain_block_comment(source, start):
+            start = skip_block_comment(source, start, end)
+            continue
+        if starts_line_comment(source, start):
+            start = skip_line_comment(source, start, end)
+            continue
+        break
+    return start
+
+
+def scan_datatype_end(source: str, start: int, end: int) -> int:
+    offset = start
+    brackets = 0
+    angles = 0
+    while offset < end:
+        char = source[offset]
+        if char == "[":
+            brackets += 1
+        elif char == "]":
+            brackets = max(0, brackets - 1)
+        elif char == "<":
+            angles += 1
+        elif char == ">":
+            angles = max(0, angles - 1)
+        elif brackets == 0 and angles == 0:
+            if char in {"@", "=", " ", "\t", "\n", "\r"} or starts_comment(source, offset):
+                break
+        offset += 1
+    return offset
+
+
+def starts_comment(source: str, offset: int) -> bool:
+    return starts_line_comment(source, offset) or starts_structured_or_plain_block_comment(source, offset)
+
+
+def starts_line_comment(source: str, offset: int) -> bool:
+    return offset + 1 < len(source) and source[offset] == "/" and source[offset + 1] == "/"
+
+
+def starts_structured_or_plain_block_comment(source: str, offset: int) -> bool:
+    return (
+        offset + 1 < len(source)
+        and source[offset] == "/"
+        and (source[offset + 1] in {"#", "@", "?", "{", "[", "("} or source[offset + 1] == "*")
+    )
+
+
+def skip_line_comment(source: str, start: int, end: int) -> int:
+    while start < end and source[start] != "\n":
+        start += 1
+    return start
+
+
+def skip_block_comment(source: str, start: int, end: int) -> int:
+    if start + 1 >= end:
+        return end
+    marker = source[start + 1]
+    closing = {"{": "}", "[": "]", "(": ")", "*": "*"}.get(marker, marker)
+    offset = start + 2
+    while offset + 1 < end:
+        if source[offset] == closing and source[offset + 1] == "/":
+            return offset + 2
+        offset += 1
+    return end
 
 
 def trim_horizontal_space_end(source: str, end: int, lower_bound: int) -> int:

@@ -185,6 +185,26 @@ describe('annotation stream', () => {
         assert.deepStrictEqual(records[1]?.target, { kind: 'path', path: '$.a[1]' });
     });
 
+    it('binds a compact comment after a nested list to the list binding', () => {
+        const source = 'settings={tags=["browser","wasm","aeon"]/# tail #/}';
+        const settingsStart = source.indexOf('{');
+        const tagsStart = source.indexOf('[');
+        const tagsEnd = source.indexOf(']') + 1;
+        const thirdElementStart = source.indexOf('"aeon"');
+        const thirdElementEnd = thirdElementStart + '"aeon"'.length;
+        const events = [
+            createEvent('$.settings', settingsStart, source.length, 1),
+            createEvent('$.settings.tags', tagsStart, tagsEnd, 1),
+            createEvent('$.settings.tags[2]', thirdElementStart, thirdElementEnd, 1),
+        ];
+        const lexResult = tokenize(source, { includeComments: true });
+        const records = buildAnnotationStream({ tokens: lexResult.tokens, events });
+
+        assert.strictEqual(records.length, 1);
+        assert.deepStrictEqual(records[0]?.target, { kind: 'path', path: '$.settings.tags' });
+        assert.deepStrictEqual(records[0]?.placement, { after: 'value' });
+    });
+
     it('marks comment as unbound eof when no forward target exists', () => {
         const source = 'a = 1\n//# tail';
         const events = [createEvent('$.a', 0, 5, 1)];
