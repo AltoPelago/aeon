@@ -6,6 +6,23 @@ License: MIT. See [LICENSE](./LICENSE).
 
 Public language guide and user-facing documentation: [AltoPelago/aeon wiki](https://github.com/AltoPelago/aeon/wiki).
 
+## npm Packages
+
+The TypeScript implementation is published on npm as public packages under the
+`@altopelago` scope. Start with the runtime when you want the full AEON pipeline:
+
+```bash
+npm install @altopelago/aeon-runtime
+```
+
+Use lower-level packages when you need a narrower integration surface:
+
+- `@altopelago/aeon-core` - lexer, parser, path resolution, AES emission
+- `@altopelago/aeos-core` - AEOS schema validation
+- `@altopelago/aeon-canonical` - canonical representation
+- `@altopelago/aeon-cli` - command-line tools
+- `@altopelago/aeon-wasm` - WebAssembly package for browser/runtime alignment work
+
 It currently contains:
 
 - `implementations/`
@@ -73,5 +90,6 @@ Contributor guidance is tracked in [CONTRIBUTING.md](./CONTRIBUTING.md).
 Security reporting guidance is tracked in [SECURITY.md](./SECURITY.md).
 
 Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.md](./RELEASING.md).
+Package changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 Branching and implementation-specific release strategy are tracked in [docs/release-strategy.md](./docs/release-strategy.md).
 Version separation across spec, CTS, and implementation packages is tracked in [VERSIONING.md](./VERSIONING.md).

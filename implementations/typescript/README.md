@@ -6,6 +6,13 @@ Current package line: `0.9.0`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
+Published packages are available on npm under the `@altopelago` scope. For a
+new application integration, start with:
+
+```bash
+npm install @altopelago/aeon-runtime
+```
+
 Authority surfaces:
 
 - this workspace is the reference TypeScript implementation surface
