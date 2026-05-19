@@ -14,6 +14,8 @@ use wasm_bindgen::prelude::*;
 struct ProcessOptions {
     #[serde(default = "default_validation_mode")]
     validation_mode: String,
+    #[serde(default = "default_max_input_bytes")]
+    max_input_bytes: usize,
     #[serde(default = "default_depth")]
     max_separator_depth: usize,
     #[serde(default = "default_depth")]
@@ -40,6 +42,10 @@ const fn default_depth() -> usize {
     1
 }
 
+const fn default_max_input_bytes() -> usize {
+    1 << 20
+}
+
 #[wasm_bindgen]
 pub fn process_aeon(source: &str, options_json: &str) -> Result<String, JsValue> {
     process_aeon_json(source, options_json).map_err(|error| JsValue::from_str(&error))
@@ -49,6 +55,7 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
     let options: ProcessOptions = if options_json.trim().is_empty() {
         ProcessOptions {
             validation_mode: default_validation_mode(),
+            max_input_bytes: default_max_input_bytes(),
             max_separator_depth: default_depth(),
             max_attribute_depth: default_depth(),
             max_generic_depth: default_depth(),
@@ -66,6 +73,30 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
 }
 
 fn process(source: &str, options: &ProcessOptions) -> JsonValue {
+    if source.len() > options.max_input_bytes {
+        return json!({
+            "canonical": "",
+            "finalized": null,
+            "annotations": [],
+            "events": [],
+            "warnings": [],
+            "errors": [{
+                "code": "INPUT_SIZE_EXCEEDED",
+                "path": "$",
+                "span": {
+                    "start": { "line": 1, "column": 1, "offset": 0 },
+                    "end": { "line": 1, "column": 1, "offset": 0 },
+                },
+                "phase": 0,
+                "message": format!(
+                    "Input size {} bytes exceeds configured limit of {} bytes",
+                    source.len(),
+                    options.max_input_bytes
+                ),
+            }],
+        });
+    }
+
     let canonical = canonicalize(source);
     let annotations = annotations_json(source);
 
@@ -131,6 +162,7 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
 fn compile_options(options: &ProcessOptions) -> CompileOptions {
     CompileOptions {
         recovery: true,
+        max_input_bytes: Some(options.max_input_bytes),
         max_separator_depth: options.max_separator_depth,
         max_attribute_depth: options.max_attribute_depth,
         max_generic_depth: options.max_generic_depth,
@@ -799,5 +831,20 @@ mod tests {
 
         assert_eq!(parsed["errors"], serde_json::json!([]));
         assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
+    }
+
+    #[test]
+    fn fails_closed_when_max_input_bytes_is_exceeded() {
+        let output = process_aeon_json(
+            "value:string = \"too large\"\n",
+            r#"{"validationMode":"strict","maxInputBytes":8}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["canonical"], "");
+        assert_eq!(parsed["annotations"], serde_json::json!([]));
+        assert_eq!(parsed["errors"][0]["code"], "INPUT_SIZE_EXCEEDED");
+        assert_eq!(parsed["errors"][0]["phase"], 0);
     }
 }
