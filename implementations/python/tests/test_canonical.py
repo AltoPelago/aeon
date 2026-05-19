@@ -49,6 +49,19 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn(':string = "hello",', result.text)
         self.assertIn(":int32 = 3", result.text)
 
+    def test_canonicalizes_flexible_structured_header_as_header(self) -> None:
+        result = canonicalize(
+            'aeon\n:\nheader /# #/= /# #/{\n'
+            '  mode:\nstring = "strict"\n'
+            '  encoding:string = "utf-8"\n'
+            '}'
+        )
+        self.assertEqual([], result.errors)
+        self.assertIn('aeon:header = {', result.text)
+        self.assertIn('  encoding:string = "utf-8"', result.text)
+        self.assertIn('  mode:string = "strict"', result.text)
+        self.assertNotIn('"aeon":object', result.text)
+
     def test_canonicalizes_infinity_literals(self) -> None:
         result = canonicalize('top:infinity = Infinity\nbottom:infinity = -Infinity')
         self.assertEqual([], result.errors)

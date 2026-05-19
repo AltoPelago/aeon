@@ -106,6 +106,51 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {}}}}], "datatype_rules": {"uint": {"type": "NumberLiteral", "sign": "unsigned"}}})
         self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.value@unit" for error in result["errors"]))
 
+    def test_literal_widening_and_cardinality_constraints(self) -> None:
+        aes = [
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "app"}]},
+                "key": "app",
+                "value": {
+                    "type": "ObjectNode",
+                    "bindings": [
+                        {"type": "Binding", "key": "a", "value": {"type": "StringLiteral", "raw": '"a"', "value": "a"}},
+                        {"type": "Binding", "key": "b", "value": {"type": "StringLiteral", "raw": '"b"', "value": "b"}},
+                    ],
+                },
+                "span": [0, 13],
+            },
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "name"}]},
+                "key": "name",
+                "value": {"type": "NullLiteral", "raw": "!notApplicable", "value": "notApplicable"},
+                "span": [14, 28],
+            },
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "visible"}]},
+                "key": "visible",
+                "value": {"type": "ToggleLiteral", "raw": "on", "value": "on"},
+                "span": [29, 31],
+            },
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "score"}]},
+                "key": "score",
+                "value": {"type": "InfinityLiteral", "raw": "Infinity", "value": "Infinity"},
+                "span": [32, 40],
+            },
+        ]
+        result = validate(aes, {"rules": [
+            {"path": "$.app", "constraints": {"type": "ObjectNode", "max_children": 1}},
+            {"path": "$.name", "constraints": {"type": "StringLiteral", "nullable": True, "null_value": "none"}},
+            {"path": "$.visible", "constraints": {"type": "ToggleLiteral", "toggle_pair": "yes_no"}},
+            {"path": "$.score", "constraints": {"type": "NumberLiteral", "allow_infinity": True}},
+        ]})
+        self.assertEqual([
+            "container_cardinality_mismatch",
+            "null_value_mismatch",
+            "toggle_pair_mismatch",
+        ], [error["code"] for error in result["errors"]])
+
     def test_reference_policy_forbids_references(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "value": {"type": "CloneReference"}, "span": [0, 1]}]
         result = validate(aes, {"rules": [], "reference_policy": "forbid"})

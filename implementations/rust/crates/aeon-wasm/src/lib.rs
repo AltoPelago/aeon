@@ -2,7 +2,8 @@ use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, 
 use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, HeaderFields,
-    NullLiteralMode, ReferenceSegment, Span, Value, compile, format_path, normalize_number_literal,
+    LexerOptions, NullLiteralMode, ReferenceSegment, Span, TokenKind, Value, compile, format_path,
+    normalize_number_literal, tokenize,
 };
 use aeon_finalize::{FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json};
 use serde::Deserialize;
@@ -432,6 +433,9 @@ fn apply_validation_mode_by_line(source: &str, mode: &str) -> String {
         .iter()
         .position(|line| line_has_structured_header_start(line))
     else {
+        if has_flexible_header_mode(source) {
+            return source.to_owned();
+        }
         return format!("aeon:mode = \"{compile_mode}\"\n{source}");
     };
 
@@ -550,6 +554,55 @@ fn consume_inline_trivia(line: &str, mut index: usize) -> usize {
             return index;
         }
     }
+}
+
+fn has_flexible_header_mode(source: &str) -> bool {
+    let lexed = tokenize(
+        source,
+        LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        },
+    );
+    if !lexed.errors.is_empty() {
+        return false;
+    }
+
+    for index in 0..lexed.tokens.len() {
+        let Some(token) = lexed.tokens.get(index) else {
+            continue;
+        };
+        if token.kind != TokenKind::Identifier || token.text != "aeon" {
+            continue;
+        }
+
+        let Some(colon_index) = next_non_newline_token_index(&lexed.tokens, index + 1) else {
+            continue;
+        };
+        if lexed.tokens[colon_index].kind != TokenKind::Colon {
+            continue;
+        }
+
+        let Some(field_index) = next_non_newline_token_index(&lexed.tokens, colon_index + 1) else {
+            continue;
+        };
+        let field = &lexed.tokens[field_index];
+        if field.kind == TokenKind::Identifier && matches!(field.text.as_str(), "header" | "mode") {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn next_non_newline_token_index(tokens: &[aeon_core::Token], mut index: usize) -> Option<usize> {
+    while let Some(token) = tokens.get(index) {
+        if token.kind != TokenKind::Newline {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 fn diagnostics_json(diagnostics: &[Diagnostic]) -> Vec<JsonValue> {
@@ -831,6 +884,22 @@ mod tests {
 
         assert_eq!(parsed["errors"], serde_json::json!([]));
         assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
+    }
+
+    #[test]
+    fn processes_flexible_structured_header_without_injecting_shorthand_mode() {
+        let output = process_aeon_json(
+            "aeon\n:\nheader /# #/= /# #/{\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\n",
+            r#"{"validationMode":"strict","maxSeparatorDepth":8,"finalizeScope":"full"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
+        assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
+        assert_eq!(parsed["finalized"]["header"]["encoding"], "utf-8");
+        assert_eq!(parsed["events"][0]["path"], "$.[\"aeon:encoding\"]");
+        assert_eq!(parsed["events"][1]["path"], "$.[\"aeon:mode\"]");
     }
 
     #[test]

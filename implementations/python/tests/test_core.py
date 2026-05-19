@@ -451,6 +451,21 @@ class CoreCompileTests(unittest.TestCase):
             result.errors[0].message,
         )
 
+    def test_structured_header_allows_whitespace_and_newlines_around_colon(self) -> None:
+        result = compile_source(
+            'aeon\n:\nheader /# #/= /# #/{\n'
+            '  mode:\nstring = "strict"\n'
+            '  encoding:string = "utf-8"\n'
+            '}',
+            CompileOptions(max_separator_depth=8),
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual([], result.events)
+        self.assertEqual(
+            ['$.["aeon:encoding"]', '$.["aeon:mode"]'],
+            sorted(event["path"] for event in (result.internal_events or [])),
+        )
+
     def test_shebang_allows_second_line_host_directive(self) -> None:
         result = compile_source('#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1')
         self.assertEqual([], result.errors)

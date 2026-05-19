@@ -218,6 +218,7 @@ class Parser:
             field_name = field_token.value
             self.skip_separators()
             self.consume("EQUALS", "Expected '=' in header")
+            self.skip_layout()
             value = self.parse_value()
             end = self.previous().span.end
             if field_name == "header" and isinstance(value, ObjectNode):
@@ -877,6 +878,11 @@ class Parser:
         if self.current + 1 >= len(self.tokens):
             return False
         return self.tokens[self.current + 1].kind == kind
+
+    def next_non_newline_index(self, index: int) -> int | None:
+        while index < len(self.tokens) and self.tokens[index].kind == "NEWLINE":
+            index += 1
+        return index if index < len(self.tokens) else None
 
     def peek(self) -> Token:
         return self.tokens[self.current]

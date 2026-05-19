@@ -9,12 +9,19 @@ from ._compat import dataclass
 KNOWN_CONSTRAINT_KEYS = {
     "required",
     "type",
+    "nullable",
+    "allow_infinity",
+    "allow_nan",
+    "null_value",
+    "toggle_pair",
     "reference",
     "reference_kind",
     "reference_target_pattern",
     "resolve_reference_form",
     "type_is",
     "length_exact",
+    "min_children",
+    "max_children",
     "sign",
     "min_digits",
     "max_digits",
@@ -33,6 +40,9 @@ TYPE_ALIASES = {
     "StringLiteral": {"StringLiteral"},
     "BooleanLiteral": {"BooleanLiteral"},
     "NullLiteral": {"NullLiteral"},
+    "ToggleLiteral": {"ToggleLiteral"},
+    "InfinityLiteral": {"InfinityLiteral"},
+    "NaNLiteral": {"NaNLiteral"},
     "ObjectNode": {"ObjectNode"},
     "ListNode": {"ListNode"},
     "ListLiteral": {"ListNode", "ListLiteral"},
@@ -56,6 +66,9 @@ ERROR_CODES = {
     "wrong_container_kind": "WRONG_CONTAINER_KIND",
     "tuple_arity_mismatch": "TUPLE_ARITY_MISMATCH",
     "tuple_element_type_mismatch": "TUPLE_ELEMENT_TYPE_MISMATCH",
+    "container_cardinality_mismatch": "container_cardinality_mismatch",
+    "null_value_mismatch": "null_value_mismatch",
+    "toggle_pair_mismatch": "toggle_pair_mismatch",
     "invalid_index_format": "invalid_index_format",
     "numeric_form_violation": "numeric_form_violation",
     "string_length_violation": "string_length_violation",
@@ -112,6 +125,10 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     assert isinstance(elements, list)
                     container_arity[path_str] = len(elements)
                     hydrate_indexed_fallback(path_str, value, to_span_tuple(event.get("span")), events_by_path)
+                elif value.get("type") == "ObjectNode" and isinstance(value.get("bindings"), list):
+                    container_arity[path_str] = len(value.get("bindings", []))
+                elif value.get("type") == "NodeLiteral" and isinstance(value.get("children"), list):
+                    container_arity[path_str] = len(value.get("children", []))
 
     if trailing_policy != "off":
         for event in aes:
@@ -140,11 +157,19 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     check_types(rule_index, effective_events_by_path, ctx)
 
     for path, rule in rule_index.items():
-        expected_length = rule.get("constraints", {}).get("length_exact")
+        constraints = rule.get("constraints", {})
+        expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
+        min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
+        max_children = constraints.get("max_children") if isinstance(constraints, dict) else None
         actual_length = container_arity.get(path)
         if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
             emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
+        if isinstance(min_children, int) and actual_length is not None and actual_length < min_children:
+            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at least {min_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
+        if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
+            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
 
+    check_literal_lexical_constraints(rule_index, effective_events_by_path, ctx)
     check_numeric_form(rule_index, effective_events_by_path, ctx)
     check_string_form(rule_index, effective_events_by_path, ctx)
     check_patterns(rule_index, effective_events_by_path, ctx)
@@ -325,9 +350,19 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             if not ok:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
         if isinstance(expected_type, str):
-            if expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
+            if not type_matches(expected_type, actual_type, constraints):
                 code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
+
+
+def type_matches(expected_type: str, actual_type: str, constraints: dict[str, object]) -> bool:
+    if constraints.get("nullable") is True and actual_type == "NullLiteral":
+        return True
+    if constraints.get("allow_infinity") is True and actual_type == "InfinityLiteral" and expected_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
+        return True
+    if constraints.get("allow_nan") is True and actual_type == "NaNLiteral" and expected_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
+        return True
+    return expected_type in TYPE_ALIASES.get(actual_type, {actual_type})
 
 
 def is_tuple_element_path(path: str, events: dict[str, dict[str, object]]) -> bool:
@@ -421,6 +456,25 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
                 continue
             if isinstance(max_value, str) and numeric > int(max_value):
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
+
+
+def check_literal_lexical_constraints(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
+    for path, rule in rule_index.items():
+        constraints = rule.get("constraints")
+        if not isinstance(constraints, dict):
+            continue
+        event = events.get(path)
+        if event is None:
+            continue
+        actual_type = event.get("type")
+        if actual_type == "NullLiteral" and isinstance(constraints.get("null_value"), str) and event.get("value") != constraints.get("null_value"):
+            emit_error(ctx, create_diag(path, event.get("span"), f"Null value mismatch: expected {constraints.get('null_value')}, got {event.get('value')}", ERROR_CODES["null_value_mismatch"]))
+        if actual_type == "ToggleLiteral" and isinstance(constraints.get("toggle_pair"), str) and constraints.get("toggle_pair") != "any":
+            raw = str(event.get("raw", "")).lower()
+            pair = constraints.get("toggle_pair")
+            allowed = raw in {"yes", "no"} if pair == "yes_no" else raw in {"on", "off"} if pair == "on_off" else True
+            if not allowed:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Toggle pair mismatch: expected {pair}, got {raw}", ERROR_CODES["toggle_pair_mismatch"]))
 
 
 def check_string_form(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
@@ -518,12 +572,14 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
             emit_error(ctx, create_diag(path, span, f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
 
     expected_type = effective_constraints.get("type")
-    if isinstance(expected_type, str) and isinstance(actual_type, str) and expected_type not in TYPE_ALIASES.get(actual_type, {actual_type}):
+    if isinstance(expected_type, str) and isinstance(actual_type, str) and not type_matches(expected_type, actual_type, effective_constraints):
         emit_error(ctx, create_diag(path, span, f"Type mismatch: expected {expected_type}, got {actual_type}", ERROR_CODES["type_mismatch"]))
 
     expected_datatype = effective_constraints.get("datatype")
     if isinstance(expected_datatype, str) and datatype != expected_datatype:
         emit_error(ctx, create_diag(path, span, f"Datatype mismatch: expected {expected_datatype}, got {datatype}", ERROR_CODES["type_mismatch"]))
+
+    check_attribute_lexical_constraints(path, entry, effective_constraints, ctx)
 
     reference = effective_constraints.get("reference")
     if reference == "forbid" and is_reference_type(actual_type):
@@ -580,6 +636,18 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
 
     if "attributes" in effective_constraints or effective_constraints.get("closed_attributes") is True:
         validate_attribute_map(path, entry.get("attributes"), effective_constraints, datatype_rules, ctx)
+
+
+def check_attribute_lexical_constraints(path: str, entry: dict[str, object], constraints: dict[str, object], ctx: DiagContext) -> None:
+    actual_type = entry.get("type")
+    if actual_type == "NullLiteral" and isinstance(constraints.get("null_value"), str) and entry.get("value") != constraints.get("null_value"):
+        emit_error(ctx, create_diag(path, entry.get("span"), f"Null value mismatch: expected {constraints.get('null_value')}, got {entry.get('value')}", ERROR_CODES["null_value_mismatch"]))
+    if actual_type == "ToggleLiteral" and isinstance(constraints.get("toggle_pair"), str) and constraints.get("toggle_pair") != "any":
+        raw = str(entry.get("raw", "")).lower()
+        pair = constraints.get("toggle_pair")
+        allowed = raw in {"yes", "no"} if pair == "yes_no" else raw in {"on", "off"} if pair == "on_off" else True
+        if not allowed:
+            emit_error(ctx, create_diag(path, entry.get("span"), f"Toggle pair mismatch: expected {pair}, got {raw}", ERROR_CODES["toggle_pair_mismatch"]))
 
 
 def merge_datatype_rule_constraints(constraints: dict[str, object], datatype: object, datatype_rules: object) -> dict[str, object]:

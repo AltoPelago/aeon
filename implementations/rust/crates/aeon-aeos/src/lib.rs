@@ -104,6 +104,8 @@ pub struct EventValue {
     pub path: Option<Vec<ReferencePathSegment>>,
     #[serde(default)]
     pub elements: Vec<EventValue>,
+    #[serde(default)]
+    pub bindings: Vec<JsonValue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -176,12 +178,19 @@ struct AttributeInfo {
 const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "required",
     "type",
+    "nullable",
+    "allow_infinity",
+    "allow_nan",
+    "null_value",
+    "toggle_pair",
     "reference",
     "reference_kind",
     "reference_target_pattern",
     "resolve_reference_form",
     "type_is",
     "length_exact",
+    "min_children",
+    "max_children",
     "sign",
     "min_digits",
     "max_digits",
@@ -276,6 +285,16 @@ fn validate_inner(
                 event.span_pair(),
                 &mut events_by_path,
             );
+        } else if event.value.value_type == "ObjectNode" {
+            container_arity.insert(path.clone(), event.value.bindings.len());
+        } else if event.value.value_type == "NodeLiteral" {
+            container_arity.insert(path.clone(), event.value.elements.len());
+            hydrate_indexed_fallback(
+                &path,
+                &event.value.elements,
+                event.span_pair(),
+                &mut events_by_path,
+            );
         }
     }
 
@@ -334,6 +353,7 @@ fn validate_inner(
         &effective_events_by_path,
         &mut ctx,
     );
+    check_literal_lexical_constraints(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_numeric_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_string_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_patterns(&effective_rule_index, &effective_events_by_path, &mut ctx);
@@ -762,7 +782,7 @@ fn check_types(
         }
 
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
-            && !type_matches(expected_type, &event.value_type)
+            && !type_matches(expected_type, &event.value_type, constraints)
         {
             let code = if is_tuple_element_path(path, events_by_path) {
                 "TUPLE_ELEMENT_TYPE_MISMATCH"
@@ -893,13 +913,12 @@ fn check_tuple_arity(
     ctx: &mut DiagContext,
 ) {
     for (path, constraints) in rule_index {
-        let Some(expected) = constraints.get("length_exact").and_then(JsonValue::as_u64) else {
-            continue;
-        };
         let Some(actual) = container_arity.get(path) else {
             continue;
         };
-        if *actual != expected as usize {
+        if let Some(expected) = constraints.get("length_exact").and_then(JsonValue::as_u64)
+            && *actual != expected as usize
+        {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -909,6 +928,82 @@ fn check_tuple_arity(
                     span: events_by_path.get(path).and_then(|event| event.span),
                 },
             );
+        }
+        if let Some(minimum) = constraints.get("min_children").and_then(JsonValue::as_u64)
+            && *actual < minimum as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("container_cardinality_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: events_by_path.get(path).and_then(|event| event.span),
+                },
+            );
+        }
+        if let Some(maximum) = constraints.get("max_children").and_then(JsonValue::as_u64)
+            && *actual > maximum as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("container_cardinality_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: events_by_path.get(path).and_then(|event| event.span),
+                },
+            );
+        }
+    }
+}
+
+fn check_literal_lexical_constraints(
+    rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) {
+    for (path, constraints) in rule_index {
+        let Some(event) = events_by_path.get(path) else {
+            continue;
+        };
+
+        if event.value_type == "NullLiteral"
+            && let Some(expected) = constraints.get("null_value").and_then(JsonValue::as_str)
+            && string_value(event.value.as_ref()).as_deref() != Some(expected)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("null_value_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+        }
+
+        if event.value_type == "ToggleLiteral"
+            && let Some(pair) = constraints.get("toggle_pair").and_then(JsonValue::as_str)
+            && pair != "any"
+        {
+            let value = event.raw.to_lowercase();
+            let allowed = match pair {
+                "yes_no" => matches!(value.as_str(), "yes" | "no"),
+                "on_off" => matches!(value.as_str(), "on" | "off"),
+                _ => true,
+            };
+            if !allowed {
+                emit_error(
+                    ctx,
+                    ValidationDiagnostic {
+                        path: Some(path.clone()),
+                        code: String::from("toggle_pair_mismatch"),
+                        phase: String::from("schema_validation"),
+                        span: event.span,
+                    },
+                );
+            }
         }
     }
 }
@@ -1236,7 +1331,7 @@ fn validate_attribute_entry(
     if let Some(expected_type) = effective_constraints
         .get("type")
         .and_then(JsonValue::as_str)
-        && !type_matches(expected_type, &entry.value_type)
+        && !type_matches(expected_type, &entry.value_type, &effective_constraints)
     {
         emit_error(
             ctx,
@@ -1264,6 +1359,8 @@ fn validate_attribute_entry(
             },
         );
     }
+
+    check_attribute_lexical_constraints(path, entry, &effective_constraints, ctx);
 
     if let Some(reference) = effective_constraints
         .get("reference")
@@ -1688,7 +1785,33 @@ fn emit_warning(ctx: &mut DiagContext, diag: ValidationDiagnostic) {
     ctx.warnings.push(diag);
 }
 
-fn type_matches(expected: &str, actual: &str) -> bool {
+fn type_matches(expected: &str, actual: &str, constraints: &JsonValue) -> bool {
+    if constraints
+        .get("nullable")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+        && actual == "NullLiteral"
+    {
+        return true;
+    }
+    if constraints
+        .get("allow_infinity")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+        && actual == "InfinityLiteral"
+        && is_numeric_expected_type(expected)
+    {
+        return true;
+    }
+    if constraints
+        .get("allow_nan")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+        && actual == "NaNLiteral"
+        && is_numeric_expected_type(expected)
+    {
+        return true;
+    }
     match actual {
         "NumberLiteral" => matches!(
             expected,
@@ -1696,6 +1819,58 @@ fn type_matches(expected: &str, actual: &str) -> bool {
         ),
         "ListLiteral" | "ListNode" => matches!(expected, "ListLiteral" | "ListNode"),
         _ => expected == actual,
+    }
+}
+
+fn is_numeric_expected_type(expected: &str) -> bool {
+    matches!(
+        expected,
+        "NumberLiteral" | "IntegerLiteral" | "FloatLiteral"
+    )
+}
+
+fn check_attribute_lexical_constraints(
+    path: &str,
+    entry: &AttributeInfo,
+    constraints: &JsonValue,
+    ctx: &mut DiagContext,
+) {
+    if entry.value_type == "NullLiteral"
+        && let Some(expected) = constraints.get("null_value").and_then(JsonValue::as_str)
+        && string_value(entry.value.as_ref()).as_deref() != Some(expected)
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("null_value_mismatch"),
+                phase: String::from("schema_validation"),
+                span: entry.span,
+            },
+        );
+    }
+
+    if entry.value_type == "ToggleLiteral"
+        && let Some(pair) = constraints.get("toggle_pair").and_then(JsonValue::as_str)
+        && pair != "any"
+    {
+        let value = entry.raw.to_lowercase();
+        let allowed = match pair {
+            "yes_no" => matches!(value.as_str(), "yes" | "no"),
+            "on_off" => matches!(value.as_str(), "on" | "off"),
+            _ => true,
+        };
+        if !allowed {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("toggle_pair_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: entry.span,
+                },
+            );
+        }
     }
 }
 
@@ -1946,6 +2121,7 @@ mod tests {
                     value: None,
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 1])),
             }],
@@ -1991,6 +2167,7 @@ mod tests {
                     value: None,
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 1])),
             }],
@@ -2069,6 +2246,7 @@ mod tests {
                         ReferencePathSegment::Member(String::from("postcode")),
                     ]),
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 12])),
             }],
@@ -2117,6 +2295,7 @@ mod tests {
                         value: Some(JsonValue::String(String::from("2000"))),
                         path: None,
                         elements: Vec::new(),
+                        bindings: Vec::new(),
                     },
                     span: Some(SpanInput::Pair([0, 4])),
                 },
@@ -2144,6 +2323,7 @@ mod tests {
                         value: None,
                         path: Some(vec![ReferencePathSegment::Member(String::from("source"))]),
                         elements: Vec::new(),
+                        bindings: Vec::new(),
                     },
                     span: Some(SpanInput::Pair([5, 13])),
                 },
@@ -2192,6 +2372,7 @@ mod tests {
                     value: None,
                     path: Some(vec![ReferencePathSegment::Member(String::from("missing"))]),
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 9])),
             }],
@@ -2240,6 +2421,7 @@ mod tests {
                         value: None,
                         path: None,
                         elements: Vec::new(),
+                        bindings: Vec::new(),
                     },
                     span: Some(SpanInput::Pair([0, 1])),
                 },
@@ -2272,6 +2454,7 @@ mod tests {
                         value: Some(JsonValue::String(String::from("3"))),
                         path: None,
                         elements: Vec::new(),
+                        bindings: Vec::new(),
                     },
                     span: Some(SpanInput::Pair([2, 3])),
                 },
@@ -2332,6 +2515,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("3"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([2, 3])),
             }],
@@ -2381,6 +2565,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("3"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 1])),
             }],
@@ -2420,6 +2605,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("cm"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 datatype: Some(String::from("string")),
                 annotations: BTreeMap::new(),
@@ -2434,6 +2620,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("x"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 datatype: Some(String::from("string")),
                 annotations: BTreeMap::new(),
@@ -2465,6 +2652,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("3"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 1])),
             }],
@@ -2509,6 +2697,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("-7"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 datatype: Some(String::from("uint")),
                 annotations: BTreeMap::new(),
@@ -2546,6 +2735,7 @@ mod tests {
                     value: Some(JsonValue::String(String::from("3"))),
                     path: None,
                     elements: Vec::new(),
+                    bindings: Vec::new(),
                 },
                 span: Some(SpanInput::Pair([0, 1])),
             }],
@@ -2574,6 +2764,70 @@ mod tests {
                 .iter()
                 .any(|error| error.code == "numeric_form_violation"
                     && error.path.as_deref() == Some("$.value@unit"))
+        );
+    }
+
+    #[test]
+    fn validates_literal_widening_and_cardinality_constraints() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "app" } ] },
+              "key": "app",
+              "value": {
+                "type": "ObjectNode",
+                "bindings": [
+                  { "type": "Binding", "key": "a", "value": { "type": "StringLiteral", "raw": "\"a\"", "value": "a" } },
+                  { "type": "Binding", "key": "b", "value": { "type": "StringLiteral", "raw": "\"b\"", "value": "b" } }
+                ]
+              },
+              "span": [0, 13]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "name" } ] },
+              "key": "name",
+              "value": { "type": "NullLiteral", "raw": "!notApplicable", "value": "notApplicable" },
+              "span": [14, 28]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "visible" } ] },
+              "key": "visible",
+              "value": { "type": "ToggleLiteral", "raw": "on", "value": "on" },
+              "span": [29, 31]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "score" } ] },
+              "key": "score",
+              "value": { "type": "InfinityLiteral", "raw": "Infinity", "value": "Infinity" },
+              "span": [32, 40]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.app", "constraints": { "type": "ObjectNode", "max_children": 1 } },
+              { "path": "$.name", "constraints": { "type": "StringLiteral", "nullable": true, "null_value": "none" } },
+              { "path": "$.visible", "constraints": { "type": "ToggleLiteral", "toggle_pair": "yes_no" } },
+              { "path": "$.score", "constraints": { "type": "NumberLiteral", "allow_infinity": true } }
+            ]
+          },
+          "options": {}
+        }"#;
+
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let result: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!result.ok);
+        let codes = result
+            .errors
+            .iter()
+            .map(|error| error.code.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            vec![
+                "container_cardinality_mismatch",
+                "null_value_mismatch",
+                "toggle_pair_mismatch",
+            ]
         );
     }
 }

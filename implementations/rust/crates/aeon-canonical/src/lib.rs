@@ -2188,6 +2188,19 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_flexible_structured_header_as_header() {
+        let result = canonicalize(
+            "aeon\n:\nheader /# #/= /# #/{\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\n",
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding:string = \"utf-8\"\n  mode:string = \"strict\"\n}\n"
+        );
+    }
+
+    #[test]
     fn normalizes_trimtick_to_string_content() {
         let result =
             canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");

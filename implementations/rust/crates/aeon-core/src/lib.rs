@@ -1565,6 +1565,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_structured_header_split_across_whitespace_and_newlines() {
+        let result = compile(
+            "aeon\n:\nheader = {\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\n",
+            CompileOptions {
+                max_separator_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result
+                .header
+                .as_ref()
+                .map(|header| header.fields.keys().cloned().collect::<Vec<_>>()),
+            Some(vec![String::from("encoding"), String::from("mode")])
+        );
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
     fn supports_datatype_after_attribute_block() {
         let result = compile(
             "a@{ ns = \"alto.v1\" }:int32 = 3\n",
