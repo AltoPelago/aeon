@@ -16,6 +16,21 @@ export interface ConstraintsV1 {
     /** Expected literal kind (StringLiteral, IntegerLiteral, etc.) */
     readonly type?: string;
 
+    /** Allow NullLiteral to satisfy this type constraint */
+    readonly nullable?: boolean;
+
+    /** Allow InfinityLiteral to satisfy numeric type constraints */
+    readonly allow_infinity?: boolean;
+
+    /** Allow NaNLiteral to satisfy numeric type constraints */
+    readonly allow_nan?: boolean;
+
+    /** Required null sentinel value when the accepted value is NullLiteral */
+    readonly null_value?: string;
+
+    /** Required toggle lexical pair */
+    readonly toggle_pair?: 'any' | 'yes_no' | 'on_off';
+
     /** Reference form policy for the path */
     readonly reference?: 'allow' | 'forbid' | 'require';
 
@@ -33,6 +48,12 @@ export interface ConstraintsV1 {
 
     /** Core v1 exact container arity constraint */
     readonly length_exact?: number;
+
+    /** Core v1 minimum immediate child count constraint */
+    readonly min_children?: number;
+
+    /** Core v1 maximum immediate child count constraint */
+    readonly max_children?: number;
 
     /** For integers: 'signed' or 'unsigned' syntax */
     readonly sign?: 'signed' | 'unsigned';
@@ -102,12 +123,19 @@ export interface SchemaV1 {
 export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'required',
     'type',
+    'nullable',
+    'allow_infinity',
+    'allow_nan',
+    'null_value',
+    'toggle_pair',
     'reference',
     'reference_kind',
     'reference_target_pattern',
     'resolve_reference_form',
     'type_is',
     'length_exact',
+    'min_children',
+    'max_children',
     'sign',
     'min_digits',
     'max_digits',

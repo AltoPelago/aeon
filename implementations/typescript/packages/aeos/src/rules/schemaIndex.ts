@@ -172,6 +172,29 @@ function validateConstraintTree(
         return false;
     }
 
+    if (constraints.toggle_pair !== undefined && !['any', 'yes_no', 'on_off'].includes(String(constraints.toggle_pair))) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid toggle_pair constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
+    for (const key of ['min_children', 'max_children', 'length_exact'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `Invalid ${key} constraint for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
     const nestedAttributes = constraints.attributes;
     if (nestedAttributes === undefined) {
         return true;

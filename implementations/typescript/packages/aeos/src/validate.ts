@@ -28,6 +28,9 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     ListNode: ['ListNode'],
     ListLiteral: ['ListNode', 'ListLiteral'],
     TupleLiteral: ['TupleLiteral'],
+    ToggleLiteral: ['ToggleLiteral'],
+    InfinityLiteral: ['InfinityLiteral'],
+    NaNLiteral: ['NaNLiteral'],
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
@@ -256,6 +259,8 @@ export function validate(
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
+                } else if (event.value.type === 'ObjectNode' && Array.isArray((event.value as any).bindings)) {
+                    containerArity.set(pathStr, (event.value as any).bindings.length);
                 } else if (event.value.type === 'NodeLiteral' && Array.isArray((event.value as any).children)) {
                     containerArity.set(pathStr, (event.value as any).children.length);
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
@@ -305,19 +310,60 @@ export function validate(
     const effectiveEventsByPath = resolveReferenceFormEvents(ruleIndex, eventsByPath);
     checkTypes(ruleIndex, effectiveEventsByPath, ctx);
 
-    // Phase 5b: core v1 arity checks for tuple/list containers
+    // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
     for (const [path, rule] of ruleIndex) {
-        const expectedLength = (rule.constraints as any).length_exact;
-        if (expectedLength === undefined) continue;
+        const { length_exact, min_children, max_children } = rule.constraints;
+        if (length_exact === undefined && min_children === undefined && max_children === undefined) continue;
         const actualLength = containerArity.get(path);
         if (actualLength === undefined) continue;
-        if (typeof expectedLength === 'number' && actualLength !== expectedLength) {
+        const span = eventsByPath.get(path)?.span ?? null;
+        if (typeof length_exact === 'number' && actualLength !== length_exact) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected exactly ${length_exact} children, got ${actualLength}`,
+                ErrorCodes.TUPLE_ARITY_MISMATCH
+            ));
+        }
+        if (typeof min_children === 'number' && actualLength < min_children) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected at least ${min_children} children, got ${actualLength}`,
+                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+            ));
+        }
+        if (typeof max_children === 'number' && actualLength > max_children) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected at most ${max_children} children, got ${actualLength}`,
+                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+            ));
+        }
+    }
+
+    checkLexicalLiteralConstraints(ruleIndex, effectiveEventsByPath, ctx);
+
+    // Phase 5c: constraints that widen NumberLiteral type acceptance to infinity/NaN
+    for (const [path, rule] of ruleIndex) {
+        const event = effectiveEventsByPath.get(path);
+        if (!event) continue;
+        if (event.type === 'InfinityLiteral' && rule.constraints.allow_infinity !== true) {
+            continue;
+        }
+        if (event.type === 'NaNLiteral' && rule.constraints.allow_nan !== true) {
+            continue;
+        }
+        if ((event.type === 'InfinityLiteral' || event.type === 'NaNLiteral')
+            && rule.constraints.type !== undefined
+            && !isNumericExpectedType(rule.constraints.type)) {
             const span = eventsByPath.get(path)?.span ?? null;
             emitError(ctx, createDiag(
                 path,
                 span,
-                `Tuple/List arity mismatch: expected ${expectedLength}, got ${actualLength}`,
-                ErrorCodes.TUPLE_ARITY_MISMATCH
+                `Type mismatch: expected ${rule.constraints.type}, got ${event.type}`,
+                ErrorCodes.TYPE_MISMATCH
             ));
         }
     }
@@ -658,7 +704,7 @@ function validateAttributeEntry(
         }
     }
 
-    if (effectiveConstraints.type !== undefined && !constraintTypeMatches(entry.type, effectiveConstraints.type, entry.raw)) {
+    if (effectiveConstraints.type !== undefined && !constraintTypeMatches(entry.type, effectiveConstraints.type, entry.raw, effectiveConstraints)) {
         emitError(ctx, createDiag(
             path,
             entry.span,
@@ -666,6 +712,8 @@ function validateAttributeEntry(
             ErrorCodes.TYPE_MISMATCH
         ));
     }
+
+    checkLexicalLiteralConstraint(path, entry, effectiveConstraints, ctx);
 
     if (effectiveConstraints.datatype !== undefined && entry.datatype !== effectiveConstraints.datatype) {
         emitError(ctx, createDiag(
@@ -784,7 +832,10 @@ function mergeDatatypeRuleConstraints(
     return { ...datatypeRule, ...constraints };
 }
 
-function constraintTypeMatches(actualType: string, expectedType: string, raw: string): boolean {
+function constraintTypeMatches(actualType: string, expectedType: string, raw: string, constraints?: ConstraintsV1): boolean {
+    if (constraints?.nullable === true && actualType === 'NullLiteral') return true;
+    if (constraints?.allow_infinity === true && actualType === 'InfinityLiteral' && isNumericExpectedType(expectedType)) return true;
+    if (constraints?.allow_nan === true && actualType === 'NaNLiteral' && isNumericExpectedType(expectedType)) return true;
     if (actualType === expectedType) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') return /^[+-]?\d[\d_]*$/.test(raw);
@@ -792,6 +843,55 @@ function constraintTypeMatches(actualType: string, expectedType: string, raw: st
     }
     const satisfies = TYPE_ALIASES[actualType];
     return Boolean(satisfies?.includes(expectedType));
+}
+
+function isNumericExpectedType(expectedType: string): boolean {
+    return expectedType === 'NumberLiteral' || expectedType === 'IntegerLiteral' || expectedType === 'FloatLiteral';
+}
+
+function checkLexicalLiteralConstraints(
+    ruleIndex: ReadonlyMap<string, { readonly constraints: ConstraintsV1 }>,
+    events: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    for (const [path, rule] of ruleIndex) {
+        const event = events.get(path);
+        if (!event) continue;
+        checkLexicalLiteralConstraint(path, event, rule.constraints, ctx);
+    }
+}
+
+function checkLexicalLiteralConstraint(
+    path: string,
+    event: Pick<EventInfo, 'type' | 'raw' | 'value' | 'span'>,
+    constraints: ConstraintsV1,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    if (event.type === 'NullLiteral' && constraints.null_value !== undefined && event.value !== constraints.null_value) {
+        emitError(ctx, createDiag(
+            path,
+            event.span,
+            `Null value mismatch: expected ${constraints.null_value}, got ${event.value || '<none>'}`,
+            ErrorCodes.NULL_VALUE_MISMATCH
+        ));
+    }
+
+    if (event.type === 'ToggleLiteral' && constraints.toggle_pair !== undefined && constraints.toggle_pair !== 'any') {
+        const value = (event.raw || event.value).toLowerCase();
+        const allowed = constraints.toggle_pair === 'yes_no'
+            ? ['yes', 'no']
+            : constraints.toggle_pair === 'on_off'
+                ? ['on', 'off']
+                : [];
+        if (allowed.length > 0 && !allowed.includes(value)) {
+            emitError(ctx, createDiag(
+                path,
+                event.span,
+                `Toggle pair mismatch: expected ${constraints.toggle_pair}, got ${value || '<none>'}`,
+                ErrorCodes.TOGGLE_PAIR_MISMATCH
+            ));
+        }
+    }
 }
 
 function isReferenceType(type: string): boolean {

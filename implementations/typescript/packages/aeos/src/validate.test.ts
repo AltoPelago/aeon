@@ -1058,5 +1058,129 @@ describe('validate()', () => {
             assert.strictEqual(validate(missingTargetAes, missingSchema).ok, true);
             assert.strictEqual(validate(cyclicAes, cycleSchema).ok, true);
         });
+
+        it('allows nullable typed fields and constrains null sentinel values', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'NullLiteral', value: 'none', raw: '!none', span: [1, 6] },
+                    span: [1, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'reason' }] },
+                    key: 'reason',
+                    value: { type: 'NullLiteral', value: 'notApplicable', raw: '!notApplicable', span: [8, 22] },
+                    span: [8, 22],
+                },
+            ] as unknown as AES;
+
+            const passing = validate(aes, {
+                rules: [
+                    { path: '$.name', constraints: { type: 'StringLiteral', nullable: true, null_value: 'none' } },
+                    { path: '$.reason', constraints: { type: 'StringLiteral', nullable: true, null_value: 'notApplicable' } },
+                ],
+            });
+            assert.strictEqual(passing.ok, true);
+
+            const failing = validate(aes, {
+                rules: [
+                    { path: '$.name', constraints: { type: 'StringLiteral', nullable: true, null_value: 'notApplicable' } },
+                ],
+            });
+            assert.strictEqual(failing.ok, false);
+            assert.ok(failing.errors.some(e => e.code === ErrorCodes.NULL_VALUE_MISMATCH));
+        });
+
+        it('allows infinity and NaN as explicit numeric widenings', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'max' }] },
+                    key: 'max',
+                    value: { type: 'InfinityLiteral', value: 'Infinity', raw: 'Infinity', span: [1, 9] },
+                    span: [1, 9],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'sample' }] },
+                    key: 'sample',
+                    value: { type: 'NaNLiteral', value: 'NaN', raw: 'NaN', span: [11, 14] },
+                    span: [11, 14],
+                },
+            ] as unknown as AES;
+
+            const passing = validate(aes, {
+                rules: [
+                    { path: '$.max', constraints: { type: 'NumberLiteral', allow_infinity: true } },
+                    { path: '$.sample', constraints: { type: 'NumberLiteral', allow_nan: true } },
+                ],
+            });
+            assert.strictEqual(passing.ok, true);
+
+            const failing = validate(aes, {
+                rules: [
+                    { path: '$.max', constraints: { type: 'NumberLiteral' } },
+                    { path: '$.sample', constraints: { type: 'NumberLiteral' } },
+                ],
+            });
+            assert.strictEqual(failing.ok, false);
+            assert.ok(failing.errors.every(e => e.code === ErrorCodes.TYPE_MISMATCH));
+        });
+
+        it('validates toggle lexical pair constraints', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'enabled' }] },
+                    key: 'enabled',
+                    value: { type: 'ToggleLiteral', value: 'yes', raw: 'yes', span: [1, 4] },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'visible' }] },
+                    key: 'visible',
+                    value: { type: 'ToggleLiteral', value: 'on', raw: 'on', span: [6, 8] },
+                    span: [6, 8],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.enabled', constraints: { type: 'ToggleLiteral', toggle_pair: 'yes_no' } },
+                    { path: '$.visible', constraints: { type: 'ToggleLiteral', toggle_pair: 'yes_no' } },
+                ],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(result.errors.map(error => error.code), [ErrorCodes.TOGGLE_PAIR_MISMATCH]);
+        });
+
+        it('validates min and max children on containers', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }] },
+                    key: 'app',
+                    value: {
+                        type: 'ObjectNode',
+                        bindings: [
+                            { type: 'Binding', key: 'a', value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
+                            { type: 'Binding', key: 'b', value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
+                        ],
+                        attributes: [],
+                        span: [0, 5],
+                    },
+                    span: [0, 5],
+                },
+            ] as unknown as AES;
+
+            assert.strictEqual(validate(aes, {
+                rules: [{ path: '$.app', constraints: { type: 'ObjectNode', min_children: 1, max_children: 2 } }],
+            }).ok, true);
+
+            const result = validate(aes, {
+                rules: [{ path: '$.app', constraints: { type: 'ObjectNode', max_children: 1 } }],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some(error => error.code === ErrorCodes.CONTAINER_CARDINALITY_MISMATCH));
+        });
     });
 });
