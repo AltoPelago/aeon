@@ -68,6 +68,7 @@ RESERVED_V1_DATATYPES = {
 RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}
 
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
+BARE_KEY_TOKEN_KINDS = {"IDENT", "TRUE", "FALSE", "YES", "NO", "ON", "OFF"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
@@ -152,7 +153,7 @@ class Parser:
         while not self.check("EOF"):
             if (
                 self.peek().span.start.column == 1
-                and self.peek().kind in {"IDENT", "STRING"}
+                and self.is_key_token(self.peek())
                 and self.check_next("EQUALS") | self.check_next("COLON")
             ):
                 return
@@ -245,7 +246,7 @@ class Parser:
 
     def parse_binding(self) -> Binding:
         start = self.peek().span.start
-        key_token = self.consume_one_of(("IDENT", "STRING"), "Expected binding key")
+        key_token = self.consume_key_token("Expected binding key")
         key = self.key_from_token(key_token)
         self.skip_layout()
         attributes: list[Attribute] = []
@@ -278,7 +279,7 @@ class Parser:
         entries: dict[str, AttributeEntry] = {}
         self.skip_layout()
         while not self.check("RBRACE"):
-            key_token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute key")
+            key_token = self.consume_key_token("Expected attribute key")
             key = self.key_from_token(key_token)
             if key in RESERVED_ATTRIBUTE_KEYS:
                 raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
@@ -537,7 +538,7 @@ class Parser:
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
-        tag = self.key_from_token(self.consume_one_of(("IDENT", "STRING"), "Expected node tag after '<'"))
+        tag = self.key_from_token(self.consume_key_token("Expected node tag after '<'"))
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
@@ -656,7 +657,7 @@ class Parser:
         saw_root_dot: bool = False,
         saw_explicit_root: bool = False,
     ) -> None:
-        if self.check("IDENT") or self.check("STRING"):
+        if self.is_key_token(self.peek()):
             path.append(self.parse_member_segment("Expected path segment"))
             return
         if self.check("LBRACKET"):
@@ -667,7 +668,7 @@ class Parser:
         raise SyntaxError("Expected path segment", self.peek().span)
 
     def parse_member_segment(self, message: str) -> str:
-        token = self.consume_one_of(("IDENT", "STRING"), message)
+        token = self.consume_key_token(message)
         if token.kind == "STRING" and token.quote == "`":
             raise SyntaxError("Backtick-quoted keys are not supported in paths", token.span)
         return self.assert_non_empty_key(token.value, token.span, "Quoted path keys must not be empty")
@@ -682,7 +683,7 @@ class Parser:
             return AttributePathSegment(
                 key=self.assert_non_empty_key(token.value, token.span, "Quoted attribute keys must not be empty")
             )
-        token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute path segment")
+        token = self.consume_key_token("Expected attribute path segment")
         if token.kind == "STRING" and token.quote == "`":
             raise SyntaxError("Backtick-quoted keys are not supported in attribute segments", token.span)
         return AttributePathSegment(
@@ -879,6 +880,9 @@ class Parser:
             return False
         return self.tokens[self.current + 1].kind == kind
 
+    def is_key_token(self, token: Token) -> bool:
+        return token.kind in BARE_KEY_TOKEN_KINDS or token.kind == "STRING"
+
     def next_non_newline_index(self, index: int) -> int | None:
         while index < len(self.tokens) and self.tokens[index].kind == "NEWLINE":
             index += 1
@@ -904,6 +908,11 @@ class Parser:
         for kind in kinds:
             if self.check(kind):
                 return self.advance()
+        raise SyntaxError(message, self.peek().span)
+
+    def consume_key_token(self, message: str) -> Token:
+        if self.is_key_token(self.peek()):
+            return self.advance()
         raise SyntaxError(message, self.peek().span)
 
 

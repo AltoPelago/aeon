@@ -24,6 +24,27 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual('$.["a.b"]', result.events[0]["path"])
 
+    def test_literal_words_parse_as_keys_in_key_contexts(self) -> None:
+        result = compile_source(
+            'yes:string = "top"\n'
+            'copy:string = ~yes\n'
+            'true@{no:string = "attr"}:string = "named true"\n'
+            'node:node = <on(off)>\n'
+            'group:object = {\n'
+            '  false:boolean = true\n'
+            '  off:toggle = yes\n'
+            '}'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertIn("$.yes", by_path)
+        self.assertIn("$.copy", by_path)
+        self.assertIn("$.true", by_path)
+        self.assertIn("no", by_path["$.true"]["annotations"])
+        self.assertEqual("NodeLiteral", by_path["$.node"]["value"]["type"])
+        self.assertIn("$.group.false", by_path)
+        self.assertIn("$.group.off", by_path)
+
     def test_empty_quoted_key_rejected(self) -> None:
         result = compile_source('"" = ""')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

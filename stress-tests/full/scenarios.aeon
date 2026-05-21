@@ -475,8 +475,8 @@ test016:o = {
 		"world"
 	)>
 	node007:node = <div(<span("nested")>)>
-	node008:node = <div@{id="main", class="container"}("content")>
-	node009:node = <img@{src="logo.png", alt="Logo"}>
+	node008:node = <div@{id:string="main", class:string="container"}("content")>
+	node009:node = <img@{src:string="logo.png", alt:string="Logo"}>
 	node010:node = <section(
 		<h1("Title")>
 		<p("Paragraph one")>
@@ -507,13 +507,13 @@ test016:o = {
 		<h1("Title")>
 		<p("Paragraph one")>
 		{
-			s1:node = <span@{class="line-1"} ("hello")>
-			s2:node = <span @{class="line-2"} ("world")>
-			s3:node = <span @ {class="line-3"} ("hello")>
-			s4:node = <span@ {class="line-4"} ("world")>
+			s1:node = <span@{class:string="line-1"} ("hello")>
+			s2:node = <span @{class:string="line-2"} ("world")>
+			s3:node = <span @ {class:string="line-3"} ("hello")>
+			s4:node = <span@ {class:string="line-4"} ("world")>
 			s5:node = <span
 									@ 
-									{class="line-4"} 
+									{class:string="line-4"}
 									("world")
 								>
 		}

@@ -120,6 +120,34 @@ describe('Parser', () => {
             }
         });
 
+        it('should parse literal words as keys in key contexts', () => {
+            const tokens = tokenize([
+                'yes:string = "top"',
+                'copy:string = ~yes',
+                'true@{no:string = "attr"}:string = "named true"',
+                'node:node = <on(off)>',
+                'group:object = {',
+                '  false:boolean = true',
+                '  off:toggle = yes',
+                '}',
+            ].join('\n')).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.key, 'yes');
+            assert.strictEqual(result.document!.bindings[2]!.key, 'true');
+            assert.strictEqual(result.document!.bindings[2]!.attributes[0]!.entries.get('no')!.value.type, 'StringLiteral');
+            const node = result.document!.bindings[3]!.value;
+            assert.strictEqual(node.type, 'NodeLiteral');
+            if (node.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(node.tag, 'on');
+            const group = result.document!.bindings[4]!.value;
+            assert.strictEqual(group.type, 'ObjectNode');
+            if (group.type !== 'ObjectNode') assert.fail('Expected ObjectNode');
+            assert.strictEqual(group.bindings[0]!.key, 'false');
+            assert.strictEqual(group.bindings[1]!.key, 'off');
+        });
+
         it('should parse multiple bindings with newlines', () => {
             const tokens = tokenize('a = 1\nb = 2\nc = 3').tokens;
             const result = parse(tokens);
