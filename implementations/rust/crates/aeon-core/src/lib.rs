@@ -1814,6 +1814,32 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_rejects_untyped_attribute_entries() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nb@{n=3}:n = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.b@n")),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn strict_mode_accepts_typed_attribute_entries() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nb@{n:number=3}:n = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
     fn accepts_typed_null_literals_and_rejects_number_for_null_datatype() {
         let ok = compile(
             "value:null = !none\nreason:null = !\"postponed\"\n",

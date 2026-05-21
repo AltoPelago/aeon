@@ -597,7 +597,13 @@ function validateAnnotationEntries(
     const errors: ModeEnforcementError[] = [];
     for (const [key, entry] of annotations) {
         const attrPath = `${ownerPath}@${key}`;
-        if (entry.datatype) {
+        if (!entry.datatype && (mode === 'strict' || mode === 'custom')) {
+            const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
+            const actualKind = resolvedValueKind(resolved);
+            errors.push(mode === 'strict' && actualKind === 'ToggleLiteral'
+                ? new UntypedToggleLiteralError(span, attrPath)
+                : new UntypedValueInStrictModeError(span, attrPath));
+        } else if (entry.datatype) {
             const expectedKinds = expectedKindsForReservedDatatype(entry.datatype);
             if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));

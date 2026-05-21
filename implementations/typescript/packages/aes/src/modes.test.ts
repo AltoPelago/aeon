@@ -50,6 +50,19 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should error on untyped attribute entries in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\na @{label = "public"}:int32 = 1');
+
+            assert.ok(result.errors.some((error) => error.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
+            assert.ok(result.errors.some((error) => error.path === '$.a@label'));
+        });
+
+        it('should pass typed attribute entries in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\na @{label:string = "public"}:int32 = 1');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should allow typed clone references when the target literal matches', () => {
             const result = enforce([
                 'aeon:mode = "strict"',

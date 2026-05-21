@@ -598,6 +598,15 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("b@{n:string=3}:n = 3")
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
+    def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
+        self.assertIn("UNTYPED_VALUE_IN_STRICT_MODE", [error.code for error in result.errors])
+        self.assertIn("$.b@n", [error.path for error in result.errors])
+
+    def test_strict_mode_accepts_typed_attribute_entries(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nb@{n:number=3}:n = 3')
+        self.assertEqual([], result.errors)
+
     def test_singleton_tuple_literal_is_accepted(self) -> None:
         result = compile_source("aa:tuple<string> = (3)")
         self.assertEqual([], [error.code for error in result.errors])

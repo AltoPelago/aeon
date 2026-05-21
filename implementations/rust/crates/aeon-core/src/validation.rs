@@ -428,6 +428,7 @@ pub(crate) fn validate_datatypes(
     validate_attribute_datatypes_in_scope(
         bindings,
         &CanonicalPath::root(),
+        mode,
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
@@ -526,6 +527,7 @@ pub(crate) fn validate_datatypes_light(
     validate_attribute_datatypes_in_scope(
         bindings,
         &CanonicalPath::root(),
+        mode,
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
@@ -1498,6 +1500,7 @@ fn has_valid_encoding_literal(raw: &str) -> bool {
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1509,6 +1512,7 @@ fn validate_attribute_datatypes_in_scope(
             &binding.attributes,
             &binding.attribute_order,
             &path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1517,6 +1521,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1528,6 +1533,7 @@ fn validate_attribute_datatypes_in_scope(
 fn validate_value_attribute_datatypes(
     value: &Value,
     path: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1537,6 +1543,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1547,6 +1554,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     item,
                     &path.index(index),
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1565,6 +1573,7 @@ fn validate_value_attribute_datatypes(
                     attribute,
                     &attribute_order,
                     path,
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1575,6 +1584,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     child,
                     &path.index(index),
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1590,6 +1600,7 @@ fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
     owner_path: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1600,7 +1611,35 @@ fn validate_attribute_datatype_map(
             continue;
         };
         let attr_path = format!("{}@{}", format_path(owner_path), key);
-        if let Some(datatype) = &entry.datatype
+        if entry.datatype.is_none()
+            && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
+            && let Some(value) = &entry.value
+        {
+            if matches!(mode, BehaviorMode::Strict) && matches!(value, Value::ToggleLiteral { .. })
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "UNTYPED_TOGGLE_LITERAL",
+                        format!(
+                            "Untyped toggle literal in typed mode: '{}' requires ':toggle' type annotation",
+                            attr_path
+                        ),
+                    )
+                    .at_path(attr_path.clone()),
+                );
+            } else {
+                errors.push(
+                    Diagnostic::new(
+                        "UNTYPED_VALUE_IN_STRICT_MODE",
+                        format!(
+                            "Untyped value in typed mode: '{}' requires explicit type annotation",
+                            attr_path
+                        ),
+                    )
+                    .at_path(attr_path.clone()),
+                );
+            }
+        } else if let Some(datatype) = &entry.datatype
             && let Some(value) = &entry.value
         {
             if let Some(error) = validate_datatype_shape_light(
@@ -1646,6 +1685,7 @@ fn validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
             owner_path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1655,6 +1695,7 @@ fn validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
             owner_path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1664,6 +1705,7 @@ fn validate_attribute_datatype_map(
             validate_value_attribute_datatypes(
                 value,
                 owner_path,
+                mode,
                 datatype_policy,
                 max_separator_depth,
                 max_generic_depth,

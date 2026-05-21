@@ -661,12 +661,18 @@ def validate_annotation_entries(
     for key, entry in annotations.items():
         attr_path = f"{owner_path}@{key}"
         datatype = entry.get("datatype")
-        if isinstance(datatype, str):
+        value = entry.get("value")
+        if not isinstance(datatype, str) and mode in {"strict", "custom"} and value is not None and hasattr(value, "type"):
+            actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
+            if mode == "strict" and actual_kind == "ToggleLiteral":
+                errors.append(UntypedToggleLiteralError(attr_path, span))
+            else:
+                errors.append(UntypedValueInStrictModeError(attr_path, span))
+        elif isinstance(datatype, str):
             expected = expected_kinds_for_reserved_datatype(datatype)
             if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
-                value = entry.get("value")
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
                     if expected is None:
