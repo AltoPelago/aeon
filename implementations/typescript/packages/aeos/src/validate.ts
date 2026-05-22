@@ -31,6 +31,10 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     ToggleLiteral: ['ToggleLiteral'],
     InfinityLiteral: ['InfinityLiteral'],
     NaNLiteral: ['NaNLiteral'],
+    HexLiteral: ['HexLiteral'],
+    RadixLiteral: ['RadixLiteral'],
+    EncodingLiteral: ['EncodingLiteral'],
+    SeparatorLiteral: ['SeparatorLiteral'],
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
@@ -752,9 +756,9 @@ function validateAttributeEntry(
         }
     }
 
-    if (entry.type === 'NumberLiteral') {
-        const digitCount = countIntegerDigits(entry.raw);
-        if (effectiveConstraints.sign === 'unsigned' && isNegative(entry.raw)) {
+    if (hasDigitFormConstraints(effectiveConstraints) && isDigitFormLiteral(entry.type)) {
+        const digitCount = countFormDigits(entry.type, entry.raw);
+        if ((entry.type === 'NumberLiteral' || entry.type === 'RadixLiteral') && effectiveConstraints.sign === 'unsigned' && isFormNegative(entry.raw)) {
             emitError(ctx, createDiag(
                 path,
                 entry.span,
@@ -777,6 +781,17 @@ function validateAttributeEntry(
                 `Numeric form violation: expected max ${effectiveConstraints.max_digits} digits, got ${digitCount}`,
                 ErrorCodes.NUMERIC_FORM_VIOLATION
             ));
+        }
+        if (entry.type === 'RadixLiteral' && effectiveConstraints.radix !== undefined) {
+            const invalidDigit = firstInvalidRadixDigit(entry.raw, effectiveConstraints.radix);
+            if (invalidDigit !== null) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: radix literal digit '${invalidDigit}' is outside radix ${effectiveConstraints.radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
         }
     }
 
@@ -867,11 +882,11 @@ function checkLexicalLiteralConstraint(
     constraints: ConstraintsV1,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
-    if (event.type === 'NullLiteral' && constraints.null_value !== undefined && event.value !== constraints.null_value) {
+    if (event.type === 'NullLiteral' && !nullValueMatches(event.value, constraints)) {
         emitError(ctx, createDiag(
             path,
             event.span,
-            `Null value mismatch: expected ${constraints.null_value}, got ${event.value || '<none>'}`,
+            `Null value mismatch: expected ${formatExpectedNullValues(constraints)}, got ${event.value || '<none>'}`,
             ErrorCodes.NULL_VALUE_MISMATCH
         ));
     }
@@ -892,6 +907,23 @@ function checkLexicalLiteralConstraint(
             ));
         }
     }
+}
+
+function nullValueMatches(value: string, constraints: ConstraintsV1): boolean {
+    const expected = expectedNullValues(constraints);
+    return expected.length === 0 || expected.includes(value);
+}
+
+function expectedNullValues(constraints: ConstraintsV1): readonly string[] {
+    const values: string[] = [];
+    if (constraints.null_value !== undefined) values.push(constraints.null_value);
+    if (constraints.null_values !== undefined) values.push(...constraints.null_values);
+    return values;
+}
+
+function formatExpectedNullValues(constraints: ConstraintsV1): string {
+    const values = expectedNullValues(constraints);
+    return values.length > 0 ? values.join(' | ') : '<any>';
 }
 
 function isReferenceType(type: string): boolean {
@@ -921,8 +953,53 @@ function countIntegerDigits(raw: string): number {
     return raw.replace(/^[+-]/, '').replace(/_/g, '').split('.')[0]?.length ?? 0;
 }
 
+function hasDigitFormConstraints(constraints: ConstraintsV1): boolean {
+    return constraints.sign !== undefined || constraints.min_digits !== undefined || constraints.max_digits !== undefined || constraints.radix !== undefined;
+}
+
+function isDigitFormLiteral(type: string): boolean {
+    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+}
+
+function countFormDigits(type: string, raw: string): number {
+    if (type === 'NumberLiteral') return countIntegerDigits(raw);
+    const body = raw
+        .replace(/^[#%^]/, '')
+        .replace(/^[+-]/, '')
+        .replace(/_/g, '');
+    let count = 0;
+    for (const char of body) {
+        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+            count++;
+        }
+    }
+    return count;
+}
+
+function firstInvalidRadixDigit(raw: string, radix: number): string | null {
+    const body = raw.replace(/^%/, '').replace(/^[+-]/, '').replace(/_/g, '');
+    for (const char of body) {
+        const value = radixDigitValue(char);
+        if (value !== null && value >= radix) return char;
+    }
+    return null;
+}
+
+function radixDigitValue(char: string): number | null {
+    if (char >= '0' && char <= '9') return char.charCodeAt(0) - 48;
+    const lower = char.toLowerCase();
+    if (lower >= 'a' && lower <= 'z') return lower.charCodeAt(0) - 87;
+    if (char === '&') return 36;
+    if (char === '!') return 37;
+    return null;
+}
+
 function isNegative(raw: string): boolean {
     return raw.startsWith('-');
+}
+
+function isFormNegative(raw: string): boolean {
+    return /^[$#%^]?-/.test(raw) || raw.startsWith('-');
 }
 
 function formatCanonicalPathLocal(path: any): string {

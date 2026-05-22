@@ -13,6 +13,7 @@ KNOWN_CONSTRAINT_KEYS = {
     "allow_infinity",
     "allow_nan",
     "null_value",
+    "null_values",
     "toggle_pair",
     "reference",
     "reference_kind",
@@ -25,6 +26,7 @@ KNOWN_CONSTRAINT_KEYS = {
     "sign",
     "min_digits",
     "max_digits",
+    "radix",
     "min_value",
     "max_value",
     "min_length",
@@ -427,24 +429,31 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
         sign = constraints.get("sign")
         min_digits = constraints.get("min_digits")
         max_digits = constraints.get("max_digits")
+        radix = constraints.get("radix")
         min_value = constraints.get("min_value")
         max_value = constraints.get("max_value")
-        if sign is None and min_digits is None and max_digits is None and min_value is None and max_value is None:
+        if sign is None and min_digits is None and max_digits is None and radix is None and min_value is None and max_value is None:
             continue
         event = events.get(path)
-        if event is None or event.get("type") not in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
+        if event is None or not is_digit_form_literal(str(event.get("type", ""))):
             continue
         raw = str(event.get("raw", ""))
-        if sign == "unsigned" and is_negative(raw):
+        event_type = str(event.get("type", ""))
+        if sign == "unsigned" and event_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "RadixLiteral"} and is_form_negative(raw):
             emit_error(ctx, create_diag(path, event.get("span"), "Numeric form violation: expected unsigned, got negative", ERROR_CODES["numeric_form_violation"]))
             continue
-        digit_count = count_integer_digits(raw)
+        digit_count = count_form_digits(event_type, raw)
         if isinstance(min_digits, int) and digit_count < min_digits:
             emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected min {min_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
             continue
         if isinstance(max_digits, int) and digit_count > max_digits:
             emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
             continue
+        if event_type == "RadixLiteral" and isinstance(radix, int):
+            invalid_digit = first_invalid_radix_digit(raw, radix)
+            if invalid_digit is not None:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
+                continue
         normalized = normalize_integer_literal(raw)
         if min_value is not None or max_value is not None:
             if normalized is None:
@@ -467,8 +476,8 @@ def check_literal_lexical_constraints(rule_index: dict[str, dict[str, object]], 
         if event is None:
             continue
         actual_type = event.get("type")
-        if actual_type == "NullLiteral" and isinstance(constraints.get("null_value"), str) and event.get("value") != constraints.get("null_value"):
-            emit_error(ctx, create_diag(path, event.get("span"), f"Null value mismatch: expected {constraints.get('null_value')}, got {event.get('value')}", ERROR_CODES["null_value_mismatch"]))
+        if actual_type == "NullLiteral" and not null_value_matches(str(event.get("value", "")), constraints):
+            emit_error(ctx, create_diag(path, event.get("span"), f"Null value mismatch: expected {format_expected_null_values(constraints)}, got {event.get('value')}", ERROR_CODES["null_value_mismatch"]))
         if actual_type == "ToggleLiteral" and isinstance(constraints.get("toggle_pair"), str) and constraints.get("toggle_pair") != "any":
             raw = str(event.get("raw", "")).lower()
             pair = constraints.get("toggle_pair")
@@ -593,18 +602,23 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
         if expected_reference_type is not None and actual_type != expected_reference_type:
             emit_error(ctx, create_diag(path, span, f"Reference kind mismatch at {path}: expected {expected_reference_type}, got {actual_type}", ERROR_CODES["reference_kind_mismatch"]))
 
-    if actual_type == "NumberLiteral":
-        digit_count = count_integer_digits(raw)
-        if effective_constraints.get("sign") == "unsigned" and is_negative(raw):
+    if is_digit_form_literal(actual_type):
+        digit_count = count_form_digits(actual_type, raw)
+        if effective_constraints.get("sign") == "unsigned" and actual_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "RadixLiteral"} and is_form_negative(raw):
             emit_error(ctx, create_diag(path, span, "Numeric form violation: expected unsigned, got negative", ERROR_CODES["numeric_form_violation"]))
         min_digits = effective_constraints.get("min_digits")
         max_digits = effective_constraints.get("max_digits")
+        radix = effective_constraints.get("radix")
         min_value = effective_constraints.get("min_value")
         max_value = effective_constraints.get("max_value")
         if isinstance(min_digits, int) and digit_count < min_digits:
             emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected min {min_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
         if isinstance(max_digits, int) and digit_count > max_digits:
             emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
+        if actual_type == "RadixLiteral" and isinstance(radix, int):
+            invalid_digit = first_invalid_radix_digit(raw, radix)
+            if invalid_digit is not None:
+                emit_error(ctx, create_diag(path, span, f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
         if min_value is not None or max_value is not None:
             normalized = normalize_integer_literal(raw)
             if normalized is None:
@@ -640,8 +654,8 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
 
 def check_attribute_lexical_constraints(path: str, entry: dict[str, object], constraints: dict[str, object], ctx: DiagContext) -> None:
     actual_type = entry.get("type")
-    if actual_type == "NullLiteral" and isinstance(constraints.get("null_value"), str) and entry.get("value") != constraints.get("null_value"):
-        emit_error(ctx, create_diag(path, entry.get("span"), f"Null value mismatch: expected {constraints.get('null_value')}, got {entry.get('value')}", ERROR_CODES["null_value_mismatch"]))
+    if actual_type == "NullLiteral" and not null_value_matches(str(entry.get("value", "")), constraints):
+        emit_error(ctx, create_diag(path, entry.get("span"), f"Null value mismatch: expected {format_expected_null_values(constraints)}, got {entry.get('value')}", ERROR_CODES["null_value_mismatch"]))
     if actual_type == "ToggleLiteral" and isinstance(constraints.get("toggle_pair"), str) and constraints.get("toggle_pair") != "any":
         raw = str(entry.get("raw", "")).lower()
         pair = constraints.get("toggle_pair")
@@ -966,6 +980,64 @@ def count_integer_digits(raw: str) -> int:
     exp_index_E = text.find("E")
     exp_index = min(index for index in [decimal_index if decimal_index != -1 else len(text), exp_index_e if exp_index_e != -1 else len(text), exp_index_E if exp_index_E != -1 else len(text), len(text)])
     return sum(1 for char in text[:exp_index] if char.isdigit())
+
+
+def is_digit_form_literal(value_type: str) -> bool:
+    return value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "HexLiteral", "RadixLiteral", "SeparatorLiteral"}
+
+
+def count_form_digits(value_type: str, raw: str) -> int:
+    if value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
+        return count_integer_digits(raw)
+    body = raw.lstrip("#%^").lstrip("+-").replace("_", "")
+    return sum(1 for char in body if char.isdigit() or (value_type != "SeparatorLiteral" and (char.isalpha() or char in {"&", "!"})))
+
+
+def is_form_negative(raw: str) -> bool:
+    return raw.startswith("-") or (len(raw) > 1 and raw[0] in "$#%^" and raw[1] == "-")
+
+
+def first_invalid_radix_digit(raw: str, radix: int) -> str | None:
+    body = raw.removeprefix("%").lstrip("+-").replace("_", "")
+    for char in body:
+        value = radix_digit_value(char)
+        if value is not None and value >= radix:
+            return char
+    return None
+
+
+def radix_digit_value(char: str) -> int | None:
+    if "0" <= char <= "9":
+        return ord(char) - ord("0")
+    lower = char.lower()
+    if "a" <= lower <= "z":
+        return ord(lower) - ord("a") + 10
+    if char == "&":
+        return 36
+    if char == "!":
+        return 37
+    return None
+
+
+def expected_null_values(constraints: dict[str, object]) -> list[str]:
+    values = []
+    null_value = constraints.get("null_value")
+    if isinstance(null_value, str):
+        values.append(null_value)
+    null_values = constraints.get("null_values")
+    if isinstance(null_values, list):
+        values.extend(value for value in null_values if isinstance(value, str))
+    return values
+
+
+def null_value_matches(value: str, constraints: dict[str, object]) -> bool:
+    values = expected_null_values(constraints)
+    return not values or value in values
+
+
+def format_expected_null_values(constraints: dict[str, object]) -> str:
+    values = expected_null_values(constraints)
+    return " | ".join(values) if values else "<any>"
 
 
 def datatype_base(datatype: str) -> str:

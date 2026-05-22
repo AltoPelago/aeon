@@ -33,6 +33,18 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
+    def test_radix_constraint_for_radix_literals(self) -> None:
+        aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "bits"}]}, "key": "bits", "value": {"type": "RadixLiteral", "raw": "%1050", "value": "1050"}, "span": [28, 33]}]
+        result = validate(aes, {"rules": [{"path": "$.bits", "constraints": {"type": "RadixLiteral", "radix": 2}}]})
+        self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.bits" for error in result["errors"]))
+
+    def test_multiple_null_values(self) -> None:
+        aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "reason"}]}, "key": "reason", "value": {"type": "NullLiteral", "raw": "!notApplicable", "value": "notApplicable"}, "span": [0, 14]}]
+        passing = validate(aes, {"rules": [{"path": "$.reason", "constraints": {"type": "StringLiteral", "nullable": True, "null_values": ["none", "notApplicable"]}}]})
+        self.assertTrue(passing["ok"])
+        failing = validate(aes, {"rules": [{"path": "$.reason", "constraints": {"type": "StringLiteral", "nullable": True, "null_values": ["none", "tombstone"]}}]})
+        self.assertTrue(any(error["code"] == "null_value_mismatch" and error["path"] == "$.reason" for error in failing["errors"]))
+
     def test_accepts_indexed_node_child_paths(self) -> None:
         compiled = compile_source("page:node = <page(:int32 = 3)>")
         self.assertEqual([], compiled.errors)

@@ -182,6 +182,7 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "allow_infinity",
     "allow_nan",
     "null_value",
+    "null_values",
     "toggle_pair",
     "reference",
     "reference_kind",
@@ -194,6 +195,7 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "sign",
     "min_digits",
     "max_digits",
+    "radix",
     "min_value",
     "max_value",
     "min_length",
@@ -969,8 +971,10 @@ fn check_literal_lexical_constraints(
         };
 
         if event.value_type == "NullLiteral"
-            && let Some(expected) = constraints.get("null_value").and_then(JsonValue::as_str)
-            && string_value(event.value.as_ref()).as_deref() != Some(expected)
+            && !null_value_matches(
+                string_value(event.value.as_ref()).as_deref().unwrap_or_default(),
+                constraints,
+            )
         {
             emit_error(
                 ctx,
@@ -1017,15 +1021,16 @@ fn check_numeric_form(
         let Some(event) = events_by_path.get(path) else {
             continue;
         };
-        if !matches!(
-            event.value_type.as_str(),
-            "NumberLiteral" | "IntegerLiteral" | "FloatLiteral"
-        ) {
+        if !is_digit_form_literal(&event.value_type) {
             continue;
         }
 
         if constraints.get("sign").and_then(JsonValue::as_str) == Some("unsigned")
-            && event.raw.starts_with('-')
+            && matches!(
+                event.value_type.as_str(),
+                "NumberLiteral" | "IntegerLiteral" | "FloatLiteral" | "RadixLiteral"
+            )
+            && is_form_negative(&event.raw)
         {
             emit_error(
                 ctx,
@@ -1039,7 +1044,7 @@ fn check_numeric_form(
             continue;
         }
 
-        let digit_count = count_integer_digits(&event.raw);
+        let digit_count = count_form_digits(&event.value_type, &event.raw);
         if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64)
             && digit_count < min_digits as usize
         {
@@ -1056,6 +1061,22 @@ fn check_numeric_form(
         }
         if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64)
             && digit_count > max_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            continue;
+        }
+
+        if event.value_type == "RadixLiteral"
+            && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
+            && let Some(_invalid_digit) = first_invalid_radix_digit(&event.raw, radix as usize)
         {
             emit_error(
                 ctx,
@@ -1417,13 +1438,17 @@ fn validate_attribute_entry(
         }
     }
 
-    if entry.value_type == "NumberLiteral" {
-        let digit_count = count_integer_digits(&entry.raw);
+    if is_digit_form_literal(&entry.value_type) {
+        let digit_count = count_form_digits(&entry.value_type, &entry.raw);
         if effective_constraints
             .get("sign")
             .and_then(JsonValue::as_str)
             == Some("unsigned")
-            && is_negative(&entry.raw)
+            && matches!(
+                entry.value_type.as_str(),
+                "NumberLiteral" | "IntegerLiteral" | "FloatLiteral" | "RadixLiteral"
+            )
+            && is_form_negative(&entry.raw)
         {
             emit_error(
                 ctx,
@@ -1454,6 +1479,20 @@ fn validate_attribute_entry(
             .get("max_digits")
             .and_then(JsonValue::as_u64)
             && digit_count > max_digits as usize
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("numeric_form_violation"),
+                    phase: String::from("schema_validation"),
+                    span: entry.span,
+                },
+            );
+        }
+        if entry.value_type == "RadixLiteral"
+            && let Some(radix) = effective_constraints.get("radix").and_then(JsonValue::as_u64)
+            && let Some(_invalid_digit) = first_invalid_radix_digit(&entry.raw, radix as usize)
         {
             emit_error(
                 ctx,
@@ -1836,8 +1875,10 @@ fn check_attribute_lexical_constraints(
     ctx: &mut DiagContext,
 ) {
     if entry.value_type == "NullLiteral"
-        && let Some(expected) = constraints.get("null_value").and_then(JsonValue::as_str)
-        && string_value(entry.value.as_ref()).as_deref() != Some(expected)
+        && !null_value_matches(
+            string_value(entry.value.as_ref()).as_deref().unwrap_or_default(),
+            constraints,
+        )
     {
         emit_error(
             ctx,
@@ -1905,6 +1946,86 @@ fn count_integer_digits(raw: &str) -> usize {
         .count()
 }
 
+fn is_digit_form_literal(value_type: &str) -> bool {
+    matches!(
+        value_type,
+        "NumberLiteral"
+            | "IntegerLiteral"
+            | "FloatLiteral"
+            | "HexLiteral"
+            | "RadixLiteral"
+            | "SeparatorLiteral"
+    )
+}
+
+fn count_form_digits(value_type: &str, raw: &str) -> usize {
+    if matches!(value_type, "NumberLiteral" | "IntegerLiteral" | "FloatLiteral") {
+        return count_integer_digits(raw);
+    }
+    let body = raw
+        .trim_start_matches(|ch| matches!(ch, '#' | '%' | '^'))
+        .trim_start_matches(|ch| matches!(ch, '+' | '-'))
+        .replace('_', "");
+    body.chars()
+        .filter(|ch| {
+            ch.is_ascii_digit()
+                || (value_type != "SeparatorLiteral"
+                    && (ch.is_ascii_alphabetic() || *ch == '&' || *ch == '!'))
+        })
+        .count()
+}
+
+fn is_form_negative(raw: &str) -> bool {
+    if raw.starts_with('-') {
+        return true;
+    }
+    raw.chars()
+        .next()
+        .is_some_and(|ch| matches!(ch, '$' | '#' | '%' | '^'))
+        && raw.chars().nth(1) == Some('-')
+}
+
+fn first_invalid_radix_digit(raw: &str, radix: usize) -> Option<char> {
+    let body = raw
+        .strip_prefix('%')
+        .unwrap_or(raw)
+        .trim_start_matches(|ch| matches!(ch, '+' | '-'))
+        .replace('_', "");
+    body.chars()
+        .find(|ch| radix_digit_value(*ch).is_some_and(|digit| digit >= radix))
+}
+
+fn radix_digit_value(ch: char) -> Option<usize> {
+    match ch {
+        '0'..='9' => Some((ch as u8 - b'0') as usize),
+        'a'..='z' => Some((ch as u8 - b'a') as usize + 10),
+        'A'..='Z' => Some((ch as u8 - b'A') as usize + 10),
+        '&' => Some(36),
+        '!' => Some(37),
+        _ => None,
+    }
+}
+
+fn null_value_matches(value: &str, constraints: &JsonValue) -> bool {
+    let values = expected_null_values(constraints);
+    values.is_empty() || values.iter().any(|expected| expected == value)
+}
+
+fn expected_null_values(constraints: &JsonValue) -> Vec<String> {
+    let mut values = Vec::new();
+    if let Some(value) = constraints.get("null_value").and_then(JsonValue::as_str) {
+        values.push(String::from(value));
+    }
+    if let Some(list) = constraints.get("null_values").and_then(JsonValue::as_array) {
+        values.extend(
+            list.iter()
+                .filter_map(JsonValue::as_str)
+                .map(String::from),
+        );
+    }
+    values
+}
+
 fn normalize_integer_literal(raw: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
@@ -1918,10 +2039,6 @@ fn normalize_integer_literal(raw: &str) -> Option<String> {
         return None;
     }
     Some(raw.replace('_', ""))
-}
-
-fn is_negative(raw: &str) -> bool {
-    raw.starts_with('-')
 }
 
 fn datatype_base(datatype: &str) -> &str {
@@ -2089,6 +2206,61 @@ mod tests {
     #[test]
     fn cts_payload_adapter_round_trips() {
         let payload = r#"{"aes":[],"schema":{"rules":[]},"options":{}}"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(envelope.ok);
+    }
+
+    #[test]
+    fn validates_radix_constraint_for_radix_literals() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "bits" } ] },
+              "key": "bits",
+              "value": { "type": "RadixLiteral", "raw": "%1050", "value": "1050" },
+              "span": [28, 33]
+            }
+          ],
+          "schema": {
+            "rules": [
+              {
+                "path": "$.bits",
+                "constraints": { "type": "RadixLiteral", "radix": 2 }
+              }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(envelope.errors.iter().any(|error| {
+            error.path.as_deref() == Some("$.bits") && error.code == "numeric_form_violation"
+        }));
+    }
+
+    #[test]
+    fn validates_multiple_null_values() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "reason" } ] },
+              "key": "reason",
+              "value": { "type": "NullLiteral", "raw": "!notApplicable", "value": "notApplicable" },
+              "span": [0, 14]
+            }
+          ],
+          "schema": {
+            "rules": [
+              {
+                "path": "$.reason",
+                "constraints": { "type": "StringLiteral", "nullable": true, "null_values": ["none", "notApplicable"] }
+              }
+            ]
+          },
+          "options": {}
+        }"#;
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert!(envelope.ok);

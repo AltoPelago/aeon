@@ -182,7 +182,17 @@ function validateConstraintTree(
         return false;
     }
 
-    for (const key of ['min_children', 'max_children', 'length_exact'] as const) {
+    if (constraints.null_values !== undefined && (!Array.isArray(constraints.null_values) || !constraints.null_values.every((value) => typeof value === 'string'))) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid null_values constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
+    for (const key of ['min_children', 'max_children', 'length_exact', 'radix'] as const) {
         const value = constraints[key];
         if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
             emitError(ctx, createDiag(

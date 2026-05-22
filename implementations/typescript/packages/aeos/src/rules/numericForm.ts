@@ -36,26 +36,26 @@ export function checkNumericForm(
     ctx: DiagContext
 ): void {
     for (const [path, rule] of ruleIndex) {
-        const { sign, min_digits, max_digits, min_value, max_value } = rule.constraints;
+        const { sign, min_digits, max_digits, min_value, max_value, radix } = rule.constraints;
 
         // Skip if no numeric form constraints
-        if (sign === undefined && min_digits === undefined && max_digits === undefined && min_value === undefined && max_value === undefined) {
+        if (sign === undefined && min_digits === undefined && max_digits === undefined && min_value === undefined && max_value === undefined && radix === undefined) {
             continue;
         }
 
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to numeric types
-        if (event.type !== 'NumberLiteral' && event.type !== 'IntegerLiteral' && event.type !== 'FloatLiteral') {
+        // Only apply to numeric and digit-bearing symbolic literal forms.
+        if (!isDigitFormLiteral(event.type)) {
             continue;
         }
 
         const raw = event.raw;
 
         // Sign constraint
-        if (sign !== undefined) {
-            if (sign === 'unsigned' && isNegative(raw)) {
+        if (sign !== undefined && (event.type === 'NumberLiteral' || event.type === 'IntegerLiteral' || event.type === 'FloatLiteral' || event.type === 'RadixLiteral')) {
+            if (sign === 'unsigned' && isFormNegative(raw)) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
@@ -68,7 +68,7 @@ export function checkNumericForm(
         }
 
         // Digit count constraints
-        const digitCount = countIntegerDigits(raw);
+        const digitCount = countFormDigits(event.type, raw);
 
         if (min_digits !== undefined && digitCount < min_digits) {
             emitError(ctx, createDiag(
@@ -88,6 +88,19 @@ export function checkNumericForm(
                 ErrorCodes.NUMERIC_FORM_VIOLATION
             ));
             continue;
+        }
+
+        if (event.type === 'RadixLiteral' && radix !== undefined) {
+            const invalidDigit = firstInvalidRadixDigit(raw, radix);
+            if (invalidDigit !== null) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Numeric form violation: radix literal digit '${invalidDigit}' is outside radix ${radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                continue;
+            }
         }
 
         if (min_value !== undefined || max_value !== undefined) {
@@ -124,6 +137,47 @@ export function checkNumericForm(
             }
         }
     }
+}
+
+function isDigitFormLiteral(type: string): boolean {
+    return type === 'NumberLiteral' || type === 'IntegerLiteral' || type === 'FloatLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+}
+
+function countFormDigits(type: string, raw: string): number {
+    if (type === 'NumberLiteral' || type === 'IntegerLiteral' || type === 'FloatLiteral') return countIntegerDigits(raw);
+    const body = raw
+        .replace(/^[#%^]/, '')
+        .replace(/^[+-]/, '')
+        .replace(/_/g, '');
+    let count = 0;
+    for (const char of body) {
+        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+            count++;
+        }
+    }
+    return count;
+}
+
+function isFormNegative(raw: string): boolean {
+    return /^[$#%^]?-/.test(raw) || isNegative(raw);
+}
+
+function firstInvalidRadixDigit(raw: string, radix: number): string | null {
+    const body = raw.replace(/^%/, '').replace(/^[+-]/, '').replace(/_/g, '');
+    for (const char of body) {
+        const value = radixDigitValue(char);
+        if (value !== null && value >= radix) return char;
+    }
+    return null;
+}
+
+function radixDigitValue(char: string): number | null {
+    if (char >= '0' && char <= '9') return char.charCodeAt(0) - 48;
+    const lower = char.toLowerCase();
+    if (lower >= 'a' && lower <= 'z') return lower.charCodeAt(0) - 87;
+    if (char === '&') return 36;
+    if (char === '!') return 37;
+    return null;
 }
 
 function normalizeIntegerLiteral(raw: string): string | null {

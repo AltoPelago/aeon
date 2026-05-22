@@ -28,6 +28,9 @@ export interface ConstraintsV1 {
     /** Required null sentinel value when the accepted value is NullLiteral */
     readonly null_value?: string;
 
+    /** Accepted null sentinel values when the accepted value is NullLiteral */
+    readonly null_values?: readonly string[];
+
     /** Required toggle lexical pair */
     readonly toggle_pair?: 'any' | 'yes_no' | 'on_off';
 
@@ -63,6 +66,9 @@ export interface ConstraintsV1 {
 
     /** Maximum ASCII digit count (excludes sign) */
     readonly max_digits?: number;
+
+    /** Exact radix/base required for RadixLiteral digit forms */
+    readonly radix?: number;
 
     /** Minimum integer value (inclusive), encoded as base-10 string for exactness */
     readonly min_value?: string;
@@ -127,6 +133,7 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'allow_infinity',
     'allow_nan',
     'null_value',
+    'null_values',
     'toggle_pair',
     'reference',
     'reference_kind',
@@ -139,6 +146,7 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'sign',
     'min_digits',
     'max_digits',
+    'radix',
     'min_value',
     'max_value',
     'min_length',
