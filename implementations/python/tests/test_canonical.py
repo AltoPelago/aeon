@@ -114,9 +114,9 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('width:radix[10] = %0010.00', result.text)
 
     def test_canonicalizes_numeric_separator_specs(self) -> None:
-        result = canonicalize('aeon:mode = "custom"\ns:set[2] = ^o2o2o')
+        result = canonicalize('aeon:mode = "custom"\ns:sep[2] = ^o2o2o')
         self.assertEqual([], result.errors)
-        self.assertIn('s:set[2] = ^o2o2o', result.text)
+        self.assertIn('s:sep[2] = ^o2o2o', result.text)
 
     def test_canonicalizes_separator_payloads_without_trimming_raw_segments(self) -> None:
         result = canonicalize('aeon:mode = "custom"\nparts:sep[|] = ^"hello world"|tail')

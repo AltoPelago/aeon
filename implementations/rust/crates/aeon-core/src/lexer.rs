@@ -1098,7 +1098,7 @@ mod tests {
 
     #[test]
     fn bare_caret_tokenizes_as_caret_before_bracket_close() {
-        let result = tokenize("x:set[^] = ^1", LexerOptions::default());
+        let result = tokenize("x:sep[^] = ^1", LexerOptions::default());
         assert!(result.errors.is_empty());
         assert!(
             result

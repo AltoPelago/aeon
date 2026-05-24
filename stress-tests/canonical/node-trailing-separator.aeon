@@ -4,7 +4,7 @@ aeon:header = {
 }
 
 content:node = <div(
-  <span@{id="text", class="dark"}:node(
+  <span@{id:string = "text", class:string = "dark"}:node(
     "hello",
     <br()>,
     "world",

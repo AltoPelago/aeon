@@ -3296,6 +3296,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::NaNLiteral { raw, .. } => EventValue {
             value_type: String::from("NaNLiteral"),
@@ -3303,6 +3304,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::NullLiteral { mode, value, raw } => EventValue {
             value_type: String::from("NullLiteral"),
@@ -3316,6 +3318,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             })),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::NumberLiteral { raw } => EventValue {
             value_type: String::from("NumberLiteral"),
@@ -3323,6 +3326,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(normalize_number_literal(raw))),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::StringLiteral { value, raw, .. } => EventValue {
             value_type: String::from("StringLiteral"),
@@ -3330,6 +3334,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(value.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::BooleanLiteral { raw } => EventValue {
             value_type: String::from("BooleanLiteral"),
@@ -3337,6 +3342,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::Bool(raw == "true")),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::ToggleLiteral { raw } => EventValue {
             value_type: String::from("ToggleLiteral"),
@@ -3344,6 +3350,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::HexLiteral { raw } => EventValue {
             value_type: String::from("HexLiteral"),
@@ -3351,6 +3358,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::SeparatorLiteral { raw } => EventValue {
             value_type: String::from("SeparatorLiteral"),
@@ -3358,6 +3366,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.trim_start_matches('^').to_string())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
@@ -3365,6 +3374,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::RadixLiteral { raw } => EventValue {
             value_type: String::from("RadixLiteral"),
@@ -3372,6 +3382,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.trim_start_matches('%').to_string())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::DateLiteral { raw } => EventValue {
             value_type: String::from("DateLiteral"),
@@ -3379,6 +3390,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::DateTimeLiteral { raw } => EventValue {
             value_type: String::from("DateTimeLiteral"),
@@ -3386,6 +3398,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::TimeLiteral { raw } => EventValue {
             value_type: String::from("TimeLiteral"),
@@ -3393,6 +3406,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::NodeLiteral { raw, .. } => EventValue {
             value_type: String::from("NodeLiteral"),
@@ -3400,6 +3414,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: Some(JsonValue::String(raw.clone())),
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::ListNode { items } => EventValue {
             value_type: String::from("ListNode"),
@@ -3407,6 +3422,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
+            bindings: Vec::new(),
         },
         Value::TupleLiteral { items } => EventValue {
             value_type: String::from("TupleLiteral"),
@@ -3414,6 +3430,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
+            bindings: Vec::new(),
         },
         Value::ObjectNode { .. } => EventValue {
             value_type: String::from("ObjectNode"),
@@ -3421,6 +3438,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::CloneReference { segments, .. } => EventValue {
             value_type: String::from("CloneReference"),
@@ -3430,6 +3448,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             )),
             path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::PointerReference { segments, .. } => EventValue {
             value_type: String::from("PointerReference"),
@@ -3439,6 +3458,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             )),
             path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
     }
 }
@@ -3455,6 +3475,7 @@ fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
                 value: None,
                 path: None,
                 elements: Vec::new(),
+                bindings: Vec::new(),
             }),
         datatype: entry.datatype.clone(),
         annotations: entry
@@ -5608,7 +5629,7 @@ mod tests {
             r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
         )
         .expect("schema");
-        fs::write(&input, "line:set[|] = ^0|0|0|\n").expect("input");
+        fs::write(&input, "line:sep[|] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),
@@ -5645,7 +5666,7 @@ mod tests {
             r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
         )
         .expect("schema");
-        fs::write(&input, "line:set[|] = ^0|0|0|\n").expect("input");
+        fs::write(&input, "line:sep[|] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),

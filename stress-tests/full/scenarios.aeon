@@ -290,7 +290,7 @@ test010:o = {
 	Field: Names
 	Type: sep
 	Alternative names: none
-	Reserved: set
+	Reserved: kadot
 #/
 
 test011:o = {
@@ -300,16 +300,16 @@ test011:o = {
 	sep4:sep[-] = ^1-2-3
 	sep5:sep[:] = ^10:20:30
 	sep6:sep = ^"usr/local/bin"
-	sep7:set = ^100x200y300z
+	sep7:kadot = ^3.14.15
 	sep8:sep = ^hello
 	sep9:sep[;] = ^one;two;three
 	sep10:sep[.] = ^93.2.3.3, sep11:sep[x] = ^800x600, sep12:sep[-] = ^2025-01-01
-	sep13:set[x] = ^100x200y300z
+	sep13:sep[x] = ^100x200y300z
 
-	sep14:set[|] = ^"one"|"two"|"three"|"four"
-		sep15:set[|] = ^"one"|"two"|"threefour"|"five"
+	sep14:sep[|] = ^"one"|"two"|"three"|"four"
+		sep15:sep[|] = ^"one"|"two"|"threefour"|"five"
 
-	sep16:set[|] = ^one|two|three|"four five"
+	sep16:sep[|] = ^one|two|three|"four five"
 
 }
 
@@ -341,7 +341,7 @@ test012:o = {
 
 	}
 	o4:obj = {
-		l:list = [ { a:string = "1", b:set=^12.23.23, c:string = "333"}]
+		l:list = [ { a:string = "1", b:kadot=^12.23.23, c:string = "333"}]
 		n1:node = <a>
 		n2:node = <a (
 				<title ("hello")>
@@ -606,7 +606,7 @@ test018:o = {
 */
 
 test019:o = {
-	quoted_attr_source@{meta = { "x.y":number = 1 }}:number = 0
+	quoted_attr_source@{meta:object = { "x.y":number = 1 }}:number = 0
 	quoted_attr_clone:number = ~test019.quoted_attr_source@meta.["x.y"]
 	quoted_key_scope:o = {
 		"a.b":string = "hello"

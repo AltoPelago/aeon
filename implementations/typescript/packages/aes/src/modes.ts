@@ -1055,7 +1055,7 @@ const ENCODING_TYPES = new Set([
 
 const SEPARATOR_TYPES = new Set([
     'sep',
-    'set',
+    'kadot',
 ]);
 
 const OBJECT_TYPES = new Set([

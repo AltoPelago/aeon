@@ -432,24 +432,24 @@ describe('Core - compile()', () => {
         });
 
         it('should accept raw separator payloads that stay within the whitelist', () => {
-            const result = compile('a:set[|] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep[|] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
         it('should accept quoted separator segments with spaces and punctuation', () => {
-            const result = compile('a:set[|] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep[|] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
         it('should reject unterminated quoted sections inside separator literal payload', () => {
-            const result = compile('a:set[|] = ^"0;0', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep[|] = ^"0;0', { maxSeparatorDepth: 8 });
             assert.ok(result.errors.some((e) => e.code === 'UNTERMINATED_STRING'));
         });
 
         it('should terminate raw separator payloads before comment syntax resumes', () => {
-            const result = compile('a:set[|] = ^aaa // d', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep[|] = ^aaa // d', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
@@ -748,10 +748,28 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.events.length, 1);
         });
 
-        it('should allow unparameterized reserved set datatypes with caret literals', () => {
-            const result = compile('blue:set = ^200');
+        it('should allow unparameterized reserved kadot datatypes with caret literals', () => {
+            const result = compile('semver:kadot = ^3.14.15');
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
+        });
+
+        it('should leave kadot payload shape enforcement outside Core', () => {
+            const result = compile('dimensions:kadot = ^300x250');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+        });
+
+        it('should treat set as a custom datatype in strict mode', () => {
+            const result = compile('aeon:mode = "strict"\nblue:set = ^200');
+            assert.strictEqual(result.events.length, 0);
+            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
+        });
+
+        it('should allow set as a custom datatype when custom datatypes are enabled', () => {
+            const result = compile('aeon:mode = "strict"\nblue:set = ^200', { datatypePolicy: 'allow_custom' });
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.some((event) => event.key === 'blue' && event.datatype === 'set'));
         });
 
         it('should reject separator literals whose payload is split onto the next line', () => {

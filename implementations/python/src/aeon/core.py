@@ -121,7 +121,7 @@ RESERVED_KIND_MAP = {
     "radix8": ("RadixLiteral",),
     "radix12": ("RadixLiteral",),
     "sep": ("SeparatorLiteral",),
-    "set": ("SeparatorLiteral",),
+    "kadot": ("SeparatorLiteral",),
 }
 
 NUMERIC_TYPES = {
@@ -268,7 +268,12 @@ def resolve_binding(
 def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[str]) -> None:
     value = unwrap_typed_value(value)
     if isinstance(value, ObjectNode):
+        local_keys: set[str] = set()
         for binding in value.bindings:
+            if binding.key in local_keys:
+                errors.append(AeonError(message=f"Duplicate key: '{binding.key}'", span=binding.span, code="DUPLICATE_KEY"))
+                continue
+            local_keys.add(binding.key)
             resolve_binding(binding, parent, bindings, errors, seen)
         return
     if isinstance(value, (ListNode, TupleLiteral)):

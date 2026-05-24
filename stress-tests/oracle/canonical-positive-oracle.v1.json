@@ -1727,7 +1727,7 @@
           "$.a"
         ],
         "datatypes": {
-          "$.a": "set[.]"
+          "$.a": "sep[.]"
         }
       }
     },
@@ -2400,7 +2400,7 @@
     {
       "id": "canonical-strict-0114",
       "kind": "compile",
-      "source": "s:set[.] = ^00.00;00",
+      "source": "s:sep[.] = ^00.00;00",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2413,7 +2413,7 @@
           "$.s"
         ],
         "datatypes": {
-          "$.s": "set[.]"
+          "$.s": "sep[.]"
         }
       }
     },
@@ -5408,7 +5408,7 @@
     {
       "id": "canonical-custom-0029",
       "kind": "compile",
-      "source": "s:set[.] = ^0.34.22",
+      "source": "s:sep[.] = ^0.34.22",
       "mode": "custom",
       "source_ref": "positive-custom.aeon-cases",
       "options": {
@@ -5421,14 +5421,14 @@
           "$.s"
         ],
         "datatypes": {
-          "$.s": "set[.]"
+          "$.s": "sep[.]"
         }
       }
     },
     {
       "id": "canonical-custom-0030",
       "kind": "compile",
-      "source": "s:set[:] = ^0:0.0",
+      "source": "s:sep[:] = ^0:0.0",
       "mode": "custom",
       "source_ref": "positive-custom.aeon-cases",
       "options": {
@@ -5441,14 +5441,14 @@
           "$.s"
         ],
         "datatypes": {
-          "$.s": "set[:]"
+          "$.s": "sep[:]"
         }
       }
     },
     {
       "id": "canonical-custom-0031",
       "kind": "compile",
-      "source": "s:set[2] = ^o2o2o",
+      "source": "s:sep[2] = ^o2o2o",
       "mode": "custom",
       "source_ref": "positive-custom.aeon-cases",
       "options": {
@@ -5461,7 +5461,7 @@
           "$.s"
         ],
         "datatypes": {
-          "$.s": "set[2]"
+          "$.s": "sep[2]"
         }
       }
     },

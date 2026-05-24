@@ -105,6 +105,47 @@ pub(crate) fn validate_duplicate_canonical_paths(
     }
 }
 
+pub(crate) fn validate_duplicate_object_member_keys(
+    bindings: &[Binding],
+    errors: &mut Vec<Diagnostic>,
+) {
+    for binding in bindings {
+        validate_duplicate_object_member_keys_in_value(&binding.value, errors);
+    }
+}
+
+fn validate_duplicate_object_member_keys_in_value(value: &Value, errors: &mut Vec<Diagnostic>) {
+    match value {
+        Value::ObjectNode { bindings } => {
+            let mut seen = HashSet::new();
+            for binding in bindings {
+                if !seen.insert(binding.key.clone()) {
+                    errors.push(
+                        Diagnostic::new(
+                            "DUPLICATE_KEY",
+                            format!("Duplicate key: '{}'", binding.key),
+                        )
+                        .at_path("$")
+                        .with_span(binding.span),
+                    );
+                }
+                validate_duplicate_object_member_keys_in_value(&binding.value, errors);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for item in items {
+                validate_duplicate_object_member_keys_in_value(item, errors);
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            for child in children {
+                validate_duplicate_object_member_keys_in_value(child, errors);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn key_from_path(path: &str) -> String {
     if let Some(start) = path.rfind(".[") {
         let segment = &path[start + 2..];
@@ -1093,7 +1134,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "datetime"
             | "zrut"
             | "sep"
-            | "set"
+            | "kadot"
             | "tuple"
             | "list"
             | "object"
@@ -1124,7 +1165,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "date" => Some(vec!["DateLiteral"]),
         "time" => Some(vec!["TimeLiteral"]),
         "datetime" | "zrut" => Some(vec!["DateTimeLiteral"]),
-        "sep" | "set" => Some(vec!["SeparatorLiteral"]),
+        "sep" | "kadot" => Some(vec!["SeparatorLiteral"]),
         "tuple" => Some(vec!["TupleLiteral"]),
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
@@ -1282,7 +1323,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
         "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
         "sep" => matches!(value, Value::SeparatorLiteral { .. }),
-        "set" => matches!(value, Value::SeparatorLiteral { .. }),
+        "kadot" => matches!(value, Value::SeparatorLiteral { .. }),
         "tuple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
@@ -1402,8 +1443,8 @@ mod tests {
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
-        assert_eq!(datatype_bracket_specs("set[<]"), vec!["<"]);
-        assert_eq!(datatype_bracket_specs("set[>]"), vec![">"]);
+        assert_eq!(datatype_bracket_specs("sep[<]"), vec!["<"]);
+        assert_eq!(datatype_bracket_specs("sep[>]"), vec![">"]);
         assert_eq!(separator_spec_depth("outer<inner[.]>[x]"), 1);
         assert_eq!(separator_spec_depth("outer<inner[.]>[22]"), 1);
     }

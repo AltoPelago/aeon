@@ -1764,7 +1764,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
-const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
+const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([
@@ -1775,7 +1775,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'hex', 'date', 'time', 'datetime', 'zrut',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',
-    'sep', 'set',
+    'sep', 'kadot',
     'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 

@@ -855,7 +855,7 @@ describe('Parser', () => {
         });
 
         it('should keep quoted separator segments intact', () => {
-            const tokens = tokenize('line:set[|] = ^"hello world"|"this, [is] fine"').tokens;
+            const tokens = tokenize('line:sep[|] = ^"hello world"|"this, [is] fine"').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
@@ -867,7 +867,7 @@ describe('Parser', () => {
         });
 
         it('should allow semicolon inside raw separator literal payload', () => {
-            const tokens = tokenize('line:set[|] = ^0|0|0;0|0').tokens;
+            const tokens = tokenize('line:sep[|] = ^0|0|0;0|0').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
@@ -903,7 +903,7 @@ describe('Parser', () => {
         });
 
         it('should reject bracket separator chars', () => {
-            const tokens = tokenize('x:set[[] = ^1').tokens;
+            const tokens = tokenize('x:sep[[] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -911,7 +911,7 @@ describe('Parser', () => {
         });
 
         it('should reject comma separator chars', () => {
-            const tokens = tokenize('x:set[,] = ^1').tokens;
+            const tokens = tokenize('x:sep[,] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -927,7 +927,7 @@ describe('Parser', () => {
         });
 
         it('should reject slash separator chars', () => {
-            const tokens = tokenize('x:set[/] = ^1').tokens;
+            const tokens = tokenize('x:sep[/] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -943,7 +943,7 @@ describe('Parser', () => {
         });
 
         it('should reject multi-character separator specs', () => {
-            const tokens = tokenize('x:set[ab] = ^1').tokens;
+            const tokens = tokenize('x:sep[ab] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);

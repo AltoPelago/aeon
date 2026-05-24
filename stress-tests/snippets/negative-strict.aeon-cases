@@ -47,7 +47,7 @@ badGeneric1:tuple<> = (1)
 ---
 badGeneric2:tuple<int32,> = (1)
 ---
-badGeneric3:set<string>[ab] = ^x
+badGeneric3:sep<string>[ab] = ^x
 ---
 badNode:node = <tag("x")
 ---
@@ -336,7 +336,7 @@ a:n = = 0
 ---
 a:m<n>[2] = 2
 ---
-a:set<set>[.] = ^0,0
+a:sep<sep>[.] = ^0,0
 ---
 a:radix<radix>[16] = %ff
 ---

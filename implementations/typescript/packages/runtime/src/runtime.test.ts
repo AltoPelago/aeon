@@ -266,7 +266,7 @@ test('runtime enforces maxSeparatorDepth and allows override', () => {
 
 test('runtime forwards trailing separator delimiter policy into schema validation', () => {
     const schema: SchemaV1 = { rules: [] };
-    const input = 'line:set[|] = ^0|0|0|';
+    const input = 'line:sep[|] = ^0|0|0|';
 
     const warned = runRuntime(input, {
         schema,

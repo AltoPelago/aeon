@@ -269,7 +269,7 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual("ObjectNode", result.events[0]["value"]["type"])
 
     def test_reserved_separator_aliases_allowed_in_strict_mode(self) -> None:
-        for datatype in ("sep", "set"):
+        for datatype in ("sep",):
             with self.subTest(datatype=datatype):
                 source = f'aeon:mode = "strict"\nvalue:{datatype}[|] = ^a|b'
                 result = compile_source(source)
@@ -278,13 +278,13 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
     def test_reserved_slash_separator_specs_are_rejected(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nvalue:set[/] = ^000.000')
+        result = compile_source('aeon:mode = "strict"\nvalue:sep[/] = ^000.000')
         self.assertEqual(["INVALID_SEPARATOR_CHAR"], [error.code for error in result.errors])
 
     def test_reserved_caret_separator_specs_are_allowed(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nleft:set[^] = ^a^b\nright:sep[^] = ^a^b')
+        result = compile_source('aeon:mode = "strict"\nleft:sep[^] = ^a^b\nright:sep[^] = ^a^b')
         self.assertEqual([], result.errors)
-        self.assertEqual("set[^]", result.events[0]["datatype"])
+        self.assertEqual("sep[^]", result.events[0]["datatype"])
         self.assertEqual("sep[^]", result.events[1]["datatype"])
 
     def test_infinity_datatype_is_allowed_in_typed_modes(self) -> None:
@@ -657,8 +657,12 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue:sep = ^200")
         self.assertEqual([], [error.code for error in result.errors])
 
-    def test_unparameterized_set_datatype_accepts_caret_payload(self) -> None:
-        result = compile_source("blue:set = ^200")
+    def test_unparameterized_kadot_datatype_accepts_caret_payload(self) -> None:
+        result = compile_source("semver:kadot = ^3.14.15")
+        self.assertEqual([], [error.code for error in result.errors])
+
+    def test_core_does_not_enforce_kadot_shape(self) -> None:
+        result = compile_source("dimensions:kadot = ^300x250")
         self.assertEqual([], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:

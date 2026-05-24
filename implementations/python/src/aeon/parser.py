@@ -52,7 +52,7 @@ from .lexer import Token
 from .spans import Span
 
 GENERIC_V1_DATATYPES = {"list", "tuple"}
-BRACKETED_V1_DATATYPES = {"sep", "set", "radix"}
+BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
@@ -61,7 +61,7 @@ RESERVED_V1_DATATYPES = {
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
-    "sep", "set",
+    "sep", "kadot",
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
 
@@ -283,11 +283,15 @@ class Parser:
             key = self.key_from_token(key_token)
             if key in RESERVED_ATTRIBUTE_KEYS:
                 raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
+            if key in entries:
+                raise AeonError(message=f"Duplicate key: '{key}'", span=key_token.span, code="DUPLICATE_KEY")
             self.skip_layout()
             attributes: list[Attribute] = []
-            while self.check("AT"):
+            if self.check("AT"):
                 attributes.append(self.parse_attribute(depth + 1))
                 self.skip_layout()
+                if self.check("AT"):
+                    raise SyntaxError("Only one attribute block is allowed before an attribute entry datatype", self.peek().span)
             datatype: TypeAnnotation | None = None
             if self.check("COLON"):
                 self.advance()
@@ -573,7 +577,8 @@ class Parser:
         bindings: list[Binding] = []
         self.skip_layout()
         while not self.check("RBRACE"):
-            bindings.append(self.parse_binding())
+            binding = self.parse_binding()
+            bindings.append(binding)
             self.consume_member_delimiter("RBRACE", "Expected object member delimiter")
         end = self.consume("RBRACE", "Expected '}' to close object").span.end
         return ObjectNode(bindings=bindings, attributes=[], span=Span(start=start, end=end))

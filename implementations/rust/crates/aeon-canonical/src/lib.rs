@@ -1083,7 +1083,7 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         ));
     }
 
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
         return Err(format!(
             "Datatype `{base}` does not support bracket specifiers in v1"
         ));
@@ -1165,7 +1165,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "rfc3339"
             | "separated"
             | "sep"
-            | "set"
+            | "kadot"
             | "string"
             | "str"
             | "text"

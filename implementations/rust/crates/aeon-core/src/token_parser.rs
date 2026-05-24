@@ -351,7 +351,7 @@ impl<'a> TokenParser<'a> {
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
             if is_reserved_v1_datatype(&datatype_name)
-                && !matches!(datatype_name.as_str(), "sep" | "set" | "radix")
+                && !matches!(datatype_name.as_str(), "sep" | "radix")
             {
                 return Err(Diagnostic {
                     code: String::from("SYNTAX_ERROR"),
@@ -1452,7 +1452,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
             message: format!("Datatype `{base}` does not support generic arguments in v1"),
         });
     }
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -1543,7 +1543,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "radix8"
             | "radix12"
             | "sep"
-            | "set"
+            | "kadot"
             | "tuple"
             | "list"
             | "object"
