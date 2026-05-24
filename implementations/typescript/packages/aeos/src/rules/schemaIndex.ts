@@ -192,6 +192,32 @@ function validateConstraintTree(
         return false;
     }
 
+    if (constraints.any_of !== undefined) {
+        if (!Array.isArray(constraints.any_of) || constraints.any_of.length === 0) {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `Invalid any_of constraint for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+        for (const [index, branch] of constraints.any_of.entries()) {
+            if (branch === null || typeof branch !== 'object' || Array.isArray(branch)) {
+                emitError(ctx, createDiag(
+                    `${rulePath}.any_of[${index}]`,
+                    null,
+                    `Invalid any_of branch for path ${rulePath}`,
+                    ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+                ));
+                return false;
+            }
+            if (!validateConstraintTree(schema, `${rulePath}.any_of[${index}]`, branch as Record<string, unknown>, ctx)) {
+                return false;
+            }
+        }
+    }
+
     for (const key of ['min_children', 'max_children', 'length_exact', 'radix'] as const) {
         const value = constraints[key];
         if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
@@ -266,6 +292,14 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
             null,
             `Invalid schema reference_policy: ${String(schema.reference_policy)}`,
             ErrorCodes.INVALID_REFERENCE_CONSTRAINT
+        ));
+    }
+    if (schema.attribute_policy !== undefined && !['inherit_world', 'forbid'].includes(schema.attribute_policy)) {
+        emitError(ctx, createDiag(
+            '$',
+            null,
+            `Invalid schema attribute_policy: ${String(schema.attribute_policy)}`,
+            ErrorCodes.INVALID_SCHEMA_POLICY
         ));
     }
 

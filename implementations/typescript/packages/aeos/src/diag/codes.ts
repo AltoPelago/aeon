@@ -22,6 +22,7 @@ export const ErrorCodes = {
     RULE_MISSING_PATH: 'rule_missing_path',
     DUPLICATE_RULE_PATH: 'duplicate_rule_path',
     UNKNOWN_CONSTRAINT_KEY: 'unknown_constraint_key',
+    INVALID_SCHEMA_POLICY: 'invalid_schema_policy',
     INVALID_REFERENCE_CONSTRAINT: 'invalid_reference_constraint',
 
     // Presence checks (Phase 4)

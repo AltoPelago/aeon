@@ -16,6 +16,9 @@ export interface ConstraintsV1 {
     /** Expected literal kind (StringLiteral, IntegerLiteral, etc.) */
     readonly type?: string;
 
+    /** Accept when any listed constraint branch matches */
+    readonly any_of?: readonly ConstraintsV1[];
+
     /** Allow NullLiteral to satisfy this type constraint */
     readonly nullable?: boolean;
 
@@ -119,6 +122,9 @@ export interface SchemaV1 {
     /** Optional schema-wide reference policy */
     readonly reference_policy?: 'allow' | 'forbid';
 
+    /** Optional schema-wide attribute policy */
+    readonly attribute_policy?: 'inherit_world' | 'forbid';
+
     /** Optional datatype-wide constraints keyed by datatype base label */
     readonly datatype_rules?: Readonly<Record<string, ConstraintsV1>>;
 }
@@ -129,6 +135,7 @@ export interface SchemaV1 {
 export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'required',
     'type',
+    'any_of',
     'nullable',
     'allow_infinity',
     'allow_nan',

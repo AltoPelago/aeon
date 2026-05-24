@@ -178,6 +178,7 @@ struct AttributeInfo {
 const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "required",
     "type",
+    "any_of",
     "nullable",
     "allow_infinity",
     "allow_nan",
@@ -348,19 +349,22 @@ fn validate_inner(
     check_reference_forms(schema, &rule_index, &events_by_path, &mut ctx);
     let effective_events_by_path =
         resolve_reference_form_events(&effective_rule_index, &events_by_path);
-    check_types(&effective_rule_index, &effective_events_by_path, &mut ctx);
+    let expanded_rule_index = expand_wildcard_rules(&effective_rule_index, &effective_events_by_path);
+    let selected_rule_index =
+        select_any_of_rules(&expanded_rule_index, &effective_events_by_path, &mut ctx);
+    check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
     check_tuple_arity(
         &effective_rule_index,
         &container_arity,
         &effective_events_by_path,
         &mut ctx,
     );
-    check_literal_lexical_constraints(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_numeric_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_string_form(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_patterns(&effective_rule_index, &effective_events_by_path, &mut ctx);
+    check_literal_lexical_constraints(&selected_rule_index, &effective_events_by_path, &mut ctx);
+    check_numeric_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+    check_string_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+    check_patterns(&selected_rule_index, &effective_events_by_path, &mut ctx);
     check_attribute_constraints(
-        &rule_index,
+        &selected_rule_index,
         &effective_events_by_path,
         &schema.datatype_rules,
         &mut ctx,
@@ -495,6 +499,55 @@ fn validate_constraint_tree(
 
     if !validate_reference_constraints(schema, path, constraints, ctx) {
         return false;
+    }
+
+    if let Some(any_of) = constraints.get("any_of") {
+        let Some(branches) = any_of.as_array() else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        };
+        if branches.is_empty() {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+        for (index, branch) in branches.iter().enumerate() {
+            let Some(branch_constraints) = branch.as_object() else {
+                emit_error(
+                    ctx,
+                    ValidationDiagnostic {
+                        path: Some(format!("{path}.any_of[{index}]")),
+                        code: String::from("unknown_constraint_key"),
+                        phase: String::from("schema_validation"),
+                        span: None,
+                    },
+                );
+                return false;
+            };
+            if !validate_constraint_tree(
+                schema,
+                &format!("{path}.any_of[{index}]"),
+                branch_constraints,
+                ctx,
+            ) {
+                return false;
+            }
+        }
     }
 
     let Some(JsonValue::Object(attribute_rules)) = constraints.get("attributes") else {
@@ -739,6 +792,7 @@ fn check_presence(
             .get("required")
             .and_then(JsonValue::as_bool)
             .unwrap_or(false)
+            && !path.contains("[*]")
             && !bound_paths.contains(path)
         {
             emit_error(
@@ -1667,7 +1721,11 @@ fn check_world_policy(
             continue;
         }
         let path = format_canonical_path(&event.path);
-        if !bound_paths.contains(&path) || allowed_paths.contains(&path) {
+        if !bound_paths.contains(&path)
+            || allowed_paths
+                .iter()
+                .any(|allowed_path| matches_allowed_path(&path, allowed_path))
+        {
             continue;
         }
         emit_error(
@@ -1791,6 +1849,189 @@ fn resolve_reference_form_events(
         resolved.insert(path.clone(), effective);
     }
     resolved
+}
+
+fn expand_wildcard_rules(
+    rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+) -> BTreeMap<String, JsonValue> {
+    let mut expanded = rule_index.clone();
+    for (path, constraints) in rule_index {
+        if !path.contains("[*]") {
+            continue;
+        }
+        expanded.remove(path);
+        for actual_path in events_by_path.keys() {
+            if matches_allowed_path(actual_path, path) {
+                expanded.insert(actual_path.clone(), constraints.clone());
+            }
+        }
+    }
+    expanded
+}
+
+fn select_any_of_rules(
+    rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) -> BTreeMap<String, JsonValue> {
+    let mut selected = rule_index.clone();
+    for (path, constraints) in rule_index {
+        let Some(branches) = constraints.get("any_of").and_then(JsonValue::as_array) else {
+            continue;
+        };
+        let Some(event) = events_by_path.get(path) else {
+            continue;
+        };
+        let mut outer = constraints.clone();
+        if let JsonValue::Object(map) = &mut outer {
+            map.remove("any_of");
+        }
+        let Some(branch) = branches
+            .iter()
+            .find(|branch| constraint_branch_matches_event(branch, event))
+        else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("type_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+            selected.insert(path.clone(), outer);
+            continue;
+        };
+        selected.insert(path.clone(), merge_constraints(&outer, branch));
+    }
+    selected
+}
+
+fn merge_constraints(outer: &JsonValue, branch: &JsonValue) -> JsonValue {
+    let mut merged = outer.as_object().cloned().unwrap_or_default();
+    if let Some(branch_map) = branch.as_object() {
+        for (key, value) in branch_map {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    JsonValue::Object(merged)
+}
+
+fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -> bool {
+    if let Some(expected_container) = constraints.get("type_is").and_then(JsonValue::as_str) {
+        let ok = match expected_container {
+            "list" => matches!(event.value_type.as_str(), "ListLiteral" | "ListNode"),
+            "tuple" => event.value_type == "TupleLiteral",
+            _ => true,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
+        && !type_matches(expected_type, &event.value_type, constraints)
+    {
+        return false;
+    }
+    if let Some(expected_datatype) = constraints.get("datatype").and_then(JsonValue::as_str)
+        && event.datatype.as_deref() != Some(expected_datatype)
+    {
+        return false;
+    }
+    if event.value_type == "NullLiteral"
+        && !null_value_matches(
+            event
+                .value
+                .as_ref()
+                .and_then(JsonValue::as_str)
+                .unwrap_or_default(),
+            constraints,
+        )
+    {
+        return false;
+    }
+    if event.value_type == "ToggleLiteral"
+        && let Some(pair) = constraints.get("toggle_pair").and_then(JsonValue::as_str)
+        && pair != "any"
+    {
+        let raw = event.raw.to_lowercase();
+        let allowed = match pair {
+            "yes_no" => matches!(raw.as_str(), "yes" | "no"),
+            "on_off" => matches!(raw.as_str(), "on" | "off"),
+            _ => true,
+        };
+        if !allowed {
+            return false;
+        }
+    }
+    if event.value_type == "StringLiteral" {
+        let value = event
+            .value
+            .as_ref()
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64)
+            && value.encode_utf16().count() < min_length as usize
+        {
+            return false;
+        }
+        if let Some(max_length) = constraints.get("max_length").and_then(JsonValue::as_u64)
+            && value.encode_utf16().count() > max_length as usize
+        {
+            return false;
+        }
+        if let Some(pattern) = constraints.get("pattern").and_then(JsonValue::as_str)
+            && Regex::new(pattern).map_or(false, |regex| !regex.is_match(value))
+        {
+            return false;
+        }
+    }
+    if has_digit_form_constraints(constraints) && is_digit_form_literal(&event.value_type) {
+        let digit_count = count_form_digits(&event.value_type, &event.raw);
+        if constraints.get("sign").and_then(JsonValue::as_str) == Some("unsigned")
+            && is_form_negative(&event.raw)
+        {
+            return false;
+        }
+        if let Some(min_digits) = constraints.get("min_digits").and_then(JsonValue::as_u64)
+            && digit_count < min_digits as usize
+        {
+            return false;
+        }
+        if let Some(max_digits) = constraints.get("max_digits").and_then(JsonValue::as_u64)
+            && digit_count > max_digits as usize
+        {
+            return false;
+        }
+        if event.value_type == "RadixLiteral"
+            && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
+            && first_invalid_radix_digit(&event.raw, radix as usize).is_some()
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
+    if actual_path == allowed_path {
+        return true;
+    }
+    if !allowed_path.contains("[*]") {
+        return false;
+    }
+    let pattern = format!(
+        "^{}$",
+        allowed_path
+            .split("[*]")
+            .map(regex::escape)
+            .collect::<Vec<_>>()
+            .join(r"\[\d+\]")
+    );
+    Regex::new(&pattern)
+        .map(|regex| regex.is_match(actual_path))
+        .unwrap_or(false)
 }
 
 fn resolve_terminal_reference_event(
@@ -1956,6 +2197,13 @@ fn is_digit_form_literal(value_type: &str) -> bool {
             | "RadixLiteral"
             | "SeparatorLiteral"
     )
+}
+
+fn has_digit_form_constraints(constraints: &JsonValue) -> bool {
+    constraints.get("sign").is_some()
+        || constraints.get("min_digits").is_some()
+        || constraints.get("max_digits").is_some()
+        || constraints.get("radix").is_some()
 }
 
 fn count_form_digits(value_type: &str, raw: &str) -> usize {
@@ -2264,6 +2512,56 @@ mod tests {
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert!(envelope.ok);
+    }
+
+    #[test]
+    fn wildcard_rules_apply_to_indexed_children_without_requiring_placeholder() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "contact" }, { "type": "member", "key": "measurements" } ] },
+              "key": "measurements",
+              "value": { "type": "ListNode", "elements": [] },
+              "span": [1, 8]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "contact" }, { "type": "member", "key": "measurements" }, { "type": "index", "index": 0 } ] },
+              "key": "0",
+              "value": { "type": "NumberLiteral", "raw": "3", "value": "3" },
+              "span": [2, 3]
+            }
+          ],
+          "schema": {
+            "rules": [
+              {
+                "path": "$.contact.measurements[*]",
+                "constraints": { "required": true, "type": "NumberLiteral" }
+              }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(envelope.ok);
+        assert!(envelope.errors.is_empty());
+
+        let failing_payload = payload.replace(
+            "\"constraints\": { \"required\": true, \"type\": \"NumberLiteral\" }",
+            "\"constraints\": { \"required\": true, \"type\": \"StringLiteral\" }",
+        );
+        let failing_parsed =
+            validate_cts_payload(&failing_payload).expect("failing payload should validate");
+        let failing: ResultEnvelope =
+            serde_json::from_str(&failing_parsed).expect("failing result JSON");
+        assert!(failing.errors.iter().any(|error| {
+            error.code == "type_mismatch"
+                && error.path.as_deref() == Some("$.contact.measurements[0]")
+        }));
+        assert!(!failing.errors.iter().any(|error| {
+            error.code == "missing_required_field"
+                && error.path.as_deref() == Some("$.contact.measurements[*]")
+        }));
     }
 
     #[test]

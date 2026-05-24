@@ -58,6 +58,26 @@ class AeosTests(unittest.TestCase):
         result = validate_events(compiled.events, {"rules": [{"path": "$.page[0]", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
+    def test_wildcard_rules_apply_to_indexed_children_without_requiring_placeholder(self) -> None:
+        compiled = compile_source("contact:object = { measurements:list<number> = [3, 4, 5] }")
+        self.assertEqual([], compiled.errors)
+        result = validate_events(compiled.events, {"rules": [{"path": "$.contact.measurements[*]", "constraints": {"required": True, "type": "NumberLiteral"}}]})
+        self.assertTrue(result["ok"])
+        self.assertEqual([], result["errors"])
+
+        failing = validate_events(compiled.events, {"rules": [{"path": "$.contact.measurements[*]", "constraints": {"required": True, "type": "StringLiteral"}}]})
+        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.contact.measurements[0]" for error in failing["errors"]))
+        self.assertFalse(any(error["code"] == "missing_required_field" and error["path"] == "$.contact.measurements[*]" for error in failing["errors"]))
+
+    def test_wildcard_rules_accept_any_matching_constraint_branch(self) -> None:
+        aes = [
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "page"}, {"type": "index", "index": 0}]}, "key": "0", "value": {"type": "StringLiteral", "raw": '"Intro"', "value": "Intro"}, "span": [1, 2]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "page"}, {"type": "index", "index": 1}]}, "key": "1", "value": {"type": "NodeLiteral", "tag": "section", "children": []}, "span": [3, 4]},
+        ]
+        result = validate(aes, {"rules": [{"path": "$.page[*]", "constraints": {"required": True, "any_of": [{"type": "StringLiteral"}, {"type": "NodeLiteral"}]}}]})
+        self.assertTrue(result["ok"])
+        self.assertEqual([], result["errors"])
+
     def test_requires_attribute_entries_when_declared_in_schema(self) -> None:
         compiled = compile_source("value:number = 3")
         self.assertEqual([], compiled.errors)

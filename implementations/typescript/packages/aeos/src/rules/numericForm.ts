@@ -104,34 +104,32 @@ export function checkNumericForm(
         }
 
         if (min_value !== undefined || max_value !== undefined) {
-            const normalized = normalizeIntegerLiteral(raw);
-            if (!normalized) {
+            const range = normalizeRangeLiteral(event.type, raw);
+            if (!range) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Numeric form violation: exact integer range constraints require integer literal form`,
+                    `Numeric form violation: range constraints require numeric literal form`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
 
-            const numeric = BigInt(normalized);
-
-            if (min_value !== undefined && numeric < BigInt(min_value)) {
+            if (min_value !== undefined && isBelowRange(range, min_value)) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Numeric form violation: expected value >= ${min_value}, got ${normalized}`,
+                    `Numeric form violation: expected value >= ${min_value}, got ${range.raw}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
 
-            if (max_value !== undefined && numeric > BigInt(max_value)) {
+            if (max_value !== undefined && isAboveRange(range, max_value)) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Numeric form violation: expected value <= ${max_value}, got ${normalized}`,
+                    `Numeric form violation: expected value <= ${max_value}, got ${range.raw}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
             }
@@ -180,7 +178,33 @@ function radixDigitValue(char: string): number | null {
     return null;
 }
 
-function normalizeIntegerLiteral(raw: string): string | null {
-    if (!/^[+-]?\d[\d_]*$/.test(raw)) return null;
-    return raw.replace(/_/g, '');
+type NormalizedRange = { kind: 'integer'; raw: string; value: bigint } | { kind: 'float'; raw: string; value: number };
+
+function normalizeRangeLiteral(type: string, raw: string): NormalizedRange | null {
+    const normalized = raw.replace(/_/g, '');
+    if (type === 'FloatLiteral' || /[.eE]/.test(normalized)) {
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
+        const value = Number(normalized);
+        return Number.isFinite(value) ? { kind: 'float', raw: normalized, value } : null;
+    }
+    if (!/^[+-]?\d+$/.test(normalized)) return null;
+    return { kind: 'integer', raw: normalized, value: BigInt(normalized) };
+}
+
+function isBelowRange(range: NormalizedRange, bound: string): boolean {
+    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
+        return range.value < BigInt(bound);
+    }
+    return rangeAsNumber(range) < Number(bound);
+}
+
+function isAboveRange(range: NormalizedRange, bound: string): boolean {
+    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
+        return range.value > BigInt(bound);
+    }
+    return rangeAsNumber(range) > Number(bound);
+}
+
+function rangeAsNumber(range: NormalizedRange): number {
+    return range.kind === 'integer' ? Number(range.value) : range.value;
 }

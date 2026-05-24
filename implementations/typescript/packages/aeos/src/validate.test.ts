@@ -600,6 +600,103 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('applies wildcard item rules without requiring the wildcard placeholder path', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }] },
+                    key: 'measurements',
+                    value: { type: 'ListNode', elements: [], attributes: [], span: [3, 8] },
+                    span: [3, 8],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [4, 5] },
+                    span: [4, 5],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('checks wildcard item rules against each matching indexed path', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }] },
+                    key: 'measurements',
+                    value: { type: 'ListNode', elements: [], attributes: [], span: [1, 4] },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'StringLiteral', value: 'bad', raw: '"bad"', delimiter: '"', span: [2, 3] },
+                    span: [2, 3],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.contact.measurements[0]'));
+            assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.contact.measurements[*]'));
+        });
+
+        it('allows wildcard paths to accept any matching constraint branch', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'StringLiteral', value: 'Intro', raw: '"Intro"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 1 }] },
+                    key: '1',
+                    value: { type: 'NodeLiteral', tag: 'section', children: [], attributes: [], span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.page[*]',
+                        constraints: {
+                            required: true,
+                            any_of: [
+                                { type: 'StringLiteral' },
+                                { type: 'NodeLiteral' },
+                            ],
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('accepts indexed node-child paths in explicit rules', () => {
             const aes: AES = [
                 {
@@ -794,6 +891,117 @@ describe('validate()', () => {
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('lets attributes inherit closed-world schema rules', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                        ['extra', {
+                            value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [3, 4] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                attribute_policy: 'inherit_world',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                            attributes: {
+                                unit: { type: 'StringLiteral' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('uses inherit_world as the default attribute policy in closed-world schemas', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['extra', {
+                            value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [3, 4] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('forbids all attributes when schema attribute_policy is forbid', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                attribute_policy: 'forbid',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                            attributes: {
+                                unit: { type: 'StringLiteral' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
         });
 
         it('recurses into nested attribute entries', () => {

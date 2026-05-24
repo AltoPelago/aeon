@@ -9,6 +9,7 @@ from ._compat import dataclass
 KNOWN_CONSTRAINT_KEYS = {
     "required",
     "type",
+    "any_of",
     "nullable",
     "allow_infinity",
     "allow_nan",
@@ -156,7 +157,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     check_presence(rule_index, bound_paths, ctx)
     check_reference_forms(schema, rule_index, events_by_path, ctx)
     effective_events_by_path = resolve_reference_form_events(rule_index, events_by_path)
-    check_types(rule_index, effective_events_by_path, ctx)
+    expanded_rule_index = expand_wildcard_rules(rule_index, effective_events_by_path)
+    selected_rule_index = select_any_of_rules(expanded_rule_index, effective_events_by_path, ctx)
+    check_types(selected_rule_index, effective_events_by_path, ctx)
 
     for path, rule in rule_index.items():
         constraints = rule.get("constraints", {})
@@ -171,11 +174,11 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
         if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
             emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
 
-    check_literal_lexical_constraints(rule_index, effective_events_by_path, ctx)
-    check_numeric_form(rule_index, effective_events_by_path, ctx)
-    check_string_form(rule_index, effective_events_by_path, ctx)
-    check_patterns(rule_index, effective_events_by_path, ctx)
-    check_attribute_constraints(rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
+    check_literal_lexical_constraints(selected_rule_index, effective_events_by_path, ctx)
+    check_numeric_form(selected_rule_index, effective_events_by_path, ctx)
+    check_string_form(selected_rule_index, effective_events_by_path, ctx)
+    check_patterns(selected_rule_index, effective_events_by_path, ctx)
+    check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
     check_world_policy(schema, aes, bound_paths, ctx)
 
     if ctx.errors:
@@ -244,6 +247,18 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         return False
     if not validate_reference_constraints(schema, path, constraints, ctx):
         return False
+    any_of = constraints.get("any_of")
+    if any_of is not None:
+        if not isinstance(any_of, list) or len(any_of) == 0:
+            emit_error(ctx, create_diag(path, None, f"Invalid any_of constraint for path: {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+        for index, branch in enumerate(any_of):
+            branch_path = f"{path}.any_of[{index}]"
+            if not isinstance(branch, dict):
+                emit_error(ctx, create_diag(branch_path, None, f"Invalid any_of branch for path: {path}", ERROR_CODES["unknown_constraint_key"]))
+                return False
+            if not validate_constraint_tree(schema, branch_path, branch, ctx):
+                return False
     nested = constraints.get("attributes")
     if nested is None:
         return True
@@ -328,7 +343,7 @@ def validate_reference_constraints(
 def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
-        if isinstance(constraints, dict) and constraints.get("required") is True and path not in bound_paths:
+        if isinstance(constraints, dict) and constraints.get("required") is True and "[*]" not in path and path not in bound_paths:
             emit_error(ctx, create_diag(path, None, f"Missing required field: {path}", ERROR_CODES["missing_required_field"]))
 
 
@@ -694,7 +709,7 @@ def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], 
         if isinstance(key, str) and key.startswith("aeon:"):
             continue
         path = format_canonical_path(event.get("path"))
-        if path not in bound_paths or path in allowed_paths:
+        if path not in bound_paths or any(matches_allowed_path(path, allowed_path) for allowed_path in allowed_paths):
             continue
         emit_error(
             ctx,
@@ -758,6 +773,91 @@ def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], even
             continue
         resolved[path] = {**terminal, "span": event.get("span")}
     return resolved
+
+
+def expand_wildcard_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    expanded = dict(rule_index)
+    for path, rule in rule_index.items():
+        if "[*]" not in path:
+            continue
+        expanded.pop(path, None)
+        for actual_path in events:
+            if matches_allowed_path(actual_path, path):
+                expanded[actual_path] = rule
+    return expanded
+
+
+def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
+    selected = dict(rule_index)
+    for path, rule in rule_index.items():
+        constraints = rule.get("constraints")
+        if not isinstance(constraints, dict) or not isinstance(constraints.get("any_of"), list):
+            continue
+        event = events.get(path)
+        if not isinstance(event, dict):
+            continue
+        outer = {key: value for key, value in constraints.items() if key != "any_of"}
+        branch = next((candidate for candidate in constraints["any_of"] if isinstance(candidate, dict) and constraint_branch_matches_event(candidate, event)), None)
+        if branch is None:
+            emit_error(ctx, create_diag(path, event.get("span"), f"Value does not match any allowed constraint branch at {path}", ERROR_CODES["type_mismatch"]))
+            selected[path] = {**rule, "constraints": outer}
+            continue
+        selected[path] = {**rule, "constraints": {**outer, **branch}}
+    return selected
+
+
+def constraint_branch_matches_event(constraints: dict[str, object], event: dict[str, object]) -> bool:
+    actual_type = event.get("type")
+    if not isinstance(actual_type, str):
+        return False
+    expected_container = constraints.get("type_is")
+    if expected_container is not None:
+        ok = expected_container == "list" and actual_type in {"ListLiteral", "ListNode"} or expected_container == "tuple" and actual_type == "TupleLiteral"
+        if not ok:
+            return False
+    expected_type = constraints.get("type")
+    if isinstance(expected_type, str) and not type_matches(expected_type, actual_type, constraints):
+        return False
+    expected_datatype = constraints.get("datatype")
+    if isinstance(expected_datatype, str) and event.get("datatype") != expected_datatype:
+        return False
+    if actual_type == "NullLiteral" and not null_value_matches(str(event.get("value", "")), constraints):
+        return False
+    if actual_type == "ToggleLiteral" and isinstance(constraints.get("toggle_pair"), str) and constraints.get("toggle_pair") != "any":
+        raw = str(event.get("raw", "")).lower()
+        pair = constraints.get("toggle_pair")
+        if not (raw in {"yes", "no"} if pair == "yes_no" else raw in {"on", "off"} if pair == "on_off" else True):
+            return False
+    if actual_type == "StringLiteral":
+        value = str(event.get("value", ""))
+        length = len(value.encode("utf-16-le")) // 2
+        if isinstance(constraints.get("min_length"), int) and length < constraints["min_length"]:
+            return False
+        if isinstance(constraints.get("max_length"), int) and length > constraints["max_length"]:
+            return False
+        if isinstance(constraints.get("pattern"), str) and re.search(str(constraints["pattern"]), value) is None:
+            return False
+    if has_digit_form_constraints(constraints) and is_digit_form_literal(actual_type):
+        raw = str(event.get("raw", ""))
+        digit_count = count_form_digits(actual_type, raw)
+        if constraints.get("sign") == "unsigned" and is_form_negative(raw):
+            return False
+        if isinstance(constraints.get("min_digits"), int) and digit_count < constraints["min_digits"]:
+            return False
+        if isinstance(constraints.get("max_digits"), int) and digit_count > constraints["max_digits"]:
+            return False
+        if actual_type == "RadixLiteral" and isinstance(constraints.get("radix"), int) and first_invalid_radix_digit(raw, constraints["radix"]) is not None:
+            return False
+    return True
+
+
+def matches_allowed_path(actual_path: str, allowed_path: str) -> bool:
+    if actual_path == allowed_path:
+        return True
+    if "[*]" not in allowed_path:
+        return False
+    pattern = "^" + r"\[\d+\]".join(re.escape(part) for part in allowed_path.split("[*]")) + "$"
+    return re.match(pattern, actual_path) is not None
 
 
 def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str]) -> dict[str, object] | None:
@@ -984,6 +1084,10 @@ def count_integer_digits(raw: str) -> int:
 
 def is_digit_form_literal(value_type: str) -> bool:
     return value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "HexLiteral", "RadixLiteral", "SeparatorLiteral"}
+
+
+def has_digit_form_constraints(constraints: dict[str, object]) -> bool:
+    return any(constraints.get(key) is not None for key in ("sign", "min_digits", "max_digits", "radix"))
 
 
 def count_form_digits(value_type: str, raw: str) -> int:
