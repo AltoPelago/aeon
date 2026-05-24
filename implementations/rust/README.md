@@ -2,7 +2,7 @@
 
 Rust workspace for the AEON implementation effort.
 
-Current crate/workspace line: `0.9.0`.
+Current crate/workspace line: `0.9.1`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 

@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-parser",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Parser for AEON tokens and source text.",
   "license": "MIT",
   "type": "module",

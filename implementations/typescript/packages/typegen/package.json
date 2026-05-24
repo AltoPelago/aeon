@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-typegen",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "TypeScript type generation for AEON and AEOS schemas.",
   "license": "MIT",
   "type": "module",
