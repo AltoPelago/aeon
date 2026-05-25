@@ -51,6 +51,8 @@ fn default_world() -> String {
 pub struct SchemaRule {
     pub path: Option<String>,
     #[serde(default)]
+    pub selector: Option<String>,
+    #[serde(default)]
     pub constraints: JsonValue,
 }
 
@@ -343,18 +345,22 @@ fn validate_inner(
     };
 
     let rule_index = build_rule_index(schema, &mut ctx);
-    let effective_rule_index =
-        merge_datatype_rules(&rule_index, &schema.datatype_rules, &events_by_path);
-    check_presence(&rule_index, &bound_paths, &mut ctx);
-    check_reference_forms(schema, &rule_index, &events_by_path, &mut ctx);
+    let selector_rule_index = expand_selector_rules(&rule_index, schema, &events_by_path, &mut ctx);
+    let expanded_rule_index = expand_wildcard_rules(&selector_rule_index, &events_by_path);
+    let effective_rule_index = merge_datatype_rules(
+        &expanded_rule_index,
+        &schema.datatype_rules,
+        &events_by_path,
+    );
+    check_presence(&effective_rule_index, &bound_paths, &mut ctx);
+    check_reference_forms(schema, &effective_rule_index, &events_by_path, &mut ctx);
     let effective_events_by_path =
         resolve_reference_form_events(&effective_rule_index, &events_by_path);
-    let expanded_rule_index = expand_wildcard_rules(&effective_rule_index, &effective_events_by_path);
     let selected_rule_index =
-        select_any_of_rules(&expanded_rule_index, &effective_events_by_path, &mut ctx);
+        select_any_of_rules(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
     check_tuple_arity(
-        &effective_rule_index,
+        &selected_rule_index,
         &container_arity,
         &effective_events_by_path,
         &mut ctx,
@@ -415,7 +421,12 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
     }
 
     for rule in &schema.rules {
-        let Some(path) = rule.path.as_ref() else {
+        let path = rule.path.as_ref().filter(|path| !path.is_empty());
+        let selector = rule
+            .selector
+            .as_ref()
+            .filter(|selector| !selector.is_empty());
+        let Some(rule_path) = path.or(selector) else {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -427,6 +438,31 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
             );
             continue;
         };
+        if path.is_some() && selector.is_some() {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: None,
+                    code: String::from("rule_missing_path"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        }
+
+        if path.is_none() {
+            let constraints = match &rule.constraints {
+                JsonValue::Object(map) => JsonValue::Object(map.clone()),
+                _ => JsonValue::Object(Default::default()),
+            };
+            let JsonValue::Object(constraints_map) = &constraints else {
+                continue;
+            };
+            validate_constraint_tree(schema, rule_path, constraints_map, ctx);
+            continue;
+        }
+        let path = path.expect("path checked above");
 
         if index.contains_key(path) {
             emit_error(
@@ -1026,7 +1062,9 @@ fn check_literal_lexical_constraints(
 
         if event.value_type == "NullLiteral"
             && !null_value_matches(
-                string_value(event.value.as_ref()).as_deref().unwrap_or_default(),
+                string_value(event.value.as_ref())
+                    .as_deref()
+                    .unwrap_or_default(),
                 constraints,
             )
         {
@@ -1545,7 +1583,9 @@ fn validate_attribute_entry(
             );
         }
         if entry.value_type == "RadixLiteral"
-            && let Some(radix) = effective_constraints.get("radix").and_then(JsonValue::as_u64)
+            && let Some(radix) = effective_constraints
+                .get("radix")
+                .and_then(JsonValue::as_u64)
             && let Some(_invalid_digit) = first_invalid_radix_digit(&entry.raw, radix as usize)
         {
             emit_error(
@@ -1708,23 +1748,42 @@ fn check_world_policy(
     schema: &Schema,
     aes: &[AesEvent],
     bound_paths: &BTreeSet<String>,
-    rule_index: &BTreeMap<String, JsonValue>,
+    _rule_index: &BTreeMap<String, JsonValue>,
     ctx: &mut DiagContext,
 ) {
     if schema.world != "closed" {
         return;
     }
 
-    let allowed_paths = rule_index.keys().cloned().collect::<BTreeSet<_>>();
+    let allowed_rules = schema
+        .rules
+        .iter()
+        .filter_map(|rule| {
+            rule.path
+                .as_ref()
+                .filter(|path| !path.is_empty())
+                .map(|path| ("path", path.as_str()))
+                .or_else(|| {
+                    rule.selector
+                        .as_ref()
+                        .filter(|selector| !selector.is_empty())
+                        .map(|selector| ("selector", selector.as_str()))
+                })
+        })
+        .collect::<Vec<_>>();
     for event in aes {
         if event.key.starts_with("aeon:") {
             continue;
         }
         let path = format_canonical_path(&event.path);
         if !bound_paths.contains(&path)
-            || allowed_paths
-                .iter()
-                .any(|allowed_path| matches_allowed_path(&path, allowed_path))
+            || allowed_rules.iter().any(|(kind, allowed_path)| {
+                if *kind == "selector" {
+                    matches_selector_path(&path, allowed_path)
+                } else {
+                    matches_allowed_path(&path, allowed_path)
+                }
+            })
         {
             continue;
         }
@@ -1849,6 +1908,55 @@ fn resolve_reference_form_events(
         resolved.insert(path.clone(), effective);
     }
     resolved
+}
+
+fn expand_selector_rules(
+    rule_index: &BTreeMap<String, JsonValue>,
+    schema: &Schema,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) -> BTreeMap<String, JsonValue> {
+    let mut expanded = rule_index.clone();
+    for rule in &schema.rules {
+        let Some(selector) = rule
+            .selector
+            .as_ref()
+            .filter(|selector| !selector.is_empty())
+        else {
+            continue;
+        };
+        if rule.path.as_ref().is_some_and(|path| !path.is_empty()) {
+            continue;
+        }
+        let mut matched = false;
+        for actual_path in events_by_path.keys() {
+            if !matches_selector_path(actual_path, selector) {
+                continue;
+            }
+            matched = true;
+            expanded
+                .entry(actual_path.clone())
+                .or_insert_with(|| rule.constraints.clone());
+        }
+        if !matched
+            && rule
+                .constraints
+                .get("required")
+                .and_then(JsonValue::as_bool)
+                == Some(true)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.clone()),
+                    code: String::from("missing_required_field"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+        }
+    }
+    expanded
 }
 
 fn expand_wildcard_rules(
@@ -2034,6 +2142,148 @@ fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn tokenize_canonical_like_path(path: &str) -> Option<Vec<String>> {
+    if !path.starts_with('$') {
+        return None;
+    }
+    let mut segments = Vec::new();
+    let mut cursor = 1;
+    while cursor < path.len() {
+        let marker = path[cursor..].chars().next()?;
+        if marker == '.' {
+            cursor += marker.len_utf8();
+            if cursor < path.len() && path[cursor..].starts_with('[') {
+                let end = find_bracket_end(path, cursor)?;
+                segments.push(path[cursor..=end].to_string());
+                cursor = end + 1;
+                continue;
+            }
+            let start = cursor;
+            while cursor < path.len() {
+                let ch = path[cursor..].chars().next()?;
+                if matches!(ch, '.' | '[' | '@') {
+                    break;
+                }
+                cursor += ch.len_utf8();
+            }
+            if start == cursor {
+                return None;
+            }
+            segments.push(path[start..cursor].to_string());
+            continue;
+        }
+        if marker == '[' {
+            let end = find_bracket_end(path, cursor)?;
+            segments.push(path[cursor..=end].to_string());
+            cursor = end + 1;
+            continue;
+        }
+        if marker == '@' {
+            cursor += marker.len_utf8();
+            if cursor < path.len() && path[cursor..].starts_with('[') {
+                let end = find_bracket_end(path, cursor)?;
+                segments.push(format!("@{}", &path[cursor..=end]));
+                cursor = end + 1;
+                continue;
+            }
+            let start = cursor;
+            while cursor < path.len() {
+                let ch = path[cursor..].chars().next()?;
+                if matches!(ch, '.' | '[' | '@') {
+                    break;
+                }
+                cursor += ch.len_utf8();
+            }
+            if start == cursor {
+                return None;
+            }
+            segments.push(format!("@{}", &path[start..cursor]));
+            continue;
+        }
+        return None;
+    }
+    Some(segments)
+}
+
+fn find_bracket_end(path: &str, start: usize) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (offset, ch) in path[start + 1..].char_indices() {
+        let index = start + 1 + offset;
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if ch == '\\' {
+                escaped = true;
+            } else if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            continue;
+        }
+        if ch == ']' {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn matches_selector_path(actual_path: &str, selector: &str) -> bool {
+    if actual_path == selector {
+        return true;
+    }
+    let Some(actual_segments) = tokenize_canonical_like_path(actual_path) else {
+        return false;
+    };
+    let Some(selector_segments) = tokenize_canonical_like_path(selector) else {
+        return false;
+    };
+
+    fn match_from(
+        actual: &[String],
+        selector: &[String],
+        actual_index: usize,
+        selector_index: usize,
+    ) -> bool {
+        if selector_index == selector.len() {
+            return actual_index == actual.len();
+        }
+        let selector_segment = selector[selector_index].as_str();
+        if selector_segment == "**" {
+            if selector_index == selector.len() - 1 {
+                return true;
+            }
+            for next_actual in actual_index..=actual.len() {
+                if match_from(actual, selector, next_actual, selector_index + 1) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if actual_index >= actual.len() {
+            return false;
+        }
+        if selector_segment == "*" {
+            return match_from(actual, selector, actual_index + 1, selector_index + 1);
+        }
+        if selector_segment == "[*]" {
+            return Regex::new(r"^\[\d+\]$")
+                .map(|regex| regex.is_match(&actual[actual_index]))
+                .unwrap_or(false)
+                && match_from(actual, selector, actual_index + 1, selector_index + 1);
+        }
+        selector_segment == actual[actual_index]
+            && match_from(actual, selector, actual_index + 1, selector_index + 1)
+    }
+
+    match_from(&actual_segments, &selector_segments, 0, 0)
+}
+
 fn resolve_terminal_reference_event(
     event: &EventInfo,
     events_by_path: &BTreeMap<String, EventInfo>,
@@ -2117,7 +2367,9 @@ fn check_attribute_lexical_constraints(
 ) {
     if entry.value_type == "NullLiteral"
         && !null_value_matches(
-            string_value(entry.value.as_ref()).as_deref().unwrap_or_default(),
+            string_value(entry.value.as_ref())
+                .as_deref()
+                .unwrap_or_default(),
             constraints,
         )
     {
@@ -2207,7 +2459,10 @@ fn has_digit_form_constraints(constraints: &JsonValue) -> bool {
 }
 
 fn count_form_digits(value_type: &str, raw: &str) -> usize {
-    if matches!(value_type, "NumberLiteral" | "IntegerLiteral" | "FloatLiteral") {
+    if matches!(
+        value_type,
+        "NumberLiteral" | "IntegerLiteral" | "FloatLiteral"
+    ) {
         return count_integer_digits(raw);
     }
     let body = raw
@@ -2265,11 +2520,7 @@ fn expected_null_values(constraints: &JsonValue) -> Vec<String> {
         values.push(String::from(value));
     }
     if let Some(list) = constraints.get("null_values").and_then(JsonValue::as_array) {
-        values.extend(
-            list.iter()
-                .filter_map(JsonValue::as_str)
-                .map(String::from),
-        );
+        values.extend(list.iter().filter_map(JsonValue::as_str).map(String::from));
     }
     values
 }

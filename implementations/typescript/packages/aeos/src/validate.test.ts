@@ -697,6 +697,97 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('applies selector rules at an exact wildcard member depth', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'StringLiteral', value: 'root', raw: '"root"', delimiter: '"', span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.*.contact', constraints: { required: true, type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('applies recursive selector rules at any descendant depth', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'profile' }, { type: 'member', key: 'billing' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'StringLiteral', value: 'Tom', raw: '"Tom"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.**.contact', constraints: { required: true, type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('reports a required selector when no path matches', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'profile' }] },
+                    key: 'profile',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.*.contact', constraints: { required: true, type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.*.contact'));
+        });
+
+        it('uses selector rules for closed-world allowance', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    { selector: '$.*.contact', constraints: { type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('accepts indexed node-child paths in explicit rules', () => {
             const aes: AES = [
                 {

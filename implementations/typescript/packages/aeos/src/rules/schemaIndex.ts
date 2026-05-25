@@ -304,29 +304,43 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
     }
 
     for (const rule of schema.rules) {
-        // Check for missing path
-        if (!rule.path || typeof rule.path !== 'string') {
+        const hasPath = typeof rule.path === 'string' && rule.path.length > 0;
+        const hasSelector = typeof rule.selector === 'string' && rule.selector.length > 0;
+        const ruleKey = hasPath ? rule.path! : hasSelector ? rule.selector! : '<unknown>';
+
+        // Check for missing path/selector
+        if (!hasPath && !hasSelector) {
             emitError(ctx, createDiag(
                 '<unknown>',
                 null,
-                'Rule missing required "path" field',
+                'Rule missing required "path" or "selector" field',
+                ErrorCodes.RULE_MISSING_PATH
+            ));
+            continue;
+        }
+
+        if (hasPath && hasSelector) {
+            emitError(ctx, createDiag(
+                ruleKey,
+                null,
+                `Rule must use either "path" or "selector", not both: ${ruleKey}`,
                 ErrorCodes.RULE_MISSING_PATH
             ));
             continue;
         }
 
         // Check for duplicate rule paths
-        if (index.has(rule.path)) {
+        if (hasPath && index.has(rule.path!)) {
             emitError(ctx, createDiag(
-                rule.path,
+                rule.path!,
                 null,
-                `Duplicate rule for path: ${rule.path}`,
+                `Duplicate rule for path: ${rule.path!}`,
                 ErrorCodes.DUPLICATE_RULE_PATH
             ));
             continue;
         }
 
-        if (!validateConstraintTree(schema, rule.path, rule.constraints as Record<string, unknown>, ctx)) {
+        if (!validateConstraintTree(schema, ruleKey, rule.constraints as Record<string, unknown>, ctx)) {
             continue;
         }
 
@@ -339,7 +353,7 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
             const dt = (rule.constraints as any).datatype as string;
             if (!datatypeAllowlist.includes(dt)) {
                 emitError(ctx, createDiag(
-                    rule.path,
+                    ruleKey,
                     null,
                     `Datatype '${dt}' not allowed by schema datatype_allowlist`,
                     ErrorCodes.DATATYPE_ALLOWLIST_REJECT
@@ -348,7 +362,9 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
             }
         }
 
-        index.set(rule.path, rule);
+        if (hasPath) {
+            index.set(rule.path!, rule);
+        }
     }
 
     return index;

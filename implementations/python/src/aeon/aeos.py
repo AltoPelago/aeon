@@ -154,14 +154,15 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                 emit_error(ctx, diag)
 
     rule_index = build_rule_index(schema, ctx)
-    check_presence(rule_index, bound_paths, ctx)
-    check_reference_forms(schema, rule_index, events_by_path, ctx)
-    effective_events_by_path = resolve_reference_form_events(rule_index, events_by_path)
-    expanded_rule_index = expand_wildcard_rules(rule_index, effective_events_by_path)
+    selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx)
+    expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path)
+    check_presence(expanded_rule_index, bound_paths, ctx)
+    check_reference_forms(schema, expanded_rule_index, events_by_path, ctx)
+    effective_events_by_path = resolve_reference_form_events(expanded_rule_index, events_by_path)
     selected_rule_index = select_any_of_rules(expanded_rule_index, effective_events_by_path, ctx)
     check_types(selected_rule_index, effective_events_by_path, ctx)
 
-    for path, rule in rule_index.items():
+    for path, rule in selected_rule_index.items():
         constraints = rule.get("constraints", {})
         expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
         min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
@@ -222,9 +223,15 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if not isinstance(rule, dict):
             continue
         path = rule.get("path")
+        selector = rule.get("selector")
         constraints = rule.get("constraints")
-        if not isinstance(path, str):
+        has_path = isinstance(path, str) and len(path) > 0
+        has_selector = isinstance(selector, str) and len(selector) > 0
+        if not has_path and not has_selector:
             emit_error(ctx, create_diag("<unknown>", None, 'Rule missing required "path" field', ERROR_CODES["rule_missing_path"]))
+            continue
+        if has_path and has_selector:
+            emit_error(ctx, create_diag("<unknown>", None, 'Rule must provide either "path" or "selector", not both', ERROR_CODES["rule_missing_path"]))
             continue
         if path in index:
             emit_error(ctx, create_diag(path, None, f"Duplicate rule for path: {path}", ERROR_CODES["duplicate_rule_path"]))
@@ -232,6 +239,11 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if not isinstance(constraints, dict):
             constraints = {}
             rule["constraints"] = constraints
+        rule_path = path if has_path else selector
+        assert isinstance(rule_path, str)
+        if not has_path:
+            validate_constraint_tree(schema, rule_path, constraints, ctx)
+            continue
         if not validate_constraint_tree(schema, path, constraints, ctx):
             continue
         datatype = constraints.get("datatype")
@@ -696,20 +708,32 @@ def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], 
     if not isinstance(rules, list):
         return
 
-    allowed_paths = {
-        path
+    allowed_rules = {
+        ("path", path)
         for rule in rules
         if isinstance(rule, dict)
         for path in [rule.get("path")]
         if isinstance(path, str)
     }
+    allowed_rules.update(
+        {
+            ("selector", selector)
+            for rule in rules
+            if isinstance(rule, dict)
+            for selector in [rule.get("selector")]
+            if isinstance(selector, str)
+        }
+    )
 
     for event in aes:
         key = event.get("key")
         if isinstance(key, str) and key.startswith("aeon:"):
             continue
         path = format_canonical_path(event.get("path"))
-        if path not in bound_paths or any(matches_allowed_path(path, allowed_path) for allowed_path in allowed_paths):
+        if path not in bound_paths or any(
+            matches_selector_path(path, allowed_path) if kind == "selector" else matches_allowed_path(path, allowed_path)
+            for kind, allowed_path in allowed_rules
+        ):
             continue
         emit_error(
             ctx,
@@ -773,6 +797,37 @@ def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], even
             continue
         resolved[path] = {**terminal, "span": event.get("span")}
     return resolved
+
+
+def expand_selector_rules(
+    rule_index: dict[str, dict[str, object]],
+    schema: dict[str, object],
+    events: dict[str, dict[str, object]],
+    ctx: DiagContext,
+) -> dict[str, dict[str, object]]:
+    expanded = dict(rule_index)
+    rules = schema.get("rules")
+    if not isinstance(rules, list):
+        return expanded
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        selector = rule.get("selector")
+        path = rule.get("path")
+        if not isinstance(selector, str) or not selector:
+            continue
+        if isinstance(path, str) and path:
+            continue
+        matched = False
+        for actual_path in events:
+            if not matches_selector_path(actual_path, selector):
+                continue
+            matched = True
+            expanded.setdefault(actual_path, {**rule, "path": actual_path})
+        constraints = rule.get("constraints")
+        if not matched and isinstance(constraints, dict) and constraints.get("required") is True:
+            emit_error(ctx, create_diag(selector, None, f"Missing required field: {selector}", ERROR_CODES["missing_required_field"]))
+    return expanded
 
 
 def expand_wildcard_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -858,6 +913,105 @@ def matches_allowed_path(actual_path: str, allowed_path: str) -> bool:
         return False
     pattern = "^" + r"\[\d+\]".join(re.escape(part) for part in allowed_path.split("[*]")) + "$"
     return re.match(pattern, actual_path) is not None
+
+
+def tokenize_canonical_like_path(path: str) -> list[str] | None:
+    if not path.startswith("$"):
+        return None
+    segments: list[str] = []
+    index = 1
+    while index < len(path):
+        marker = path[index]
+        if marker == ".":
+            index += 1
+            if index < len(path) and path[index] == "[":
+                end = find_bracket_end(path, index)
+                if end < 0:
+                    return None
+                segments.append(path[index : end + 1])
+                index = end + 1
+                continue
+            start = index
+            while index < len(path) and path[index] not in {".", "[", "@"}:
+                index += 1
+            if start == index:
+                return None
+            segments.append(path[start:index])
+            continue
+        if marker == "[":
+            end = find_bracket_end(path, index)
+            if end < 0:
+                return None
+            segments.append(path[index : end + 1])
+            index = end + 1
+            continue
+        if marker == "@":
+            index += 1
+            if index < len(path) and path[index] == "[":
+                end = find_bracket_end(path, index)
+                if end < 0:
+                    return None
+                segments.append(f"@{path[index : end + 1]}")
+                index = end + 1
+                continue
+            start = index
+            while index < len(path) and path[index] not in {".", "[", "@"}:
+                index += 1
+            if start == index:
+                return None
+            segments.append(f"@{path[start:index]}")
+            continue
+        return None
+    return segments
+
+
+def find_bracket_end(path: str, start: int) -> int:
+    quote: str | None = None
+    escaped = False
+    for index in range(start + 1, len(path)):
+        ch = path[index]
+        if escaped:
+            escaped = False
+            continue
+        if quote is not None:
+            if ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in {'"', "'"}:
+            quote = ch
+            continue
+        if ch == "]":
+            return index
+    return -1
+
+
+def matches_selector_path(actual_path: str, selector: str) -> bool:
+    if actual_path == selector:
+        return True
+    actual_segments = tokenize_canonical_like_path(actual_path)
+    selector_segments = tokenize_canonical_like_path(selector)
+    if actual_segments is None or selector_segments is None:
+        return False
+
+    def match_from(actual_index: int, selector_index: int) -> bool:
+        if selector_index == len(selector_segments):
+            return actual_index == len(actual_segments)
+        selector_segment = selector_segments[selector_index]
+        if selector_segment == "**":
+            if selector_index == len(selector_segments) - 1:
+                return True
+            return any(match_from(next_actual, selector_index + 1) for next_actual in range(actual_index, len(actual_segments) + 1))
+        if actual_index >= len(actual_segments):
+            return False
+        if selector_segment == "*":
+            return match_from(actual_index + 1, selector_index + 1)
+        if selector_segment == "[*]":
+            return re.match(r"^\[\d+\]$", actual_segments[actual_index]) is not None and match_from(actual_index + 1, selector_index + 1)
+        return selector_segment == actual_segments[actual_index] and match_from(actual_index + 1, selector_index + 1)
+
+    return match_from(0, 0)
 
 
 def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str]) -> dict[str, object] | None:

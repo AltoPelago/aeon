@@ -302,22 +302,25 @@ export function validate(
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
+    const effectiveRuleIndex = expandWildcardRules(
+        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx),
+        eventsByPath,
+    );
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(seen.keys());
-    checkPresence(ruleIndex, boundPaths, ctx);
+    checkPresence(effectiveRuleIndex, boundPaths, ctx);
     checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, ctx);
 
     // Phase 5: Type checks (literal kind)
-    checkReferenceForms(schema, ruleIndex, eventsByPath, ctx);
+    checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
 
-    const effectiveEventsByPath = resolveReferenceFormEvents(ruleIndex, eventsByPath);
-    const effectiveRuleIndex = expandWildcardRules(ruleIndex, effectiveEventsByPath);
+    const effectiveEventsByPath = resolveReferenceFormEvents(effectiveRuleIndex, eventsByPath);
     const selectedRuleIndex = selectAnyOfRules(effectiveRuleIndex, effectiveEventsByPath, ctx);
     checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
 
     // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
-    for (const [path, rule] of ruleIndex) {
+    for (const [path, rule] of selectedRuleIndex) {
         const { length_exact, min_children, max_children } = rule.constraints;
         if (length_exact === undefined && min_children === undefined && max_children === undefined) continue;
         const actualLength = containerArity.get(path);
@@ -437,13 +440,21 @@ function checkWorldPolicy(
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
 
-    const allowedPaths = schema.rules.map((rule) => rule.path);
+    const allowedRules = schema.rules
+        .map((rule) => typeof rule.path === 'string' && rule.path.length > 0
+            ? { kind: 'path' as const, value: rule.path }
+            : typeof rule.selector === 'string' && rule.selector.length > 0
+                ? { kind: 'selector' as const, value: rule.selector }
+                : null)
+        .filter((rule): rule is { kind: 'path' | 'selector'; value: string } => rule !== null);
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
         if (key.startsWith('aeon:')) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
-        if (allowedPaths.some((allowedPath) => matchesAllowedPath(path, allowedPath))) continue;
+        if (allowedRules.some((rule) => rule.kind === 'selector'
+            ? matchesSelectorPath(path, rule.value)
+            : matchesAllowedPath(path, rule.value))) continue;
         emitError(ctx, createDiag(
             path,
             toTupleLocal(event.span),
@@ -473,6 +484,36 @@ function resolveReferenceFormEvents(
         });
     }
     return resolved;
+}
+
+function expandSelectorRules(
+    ruleIndex: RuleIndex,
+    schema: SchemaV1,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): RuleIndex {
+    const expanded = new Map(ruleIndex);
+    for (const rule of schema.rules) {
+        if (typeof rule.selector !== 'string' || rule.selector.length === 0) continue;
+        if (typeof rule.path === 'string' && rule.path.length > 0) continue;
+        let matched = false;
+        for (const actualPath of eventsByPath.keys()) {
+            if (!matchesSelectorPath(actualPath, rule.selector)) continue;
+            matched = true;
+            if (!expanded.has(actualPath)) {
+                expanded.set(actualPath, { ...rule, path: actualPath });
+            }
+        }
+        if (!matched && rule.constraints.required === true) {
+            emitError(ctx, createDiag(
+                rule.selector,
+                null,
+                `Missing required field: ${rule.selector}`,
+                ErrorCodes.MISSING_REQUIRED_FIELD
+            ));
+        }
+    }
+    return expanded;
 }
 
 function expandWildcardRules(
@@ -630,6 +671,117 @@ function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
         .join('\\[\\d+\\]');
     const pattern = `^${escaped}$`;
     return new RegExp(pattern).test(actualPath);
+}
+
+function tokenizeCanonicalLikePath(path: string): string[] | null {
+    if (!path.startsWith('$')) return null;
+    const segments: string[] = [];
+    let index = 1;
+    while (index < path.length) {
+        const marker = path[index];
+        if (marker === '.') {
+            index += 1;
+            if (path[index] === '[') {
+                const end = findBracketEnd(path, index);
+                if (end < 0) return null;
+                segments.push(path.slice(index, end + 1));
+                index = end + 1;
+                continue;
+            }
+            const start = index;
+            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
+                index += 1;
+            }
+            if (start === index) return null;
+            segments.push(path.slice(start, index));
+            continue;
+        }
+        if (marker === '[') {
+            const end = findBracketEnd(path, index);
+            if (end < 0) return null;
+            segments.push(path.slice(index, end + 1));
+            index = end + 1;
+            continue;
+        }
+        if (marker === '@') {
+            index += 1;
+            if (path[index] === '[') {
+                const end = findBracketEnd(path, index);
+                if (end < 0) return null;
+                segments.push(`@${path.slice(index, end + 1)}`);
+                index = end + 1;
+                continue;
+            }
+            const start = index;
+            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
+                index += 1;
+            }
+            if (start === index) return null;
+            segments.push(`@${path.slice(start, index)}`);
+            continue;
+        }
+        return null;
+    }
+    return segments;
+}
+
+function findBracketEnd(path: string, start: number): number {
+    let quote: string | null = null;
+    let escaped = false;
+    for (let index = start + 1; index < path.length; index++) {
+        const ch = path[index]!;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (quote) {
+            if (ch === '\\') {
+                escaped = true;
+            } else if (ch === quote) {
+                quote = null;
+            }
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            continue;
+        }
+        if (ch === ']') return index;
+    }
+    return -1;
+}
+
+function matchesSelectorPath(actualPath: string, selector: string): boolean {
+    if (actualPath === selector) return true;
+    const actualSegments = tokenizeCanonicalLikePath(actualPath);
+    const selectorSegments = tokenizeCanonicalLikePath(selector);
+    if (!actualSegments || !selectorSegments) return false;
+
+    const matchFrom = (actualIndex: number, selectorIndex: number): boolean => {
+        if (selectorIndex === selectorSegments.length) {
+            return actualIndex === actualSegments.length;
+        }
+        const selectorSegment = selectorSegments[selectorIndex]!;
+        if (selectorSegment === '**') {
+            if (selectorIndex === selectorSegments.length - 1) return true;
+            for (let nextActual = actualIndex; nextActual <= actualSegments.length; nextActual++) {
+                if (matchFrom(nextActual, selectorIndex + 1)) return true;
+            }
+            return false;
+        }
+        if (actualIndex >= actualSegments.length) return false;
+        if (selectorSegment === '*') {
+            return matchFrom(actualIndex + 1, selectorIndex + 1);
+        }
+        if (selectorSegment === '[*]') {
+            return /^\[\d+\]$/.test(actualSegments[actualIndex]!)
+                && matchFrom(actualIndex + 1, selectorIndex + 1);
+        }
+        return selectorSegment === actualSegments[actualIndex]
+            && matchFrom(actualIndex + 1, selectorIndex + 1);
+    };
+
+    return matchFrom(0, 0);
 }
 
 function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {

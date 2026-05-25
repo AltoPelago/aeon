@@ -99,11 +99,14 @@ export interface ConstraintsV1 {
 }
 
 /**
- * Schema rule for a canonical path
+ * Schema rule for a canonical path or selector
  */
 export interface SchemaRule {
     /** Canonical path this rule applies to */
-    readonly path: string;
+    readonly path?: string;
+
+    /** Canonical path selector this rule applies to */
+    readonly selector?: string;
 
     /** Constraints to apply */
     readonly constraints: ConstraintsV1;
