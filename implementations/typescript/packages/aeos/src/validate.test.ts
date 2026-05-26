@@ -432,6 +432,49 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('accepts temporal literal type constraints', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'date' }] },
+                    key: 'date',
+                    value: { type: 'DateLiteral', value: '2026-05-25', raw: '@2026-05-25', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'time' }] },
+                    key: 'time',
+                    value: { type: 'TimeLiteral', value: '12:34:56', raw: '@12:34:56', span: [3, 4] },
+                    span: [3, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'datetime' }] },
+                    key: 'datetime',
+                    value: { type: 'DateTimeLiteral', value: '2026-05-25T12:34:56Z', raw: '@2026-05-25T12:34:56Z', span: [5, 6] },
+                    span: [5, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'zrut' }] },
+                    key: 'zrut',
+                    value: { type: 'ZRUTDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
+                    span: [7, 8],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.date', constraints: { type: 'DateLiteral' } },
+                    { path: '$.time', constraints: { type: 'TimeLiteral' } },
+                    { path: '$.datetime', constraints: { type: 'DateTimeLiteral' } },
+                    { path: '$.zrut', constraints: { type: 'ZRUTDateTimeLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('rejects unexpected top-level bindings in closed-world mode', () => {
             const aes: AES = [
                 {
