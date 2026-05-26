@@ -16,6 +16,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from stress_helpers import has_explicit_header
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TS_CMD = ["node", str(ROOT / "implementations" / "typescript" / "packages" / "cli" / "dist" / "main.js"), "fmt"]
@@ -95,11 +97,6 @@ def apply_mode(snippet: str, mode: str) -> str:
     if has_explicit_header(snippet):
         return snippet
     return f'aeon:mode = "{mode}"\n{snippet}'
-
-
-def has_explicit_header(snippet: str) -> bool:
-    compact = "".join(snippet.lstrip().split())
-    return compact.startswith("aeon:mode") or compact.startswith("aeon:header")
 
 
 def snippet_title(snippet: str, index: int) -> str:

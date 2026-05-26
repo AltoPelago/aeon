@@ -164,7 +164,7 @@ class PositionLookup:
         bounded_offset = min(max(offset, 0), len(self.source))
         line_index = bisect_right(self.line_starts, bounded_offset) - 1
         line_start = self.line_starts[line_index]
-        return Position(line=line_index + 1, column=bounded_offset - line_start + 1, offset=offset)
+        return Position(line=line_index + 1, column=bounded_offset - line_start + 1, offset=bounded_offset)
 
 
 def build_annotation_stream(
