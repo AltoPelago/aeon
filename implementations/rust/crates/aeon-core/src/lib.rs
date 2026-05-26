@@ -1522,6 +1522,20 @@ mod tests {
     }
 
     #[test]
+    fn reports_nested_duplicate_object_member_path() {
+        let result = compile(
+            "app:object = {\n  config:object = {\n    name:string = \"first\"\n    name:string = \"second\"\n  }\n}\n",
+            CompileOptions::default(),
+        );
+        let error = result
+            .errors
+            .iter()
+            .find(|error| error.code == "DUPLICATE_KEY")
+            .expect("duplicate nested object member should be reported");
+        assert_eq!(error.path.as_deref(), Some("$.app.config.name"));
+    }
+
+    #[test]
     fn rejects_mixed_structured_and_shorthand_headers_with_message_and_span_details() {
         let result = compile(
             "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1\n",

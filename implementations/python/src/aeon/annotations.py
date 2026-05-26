@@ -3,7 +3,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 
 from ._compat import dataclass
-from .spans import Position, Span
+from .spans import Position, Span, position_from_offset
 
 
 @dataclass(slots=True)
@@ -148,18 +148,38 @@ class AnnotationResolver:
         return None
 
 
+@dataclass(slots=True)
+class PositionLookup:
+    source: str
+    line_starts: list[int]
+
+    @classmethod
+    def from_source(cls, source: str) -> PositionLookup:
+        return cls(
+            source=source,
+            line_starts=[0] + [index + 1 for index, char in enumerate(source) if char == "\n"],
+        )
+
+    def position_at(self, offset: int) -> Position:
+        bounded_offset = min(max(offset, 0), len(self.source))
+        line_index = bisect_right(self.line_starts, bounded_offset) - 1
+        line_start = self.line_starts[line_index]
+        return Position(line=line_index + 1, column=bounded_offset - line_start + 1, offset=offset)
+
+
 def build_annotation_stream(
     source: str,
     events: list[dict[str, object]],
     spans: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
+    positions = PositionLookup.from_source(source)
     resolver = AnnotationResolver(
         path_bindables=[
             BindableRecord(
                 span=parse_span(event["span"]),
                 order=index,
                 path=str(event["path"]),
-                landmarks=binding_landmarks(source, event),
+                landmarks=binding_landmarks(source, event, positions),
             )
             for index, event in enumerate(events)
         ],
@@ -448,14 +468,19 @@ def parse_span(raw: object) -> Span:
     )
 
 
-def binding_landmarks(source: str, event: dict[str, object]) -> list[PlacementLandmark]:
+def binding_landmarks(
+    source: str,
+    event: dict[str, object],
+    positions: PositionLookup | None = None,
+) -> list[PlacementLandmark]:
+    positions = positions or PositionLookup.from_source(source)
     span = parse_span(event["span"])
     value_span = event_value_span(event)
     if value_span is None:
         value_span = span
 
     landmarks: list[PlacementLandmark] = []
-    key_span = scan_key_span(source, span.start.offset)
+    key_span = scan_key_span(source, span.start.offset, positions)
     if key_span is not None:
         landmarks.append(PlacementLandmark("key", key_span))
         head_start = key_span.end.offset
@@ -464,25 +489,30 @@ def binding_landmarks(source: str, event: dict[str, object]) -> list[PlacementLa
 
     equals_offset = source.rfind("=", span.start.offset, value_span.start.offset)
     head_end = equals_offset if equals_offset >= 0 else value_span.start.offset
-    attributes_span = scan_attribute_span(source, head_start, head_end)
+    attributes_span = scan_attribute_span(source, head_start, head_end, positions)
     if attributes_span is not None:
         landmarks.append(PlacementLandmark("attributes", attributes_span))
 
     colon_offset = find_top_level_colon(source, attributes_span.end.offset if attributes_span else head_start, head_end)
     if colon_offset is not None:
-        colon_start = position_at(source, colon_offset)
-        colon_end = position_at(source, colon_offset + 1)
+        colon_start = positions.position_at(colon_offset)
+        colon_end = positions.position_at(colon_offset + 1)
         landmarks.append(PlacementLandmark("datatype-colon", Span(colon_start, colon_end)))
         datatype_start = skip_head_trivia(source, colon_offset + 1, head_end)
         datatype_end = scan_datatype_end(source, datatype_start, head_end)
         if datatype_start < datatype_end:
-            landmarks.append(PlacementLandmark("datatype", Span(position_at(source, datatype_start), position_at(source, datatype_end))))
+            landmarks.append(
+                PlacementLandmark(
+                    "datatype",
+                    Span(positions.position_at(datatype_start), positions.position_at(datatype_end)),
+                )
+            )
 
     if equals_offset >= 0:
         landmarks.append(
             PlacementLandmark(
                 "equals",
-                Span(position_at(source, equals_offset), position_at(source, equals_offset + 1)),
+                Span(positions.position_at(equals_offset), positions.position_at(equals_offset + 1)),
             )
         )
     landmarks.append(PlacementLandmark("value", value_span))
@@ -499,7 +529,12 @@ def event_value_span(event: dict[str, object]) -> Span | None:
     return parse_span(span)
 
 
-def scan_key_span(source: str, offset: int) -> Span | None:
+def scan_key_span(
+    source: str,
+    offset: int,
+    positions: PositionLookup | None = None,
+) -> Span | None:
+    positions = positions or PositionLookup.from_source(source)
     start = skip_horizontal_space(source, offset, len(source))
     if start >= len(source):
         return None
@@ -512,8 +547,8 @@ def scan_key_span(source: str, offset: int) -> Span | None:
                 end += 1
                 continue
             if char == '"':
-                return Span(position_at(source, start), position_at(source, end))
-        return Span(position_at(source, start), position_at(source, end))
+                return Span(positions.position_at(start), positions.position_at(end))
+        return Span(positions.position_at(start), positions.position_at(end))
 
     end = start
     while end < len(source):
@@ -524,10 +559,16 @@ def scan_key_span(source: str, offset: int) -> Span | None:
         end += 1
     if end == start:
         return None
-    return Span(position_at(source, start), position_at(source, end))
+    return Span(positions.position_at(start), positions.position_at(end))
 
 
-def scan_attribute_span(source: str, start: int, end: int) -> Span | None:
+def scan_attribute_span(
+    source: str,
+    start: int,
+    end: int,
+    positions: PositionLookup | None = None,
+) -> Span | None:
+    positions = positions or PositionLookup.from_source(source)
     at = find_top_level_char(source, "@", start, end)
     if at is None:
         return None
@@ -535,7 +576,7 @@ def scan_attribute_span(source: str, start: int, end: int) -> Span | None:
     if stop is None:
         stop = end
     stop = trim_horizontal_space_end(source, stop, at + 1)
-    return Span(position_at(source, at), position_at(source, stop))
+    return Span(positions.position_at(at), positions.position_at(stop))
 
 
 def find_top_level_colon(source: str, start: int, end: int) -> int | None:
@@ -660,15 +701,7 @@ def trim_horizontal_space_end(source: str, end: int, lower_bound: int) -> int:
 
 
 def position_at(source: str, offset: int) -> Position:
-    line = 1
-    column = 1
-    for char in source[:offset]:
-        if char == "\n":
-            line += 1
-            column = 1
-        else:
-            column += 1
-    return Position(line=line, column=column, offset=offset)
+    return position_from_offset(source, offset)
 
 
 def span_contains(outer: Span, inner: Span) -> bool:

@@ -109,37 +109,51 @@ pub(crate) fn validate_duplicate_object_member_keys(
     bindings: &[Binding],
     errors: &mut Vec<Diagnostic>,
 ) {
+    let root = CanonicalPath::root();
     for binding in bindings {
-        validate_duplicate_object_member_keys_in_value(&binding.value, errors);
+        let path = root.member(binding.key.clone());
+        validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
     }
 }
 
-fn validate_duplicate_object_member_keys_in_value(value: &Value, errors: &mut Vec<Diagnostic>) {
+fn validate_duplicate_object_member_keys_in_value(
+    value: &Value,
+    path: &CanonicalPath,
+    errors: &mut Vec<Diagnostic>,
+) {
     match value {
+        Value::TypedValue { value, .. } => {
+            validate_duplicate_object_member_keys_in_value(value, path, errors);
+        }
         Value::ObjectNode { bindings } => {
             let mut seen = HashSet::new();
             for binding in bindings {
+                let member_path = path.member(binding.key.clone());
                 if !seen.insert(binding.key.clone()) {
                     errors.push(
                         Diagnostic::new(
                             "DUPLICATE_KEY",
                             format!("Duplicate key: '{}'", binding.key),
                         )
-                        .at_path("$")
+                        .at_path(format_path(&member_path))
                         .with_span(binding.span),
                     );
                 }
-                validate_duplicate_object_member_keys_in_value(&binding.value, errors);
+                validate_duplicate_object_member_keys_in_value(
+                    &binding.value,
+                    &member_path,
+                    errors,
+                );
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
-            for item in items {
-                validate_duplicate_object_member_keys_in_value(item, errors);
+            for (index, item) in items.iter().enumerate() {
+                validate_duplicate_object_member_keys_in_value(item, &path.index(index), errors);
             }
         }
         Value::NodeLiteral { children, .. } => {
-            for child in children {
-                validate_duplicate_object_member_keys_in_value(child, errors);
+            for (index, child) in children.iter().enumerate() {
+                validate_duplicate_object_member_keys_in_value(child, &path.index(index), errors);
             }
         }
         _ => {}
