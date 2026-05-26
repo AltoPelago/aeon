@@ -31,6 +31,34 @@ class AnnotationStreamTests(unittest.TestCase):
         annotations = self.annotations_for("a = [1, /? in-list ?/ 2]")
         self.assertEqual("$.a[1]", annotations[0]["target"]["path"])
 
+    def test_block_comment_between_equals_and_value_reports_placement(self) -> None:
+        annotations = self.annotations_for(
+            "app:object = {\n"
+            '  name:string = "alignment playground"\n'
+            "  enabled:boolean = /# h #/ true\n"
+            "  port:number = 8080\n"
+            "}\n"
+        )
+        self.assertEqual("$.app.enabled", annotations[0]["target"]["path"])
+        self.assertEqual({"after": "equals", "before": "value"}, annotations[0]["placement"])
+
+    def test_forward_and_trailing_comments_report_placement(self) -> None:
+        annotations = self.annotations_for("//# docs\na = 1 //? required\n")
+        self.assertEqual({"before": "key"}, annotations[0]["placement"])
+        self.assertEqual({"after": "value"}, annotations[1]["placement"])
+
+    def test_binding_head_gap_comments_report_placement(self) -> None:
+        annotations = self.annotations_for(
+            'aname/#A#/ :string = "alignment playground"\n'
+            'bname:/#B#/ string = "alignment playground"\n'
+            'cname:string/#C#/= "alignment playground"\n'
+            'dname:string = /#D#/ "alignment playground"\n'
+        )
+        self.assertEqual({"after": "key", "before": "datatype-colon"}, annotations[0]["placement"])
+        self.assertEqual({"after": "datatype-colon", "before": "datatype"}, annotations[1]["placement"])
+        self.assertEqual({"after": "datatype", "before": "equals"}, annotations[2]["placement"])
+        self.assertEqual({"after": "equals", "before": "value"}, annotations[3]["placement"])
+
     def test_eof_comment_is_unbound(self) -> None:
         annotations = self.annotations_for("a = 1\n//? x")
         self.assertEqual({"kind": "unbound", "reason": "eof"}, annotations[0]["target"])

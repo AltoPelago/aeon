@@ -61,7 +61,8 @@ interface TrailingIndex<T> {
 }
 
 interface DescendantIndex {
-    readonly items: readonly Bindable[];
+    readonly byStart: readonly Bindable[];
+    readonly byEnd: readonly Bindable[];
     readonly starts: readonly number[];
     readonly ends: readonly number[];
 }
@@ -264,8 +265,8 @@ function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined
     }
     const trailingIndex = upperBound(index.ends, commentSpan.start.offset) - 1;
     const forwardIndex = lowerBound(index.starts, commentSpan.end.offset);
-    const trailingHit = trailingIndex >= 0 ? index.items[trailingIndex] ?? null : null;
-    const forwardHit = forwardIndex < index.items.length ? index.items[forwardIndex] ?? null : null;
+    const trailingHit = trailingIndex >= 0 ? index.byEnd[trailingIndex] ?? null : null;
+    const forwardHit = forwardIndex < index.byStart.length ? index.byStart[forwardIndex] ?? null : null;
     if (trailingHit && forwardHit) {
         const trailingDistance = commentSpan.start.offset - trailingHit.span.end.offset;
         const forwardDistance = forwardHit.span.start.offset - commentSpan.end.offset;
@@ -451,11 +452,13 @@ function buildDescendantIndex(bindables: readonly Bindable[]): ReadonlyMap<strin
     }
     const indexed = new Map<string, DescendantIndex>();
     for (const [path, items] of grouped.entries()) {
-        items.sort((left, right) => left.span.start.offset - right.span.start.offset);
+        const byStart = [...items].sort((left, right) => left.span.start.offset - right.span.start.offset);
+        const byEnd = [...items].sort((left, right) => left.span.end.offset - right.span.end.offset);
         indexed.set(path, {
-            items,
-            starts: items.map((item) => item.span.start.offset),
-            ends: items.map((item) => item.span.end.offset),
+            byStart,
+            byEnd,
+            starts: byStart.map((item) => item.span.start.offset),
+            ends: byEnd.map((item) => item.span.end.offset),
         });
     }
     return indexed;

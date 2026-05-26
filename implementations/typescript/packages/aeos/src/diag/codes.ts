@@ -22,6 +22,7 @@ export const ErrorCodes = {
     RULE_MISSING_PATH: 'rule_missing_path',
     DUPLICATE_RULE_PATH: 'duplicate_rule_path',
     UNKNOWN_CONSTRAINT_KEY: 'unknown_constraint_key',
+    INVALID_SCHEMA_POLICY: 'invalid_schema_policy',
     INVALID_REFERENCE_CONSTRAINT: 'invalid_reference_constraint',
 
     // Presence checks (Phase 4)
@@ -38,6 +39,9 @@ export const ErrorCodes = {
     WRONG_CONTAINER_KIND: 'WRONG_CONTAINER_KIND',
     TUPLE_ARITY_MISMATCH: 'TUPLE_ARITY_MISMATCH',
     TUPLE_ELEMENT_TYPE_MISMATCH: 'TUPLE_ELEMENT_TYPE_MISMATCH',
+    CONTAINER_CARDINALITY_MISMATCH: 'container_cardinality_mismatch',
+    NULL_VALUE_MISMATCH: 'null_value_mismatch',
+    TOGGLE_PAIR_MISMATCH: 'toggle_pair_mismatch',
 
     // Core v1 indexed addressing checks
     VERSION_GATE_MISSING: 'version_gate_missing',

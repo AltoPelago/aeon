@@ -18,8 +18,9 @@ use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
-    validate_datatypes_light, validate_duplicate_canonical_paths, validate_header_typing,
-    validate_reference_steps, validate_typed_mode_rules,
+    validate_datatypes_light, validate_duplicate_canonical_paths,
+    validate_duplicate_object_member_keys, validate_header_typing, validate_reference_steps,
+    validate_typed_mode_rules,
 };
 
 pub use lexer::{
@@ -661,6 +662,7 @@ fn finalize_compile(
     };
     let mut errors = Vec::new();
     let root = CanonicalPath::root();
+    validate_duplicate_object_member_keys(&bindings, &mut errors);
     let validation_only = options.shallow_event_values
         && !options.emit_binding_projections
         && !options.include_header
@@ -735,6 +737,7 @@ fn validate_only_compile(
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
     let mut errors = Vec::new();
+    validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
     trace_compile(format!(
         "compile:validation_only:flattened events={} ref_steps={} ref_targets={}",
@@ -1519,6 +1522,20 @@ mod tests {
     }
 
     #[test]
+    fn reports_nested_duplicate_object_member_path() {
+        let result = compile(
+            "app:object = {\n  config:object = {\n    name:string = \"first\"\n    name:string = \"second\"\n  }\n}\n",
+            CompileOptions::default(),
+        );
+        let error = result
+            .errors
+            .iter()
+            .find(|error| error.code == "DUPLICATE_KEY")
+            .expect("duplicate nested object member should be reported");
+        assert_eq!(error.path.as_deref(), Some("$.app.config.name"));
+    }
+
+    #[test]
     fn rejects_mixed_structured_and_shorthand_headers_with_message_and_span_details() {
         let result = compile(
             "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1\n",
@@ -1545,6 +1562,42 @@ mod tests {
                     offset: 55,
                 },
             })
+        );
+        assert!(result.events.is_empty());
+    }
+
+    #[test]
+    fn structured_header_allows_newline_layout_between_key_tokens() {
+        let result = compile(
+            "aeon\n:\nheader = {\n  mode:\nstring = \"strict\"\n}\na:string = \"ok\"\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors, Vec::new());
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(format_path(&result.events[0].path), "$.a");
+        assert!(matches!(
+            result.header.expect("header").fields.get("mode"),
+            Some(Value::StringLiteral { value, .. }) if value == "strict"
+        ));
+    }
+
+    #[test]
+    fn parses_structured_header_split_across_whitespace_and_newlines() {
+        let result = compile(
+            "aeon\n:\nheader = {\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\n",
+            CompileOptions {
+                max_separator_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result
+                .header
+                .as_ref()
+                .map(|header| header.fields.keys().cloned().collect::<Vec<_>>()),
+            Some(vec![String::from("encoding"), String::from("mode")])
         );
         assert!(result.events.is_empty());
     }
@@ -1616,7 +1669,7 @@ mod tests {
 
     #[test]
     fn rejects_reserved_comma_separator_datatypes() {
-        let result = compile("badSepType2:set[,] = ^0,0,0,\n", CompileOptions::default());
+        let result = compile("badSepType2:sep[,] = ^0,0,0,\n", CompileOptions::default());
         assert!(
             result
                 .errors
@@ -1628,7 +1681,7 @@ mod tests {
     #[test]
     fn recovers_past_comma_split_separator_literals_to_report_separator_datatype_errors() {
         let result = compile(
-            "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:set[,] = ^0,0,0,\n",
+            "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:sep[,] = ^0,0,0,\n",
             CompileOptions::default(),
         );
         assert!(
@@ -1641,7 +1694,7 @@ mod tests {
 
     #[test]
     fn rejects_reserved_slash_separator_datatypes() {
-        let result = compile("badSepType3:set[/] = ^000.000\n", CompileOptions::default());
+        let result = compile("badSepType3:sep[/] = ^000.000\n", CompileOptions::default());
         assert!(
             result
                 .errors
@@ -1653,7 +1706,7 @@ mod tests {
     #[test]
     fn accepts_reserved_angle_separator_datatypes() {
         let result = compile(
-            "a:set[<] = ^a<b\nb:set[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
+            "a:sep[<] = ^a<b\nb:sep[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1662,7 +1715,7 @@ mod tests {
     #[test]
     fn accepts_reserved_caret_separator_datatypes() {
         let result = compile(
-            "a:set[^] = ^a^b\nb:sep[^] = ^a^b\n",
+            "a:sep[^] = ^a^b\nb:sep[^] = ^a^b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1775,6 +1828,58 @@ mod tests {
             "Datatype/literal mismatch at '$.b@n': datatype ':string' expects StringLiteral, got NumberLiteral"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.b@n"));
+    }
+
+    #[test]
+    fn strict_mode_rejects_untyped_attribute_entries() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nb@{n=3}:n = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.b@n")),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn strict_mode_rejects_untyped_node_head_attribute_entries() {
+        let result = compile(
+            "aeon:mode = \"strict\"\ncontent:node = <span@{id=\"text\", class=\"dark\"}(\"hello\")>\n",
+            CompileOptions::default(),
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.content@id")),
+            "{:?}",
+            result.errors
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
+                    && error.path.as_deref() == Some("$.content@class")),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn strict_mode_accepts_typed_attribute_entries() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nb@{n:number=3}:n = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
@@ -2403,7 +2508,7 @@ mod tests {
     #[test]
     fn separator_literals_accept_quoted_sections_in_payload() {
         let result = compile(
-            "a:set[|] = ^\"hello world\"|\"this, [is] fine\"\n",
+            "a:sep[|] = ^\"hello world\"|\"this, [is] fine\"\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2412,21 +2517,21 @@ mod tests {
 
     #[test]
     fn separator_literals_reject_unterminated_quoted_sections() {
-        let result = compile("a:set[|] = ^\"0;0\n", CompileOptions::default());
+        let result = compile("a:sep[|] = ^\"0;0\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
     }
 
     #[test]
     fn separator_literals_stop_before_comments_resume() {
-        let result = compile("a:set[|] = ^aaa // d\n", CompileOptions::default());
+        let result = compile("a:sep[|] = ^aaa // d\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
     }
 
     #[test]
     fn separator_literals_reject_raw_slashes() {
-        let result = compile("a:set[|] = ^root/main\n", CompileOptions::default());
+        let result = compile("a:sep[|] = ^root/main\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
     }
@@ -2439,8 +2544,15 @@ mod tests {
     }
 
     #[test]
-    fn unparameterized_reserved_set_datatype_accepts_caret_literals() {
-        let result = compile("blue:set = ^200\n", CompileOptions::default());
+    fn unparameterized_reserved_kadot_datatype_accepts_caret_literals() {
+        let result = compile("semver:kadot = ^3.14.15\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn core_does_not_enforce_kadot_shape() {
+        let result = compile("dimensions:kadot = ^300x250\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
     }

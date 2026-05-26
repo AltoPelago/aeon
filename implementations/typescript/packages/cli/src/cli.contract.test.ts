@@ -1629,7 +1629,7 @@ describe('AEON CLI output contract', () => {
                 '--schema',
                 schemaPath,
                 '--profile',
-                'altopelago.core.v1',
+                'core',
                 '--strict',
             ]);
 
@@ -1646,7 +1646,7 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(parsed.meta.contracts?.declared?.schema, 'aeon.gp.schema.v1');
             assert.strictEqual(parsed.meta.contracts?.declared?.profile, 'aeon.gp.profile.v1');
             assert.strictEqual(parsed.meta.contracts?.applied?.schema, 'altopelago.applied.schema.v1');
-            assert.strictEqual(parsed.meta.contracts?.applied?.profile, 'altopelago.core.v1');
+            assert.strictEqual(parsed.meta.contracts?.applied?.profile, 'core');
         });
 
         it('resolves schema/profile from repository baseline contracts registry', async () => {
@@ -1775,7 +1775,7 @@ describe('AEON CLI output contract', () => {
 
             const source = [
                 'aeon:mode = "strict"',
-                'aeon:profile = "altopelago.core.v1"',
+                'aeon:profile = "core"',
                 'aeon:schema = "missing.schema.id"',
                 'app:object = { name:string = "AEON" port:int32 = 8080 }',
             ].join('\n');
@@ -1786,7 +1786,7 @@ describe('AEON CLI output contract', () => {
             const registry = {
                 contracts: [
                     {
-                        id: 'altopelago.core.v1',
+                        id: 'core',
                         kind: 'profile',
                         version: '1.0.0',
                         path: 'profile.aeon',
@@ -1863,7 +1863,7 @@ describe('AEON CLI output contract', () => {
 
             const source = [
                 'aeon:mode = "strict"',
-                'aeon:profile = "altopelago.core.v1"',
+                'aeon:profile = "core"',
                 'aeon:schema = "aeon.gp.schema.v1"',
                 'app:object = { name:string = "AEON" port:int32 = 8080 }',
             ].join('\n');
@@ -1872,13 +1872,13 @@ describe('AEON CLI output contract', () => {
             const schemaContract = schemaContractAeonText('aeon.gp.schema.v1');
             fs.writeFileSync(schemaPath, `${schemaContract}\n`, 'utf-8');
 
-            const profileArtifact = 'profile_id = "altopelago.core.v1"\nprofile_version = "1.0.0"\n';
+            const profileArtifact = 'profile_id = "core"\nprofile_version = "1.0.0"\n';
             fs.writeFileSync(profileArtifactPath, profileArtifact, 'utf-8');
 
             const registry = {
                 contracts: [
                     {
-                        id: 'altopelago.core.v1',
+                        id: 'core',
                         kind: 'profile',
                         version: '1.0.0',
                         path: 'profile.aeon',
@@ -1919,7 +1919,7 @@ describe('AEON CLI output contract', () => {
 
             const source = [
                 'aeon:mode = "strict"',
-                'aeon:profile = "altopelago.core.v1"',
+                'aeon:profile = "core"',
                 'aeon:schema = "aeon.gp.schema.v1"',
                 'app:object = { name:string = "AEON" port:int32 = 8080 }',
             ].join('\n');
@@ -1928,13 +1928,13 @@ describe('AEON CLI output contract', () => {
             const schemaContract = schemaContractAeonText('aeon.gp.schema.v1');
             fs.writeFileSync(schemaPath, `${schemaContract}\n`, 'utf-8');
 
-            const profileArtifact = 'profile_id = "altopelago.core.v1"\nprofile_version = "1.0.0"\n';
+            const profileArtifact = 'profile_id = "core"\nprofile_version = "1.0.0"\n';
             fs.writeFileSync(profileArtifactPath, profileArtifact, 'utf-8');
 
             const registry = {
                 contracts: [
                     {
-                        id: 'altopelago.core.v1',
+                        id: 'core',
                         kind: 'profile',
                         version: '1.0.0',
                         path: 'profile.aeon',

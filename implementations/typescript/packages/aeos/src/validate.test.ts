@@ -432,6 +432,49 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('accepts temporal literal type constraints', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'date' }] },
+                    key: 'date',
+                    value: { type: 'DateLiteral', value: '2026-05-25', raw: '@2026-05-25', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'time' }] },
+                    key: 'time',
+                    value: { type: 'TimeLiteral', value: '12:34:56', raw: '@12:34:56', span: [3, 4] },
+                    span: [3, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'datetime' }] },
+                    key: 'datetime',
+                    value: { type: 'DateTimeLiteral', value: '2026-05-25T12:34:56Z', raw: '@2026-05-25T12:34:56Z', span: [5, 6] },
+                    span: [5, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'zrut' }] },
+                    key: 'zrut',
+                    value: { type: 'ZRUTDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
+                    span: [7, 8],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.date', constraints: { type: 'DateLiteral' } },
+                    { path: '$.time', constraints: { type: 'TimeLiteral' } },
+                    { path: '$.datetime', constraints: { type: 'DateTimeLiteral' } },
+                    { path: '$.zrut', constraints: { type: 'ZRUTDateTimeLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('rejects unexpected top-level bindings in closed-world mode', () => {
             const aes: AES = [
                 {
@@ -592,6 +635,194 @@ describe('validate()', () => {
                     { path: '$.message.points[*]', constraints: { type: 'ObjectNode' } },
                     { path: '$.message.points[*].x', constraints: { type: 'NumberLiteral' } },
                     { path: '$.message.points[*].y', constraints: { type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('applies wildcard item rules without requiring the wildcard placeholder path', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }] },
+                    key: 'measurements',
+                    value: { type: 'ListNode', elements: [], attributes: [], span: [3, 8] },
+                    span: [3, 8],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [4, 5] },
+                    span: [4, 5],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('checks wildcard item rules against each matching indexed path', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }] },
+                    key: 'measurements',
+                    value: { type: 'ListNode', elements: [], attributes: [], span: [1, 4] },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'StringLiteral', value: 'bad', raw: '"bad"', delimiter: '"', span: [2, 3] },
+                    span: [2, 3],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.contact.measurements[0]'));
+            assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.contact.measurements[*]'));
+        });
+
+        it('allows wildcard paths to accept any matching constraint branch', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'StringLiteral', value: 'Intro', raw: '"Intro"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 1 }] },
+                    key: '1',
+                    value: { type: 'NodeLiteral', tag: 'section', children: [], attributes: [], span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.page[*]',
+                        constraints: {
+                            required: true,
+                            any_of: [
+                                { type: 'StringLiteral' },
+                                { type: 'NodeLiteral' },
+                            ],
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('applies selector rules at an exact wildcard member depth', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'StringLiteral', value: 'root', raw: '"root"', delimiter: '"', span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.*.contact', constraints: { required: true, type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('applies recursive selector rules at any descendant depth', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'profile' }, { type: 'member', key: 'billing' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'StringLiteral', value: 'Tom', raw: '"Tom"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.**.contact', constraints: { required: true, type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('reports a required selector when no path matches', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'profile' }] },
+                    key: 'profile',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.*.contact', constraints: { required: true, type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.*.contact'));
+        });
+
+        it('uses selector rules for closed-world allowance', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }, { type: 'member', key: 'contact' }] },
+                    key: 'contact',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    { selector: '$.*.contact', constraints: { type: 'ObjectNode' } },
                 ],
             };
 
@@ -796,6 +1027,117 @@ describe('validate()', () => {
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
         });
 
+        it('lets attributes inherit closed-world schema rules', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                        ['extra', {
+                            value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [3, 4] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                attribute_policy: 'inherit_world',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                            attributes: {
+                                unit: { type: 'StringLiteral' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('uses inherit_world as the default attribute policy in closed-world schemas', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['extra', {
+                            value: { type: 'StringLiteral', value: 'x', raw: '"x"', delimiter: '"', span: [3, 4] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+        });
+
+        it('forbids all attributes when schema attribute_policy is forbid', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                attribute_policy: 'forbid',
+                rules: [
+                    {
+                        path: '$.value',
+                        constraints: {
+                            type: 'NumberLiteral',
+                            attributes: {
+                                unit: { type: 'StringLiteral' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
+        });
+
         it('recurses into nested attribute entries', () => {
             const aes: AES = [
                 {
@@ -877,13 +1219,102 @@ describe('validate()', () => {
         });
     });
 
+    describe('symbolic literal form constraints', () => {
+        it('validates min and max digits for hex, radix, and separator literals', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'hex' }] },
+                    key: 'hex',
+                    datatype: null,
+                    value: { type: 'HexLiteral', value: 'FF', raw: '#FF', span: [1, 4] },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'radix' }] },
+                    key: 'radix',
+                    datatype: null,
+                    value: { type: 'RadixLiteral', value: 'ABC', raw: '%ABC', span: [5, 9] },
+                    span: [5, 9],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'sep' }] },
+                    key: 'sep',
+                    datatype: 'sep[|]',
+                    value: { type: 'SeparatorLiteral', value: '0|0|0', raw: '^0|0|0', span: [10, 16] },
+                    span: [10, 16],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.hex', constraints: { type: 'HexLiteral', min_digits: 2, max_digits: 2 } },
+                    { path: '$.radix', constraints: { type: 'RadixLiteral', min_digits: 4 } },
+                    { path: '$.sep', constraints: { type: 'SeparatorLiteral', max_digits: 2 } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.radix'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.sep'));
+            assert.ok(!result.errors.some((e) => e.path === '$.hex'));
+        });
+
+        it('validates unsigned form for radix literals', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'radix' }] },
+                    key: 'radix',
+                    datatype: null,
+                    value: { type: 'RadixLiteral', value: '-ABC', raw: '%-ABC', span: [1, 6] },
+                    span: [1, 6],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [{ path: '$.radix', constraints: { type: 'RadixLiteral', sign: 'unsigned' } }],
+            });
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.radix'));
+        });
+
+        it('validates exact radix for radix literals', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'binary' }] },
+                    key: 'binary',
+                    datatype: null,
+                    value: { type: 'RadixLiteral', value: '1010', raw: '%1010', span: [1, 6] },
+                    span: [1, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'badBinary' }] },
+                    key: 'badBinary',
+                    datatype: null,
+                    value: { type: 'RadixLiteral', value: '1050', raw: '%1050', span: [7, 12] },
+                    span: [7, 12],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.binary', constraints: { type: 'RadixLiteral', radix: 2 } },
+                    { path: '$.badBinary', constraints: { type: 'RadixLiteral', radix: 2 } },
+                ],
+            });
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((e) => e.path === '$.binary'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.badBinary'));
+        });
+    });
+
     describe('optional trailing separator delimiter policy', () => {
         const schema: SchemaV1 = { rules: [] };
         const aesWithTrailingDelimiter: AES = [
             {
                 path: { segments: [{ type: 'root' }, { type: 'member', key: 'line' }] },
                 key: 'line',
-                datatype: 'set[|]',
+                datatype: 'sep[|]',
                 value: { type: 'SeparatorLiteral', value: '0|0|0|', raw: '^0|0|0|', span: [1, 8] },
                 span: [1, 8],
             },
@@ -1057,6 +1488,156 @@ describe('validate()', () => {
 
             assert.strictEqual(validate(missingTargetAes, missingSchema).ok, true);
             assert.strictEqual(validate(cyclicAes, cycleSchema).ok, true);
+        });
+
+        it('allows nullable typed fields and constrains null sentinel values', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'NullLiteral', value: 'none', raw: '!none', span: [1, 6] },
+                    span: [1, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'reason' }] },
+                    key: 'reason',
+                    value: { type: 'NullLiteral', value: 'notApplicable', raw: '!notApplicable', span: [8, 22] },
+                    span: [8, 22],
+                },
+            ] as unknown as AES;
+
+            const passing = validate(aes, {
+                rules: [
+                    { path: '$.name', constraints: { type: 'StringLiteral', nullable: true, null_value: 'none' } },
+                    { path: '$.reason', constraints: { type: 'StringLiteral', nullable: true, null_value: 'notApplicable' } },
+                ],
+            });
+            assert.strictEqual(passing.ok, true);
+
+            const failing = validate(aes, {
+                rules: [
+                    { path: '$.name', constraints: { type: 'StringLiteral', nullable: true, null_value: 'notApplicable' } },
+                ],
+            });
+            assert.strictEqual(failing.ok, false);
+            assert.ok(failing.errors.some(e => e.code === ErrorCodes.NULL_VALUE_MISMATCH));
+        });
+
+        it('allows multiple accepted null sentinel values', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'reason' }] },
+                    key: 'reason',
+                    value: { type: 'NullLiteral', value: 'notApplicable', raw: '!notApplicable', span: [1, 15] },
+                    span: [1, 15],
+                },
+            ] as unknown as AES;
+
+            const passing = validate(aes, {
+                rules: [
+                    { path: '$.reason', constraints: { type: 'StringLiteral', nullable: true, null_values: ['none', 'notApplicable'] } },
+                ],
+            });
+            assert.strictEqual(passing.ok, true);
+
+            const failing = validate(aes, {
+                rules: [
+                    { path: '$.reason', constraints: { type: 'StringLiteral', nullable: true, null_values: ['none', 'tombstone'] } },
+                ],
+            });
+            assert.strictEqual(failing.ok, false);
+            assert.ok(failing.errors.some(e => e.code === ErrorCodes.NULL_VALUE_MISMATCH));
+        });
+
+        it('allows infinity and NaN as explicit numeric widenings', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'max' }] },
+                    key: 'max',
+                    value: { type: 'InfinityLiteral', value: 'Infinity', raw: 'Infinity', span: [1, 9] },
+                    span: [1, 9],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'sample' }] },
+                    key: 'sample',
+                    value: { type: 'NaNLiteral', value: 'NaN', raw: 'NaN', span: [11, 14] },
+                    span: [11, 14],
+                },
+            ] as unknown as AES;
+
+            const passing = validate(aes, {
+                rules: [
+                    { path: '$.max', constraints: { type: 'NumberLiteral', allow_infinity: true } },
+                    { path: '$.sample', constraints: { type: 'NumberLiteral', allow_nan: true } },
+                ],
+            });
+            assert.strictEqual(passing.ok, true);
+
+            const failing = validate(aes, {
+                rules: [
+                    { path: '$.max', constraints: { type: 'NumberLiteral' } },
+                    { path: '$.sample', constraints: { type: 'NumberLiteral' } },
+                ],
+            });
+            assert.strictEqual(failing.ok, false);
+            assert.ok(failing.errors.every(e => e.code === ErrorCodes.TYPE_MISMATCH));
+        });
+
+        it('validates toggle lexical pair constraints', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'enabled' }] },
+                    key: 'enabled',
+                    value: { type: 'ToggleLiteral', value: 'yes', raw: 'yes', span: [1, 4] },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'visible' }] },
+                    key: 'visible',
+                    value: { type: 'ToggleLiteral', value: 'on', raw: 'on', span: [6, 8] },
+                    span: [6, 8],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.enabled', constraints: { type: 'ToggleLiteral', toggle_pair: 'yes_no' } },
+                    { path: '$.visible', constraints: { type: 'ToggleLiteral', toggle_pair: 'yes_no' } },
+                ],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(result.errors.map(error => error.code), [ErrorCodes.TOGGLE_PAIR_MISMATCH]);
+        });
+
+        it('validates min and max children on containers', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'app' }] },
+                    key: 'app',
+                    value: {
+                        type: 'ObjectNode',
+                        bindings: [
+                            { type: 'Binding', key: 'a', value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
+                            { type: 'Binding', key: 'b', value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
+                        ],
+                        attributes: [],
+                        span: [0, 5],
+                    },
+                    span: [0, 5],
+                },
+            ] as unknown as AES;
+
+            assert.strictEqual(validate(aes, {
+                rules: [{ path: '$.app', constraints: { type: 'ObjectNode', min_children: 1, max_children: 2 } }],
+            }).ok, true);
+
+            const result = validate(aes, {
+                rules: [{ path: '$.app', constraints: { type: 'ObjectNode', max_children: 1 } }],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some(error => error.code === ErrorCodes.CONTAINER_CARDINALITY_MISMATCH));
         });
     });
 });

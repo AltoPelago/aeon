@@ -85,6 +85,26 @@ describe('Phase 6: Numeric Form (draft tests)', () => {
         assert.strictEqual(result.errors.length, 0);
     });
 
+    it('validates float range constraints', () => {
+        const aes: AES = [
+            {
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'f' }] },
+                key: 'f',
+                value: { type: 'NumberLiteral', raw: '3.5e38', value: '3.5e38', span: [26, 32] },
+                span: [26, 32],
+            },
+        ] as unknown as AES;
+
+        const schema: SchemaV1 = {
+            rules: [{ path: '$.f', constraints: { type: 'FloatLiteral', min_value: '-3.4028234663852886e38', max_value: '3.4028234663852886e38' } }],
+        };
+
+        const result = validate(aes, schema);
+
+        assert.strictEqual(result.ok, false);
+        assert.ok(result.errors.some(e => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION || e.code === 'numeric_form_violation'));
+    });
+
     it('datatype_rules reject negative uint values', () => {
         const aes: AES = [
             {
@@ -159,5 +179,29 @@ describe('Phase 6: Numeric Form (draft tests)', () => {
 
         assert.strictEqual(result.ok, false);
         assert.ok(result.errors.some(e => e.code === ErrorCodes.TYPE_MISMATCH || e.code === 'type_mismatch'));
+    });
+
+    it('datatype_rules validate float range constraints', () => {
+        const aes: AES = [
+            {
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'n' }] },
+                key: 'n',
+                datatype: 'float32',
+                value: { type: 'NumberLiteral', raw: '3.14', value: '3.14', span: [50, 54] },
+                span: [50, 54],
+            },
+        ] as unknown as AES;
+
+        const schema: SchemaV1 = {
+            rules: [],
+            datatype_rules: {
+                float32: { type: 'FloatLiteral', min_value: '-3.4028234663852886e38', max_value: '3.4028234663852886e38' },
+            },
+        };
+
+        const result = validate(aes, schema);
+
+        assert.strictEqual(result.ok, true);
+        assert.strictEqual(result.errors.length, 0);
     });
 });

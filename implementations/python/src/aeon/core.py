@@ -64,6 +64,7 @@ class CompileResult:
     events: list[dict[str, object]]
     errors: list[AeonError]
     internal_events: list[dict[str, object]] | None = None
+    header: dict[str, object] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -120,7 +121,7 @@ RESERVED_KIND_MAP = {
     "radix8": ("RadixLiteral",),
     "radix12": ("RadixLiteral",),
     "sep": ("SeparatorLiteral",),
-    "set": ("SeparatorLiteral",),
+    "kadot": ("SeparatorLiteral",),
 }
 
 NUMERIC_TYPES = {
@@ -188,7 +189,21 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         for event in internal_events
         if not str(event["key"]).startswith("aeon:")
     ]
-    return CompileResult(events=events, errors=all_errors, internal_events=internal_events)
+    return CompileResult(
+        events=events,
+        errors=all_errors,
+        internal_events=internal_events,
+        header=header_to_result(parse_result.document),
+    )
+
+
+def header_to_result(document: Document) -> dict[str, object] | None:
+    if document.header is None:
+        return None
+    return {
+        "fields": document.header.fields,
+        "span": document.header.span.to_json(),
+    }
 
 
 def strip_leading_bom(source: str) -> str:
@@ -253,7 +268,12 @@ def resolve_binding(
 def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[str]) -> None:
     value = unwrap_typed_value(value)
     if isinstance(value, ObjectNode):
+        local_keys: set[str] = set()
         for binding in value.bindings:
+            if binding.key in local_keys:
+                errors.append(AeonError(message=f"Duplicate key: '{binding.key}'", span=binding.span, code="DUPLICATE_KEY"))
+                continue
+            local_keys.add(binding.key)
             resolve_binding(binding, parent, bindings, errors, seen)
         return
     if isinstance(value, (ListNode, TupleLiteral)):
@@ -646,12 +666,18 @@ def validate_annotation_entries(
     for key, entry in annotations.items():
         attr_path = f"{owner_path}@{key}"
         datatype = entry.get("datatype")
-        if isinstance(datatype, str):
+        value = entry.get("value")
+        if not isinstance(datatype, str) and mode in {"strict", "custom"} and value is not None and hasattr(value, "type"):
+            actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
+            if mode == "strict" and actual_kind == "ToggleLiteral":
+                errors.append(UntypedToggleLiteralError(attr_path, span))
+            else:
+                errors.append(UntypedValueInStrictModeError(attr_path, span))
+        elif isinstance(datatype, str):
             expected = expected_kinds_for_reserved_datatype(datatype)
             if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
-                value = entry.get("value")
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
                     if expected is None:

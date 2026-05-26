@@ -281,13 +281,31 @@ export function generateTypes(schema: SchemaV1, options: TypegenOptions = {}): T
     const root = createNode();
 
     for (const rule of schema.rules) {
-        const parsed = parseCanonicalPath(rule.path);
+        const rulePath = rule.path;
+        if (typeof rulePath !== 'string' || rulePath.length === 0) {
+            if (typeof rule.selector === 'string' && rule.selector.length > 0) {
+                diagnostics.push({
+                    level: 'warning',
+                    code: 'UNSUPPORTED_SCHEMA_SELECTOR',
+                    message: `Schema selector '${rule.selector}' cannot be converted to a concrete TypeScript property path.`,
+                });
+            } else {
+                diagnostics.push({
+                    level: 'error',
+                    code: 'INVALID_SCHEMA_PATH',
+                    message: 'Schema rule missing required path.',
+                });
+            }
+            continue;
+        }
+
+        const parsed = parseCanonicalPath(rulePath);
         if (!parsed.ok) {
             diagnostics.push({
                 level: 'error',
                 code: 'INVALID_SCHEMA_PATH',
-                message: `Invalid schema path '${rule.path}': ${parsed.reason}`,
-                path: rule.path,
+                message: `Invalid schema path '${rulePath}': ${parsed.reason}`,
+                path: rulePath,
             });
             continue;
         }
@@ -306,8 +324,8 @@ export function generateTypes(schema: SchemaV1, options: TypegenOptions = {}): T
             diagnostics.push({
                 level: 'warning',
                 code: 'DUPLICATE_RULE_PATH',
-                message: `Duplicate schema rule path '${rule.path}' encountered. Last rule wins.`,
-                path: rule.path,
+                message: `Duplicate schema rule path '${rulePath}' encountered. Last rule wins.`,
+                path: rulePath,
             });
         }
         current.constraints = rule.constraints;

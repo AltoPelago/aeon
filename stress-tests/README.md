@@ -117,6 +117,7 @@ python3 ./scripts/stress-fixtures.py --cts-ready
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
 | Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
+| Comment injection parity | `python3 ./scripts/stress-comment-injection.py` | compact grammar-rich source with structured comments at every marked legal trivia slot must keep canonical and annotation output aligned |
 | Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests plus cross-implementation canonical and diagnostic snippet parity |
 | Stress CLI | `npm run stress` | `21/21` pass |
 | Stress CLI advanced | `npm run stress-advanced` | `15/15` pass |
@@ -406,6 +407,14 @@ Run generated whitespace/newline mutation parity from a curated seed corpus:
 python3 ./scripts/stress-whitespace-mutations.py
 python3 ./scripts/stress-whitespace-mutations.py --depth 2
 python3 ./scripts/stress-whitespace-mutations.py --brief
+```
+
+Run compact structured-comment injection parity for canonical output and annotation
+placement summaries:
+
+```bash
+python3 ./scripts/stress-comment-injection.py
+python3 ./scripts/stress-comment-injection.py --brief
 ```
 
 Run Rust fuzz artifacts across the shared implementation surface before deciding

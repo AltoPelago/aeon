@@ -28,8 +28,8 @@ export function createRegistry(): ProfileRegistry {
 
 export function createDefaultRegistry(): ProfileRegistry {
     const require = createRequire(import.meta.url);
-    const { altopelagoCoreProfile } = require('./profiles/altopelago-core.js') as {
-        altopelagoCoreProfile: Profile;
+    const { coreProfile } = require('./profiles/altopelago-core.js') as {
+        coreProfile: Profile;
     };
     const { aeonGpCoreProfile } = require('./profiles/aeon-gp-core.js') as {
         aeonGpCoreProfile: Profile;
@@ -38,7 +38,7 @@ export function createDefaultRegistry(): ProfileRegistry {
         jsonProfile: Profile;
     };
     return createRegistry()
-        .register(altopelagoCoreProfile)
+        .register(coreProfile)
         .register(aeonGpCoreProfile)
         .register(jsonProfile);
 }

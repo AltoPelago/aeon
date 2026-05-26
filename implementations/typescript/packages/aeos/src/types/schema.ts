@@ -16,6 +16,27 @@ export interface ConstraintsV1 {
     /** Expected literal kind (StringLiteral, IntegerLiteral, etc.) */
     readonly type?: string;
 
+    /** Accept when any listed constraint branch matches */
+    readonly any_of?: readonly ConstraintsV1[];
+
+    /** Allow NullLiteral to satisfy this type constraint */
+    readonly nullable?: boolean;
+
+    /** Allow InfinityLiteral to satisfy numeric type constraints */
+    readonly allow_infinity?: boolean;
+
+    /** Allow NaNLiteral to satisfy numeric type constraints */
+    readonly allow_nan?: boolean;
+
+    /** Required null sentinel value when the accepted value is NullLiteral */
+    readonly null_value?: string;
+
+    /** Accepted null sentinel values when the accepted value is NullLiteral */
+    readonly null_values?: readonly string[];
+
+    /** Required toggle lexical pair */
+    readonly toggle_pair?: 'any' | 'yes_no' | 'on_off';
+
     /** Reference form policy for the path */
     readonly reference?: 'allow' | 'forbid' | 'require';
 
@@ -34,6 +55,12 @@ export interface ConstraintsV1 {
     /** Core v1 exact container arity constraint */
     readonly length_exact?: number;
 
+    /** Core v1 minimum immediate child count constraint */
+    readonly min_children?: number;
+
+    /** Core v1 maximum immediate child count constraint */
+    readonly max_children?: number;
+
     /** For integers: 'signed' or 'unsigned' syntax */
     readonly sign?: 'signed' | 'unsigned';
 
@@ -42,6 +69,9 @@ export interface ConstraintsV1 {
 
     /** Maximum ASCII digit count (excludes sign) */
     readonly max_digits?: number;
+
+    /** Exact radix/base required for RadixLiteral digit forms */
+    readonly radix?: number;
 
     /** Minimum integer value (inclusive), encoded as base-10 string for exactness */
     readonly min_value?: string;
@@ -69,11 +99,14 @@ export interface ConstraintsV1 {
 }
 
 /**
- * Schema rule for a canonical path
+ * Schema rule for a canonical path or selector
  */
 export interface SchemaRule {
     /** Canonical path this rule applies to */
-    readonly path: string;
+    readonly path?: string;
+
+    /** Canonical path selector this rule applies to */
+    readonly selector?: string;
 
     /** Constraints to apply */
     readonly constraints: ConstraintsV1;
@@ -92,6 +125,9 @@ export interface SchemaV1 {
     /** Optional schema-wide reference policy */
     readonly reference_policy?: 'allow' | 'forbid';
 
+    /** Optional schema-wide attribute policy */
+    readonly attribute_policy?: 'inherit_world' | 'forbid';
+
     /** Optional datatype-wide constraints keyed by datatype base label */
     readonly datatype_rules?: Readonly<Record<string, ConstraintsV1>>;
 }
@@ -102,15 +138,25 @@ export interface SchemaV1 {
 export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'required',
     'type',
+    'any_of',
+    'nullable',
+    'allow_infinity',
+    'allow_nan',
+    'null_value',
+    'null_values',
+    'toggle_pair',
     'reference',
     'reference_kind',
     'reference_target_pattern',
     'resolve_reference_form',
     'type_is',
     'length_exact',
+    'min_children',
+    'max_children',
     'sign',
     'min_digits',
     'max_digits',
+    'radix',
     'min_value',
     'max_value',
     'min_length',

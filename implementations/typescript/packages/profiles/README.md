@@ -16,7 +16,6 @@ registered in a registry and are responsible for emitting AES only.
 import { compile } from '@altopelago/aeon-profiles';
 
 const result = compile('key = "value"', {
-  profile: 'altopelago.core.v1',
   mode: 'strict',
 });
 
@@ -29,7 +28,7 @@ if (!result.meta?.errors?.length) {
 
 - `compile(input, options)`
 - `createRegistry()` / `createDefaultRegistry()`
-- `altopelagoCoreProfile`
+- `coreProfile`
 - `jsonProfile`
 
 Type contract:
@@ -82,8 +81,8 @@ Built-in processors:
   preserves pointer refs `~>`. This is optional and not enabled by default.
 
 Built-in profiles:
-- `altopelago.core.v1` — form-only AES output
-- `aeon.gp.core.v1` — AEON GP core profile
+- `core` — form-only AES output
+- `aeon.gp.profile.v1` — AEON GP profile contract
 - `json` — resolves references for JSON interoperability
 
 ## Tests

@@ -40,6 +40,7 @@ export interface AnnotationRecord {
   raw: string;
   span: Span;
   target: AnnotationTarget;
+  placement: { after?: string; before?: string } | null;
 }
 
 export interface EventSummary {
@@ -171,6 +172,7 @@ function normalizeAnnotation(annotation: AnnotationRecord): AnnotationRecord {
     raw: annotation.raw,
     span: annotation.span,
     target: annotation.target,
+    placement: annotation.placement ?? null,
   };
 }
 

@@ -20,7 +20,10 @@ function normalizeDiagnostic(level: 'error' | 'warning', diag: Omit<Diagnostic, 
     };
 }
 
-function resolveProfile(profileRef: ProfileRef, registry: { get(id: string): Profile | undefined }): Profile | null {
+function resolveProfile(profileRef: ProfileRef | undefined, registry: { get(id: string): Profile | undefined }): Profile | null {
+    if (profileRef === undefined) {
+        return registry.get('core') ?? null;
+    }
     if (typeof profileRef === 'string') {
         return registry.get(profileRef) ?? null;
     }
@@ -84,7 +87,7 @@ export function compile(input: unknown, options: CompileOptions): CompileResult 
     if (!profile) {
         errors.push({
             level: 'error',
-            message: `Unknown profile: ${String(options.profile)}`,
+            message: `Unknown profile: ${String(options.profile ?? 'core')}`,
             code: 'PROFILE_NOT_FOUND',
         });
         return {

@@ -24,6 +24,27 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual('$.["a.b"]', result.events[0]["path"])
 
+    def test_literal_words_parse_as_keys_in_key_contexts(self) -> None:
+        result = compile_source(
+            'yes:string = "top"\n'
+            'copy:string = ~yes\n'
+            'true@{no:string = "attr"}:string = "named true"\n'
+            'node:node = <on(off)>\n'
+            'group:object = {\n'
+            '  false:boolean = true\n'
+            '  off:toggle = yes\n'
+            '}'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertIn("$.yes", by_path)
+        self.assertIn("$.copy", by_path)
+        self.assertIn("$.true", by_path)
+        self.assertIn("no", by_path["$.true"]["annotations"])
+        self.assertEqual("NodeLiteral", by_path["$.node"]["value"]["type"])
+        self.assertIn("$.group.false", by_path)
+        self.assertIn("$.group.off", by_path)
+
     def test_empty_quoted_key_rejected(self) -> None:
         result = compile_source('"" = ""')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
@@ -248,7 +269,7 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual("ObjectNode", result.events[0]["value"]["type"])
 
     def test_reserved_separator_aliases_allowed_in_strict_mode(self) -> None:
-        for datatype in ("sep", "set"):
+        for datatype in ("sep",):
             with self.subTest(datatype=datatype):
                 source = f'aeon:mode = "strict"\nvalue:{datatype}[|] = ^a|b'
                 result = compile_source(source)
@@ -257,13 +278,13 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
     def test_reserved_slash_separator_specs_are_rejected(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nvalue:set[/] = ^000.000')
+        result = compile_source('aeon:mode = "strict"\nvalue:sep[/] = ^000.000')
         self.assertEqual(["INVALID_SEPARATOR_CHAR"], [error.code for error in result.errors])
 
     def test_reserved_caret_separator_specs_are_allowed(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nleft:set[^] = ^a^b\nright:sep[^] = ^a^b')
+        result = compile_source('aeon:mode = "strict"\nleft:sep[^] = ^a^b\nright:sep[^] = ^a^b')
         self.assertEqual([], result.errors)
-        self.assertEqual("set[^]", result.events[0]["datatype"])
+        self.assertEqual("sep[^]", result.events[0]["datatype"])
         self.assertEqual("sep[^]", result.events[1]["datatype"])
 
     def test_infinity_datatype_is_allowed_in_typed_modes(self) -> None:
@@ -451,6 +472,21 @@ class CoreCompileTests(unittest.TestCase):
             result.errors[0].message,
         )
 
+    def test_structured_header_allows_whitespace_and_newlines_around_colon(self) -> None:
+        result = compile_source(
+            'aeon\n:\nheader /# #/= /# #/{\n'
+            '  mode:\nstring = "strict"\n'
+            '  encoding:string = "utf-8"\n'
+            '}',
+            CompileOptions(max_separator_depth=8),
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual([], result.events)
+        self.assertEqual(
+            ['$.["aeon:encoding"]', '$.["aeon:mode"]'],
+            sorted(event["path"] for event in (result.internal_events or [])),
+        )
+
     def test_shebang_allows_second_line_host_directive(self) -> None:
         result = compile_source('#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1')
         self.assertEqual([], result.errors)
@@ -583,6 +619,15 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("b@{n:string=3}:n = 3")
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
+    def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
+        self.assertIn("UNTYPED_VALUE_IN_STRICT_MODE", [error.code for error in result.errors])
+        self.assertIn("$.b@n", [error.path for error in result.errors])
+
+    def test_strict_mode_accepts_typed_attribute_entries(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nb@{n:number=3}:n = 3')
+        self.assertEqual([], result.errors)
+
     def test_singleton_tuple_literal_is_accepted(self) -> None:
         result = compile_source("aa:tuple<string> = (3)")
         self.assertEqual([], [error.code for error in result.errors])
@@ -612,8 +657,12 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("blue:sep = ^200")
         self.assertEqual([], [error.code for error in result.errors])
 
-    def test_unparameterized_set_datatype_accepts_caret_payload(self) -> None:
-        result = compile_source("blue:set = ^200")
+    def test_unparameterized_kadot_datatype_accepts_caret_payload(self) -> None:
+        result = compile_source("semver:kadot = ^3.14.15")
+        self.assertEqual([], [error.code for error in result.errors])
+
+    def test_core_does_not_enforce_kadot_shape(self) -> None:
+        result = compile_source("dimensions:kadot = ^300x250")
         self.assertEqual([], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
@@ -651,6 +700,12 @@ class CoreCompileTests(unittest.TestCase):
     def test_asterisk_delimited_preprocessor_placeholder_is_rejected(self) -> None:
         result = compile_source("password = *secret-key*")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_structured_header_allows_newline_layout_between_key_tokens(self) -> None:
+        result = compile_source('aeon\n:\nheader = {\n  mode:\nstring = "strict"\n}\na:string = "ok"\n')
+        self.assertEqual([], result.errors)
+        self.assertEqual(["$.a"], [event["path"] for event in result.events])
+        self.assertEqual("strict", result.header["fields"]["mode"].value)
 
 
 if __name__ == "__main__":

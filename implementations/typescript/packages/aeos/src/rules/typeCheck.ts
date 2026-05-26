@@ -23,6 +23,17 @@ const TYPE_ALIASES: Record<string, string[]> = {
     'StringLiteral': ['StringLiteral'],
     'BooleanLiteral': ['BooleanLiteral'],
     'NullLiteral': ['NullLiteral'],
+    'ToggleLiteral': ['ToggleLiteral'],
+    'InfinityLiteral': ['InfinityLiteral'],
+    'NaNLiteral': ['NaNLiteral'],
+    'HexLiteral': ['HexLiteral'],
+    'RadixLiteral': ['RadixLiteral'],
+    'EncodingLiteral': ['EncodingLiteral'],
+    'SeparatorLiteral': ['SeparatorLiteral'],
+    'DateLiteral': ['DateLiteral'],
+    'TimeLiteral': ['TimeLiteral'],
+    'DateTimeLiteral': ['DateTimeLiteral'],
+    'ZRUTDateTimeLiteral': ['ZRUTDateTimeLiteral'],
     'ObjectNode': ['ObjectNode'],
     'ListNode': ['ListNode'],
     'ListLiteral': ['ListNode', 'ListLiteral'],
@@ -83,7 +94,7 @@ export function checkTypes(
         if (expectedType === undefined) continue;
 
         // Check if actual type satisfies expected type
-        if (!typeMatches(actualType, expectedType, event.raw)) {
+        if (!typeMatches(actualType, expectedType, event.raw, rule.constraints)) {
             const parentPath = path.replace(/\[\d+\]$/, '');
             const parentType = parentPath !== path ? events.get(parentPath)?.type : undefined;
             emitError(ctx, createDiag(
@@ -101,7 +112,11 @@ export function checkTypes(
 /**
  * Check if an actual type satisfies an expected type constraint.
  */
-function typeMatches(actualType: string, expectedType: string, raw?: string): boolean {
+function typeMatches(actualType: string, expectedType: string, raw?: string, constraints?: { readonly nullable?: boolean; readonly allow_infinity?: boolean; readonly allow_nan?: boolean }): boolean {
+    if (constraints?.nullable === true && actualType === 'NullLiteral') return true;
+    if (constraints?.allow_infinity === true && actualType === 'InfinityLiteral' && isNumericExpectedType(expectedType)) return true;
+    if (constraints?.allow_nan === true && actualType === 'NaNLiteral' && isNumericExpectedType(expectedType)) return true;
+
     // Direct match
     if (actualType === expectedType) return true;
 
@@ -119,6 +134,10 @@ function typeMatches(actualType: string, expectedType: string, raw?: string): bo
     if (satisfies && satisfies.includes(expectedType)) return true;
 
     return false;
+}
+
+function isNumericExpectedType(expectedType: string): boolean {
+    return expectedType === 'NumberLiteral' || expectedType === 'IntegerLiteral' || expectedType === 'FloatLiteral';
 }
 
 function isIntegerNumber(raw?: string): boolean {

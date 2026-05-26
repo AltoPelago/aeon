@@ -52,7 +52,7 @@ from .lexer import Token
 from .spans import Span
 
 GENERIC_V1_DATATYPES = {"list", "tuple"}
-BRACKETED_V1_DATATYPES = {"sep", "set", "radix"}
+BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
@@ -61,13 +61,14 @@ RESERVED_V1_DATATYPES = {
     "hex", "date", "time", "datetime", "zrut",
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
-    "sep", "set",
+    "sep", "kadot",
     "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
 }
 
 RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}
 
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
+BARE_KEY_TOKEN_KINDS = {"IDENT", "TRUE", "FALSE", "YES", "NO", "ON", "OFF"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
@@ -152,7 +153,7 @@ class Parser:
         while not self.check("EOF"):
             if (
                 self.peek().span.start.column == 1
-                and self.peek().kind in {"IDENT", "STRING"}
+                and self.is_key_token(self.peek())
                 and self.check_next("EQUALS") | self.check_next("COLON")
             ):
                 return
@@ -161,23 +162,46 @@ class Parser:
     def is_header_start(self) -> bool:
         if not self.check("IDENT") or self.peek().value != "aeon":
             return False
-        if not self.check_next("COLON"):
+        header = self.header_token_indices()
+        if header is None:
             return False
-        if self.current + 3 < len(self.tokens):
-            next_token = self.tokens[self.current + 2]
-            next_next = self.tokens[self.current + 3]
-            if next_token.kind == "IDENT" and next_token.value == "envelope" and next_next.kind == "EQUALS":
-                return False
+        _, field_index, equals_index = header
+        field_token = self.tokens[field_index]
+        equals_token = self.tokens[equals_index] if equals_index is not None else None
+        if field_token.kind == "IDENT" and field_token.value == "envelope" and equals_token is not None:
+            return False
         return True
 
     def is_structured_header_start(self) -> bool:
-        if not self.is_header_start():
+        header = self.header_token_indices()
+        if header is None:
             return False
-        if self.current + 3 >= len(self.tokens):
-            return False
-        field_token = self.tokens[self.current + 2]
-        equals_token = self.tokens[self.current + 3]
-        return field_token.kind == "IDENT" and field_token.value == "header" and equals_token.kind == "EQUALS"
+        _, field_index, equals_index = header
+        field_token = self.tokens[field_index]
+        return (
+            field_token.kind == "IDENT"
+            and field_token.value == "header"
+            and equals_index is not None
+        )
+
+    def skip_layout_index(self, index: int) -> int:
+        while index < len(self.tokens) and self.tokens[index].kind == "NEWLINE":
+            index += 1
+        return index
+
+    def header_token_indices(self) -> tuple[int, int, int | None] | None:
+        if not self.check("IDENT") or self.peek().value != "aeon":
+            return None
+        colon_index = self.skip_layout_index(self.current + 1)
+        if colon_index >= len(self.tokens) or self.tokens[colon_index].kind != "COLON":
+            return None
+        field_index = self.skip_layout_index(colon_index + 1)
+        if field_index >= len(self.tokens) or self.tokens[field_index].kind != "IDENT":
+            return None
+        equals_index = self.skip_layout_index(field_index + 1)
+        if equals_index >= len(self.tokens) or self.tokens[equals_index].kind != "EQUALS":
+            equals_index = None
+        return colon_index, field_index, equals_index
 
     def parse_header(self) -> Header:
         start = self.peek().span.start
@@ -188,10 +212,14 @@ class Parser:
         end = start
         while self.is_header_start():
             self.advance()
+            self.skip_separators()
             self.consume("COLON", "Expected ':' after 'aeon'")
+            self.skip_separators()
             field_token = self.consume("IDENT", "Expected header field name")
             field_name = field_token.value
+            self.skip_separators()
             self.consume("EQUALS", "Expected '=' in header")
+            self.skip_layout()
             value = self.parse_value()
             end = self.previous().span.end
             if field_name == "header" and isinstance(value, ObjectNode):
@@ -218,7 +246,7 @@ class Parser:
 
     def parse_binding(self) -> Binding:
         start = self.peek().span.start
-        key_token = self.consume_one_of(("IDENT", "STRING"), "Expected binding key")
+        key_token = self.consume_key_token("Expected binding key")
         key = self.key_from_token(key_token)
         self.skip_layout()
         attributes: list[Attribute] = []
@@ -251,15 +279,19 @@ class Parser:
         entries: dict[str, AttributeEntry] = {}
         self.skip_layout()
         while not self.check("RBRACE"):
-            key_token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute key")
+            key_token = self.consume_key_token("Expected attribute key")
             key = self.key_from_token(key_token)
             if key in RESERVED_ATTRIBUTE_KEYS:
                 raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
+            if key in entries:
+                raise AeonError(message=f"Duplicate key: '{key}'", span=key_token.span, code="DUPLICATE_KEY")
             self.skip_layout()
             attributes: list[Attribute] = []
-            while self.check("AT"):
+            if self.check("AT"):
                 attributes.append(self.parse_attribute(depth + 1))
                 self.skip_layout()
+                if self.check("AT"):
+                    raise SyntaxError("Only one attribute block is allowed before an attribute entry datatype", self.peek().span)
             datatype: TypeAnnotation | None = None
             if self.check("COLON"):
                 self.advance()
@@ -510,7 +542,7 @@ class Parser:
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
-        tag = self.key_from_token(self.consume_one_of(("IDENT", "STRING"), "Expected node tag after '<'"))
+        tag = self.key_from_token(self.consume_key_token("Expected node tag after '<'"))
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
@@ -545,7 +577,8 @@ class Parser:
         bindings: list[Binding] = []
         self.skip_layout()
         while not self.check("RBRACE"):
-            bindings.append(self.parse_binding())
+            binding = self.parse_binding()
+            bindings.append(binding)
             self.consume_member_delimiter("RBRACE", "Expected object member delimiter")
         end = self.consume("RBRACE", "Expected '}' to close object").span.end
         return ObjectNode(bindings=bindings, attributes=[], span=Span(start=start, end=end))
@@ -629,7 +662,7 @@ class Parser:
         saw_root_dot: bool = False,
         saw_explicit_root: bool = False,
     ) -> None:
-        if self.check("IDENT") or self.check("STRING"):
+        if self.is_key_token(self.peek()):
             path.append(self.parse_member_segment("Expected path segment"))
             return
         if self.check("LBRACKET"):
@@ -640,7 +673,7 @@ class Parser:
         raise SyntaxError("Expected path segment", self.peek().span)
 
     def parse_member_segment(self, message: str) -> str:
-        token = self.consume_one_of(("IDENT", "STRING"), message)
+        token = self.consume_key_token(message)
         if token.kind == "STRING" and token.quote == "`":
             raise SyntaxError("Backtick-quoted keys are not supported in paths", token.span)
         return self.assert_non_empty_key(token.value, token.span, "Quoted path keys must not be empty")
@@ -655,7 +688,7 @@ class Parser:
             return AttributePathSegment(
                 key=self.assert_non_empty_key(token.value, token.span, "Quoted attribute keys must not be empty")
             )
-        token = self.consume_one_of(("IDENT", "STRING"), "Expected attribute path segment")
+        token = self.consume_key_token("Expected attribute path segment")
         if token.kind == "STRING" and token.quote == "`":
             raise SyntaxError("Backtick-quoted keys are not supported in attribute segments", token.span)
         return AttributePathSegment(
@@ -852,6 +885,14 @@ class Parser:
             return False
         return self.tokens[self.current + 1].kind == kind
 
+    def is_key_token(self, token: Token) -> bool:
+        return token.kind in BARE_KEY_TOKEN_KINDS or token.kind == "STRING"
+
+    def next_non_newline_index(self, index: int) -> int | None:
+        while index < len(self.tokens) and self.tokens[index].kind == "NEWLINE":
+            index += 1
+        return index if index < len(self.tokens) else None
+
     def peek(self) -> Token:
         return self.tokens[self.current]
 
@@ -872,6 +913,11 @@ class Parser:
         for kind in kinds:
             if self.check(kind):
                 return self.advance()
+        raise SyntaxError(message, self.peek().span)
+
+    def consume_key_token(self, message: str) -> Token:
+        if self.is_key_token(self.peek()):
+            return self.advance()
         raise SyntaxError(message, self.peek().span)
 
 

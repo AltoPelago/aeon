@@ -127,6 +127,22 @@ test('reports invalid schema paths', () => {
     assert.equal(result.code, 'export interface AeonDocument {\n}\n');
 });
 
+test('reports pathless schema rules without concrete type output', () => {
+    const schema: SchemaV1 = {
+        rules: [
+            { selector: '$.items[*]', constraints: { type: 'StringLiteral' } },
+            { constraints: { type: 'NumberLiteral' } },
+        ],
+    };
+
+    const result = generateTypes(schema);
+
+    assert.equal(result.diagnostics.length, 2);
+    assert.equal(result.diagnostics[0]?.code, 'UNSUPPORTED_SCHEMA_SELECTOR');
+    assert.equal(result.diagnostics[1]?.code, 'INVALID_SCHEMA_PATH');
+    assert.equal(result.code, 'export interface AeonDocument {\n}\n');
+});
+
 test('warns on scalar/object conflict and prefers object shape', () => {
     const schema: SchemaV1 = {
         rules: [

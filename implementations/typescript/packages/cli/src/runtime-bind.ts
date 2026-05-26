@@ -99,7 +99,7 @@ function asDiag(
 }
 
 function resolveProfile(profile: ProfileRef | undefined, registry: ProfileRegistry): Profile | null {
-  if (!profile) return registry.get('altopelago.core.v1') ?? null;
+  if (!profile) return registry.get('core') ?? null;
   if (typeof profile === 'string') return registry.get(profile) ?? null;
   return profile;
 }
@@ -189,7 +189,7 @@ function runRuntime(input: string, options: Omit<TypedRuntimeOptions<unknown>, '
 
   if (!profile) {
     errors.push(asDiag('error', 5, {
-      message: `Unknown profile: ${String(options.profile ?? 'altopelago.core.v1')}`,
+      message: `Unknown profile: ${String(options.profile ?? 'core')}`,
       code: 'PROFILE_NOT_FOUND',
     }));
     return { aes: [], meta: { errors, warnings } };

@@ -1083,7 +1083,7 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         ));
     }
 
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
         return Err(format!(
             "Datatype `{base}` does not support bracket specifiers in v1"
         ));
@@ -1165,7 +1165,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "rfc3339"
             | "separated"
             | "sep"
-            | "set"
+            | "kadot"
             | "string"
             | "str"
             | "text"
@@ -1365,11 +1365,18 @@ impl<'a> Parser<'a> {
         let key = self.parse_identifier_like(&[
             ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
         ])?;
-        if key == "aeon" && self.peek() == Some(':') {
-            self.index += 1;
-            let suffix =
-                self.parse_identifier_like(&['@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']'])?;
-            return Ok(format!("aeon:{suffix}"));
+        if key == "aeon" {
+            let before_separator = self.index;
+            self.skip_ws(true);
+            if self.peek() == Some(':') {
+                self.index += 1;
+                self.skip_ws(true);
+                let suffix = self.parse_identifier_like(&[
+                    '@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']',
+                ])?;
+                return Ok(format!("aeon:{suffix}"));
+            }
+            self.index = before_separator;
         }
         Ok(key)
     }
@@ -1844,6 +1851,10 @@ impl<'a> Parser<'a> {
     fn parse_identifier_like(&mut self, stop: &[char]) -> Result<String, Diagnostic> {
         let start = self.index;
         while let Some(ch) = self.peek() {
+            if ch == '/' && (self.peek_next() == Some('/') || self.block_comment_close().is_some())
+            {
+                break;
+            }
             if stop.contains(&ch) {
                 break;
             }
@@ -1902,6 +1913,12 @@ impl<'a> Parser<'a> {
                 }
                 '@' | '=' | ',' | '{' | '}' | '(' | ')' | '\n' | '\r'
                     if angle_depth == 0 && bracket_depth == 0 =>
+                {
+                    break;
+                }
+                '/' if angle_depth == 0
+                    && bracket_depth == 0
+                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
                 {
                     break;
                 }
@@ -2154,6 +2171,36 @@ mod tests {
     }
 
     #[test]
+    fn treats_trivia_inside_aeon_header_key_as_separator_trivia() {
+        for source in [
+            "aeon :header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon: header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon : header = {\n  mode:string = \"strict\"\n}\n",
+            "aeon: /# #/header = {\n  mode:string = \"strict\"\n}\n",
+        ] {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+            assert_eq!(
+                result.text,
+                "aeon:header = {\n  mode:string = \"strict\"\n}\n"
+            );
+        }
+    }
+
+    #[test]
+    fn canonicalizes_flexible_structured_header_as_header() {
+        let result = canonicalize(
+            "aeon\n:\nheader /# #/= /# #/{\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\n",
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding:string = \"utf-8\"\n  mode:string = \"strict\"\n}\n"
+        );
+    }
+
+    #[test]
     fn normalizes_trimtick_to_string_content() {
         let result =
             canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");
@@ -2176,6 +2223,21 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[x] = ^1920x1080\n"
+        );
+    }
+
+    #[test]
+    fn strips_binding_head_annotations_without_changing_keys_or_datatypes() {
+        let result = canonicalize(
+            "aname/#A#/ :string = \"alignment playground\"\n\
+             bname:/#B#/ string = \"alignment playground\"\n\
+             cname: string /#C#/ = \"alignment playground\"\n\
+             dname: string = /#D#/ \"alignment playground\"\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\naname:string = \"alignment playground\"\nbname:string = \"alignment playground\"\ncname:string = \"alignment playground\"\ndname:string = \"alignment playground\"\n"
         );
     }
 

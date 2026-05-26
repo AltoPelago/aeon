@@ -5,6 +5,11 @@ Core AEON implementation workspace.
 License: MIT. See [LICENSE](./LICENSE).
 
 Public language guide and user-facing documentation: [AltoPelago/aeon wiki](https://github.com/AltoPelago/aeon/wiki).
+Implementation website: [aeon.altopelago.com](https://aeon.altopelago.com).
+Specification website: [aeonite.org](https://aeonite.org).
+
+AltoPelago owns this implementation workspace. Aeonite publishes the
+specification and CTS surfaces this implementation follows.
 
 ## npm Packages
 
@@ -59,6 +64,8 @@ Implementation references to specs, CTS, and contracts should continue to point 
 
 Related authority surfaces:
 
+- [aeon.altopelago.com](https://aeon.altopelago.com): implementation website
+- [aeonite.org](https://aeonite.org): specification website
 - [aeonite-org/aeonite-specs](https://github.com/aeonite-org/aeonite-specs): normative AEON specification authority
 - [aeonite-org/aeonite-cts](https://github.com/aeonite-org/aeonite-cts): cross-implementation conformance authority
 

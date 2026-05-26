@@ -11,7 +11,7 @@ import { createPassingEnvelope, createFailingEnvelope } from './types/envelope.j
 import { createDiag, createDiagContext, emitError, emitWarning } from './diag/emit.js';
 import { ErrorCodes } from './diag/codes.js';
 import { spanToTuple } from './types/spans.js';
-import { buildRuleIndex } from './rules/schemaIndex.js';
+import { buildRuleIndex, type RuleIndex } from './rules/schemaIndex.js';
 import { checkPresence } from './rules/presence.js';
 import { checkTypes } from './rules/typeCheck.js';
 import { checkReferenceForms } from './rules/referenceForm.js';
@@ -28,6 +28,17 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     ListNode: ['ListNode'],
     ListLiteral: ['ListNode', 'ListLiteral'],
     TupleLiteral: ['TupleLiteral'],
+    ToggleLiteral: ['ToggleLiteral'],
+    InfinityLiteral: ['InfinityLiteral'],
+    NaNLiteral: ['NaNLiteral'],
+    HexLiteral: ['HexLiteral'],
+    RadixLiteral: ['RadixLiteral'],
+    EncodingLiteral: ['EncodingLiteral'],
+    SeparatorLiteral: ['SeparatorLiteral'],
+    DateLiteral: ['DateLiteral'],
+    TimeLiteral: ['TimeLiteral'],
+    DateTimeLiteral: ['DateTimeLiteral'],
+    ZRUTDateTimeLiteral: ['ZRUTDateTimeLiteral'],
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
@@ -256,6 +267,8 @@ export function validate(
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
+                } else if (event.value.type === 'ObjectNode' && Array.isArray((event.value as any).bindings)) {
+                    containerArity.set(pathStr, (event.value as any).bindings.length);
                 } else if (event.value.type === 'NodeLiteral' && Array.isArray((event.value as any).children)) {
                     containerArity.set(pathStr, (event.value as any).children.length);
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
@@ -293,42 +306,89 @@ export function validate(
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
+    const effectiveRuleIndex = expandWildcardRules(
+        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx),
+        eventsByPath,
+    );
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(seen.keys());
-    checkPresence(ruleIndex, boundPaths, ctx);
+    checkPresence(effectiveRuleIndex, boundPaths, ctx);
     checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, ctx);
 
     // Phase 5: Type checks (literal kind)
-    checkReferenceForms(schema, ruleIndex, eventsByPath, ctx);
+    checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
 
-    const effectiveEventsByPath = resolveReferenceFormEvents(ruleIndex, eventsByPath);
-    checkTypes(ruleIndex, effectiveEventsByPath, ctx);
+    const effectiveEventsByPath = resolveReferenceFormEvents(effectiveRuleIndex, eventsByPath);
+    const selectedRuleIndex = selectAnyOfRules(effectiveRuleIndex, effectiveEventsByPath, ctx);
+    checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
 
-    // Phase 5b: core v1 arity checks for tuple/list containers
-    for (const [path, rule] of ruleIndex) {
-        const expectedLength = (rule.constraints as any).length_exact;
-        if (expectedLength === undefined) continue;
+    // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
+    for (const [path, rule] of selectedRuleIndex) {
+        const { length_exact, min_children, max_children } = rule.constraints;
+        if (length_exact === undefined && min_children === undefined && max_children === undefined) continue;
         const actualLength = containerArity.get(path);
         if (actualLength === undefined) continue;
-        if (typeof expectedLength === 'number' && actualLength !== expectedLength) {
+        const span = eventsByPath.get(path)?.span ?? null;
+        if (typeof length_exact === 'number' && actualLength !== length_exact) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected exactly ${length_exact} children, got ${actualLength}`,
+                ErrorCodes.TUPLE_ARITY_MISMATCH
+            ));
+        }
+        if (typeof min_children === 'number' && actualLength < min_children) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected at least ${min_children} children, got ${actualLength}`,
+                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+            ));
+        }
+        if (typeof max_children === 'number' && actualLength > max_children) {
+            emitError(ctx, createDiag(
+                path,
+                span,
+                `Container cardinality mismatch: expected at most ${max_children} children, got ${actualLength}`,
+                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+            ));
+        }
+    }
+
+    checkLexicalLiteralConstraints(selectedRuleIndex, effectiveEventsByPath, ctx);
+
+    // Phase 5c: constraints that widen NumberLiteral type acceptance to infinity/NaN
+    for (const [path, rule] of selectedRuleIndex) {
+        const event = effectiveEventsByPath.get(path);
+        if (!event) continue;
+        if (event.type === 'InfinityLiteral' && rule.constraints.allow_infinity !== true) {
+            continue;
+        }
+        if (event.type === 'NaNLiteral' && rule.constraints.allow_nan !== true) {
+            continue;
+        }
+        if ((event.type === 'InfinityLiteral' || event.type === 'NaNLiteral')
+            && rule.constraints.type !== undefined
+            && !isNumericExpectedType(rule.constraints.type)) {
             const span = eventsByPath.get(path)?.span ?? null;
             emitError(ctx, createDiag(
                 path,
                 span,
-                `Tuple/List arity mismatch: expected ${expectedLength}, got ${actualLength}`,
-                ErrorCodes.TUPLE_ARITY_MISMATCH
+                `Type mismatch: expected ${rule.constraints.type}, got ${event.type}`,
+                ErrorCodes.TYPE_MISMATCH
             ));
         }
     }
 
     // Phase 6: Numeric form constraints (sign, digit count)
-    checkNumericForm(ruleIndex, effectiveEventsByPath, ctx);
+    checkNumericForm(selectedRuleIndex, effectiveEventsByPath, ctx);
 
     // Phase 7: String form constraints (length, pattern)
-    checkStringForm(ruleIndex, effectiveEventsByPath, ctx);
-    checkPatterns(ruleIndex, effectiveEventsByPath, ctx);
-    checkAttributeConstraints(ruleIndex, effectiveEventsByPath, schema.datatype_rules, ctx);
+    checkStringForm(selectedRuleIndex, effectiveEventsByPath, ctx);
+    checkPatterns(selectedRuleIndex, effectiveEventsByPath, ctx);
+    checkAttributePolicy(schema, selectedRuleIndex, effectiveEventsByPath, ctx);
+    checkAttributeConstraints(selectedRuleIndex, effectiveEventsByPath, schema.datatype_rules, ctx);
     checkDatatypeRules(schema.datatype_rules, effectiveEventsByPath, ctx);
 
     if (ctx.errors.length > 0) {
@@ -384,13 +444,21 @@ function checkWorldPolicy(
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
 
-    const allowedPaths = schema.rules.map((rule) => rule.path);
+    const allowedRules = schema.rules
+        .map((rule) => typeof rule.path === 'string' && rule.path.length > 0
+            ? { kind: 'path' as const, value: rule.path }
+            : typeof rule.selector === 'string' && rule.selector.length > 0
+                ? { kind: 'selector' as const, value: rule.selector }
+                : null)
+        .filter((rule): rule is { kind: 'path' | 'selector'; value: string } => rule !== null);
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
         if (key.startsWith('aeon:')) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
-        if (allowedPaths.some((allowedPath) => matchesAllowedPath(path, allowedPath))) continue;
+        if (allowedRules.some((rule) => rule.kind === 'selector'
+            ? matchesSelectorPath(path, rule.value)
+            : matchesAllowedPath(path, rule.value))) continue;
         emitError(ctx, createDiag(
             path,
             toTupleLocal(event.span),
@@ -420,6 +488,129 @@ function resolveReferenceFormEvents(
         });
     }
     return resolved;
+}
+
+function expandSelectorRules(
+    ruleIndex: RuleIndex,
+    schema: SchemaV1,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): RuleIndex {
+    const expanded = new Map(ruleIndex);
+    for (const rule of schema.rules) {
+        if (typeof rule.selector !== 'string' || rule.selector.length === 0) continue;
+        if (typeof rule.path === 'string' && rule.path.length > 0) continue;
+        let matched = false;
+        for (const actualPath of eventsByPath.keys()) {
+            if (!matchesSelectorPath(actualPath, rule.selector)) continue;
+            matched = true;
+            if (!expanded.has(actualPath)) {
+                expanded.set(actualPath, { ...rule, path: actualPath });
+            }
+        }
+        if (!matched && rule.constraints.required === true) {
+            emitError(ctx, createDiag(
+                rule.selector,
+                null,
+                `Missing required field: ${rule.selector}`,
+                ErrorCodes.MISSING_REQUIRED_FIELD
+            ));
+        }
+    }
+    return expanded;
+}
+
+function expandWildcardRules(
+    ruleIndex: RuleIndex,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): RuleIndex {
+    const expanded = new Map(ruleIndex);
+    for (const [path, rule] of ruleIndex.entries()) {
+        if (!path.includes('[*]')) continue;
+        expanded.delete(path);
+        for (const actualPath of eventsByPath.keys()) {
+            if (matchesAllowedPath(actualPath, path)) {
+                expanded.set(actualPath, { ...rule, path: actualPath });
+            }
+        }
+    }
+    return expanded;
+}
+
+function selectAnyOfRules(
+    ruleIndex: RuleIndex,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): RuleIndex {
+    const selected = new Map(ruleIndex);
+    for (const [path, rule] of ruleIndex.entries()) {
+        if (!Array.isArray(rule.constraints.any_of)) continue;
+        const event = eventsByPath.get(path);
+        if (!event) continue;
+        const outer = withoutAnyOf(rule.constraints);
+        const branch = rule.constraints.any_of.find((candidate) => constraintBranchMatchesEvent(candidate, event));
+        if (!branch) {
+            emitError(ctx, createDiag(
+                path,
+                event.span,
+                `Value does not match any allowed constraint branch at ${path}`,
+                ErrorCodes.TYPE_MISMATCH
+            ));
+            selected.set(path, { ...rule, constraints: outer });
+            continue;
+        }
+        selected.set(path, { ...rule, constraints: { ...outer, ...branch } });
+    }
+    return selected;
+}
+
+function withoutAnyOf(constraints: ConstraintsV1): ConstraintsV1 {
+    const { any_of: _anyOf, ...rest } = constraints;
+    return rest;
+}
+
+function constraintBranchMatchesEvent(
+    constraints: ConstraintsV1,
+    event: EventInfo,
+): boolean {
+    if (constraints.type_is !== undefined) {
+        const containerOk = constraints.type_is === 'list'
+            ? (event.type === 'ListLiteral' || event.type === 'ListNode')
+            : event.type === 'TupleLiteral';
+        if (!containerOk) return false;
+    }
+    if (constraints.type !== undefined && !constraintTypeMatches(event.type, constraints.type, event.raw, constraints)) {
+        return false;
+    }
+    if (constraints.datatype !== undefined && event.datatype !== constraints.datatype) {
+        return false;
+    }
+    if (event.type === 'NullLiteral' && !nullValueMatches(event.value, constraints)) {
+        return false;
+    }
+    if (event.type === 'ToggleLiteral' && constraints.toggle_pair !== undefined && constraints.toggle_pair !== 'any') {
+        const value = (event.raw || event.value).toLowerCase();
+        const allowed = constraints.toggle_pair === 'yes_no'
+            ? ['yes', 'no']
+            : constraints.toggle_pair === 'on_off'
+                ? ['on', 'off']
+                : [];
+        if (allowed.length > 0 && !allowed.includes(value)) return false;
+    }
+    if (isStringType(event.type)) {
+        const valueLength = event.value.length;
+        if (constraints.min_length !== undefined && valueLength < constraints.min_length) return false;
+        if (constraints.max_length !== undefined && valueLength > constraints.max_length) return false;
+        if (constraints.pattern !== undefined && !(new RegExp(constraints.pattern).test(event.value))) return false;
+    }
+    if (hasDigitFormConstraints(constraints) && isDigitFormLiteral(event.type)) {
+        const digitCount = countFormDigits(event.type, event.raw);
+        if (constraints.sign === 'unsigned' && isFormNegative(event.raw)) return false;
+        if (constraints.min_digits !== undefined && digitCount < constraints.min_digits) return false;
+        if (constraints.max_digits !== undefined && digitCount > constraints.max_digits) return false;
+        if (event.type === 'RadixLiteral' && constraints.radix !== undefined && firstInvalidRadixDigit(event.raw, constraints.radix) !== null) return false;
+    }
+    return true;
 }
 
 function resolveTerminalReferenceEvent(
@@ -486,6 +677,182 @@ function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
     return new RegExp(pattern).test(actualPath);
 }
 
+function tokenizeCanonicalLikePath(path: string): string[] | null {
+    if (!path.startsWith('$')) return null;
+    const segments: string[] = [];
+    let index = 1;
+    while (index < path.length) {
+        const marker = path[index];
+        if (marker === '.') {
+            index += 1;
+            if (path[index] === '[') {
+                const end = findBracketEnd(path, index);
+                if (end < 0) return null;
+                segments.push(path.slice(index, end + 1));
+                index = end + 1;
+                continue;
+            }
+            const start = index;
+            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
+                index += 1;
+            }
+            if (start === index) return null;
+            segments.push(path.slice(start, index));
+            continue;
+        }
+        if (marker === '[') {
+            const end = findBracketEnd(path, index);
+            if (end < 0) return null;
+            segments.push(path.slice(index, end + 1));
+            index = end + 1;
+            continue;
+        }
+        if (marker === '@') {
+            index += 1;
+            if (path[index] === '[') {
+                const end = findBracketEnd(path, index);
+                if (end < 0) return null;
+                segments.push(`@${path.slice(index, end + 1)}`);
+                index = end + 1;
+                continue;
+            }
+            const start = index;
+            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
+                index += 1;
+            }
+            if (start === index) return null;
+            segments.push(`@${path.slice(start, index)}`);
+            continue;
+        }
+        return null;
+    }
+    return segments;
+}
+
+function findBracketEnd(path: string, start: number): number {
+    let quote: string | null = null;
+    let escaped = false;
+    for (let index = start + 1; index < path.length; index++) {
+        const ch = path[index]!;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (quote) {
+            if (ch === '\\') {
+                escaped = true;
+            } else if (ch === quote) {
+                quote = null;
+            }
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            continue;
+        }
+        if (ch === ']') return index;
+    }
+    return -1;
+}
+
+function matchesSelectorPath(actualPath: string, selector: string): boolean {
+    if (actualPath === selector) return true;
+    const actualSegments = tokenizeCanonicalLikePath(actualPath);
+    const selectorSegments = tokenizeCanonicalLikePath(selector);
+    if (!actualSegments || !selectorSegments) return false;
+
+    const matchFrom = (actualIndex: number, selectorIndex: number): boolean => {
+        if (selectorIndex === selectorSegments.length) {
+            return actualIndex === actualSegments.length;
+        }
+        const selectorSegment = selectorSegments[selectorIndex]!;
+        if (selectorSegment === '**') {
+            if (selectorIndex === selectorSegments.length - 1) return true;
+            for (let nextActual = actualIndex; nextActual <= actualSegments.length; nextActual++) {
+                if (matchFrom(nextActual, selectorIndex + 1)) return true;
+            }
+            return false;
+        }
+        if (actualIndex >= actualSegments.length) return false;
+        if (selectorSegment === '*') {
+            return matchFrom(actualIndex + 1, selectorIndex + 1);
+        }
+        if (selectorSegment === '[*]') {
+            return /^\[\d+\]$/.test(actualSegments[actualIndex]!)
+                && matchFrom(actualIndex + 1, selectorIndex + 1);
+        }
+        return selectorSegment === actualSegments[actualIndex]
+            && matchFrom(actualIndex + 1, selectorIndex + 1);
+    };
+
+    return matchFrom(0, 0);
+}
+
+function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {
+    const allowed: string[] = [];
+    function visit(basePath: string, constraints: ConstraintsV1): void {
+        if (basePath.includes('@')) {
+            allowed.push(basePath);
+        }
+        const attributes = constraints.attributes;
+        if (!attributes) return;
+        for (const [key, childConstraints] of Object.entries(attributes)) {
+            visit(`${basePath}@${key}`, childConstraints);
+        }
+    }
+    for (const [path, rule] of ruleIndex) {
+        visit(path, rule.constraints);
+    }
+    return allowed;
+}
+
+function collectAttributeEntries(
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): { path: string; span: [number, number] | null }[] {
+    const entries: { path: string; span: [number, number] | null }[] = [];
+    function visit(basePath: string, attributes: ReadonlyMap<string, AttributeInfo> | undefined): void {
+        if (!attributes) return;
+        for (const [key, entry] of attributes.entries()) {
+            const path = `${basePath}@${key}`;
+            entries.push({ path, span: entry.span });
+            visit(path, entry.attributes);
+        }
+    }
+    for (const [path, event] of eventsByPath) {
+        visit(path, event.attributes);
+    }
+    return entries;
+}
+
+function checkAttributePolicy(
+    schema: SchemaV1,
+    ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    const policy = schema.attribute_policy ?? 'inherit_world';
+    if (policy === 'inherit_world' && (schema.world ?? 'open') !== 'closed') return;
+    if (policy !== 'inherit_world' && policy !== 'forbid') return;
+
+    const attributeEntries = collectAttributeEntries(eventsByPath);
+    if (attributeEntries.length === 0) return;
+
+    const allowedPaths = policy === 'inherit_world'
+        ? collectAllowedAttributePaths(ruleIndex)
+        : [];
+    for (const entry of attributeEntries) {
+        if (allowedPaths.some((allowedPath) => matchesAllowedPath(entry.path, allowedPath))) continue;
+        emitError(ctx, createDiag(
+            entry.path,
+            entry.span,
+            policy === 'forbid'
+                ? `Attribute '${entry.path}' is forbidden by schema attribute_policy`
+                : `Attribute '${entry.path}' is not allowed by closed-world schema`,
+            ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY
+        ));
+    }
+}
+
 function checkDatatypeRules(
     datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
     eventsByPath: ReadonlyMap<string, {
@@ -550,32 +917,31 @@ function checkDatatypeRules(
         }
 
         if (constraints.min_value !== undefined || constraints.max_value !== undefined) {
-            const normalized = normalizeIntegerLiteral(raw);
-            if (!normalized) {
+            const range = normalizeRangeLiteral(event.type, raw);
+            if (!range) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Datatype rule violation for ':${event.datatype}': exact integer range requires integer literal form`,
+                    `Datatype rule violation for ':${event.datatype}': range constraints require numeric literal form`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
 
-            const numeric = BigInt(normalized);
-            if (constraints.min_value !== undefined && numeric < BigInt(constraints.min_value)) {
+            if (constraints.min_value !== undefined && isBelowRange(range, constraints.min_value)) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Datatype rule violation for ':${event.datatype}': expected value >= ${constraints.min_value}, got ${normalized}`,
+                    `Datatype rule violation for ':${event.datatype}': expected value >= ${constraints.min_value}, got ${range.raw}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
-            if (constraints.max_value !== undefined && numeric > BigInt(constraints.max_value)) {
+            if (constraints.max_value !== undefined && isAboveRange(range, constraints.max_value)) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Datatype rule violation for ':${event.datatype}': expected value <= ${constraints.max_value}, got ${normalized}`,
+                    `Datatype rule violation for ':${event.datatype}': expected value <= ${constraints.max_value}, got ${range.raw}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
             }
@@ -658,7 +1024,7 @@ function validateAttributeEntry(
         }
     }
 
-    if (effectiveConstraints.type !== undefined && !constraintTypeMatches(entry.type, effectiveConstraints.type, entry.raw)) {
+    if (effectiveConstraints.type !== undefined && !constraintTypeMatches(entry.type, effectiveConstraints.type, entry.raw, effectiveConstraints)) {
         emitError(ctx, createDiag(
             path,
             entry.span,
@@ -666,6 +1032,8 @@ function validateAttributeEntry(
             ErrorCodes.TYPE_MISMATCH
         ));
     }
+
+    checkLexicalLiteralConstraint(path, entry, effectiveConstraints, ctx);
 
     if (effectiveConstraints.datatype !== undefined && entry.datatype !== effectiveConstraints.datatype) {
         emitError(ctx, createDiag(
@@ -704,9 +1072,9 @@ function validateAttributeEntry(
         }
     }
 
-    if (entry.type === 'NumberLiteral') {
-        const digitCount = countIntegerDigits(entry.raw);
-        if (effectiveConstraints.sign === 'unsigned' && isNegative(entry.raw)) {
+    if (hasDigitFormConstraints(effectiveConstraints) && isDigitFormLiteral(entry.type)) {
+        const digitCount = countFormDigits(entry.type, entry.raw);
+        if ((entry.type === 'NumberLiteral' || entry.type === 'RadixLiteral') && effectiveConstraints.sign === 'unsigned' && isFormNegative(entry.raw)) {
             emitError(ctx, createDiag(
                 path,
                 entry.span,
@@ -729,6 +1097,17 @@ function validateAttributeEntry(
                 `Numeric form violation: expected max ${effectiveConstraints.max_digits} digits, got ${digitCount}`,
                 ErrorCodes.NUMERIC_FORM_VIOLATION
             ));
+        }
+        if (entry.type === 'RadixLiteral' && effectiveConstraints.radix !== undefined) {
+            const invalidDigit = firstInvalidRadixDigit(entry.raw, effectiveConstraints.radix);
+            if (invalidDigit !== null) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: radix literal digit '${invalidDigit}' is outside radix ${effectiveConstraints.radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
         }
     }
 
@@ -784,7 +1163,10 @@ function mergeDatatypeRuleConstraints(
     return { ...datatypeRule, ...constraints };
 }
 
-function constraintTypeMatches(actualType: string, expectedType: string, raw: string): boolean {
+function constraintTypeMatches(actualType: string, expectedType: string, raw: string, constraints?: ConstraintsV1): boolean {
+    if (constraints?.nullable === true && actualType === 'NullLiteral') return true;
+    if (constraints?.allow_infinity === true && actualType === 'InfinityLiteral' && isNumericExpectedType(expectedType)) return true;
+    if (constraints?.allow_nan === true && actualType === 'NaNLiteral' && isNumericExpectedType(expectedType)) return true;
     if (actualType === expectedType) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') return /^[+-]?\d[\d_]*$/.test(raw);
@@ -792,6 +1174,72 @@ function constraintTypeMatches(actualType: string, expectedType: string, raw: st
     }
     const satisfies = TYPE_ALIASES[actualType];
     return Boolean(satisfies?.includes(expectedType));
+}
+
+function isNumericExpectedType(expectedType: string): boolean {
+    return expectedType === 'NumberLiteral' || expectedType === 'IntegerLiteral' || expectedType === 'FloatLiteral';
+}
+
+function checkLexicalLiteralConstraints(
+    ruleIndex: ReadonlyMap<string, { readonly constraints: ConstraintsV1 }>,
+    events: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    for (const [path, rule] of ruleIndex) {
+        const event = events.get(path);
+        if (!event) continue;
+        checkLexicalLiteralConstraint(path, event, rule.constraints, ctx);
+    }
+}
+
+function checkLexicalLiteralConstraint(
+    path: string,
+    event: Pick<EventInfo, 'type' | 'raw' | 'value' | 'span'>,
+    constraints: ConstraintsV1,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    if (event.type === 'NullLiteral' && !nullValueMatches(event.value, constraints)) {
+        emitError(ctx, createDiag(
+            path,
+            event.span,
+            `Null value mismatch: expected ${formatExpectedNullValues(constraints)}, got ${event.value || '<none>'}`,
+            ErrorCodes.NULL_VALUE_MISMATCH
+        ));
+    }
+
+    if (event.type === 'ToggleLiteral' && constraints.toggle_pair !== undefined && constraints.toggle_pair !== 'any') {
+        const value = (event.raw || event.value).toLowerCase();
+        const allowed = constraints.toggle_pair === 'yes_no'
+            ? ['yes', 'no']
+            : constraints.toggle_pair === 'on_off'
+                ? ['on', 'off']
+                : [];
+        if (allowed.length > 0 && !allowed.includes(value)) {
+            emitError(ctx, createDiag(
+                path,
+                event.span,
+                `Toggle pair mismatch: expected ${constraints.toggle_pair}, got ${value || '<none>'}`,
+                ErrorCodes.TOGGLE_PAIR_MISMATCH
+            ));
+        }
+    }
+}
+
+function nullValueMatches(value: string, constraints: ConstraintsV1): boolean {
+    const expected = expectedNullValues(constraints);
+    return expected.length === 0 || expected.includes(value);
+}
+
+function expectedNullValues(constraints: ConstraintsV1): readonly string[] {
+    const values: string[] = [];
+    if (constraints.null_value !== undefined) values.push(constraints.null_value);
+    if (constraints.null_values !== undefined) values.push(...constraints.null_values);
+    return values;
+}
+
+function formatExpectedNullValues(constraints: ConstraintsV1): string {
+    const values = expectedNullValues(constraints);
+    return values.length > 0 ? values.join(' | ') : '<any>';
 }
 
 function isReferenceType(type: string): boolean {
@@ -812,17 +1260,92 @@ function datatypeTypeMatches(actualType: string, expectedType: string, raw: stri
     return false;
 }
 
-function normalizeIntegerLiteral(raw: string): string | null {
-    if (!/^[+-]?\d[\d_]*$/.test(raw)) return null;
-    return raw.replace(/_/g, '');
+type NormalizedRange = { kind: 'integer'; raw: string; value: bigint } | { kind: 'float'; raw: string; value: number };
+
+function normalizeRangeLiteral(type: string, raw: string): NormalizedRange | null {
+    const normalized = raw.replace(/_/g, '');
+    if (type === 'FloatLiteral' || /[.eE]/.test(normalized)) {
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
+        const value = Number(normalized);
+        return Number.isFinite(value) ? { kind: 'float', raw: normalized, value } : null;
+    }
+    if (!/^[+-]?\d+$/.test(normalized)) return null;
+    return { kind: 'integer', raw: normalized, value: BigInt(normalized) };
+}
+
+function isBelowRange(range: NormalizedRange, bound: string): boolean {
+    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
+        return range.value < BigInt(bound);
+    }
+    return rangeAsNumber(range) < Number(bound);
+}
+
+function isAboveRange(range: NormalizedRange, bound: string): boolean {
+    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
+        return range.value > BigInt(bound);
+    }
+    return rangeAsNumber(range) > Number(bound);
+}
+
+function rangeAsNumber(range: NormalizedRange): number {
+    return range.kind === 'integer' ? Number(range.value) : range.value;
 }
 
 function countIntegerDigits(raw: string): number {
     return raw.replace(/^[+-]/, '').replace(/_/g, '').split('.')[0]?.length ?? 0;
 }
 
+function hasDigitFormConstraints(constraints: ConstraintsV1): boolean {
+    return constraints.sign !== undefined || constraints.min_digits !== undefined || constraints.max_digits !== undefined || constraints.radix !== undefined;
+}
+
+function isDigitFormLiteral(type: string): boolean {
+    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+}
+
+function isStringType(type: string): boolean {
+    return type === 'StringLiteral' || type === 'TrimtickLiteral';
+}
+
+function countFormDigits(type: string, raw: string): number {
+    if (type === 'NumberLiteral') return countIntegerDigits(raw);
+    const body = raw
+        .replace(/^[#%^]/, '')
+        .replace(/^[+-]/, '')
+        .replace(/_/g, '');
+    let count = 0;
+    for (const char of body) {
+        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+            count++;
+        }
+    }
+    return count;
+}
+
+function firstInvalidRadixDigit(raw: string, radix: number): string | null {
+    const body = raw.replace(/^%/, '').replace(/^[+-]/, '').replace(/_/g, '');
+    for (const char of body) {
+        const value = radixDigitValue(char);
+        if (value !== null && value >= radix) return char;
+    }
+    return null;
+}
+
+function radixDigitValue(char: string): number | null {
+    if (char >= '0' && char <= '9') return char.charCodeAt(0) - 48;
+    const lower = char.toLowerCase();
+    if (lower >= 'a' && lower <= 'z') return lower.charCodeAt(0) - 87;
+    if (char === '&') return 36;
+    if (char === '!') return 37;
+    return null;
+}
+
 function isNegative(raw: string): boolean {
     return raw.startsWith('-');
+}
+
+function isFormNegative(raw: string): boolean {
+    return /^[$#%^]?-/.test(raw) || raw.startsWith('-');
 }
 
 function formatCanonicalPathLocal(path: any): string {

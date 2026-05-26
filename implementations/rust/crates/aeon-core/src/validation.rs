@@ -105,6 +105,61 @@ pub(crate) fn validate_duplicate_canonical_paths(
     }
 }
 
+pub(crate) fn validate_duplicate_object_member_keys(
+    bindings: &[Binding],
+    errors: &mut Vec<Diagnostic>,
+) {
+    let root = CanonicalPath::root();
+    for binding in bindings {
+        let path = root.member(binding.key.clone());
+        validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
+    }
+}
+
+fn validate_duplicate_object_member_keys_in_value(
+    value: &Value,
+    path: &CanonicalPath,
+    errors: &mut Vec<Diagnostic>,
+) {
+    match value {
+        Value::TypedValue { value, .. } => {
+            validate_duplicate_object_member_keys_in_value(value, path, errors);
+        }
+        Value::ObjectNode { bindings } => {
+            let mut seen = HashSet::new();
+            for binding in bindings {
+                let member_path = path.member(binding.key.clone());
+                if !seen.insert(binding.key.clone()) {
+                    errors.push(
+                        Diagnostic::new(
+                            "DUPLICATE_KEY",
+                            format!("Duplicate key: '{}'", binding.key),
+                        )
+                        .at_path(format_path(&member_path))
+                        .with_span(binding.span),
+                    );
+                }
+                validate_duplicate_object_member_keys_in_value(
+                    &binding.value,
+                    &member_path,
+                    errors,
+                );
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for (index, item) in items.iter().enumerate() {
+                validate_duplicate_object_member_keys_in_value(item, &path.index(index), errors);
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                validate_duplicate_object_member_keys_in_value(child, &path.index(index), errors);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn key_from_path(path: &str) -> String {
     if let Some(start) = path.rfind(".[") {
         let segment = &path[start + 2..];
@@ -428,6 +483,7 @@ pub(crate) fn validate_datatypes(
     validate_attribute_datatypes_in_scope(
         bindings,
         &CanonicalPath::root(),
+        mode,
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
@@ -526,6 +582,7 @@ pub(crate) fn validate_datatypes_light(
     validate_attribute_datatypes_in_scope(
         bindings,
         &CanonicalPath::root(),
+        mode,
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
@@ -1091,7 +1148,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "datetime"
             | "zrut"
             | "sep"
-            | "set"
+            | "kadot"
             | "tuple"
             | "list"
             | "object"
@@ -1122,7 +1179,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "date" => Some(vec!["DateLiteral"]),
         "time" => Some(vec!["TimeLiteral"]),
         "datetime" | "zrut" => Some(vec!["DateTimeLiteral"]),
-        "sep" | "set" => Some(vec!["SeparatorLiteral"]),
+        "sep" | "kadot" => Some(vec!["SeparatorLiteral"]),
         "tuple" => Some(vec!["TupleLiteral"]),
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
@@ -1280,7 +1337,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
         "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
         "sep" => matches!(value, Value::SeparatorLiteral { .. }),
-        "set" => matches!(value, Value::SeparatorLiteral { .. }),
+        "kadot" => matches!(value, Value::SeparatorLiteral { .. }),
         "tuple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
@@ -1400,8 +1457,8 @@ mod tests {
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
-        assert_eq!(datatype_bracket_specs("set[<]"), vec!["<"]);
-        assert_eq!(datatype_bracket_specs("set[>]"), vec![">"]);
+        assert_eq!(datatype_bracket_specs("sep[<]"), vec!["<"]);
+        assert_eq!(datatype_bracket_specs("sep[>]"), vec![">"]);
         assert_eq!(separator_spec_depth("outer<inner[.]>[x]"), 1);
         assert_eq!(separator_spec_depth("outer<inner[.]>[22]"), 1);
     }
@@ -1498,6 +1555,7 @@ fn has_valid_encoding_literal(raw: &str) -> bool {
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1509,6 +1567,7 @@ fn validate_attribute_datatypes_in_scope(
             &binding.attributes,
             &binding.attribute_order,
             &path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1517,6 +1576,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1528,6 +1588,7 @@ fn validate_attribute_datatypes_in_scope(
 fn validate_value_attribute_datatypes(
     value: &Value,
     path: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1537,6 +1598,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1547,6 +1609,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     item,
                     &path.index(index),
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1565,6 +1628,7 @@ fn validate_value_attribute_datatypes(
                     attribute,
                     &attribute_order,
                     path,
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1575,6 +1639,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     child,
                     &path.index(index),
+                    mode,
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
@@ -1590,6 +1655,7 @@ fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
     owner_path: &CanonicalPath,
+    mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
@@ -1600,7 +1666,35 @@ fn validate_attribute_datatype_map(
             continue;
         };
         let attr_path = format!("{}@{}", format_path(owner_path), key);
-        if let Some(datatype) = &entry.datatype
+        if entry.datatype.is_none()
+            && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
+            && let Some(value) = &entry.value
+        {
+            if matches!(mode, BehaviorMode::Strict) && matches!(value, Value::ToggleLiteral { .. })
+            {
+                errors.push(
+                    Diagnostic::new(
+                        "UNTYPED_TOGGLE_LITERAL",
+                        format!(
+                            "Untyped toggle literal in typed mode: '{}' requires ':toggle' type annotation",
+                            attr_path
+                        ),
+                    )
+                    .at_path(attr_path.clone()),
+                );
+            } else {
+                errors.push(
+                    Diagnostic::new(
+                        "UNTYPED_VALUE_IN_STRICT_MODE",
+                        format!(
+                            "Untyped value in typed mode: '{}' requires explicit type annotation",
+                            attr_path
+                        ),
+                    )
+                    .at_path(attr_path.clone()),
+                );
+            }
+        } else if let Some(datatype) = &entry.datatype
             && let Some(value) = &entry.value
         {
             if let Some(error) = validate_datatype_shape_light(
@@ -1646,6 +1740,7 @@ fn validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
             owner_path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1655,6 +1750,7 @@ fn validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
             owner_path,
+            mode,
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
@@ -1664,6 +1760,7 @@ fn validate_attribute_datatype_map(
             validate_value_attribute_datatypes(
                 value,
                 owner_path,
+                mode,
                 datatype_policy,
                 max_separator_depth,
                 max_generic_depth,

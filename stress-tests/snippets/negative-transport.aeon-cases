@@ -21,7 +21,7 @@ a@{"constructor":n=0} = 1
 ---
 a@{"prototype":n=0} = 1
 ---
-badGeneric3:set<string>[ab] = ^x
+badGeneric3:sep<string>[ab] = ^x
 ---
 badNodeHead1:node = <tag:pair<int32,string>("x")>
 ---

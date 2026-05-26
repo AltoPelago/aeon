@@ -12,6 +12,19 @@ use crate::{
 
 const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
 
+fn is_bare_key_kind(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Identifier
+            | TokenKind::True
+            | TokenKind::False
+            | TokenKind::Yes
+            | TokenKind::No
+            | TokenKind::On
+            | TokenKind::Off
+    )
+}
+
 pub(crate) fn parse_document_from_tokens(
     input: &str,
     max_nesting_depth: usize,
@@ -229,16 +242,23 @@ impl<'a> TokenParser<'a> {
     fn parse_key(&mut self) -> Result<String, Diagnostic> {
         let token = self.peek();
         match token.kind {
-            TokenKind::Identifier => {
-                if token.text == "aeon" && self.peek_next().kind == TokenKind::Colon {
+            kind if is_bare_key_kind(kind) => {
+                if token.text == "aeon" {
+                    let saved = self.current;
                     self.advance();
-                    self.advance();
-                    let field =
-                        self.consume(TokenKind::Identifier, "Expected header field after `aeon:`")?;
-                    Ok(format!("aeon:{}", field.text))
-                } else {
-                    Ok(self.advance().text.clone())
+                    self.skip_newlines();
+                    if self.check(TokenKind::Colon) {
+                        self.advance();
+                        self.skip_newlines();
+                        let field = self.consume(
+                            TokenKind::Identifier,
+                            "Expected header field after `aeon:`",
+                        )?;
+                        return Ok(format!("aeon:{}", field.text));
+                    }
+                    self.current = saved;
                 }
+                Ok(self.advance().text.clone())
             }
             TokenKind::String => {
                 if token.quote == Some('`') {
@@ -331,7 +351,7 @@ impl<'a> TokenParser<'a> {
         while self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
             if is_reserved_v1_datatype(&datatype_name)
-                && !matches!(datatype_name.as_str(), "sep" | "set" | "radix")
+                && !matches!(datatype_name.as_str(), "sep" | "radix")
             {
                 return Err(Diagnostic {
                     code: String::from("SYNTAX_ERROR"),
@@ -970,7 +990,7 @@ impl<'a> TokenParser<'a> {
 
     fn parse_reference_key(&mut self) -> Result<String, Diagnostic> {
         match self.peek().kind {
-            TokenKind::Identifier => Ok(self.advance().text.clone()),
+            kind if is_bare_key_kind(kind) => Ok(self.advance().text.clone()),
             TokenKind::String => {
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
@@ -990,7 +1010,7 @@ impl<'a> TokenParser<'a> {
 
     fn parse_node_tag(&mut self) -> Result<String, Diagnostic> {
         match self.peek().kind {
-            TokenKind::Identifier => Ok(self.advance().text.clone()),
+            kind if is_bare_key_kind(kind) => Ok(self.advance().text.clone()),
             TokenKind::String => {
                 let token = self.peek();
                 if token.quote == Some('`') {
@@ -1298,7 +1318,7 @@ impl<'a> TokenParser<'a> {
     fn synchronize_to_next_binding(&mut self) -> bool {
         while !self.is_at_end() {
             let token = self.peek();
-            let is_binding_key = token.kind == TokenKind::Identifier
+            let is_binding_key = is_bare_key_kind(token.kind)
                 || (token.kind == TokenKind::String && token.quote != Some('`'));
             if is_binding_key {
                 let next = self.peek_next();
@@ -1432,7 +1452,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
             message: format!("Datatype `{base}` does not support generic arguments in v1"),
         });
     }
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "set" | "radix") {
+    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -1523,7 +1543,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "radix8"
             | "radix12"
             | "sep"
-            | "set"
+            | "kadot"
             | "tuple"
             | "list"
             | "object"
@@ -1779,6 +1799,36 @@ mod tests {
     fn parses_shorthand_header_key_from_tokens() {
         let bindings = parse("aeon:mode = \"strict\"").expect("token parse");
         assert_eq!(bindings[0].key, "aeon:mode");
+    }
+
+    #[test]
+    fn parses_literal_words_as_keys_in_key_contexts() {
+        let bindings = parse(
+            r#"yes:string = "top"
+copy:string = ~yes
+true@{no:string = "attr"}:string = "named true"
+node:node = <on(off)>
+group:object = {
+  false:boolean = true
+  off:toggle = yes
+}"#,
+        )
+        .expect("literal-word keys should parse");
+
+        assert_eq!(bindings[0].key, "yes");
+        assert_eq!(bindings[2].key, "true");
+        assert!(bindings[2].attributes.contains_key("no"));
+        match &bindings[3].value {
+            Value::NodeLiteral { tag, .. } => assert_eq!(tag, "on"),
+            _ => panic!("expected node literal"),
+        }
+        match &bindings[4].value {
+            Value::ObjectNode { bindings } => {
+                assert_eq!(bindings[0].key, "false");
+                assert_eq!(bindings[1].key, "off");
+            }
+            _ => panic!("expected object node"),
+        }
     }
 
     #[test]

@@ -18,6 +18,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from stress_helpers import has_explicit_header
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TS_FMT_CMD = ["node", str(ROOT / "implementations" / "typescript" / "packages" / "cli" / "dist" / "main.js"), "fmt"]
@@ -110,8 +112,7 @@ def split_cases(raw: str) -> list[str]:
 
 
 def apply_mode(snippet: str, mode: str) -> str:
-    stripped = snippet.lstrip()
-    if stripped.startswith("aeon:mode") or stripped.startswith("aeon:header"):
+    if has_explicit_header(snippet):
         return snippet
     return f'aeon:mode = "{mode}"\n{snippet}'
 

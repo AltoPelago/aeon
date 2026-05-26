@@ -276,7 +276,7 @@ class Parser {
         const start = this.peek().span.start;
 
         // Parse key
-        if (!this.check(TokenType.Identifier) && !this.check(TokenType.String)) {
+        if (!this.isKeyToken(this.peek())) {
             if (this.isAtEnd()) return null;
             throw new SyntaxError(
                 `Expected key, found '${this.peek().value}'`,
@@ -345,7 +345,7 @@ class Parser {
         const entries = new Map<string, AttributeValue>();
 
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
-            const attrKeyToken = this.consumeOneOf([TokenType.Identifier, TokenType.String], "Expected attribute key");
+            const attrKeyToken = this.consumeKeyToken("Expected attribute key");
             const attrKey = this.keyFromToken(attrKeyToken);
             if (RESERVED_ATTRIBUTE_KEYS.has(attrKey)) {
                 throw new SyntaxError(
@@ -771,7 +771,7 @@ class Parser {
     }
 
     private parseNodeTag(): string {
-        const token = this.consumeOneOf([TokenType.Identifier, TokenType.String], "Expected node tag after '<'");
+        const token = this.consumeKeyToken("Expected node tag after '<'");
         if (token.type === TokenType.String) {
             if (token.quote === '`') {
                 throw new SyntaxError(
@@ -1381,15 +1381,6 @@ class Parser {
         throw new SyntaxError(message, this.peek().span, type, this.peek().value);
     }
 
-    private consumeOneOf(types: readonly TokenType[], message: string): Token {
-        for (const type of types) {
-            if (this.check(type)) {
-                return this.advance();
-            }
-        }
-        throw new SyntaxError(message, this.peek().span, types.join(' | '), this.peek().value);
-    }
-
     private keyFromToken(token: Token): string {
         if (token.type === TokenType.String && token.quote === '`') {
             throw new SyntaxError(
@@ -1414,7 +1405,7 @@ class Parser {
         sawRootDot: boolean = false,
         sawExplicitRoot: boolean = false
     ): void {
-        if (this.check(TokenType.Identifier) || this.check(TokenType.String)) {
+        if (this.isKeyToken(this.peek())) {
             path.push(this.parseMemberSegment('Expected path segment'));
             return;
         }
@@ -1441,7 +1432,7 @@ class Parser {
     }
 
     private parseMemberSegment(message: string): string {
-        const token = this.consumeOneOf([TokenType.Identifier, TokenType.String], message);
+        const token = this.consumeKeyToken(message);
         if (token.type === TokenType.String && token.quote === '`') {
             throw new SyntaxError(
                 'Backtick-quoted keys are not supported in paths',
@@ -1469,7 +1460,7 @@ class Parser {
             return { type: 'attr', key: this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted attribute keys must not be empty') };
         }
 
-        const keyToken = this.consumeOneOf([TokenType.Identifier, TokenType.String], "Expected attribute path segment");
+        const keyToken = this.consumeKeyToken("Expected attribute path segment");
         if (keyToken.type === TokenType.String && keyToken.quote === '`') {
             throw new SyntaxError(
                 'Backtick-quoted keys are not supported in attribute segments',
@@ -1712,7 +1703,7 @@ class Parser {
 
         while (!this.isAtEnd()) {
             // If we see what looks like the start of a new binding, stop synchronizing
-            if (this.check(TokenType.Identifier)) {
+            if (this.isBareKeyToken(this.peek())) {
                 // Peek ahead to see if this is a binding (identifier followed by = or :)
                 const next = this.peekNext();
                 if (next && (next.type === TokenType.Equals || next.type === TokenType.Colon || next.type === TokenType.At)) {
@@ -1739,6 +1730,33 @@ class Parser {
         }
         throw new SyntaxError(message, next.span, "',' or newline", next.value);
     }
+
+    private isBareKeyToken(token: Token): boolean {
+        switch (token.type) {
+            case TokenType.Identifier:
+            case TokenType.True:
+            case TokenType.False:
+            case TokenType.Yes:
+            case TokenType.No:
+            case TokenType.On:
+            case TokenType.Off:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private isKeyToken(token: Token): boolean {
+        return this.isBareKeyToken(token) || token.type === TokenType.String;
+    }
+
+    private consumeKeyToken(message: string): Token {
+        const token = this.peek();
+        if (!this.isKeyToken(token)) {
+            throw new SyntaxError(message, token.span, 'key', token.value);
+        }
+        return this.advance();
+    }
 }
 
 function isAllowedSeparatorSpecChar(char: string): boolean {
@@ -1746,7 +1764,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
-const BRACKETED_V1_DATATYPES = new Set(['sep', 'set', 'radix']);
+const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([
@@ -1757,7 +1775,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'hex', 'date', 'time', 'datetime', 'zrut',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',
-    'sep', 'set',
+    'sep', 'kadot',
     'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 

@@ -7,7 +7,7 @@
 
 export { compile } from './compile.js';
 export { createRegistry, createDefaultRegistry } from './registry.js';
-export { altopelagoCoreProfile } from './profiles/altopelago-core.js';
+export { coreProfile } from './profiles/altopelago-core.js';
 export { aeonGpCoreProfile } from './profiles/aeon-gp-core.js';
 export { jsonProfile } from './profiles/json.js';
 export { createResolveRefsProcessor } from './processors/resolve-refs.js';

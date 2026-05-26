@@ -1,6 +1,9 @@
 name: npm Publish
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,6 +26,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag commit is on main
+        if: ${{ github.event_name == 'push' }}
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - name: Setup pnpm
         uses: pnpm/action-setup@91ab88e2619ed1f46221f0ba42d1492c02baf788 # v6.0.6
@@ -47,11 +56,11 @@ jobs:
         run: pnpm publish:preflight
 
       - name: Publish packages to npm
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
         env:
           NPM_CONFIG_PROVENANCE: "true"
         run: node ./tools/publish-npm-packages.mjs
 
       - name: Dry-run npm publish
-        if: ${{ inputs.dry_run }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: node ./tools/publish-npm-packages.mjs --dry-run --no-provenance

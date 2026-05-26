@@ -11,7 +11,7 @@ badGeneric1:tuple<> = (1)
 ---
 badGeneric2:tuple<int32,> = (1)
 ---
-badGeneric3:set<string>[ab] = ^x
+badGeneric3:sep<string>[ab] = ^x
 ---
 widget:node = <tag:pair<int32,string>("x")>
 ---

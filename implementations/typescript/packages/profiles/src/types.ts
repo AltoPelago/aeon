@@ -24,7 +24,7 @@ export interface CompileResult {
 }
 
 export interface CompileOptions {
-    readonly profile: ProfileRef;
+    readonly profile?: ProfileRef;
     readonly registry?: ProfileRegistry;
     readonly mode?: 'strict' | 'loose';
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';

@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-aes",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "AEON encoded string helpers for the TypeScript implementation.",
   "license": "MIT",
   "type": "module",
