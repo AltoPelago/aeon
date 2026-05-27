@@ -123,11 +123,22 @@ def inspect(args: list[str]) -> int:
 
 def fmt(args: list[str]) -> int:
     write_output = "--write" in args
+    max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
+    if max_input_bytes is None and "--max-input-bytes" in args:
+        print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if write_output and file_arg is None:
         print("Error: --write requires a file path", file=sys.stderr)
         return 2
     source = Path(file_arg).read_text(encoding="utf-8") if file_arg is not None else sys.stdin.read()
+    actual_bytes = len(source.encode("utf-8"))
+    if max_input_bytes is not None and actual_bytes > max_input_bytes:
+        print(
+            f"Error: Input size {actual_bytes} bytes exceeds configured limit of {max_input_bytes} bytes",
+            file=sys.stderr,
+        )
+        return 1
     result = canonicalize(source)
     if result.errors:
         for error in result.errors:
@@ -262,7 +273,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 

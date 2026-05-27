@@ -6,6 +6,26 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.9.2 - Unreleased
+
+### Security
+
+- Added AEOS portable pattern-profile enforcement for `pattern` and
+  `reference_target_pattern`, rejecting host-specific or high-risk regex
+  constructs such as lookaround, backreferences, named groups, Unicode property
+  escapes, unsupported alphabetic escapes, overlong patterns, and nested
+  quantified groups.
+- Added regression coverage for portable pattern enforcement across
+  TypeScript, Rust, Python, and PHP implementation surfaces.
+
+### Fixed
+
+- Fixed Python CLI `fmt` so `--max-input-bytes` is enforced consistently with
+  other command surfaces.
+- Fixed TypeScript and Rust CLI default contract registry discovery after the
+  aeonite-specs contracts reorganization, and taught the Rust CLI to load the
+  current `aeos:schema` contract artifact shape.
+
 ## 0.9.1 - 2026-05-27
 
 ### Added

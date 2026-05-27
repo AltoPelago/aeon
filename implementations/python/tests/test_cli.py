@@ -158,6 +158,41 @@ class CliTests(unittest.TestCase):
         ])
         self.assertEqual(expected, result.stdout)
 
+    def test_fmt_max_input_bytes_fails_with_input_size_exceeded(self) -> None:
+        result = subprocess.run(
+            [
+                str(ROOT / "bin" / "aeon-python"),
+                "fmt",
+                "--max-input-bytes",
+                "4",
+            ],
+            input="b = 1\n",
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("", result.stdout)
+        self.assertIn("exceeds configured limit", result.stderr)
+
+    def test_fmt_rejects_invalid_max_input_bytes_value(self) -> None:
+        result = subprocess.run(
+            [
+                str(ROOT / "bin" / "aeon-python"),
+                "fmt",
+                "missing.aeon",
+                "--max-input-bytes",
+                "abc",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("Invalid value for --max-input-bytes", result.stderr)
+
     def test_inspect_requires_file_argument(self) -> None:
         result = subprocess.run(
             [

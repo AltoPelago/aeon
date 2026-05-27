@@ -1350,10 +1350,10 @@ fn cts_adapter() -> Result<ExitCode, String> {
 
 fn default_contract_registry_path() -> String {
     specs_repo_root()
-        .join("aeon")
+        .join("contracts")
         .join("v1")
         .join("drafts")
-        .join("contracts")
+        .join("artifacts")
         .join("registry.json")
         .to_string_lossy()
         .into_owned()
@@ -3789,6 +3789,7 @@ fn normalize_schema_contract_value(
         "schema_version",
         "rules",
         "world",
+        "reference_policy",
         "datatype_rules",
         "datatype_allowlist",
     ];
@@ -3832,6 +3833,16 @@ fn normalize_schema_contract_value(
             }
         }
     }
+    if let Some(reference_policy) = object.get("reference_policy") {
+        match reference_policy.as_str() {
+            Some("allow") | Some("forbid") => {}
+            _ => {
+                return Err(format!(
+                    "Schema contract field 'reference_policy' must be \"allow\" or \"forbid\": {file}"
+                ));
+            }
+        }
+    }
     if let Some(datatype_rules) = object.get("datatype_rules") {
         let Some(map) = datatype_rules.as_object() else {
             return Err(format!(
@@ -3864,6 +3875,147 @@ fn normalize_schema_contract_value(
     Ok((schema, schema_id))
 }
 
+fn normalize_aeos_schema_contract_value(
+    parsed: JsonValue,
+    file: &str,
+    expected_schema_id: Option<&str>,
+) -> Result<(Schema, String), String> {
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| format!("Schema document root must be an object: {file}"))?;
+
+    let allowed_top_level = [
+        "id",
+        "version",
+        "rules",
+        "patterns",
+        "charsets",
+        "world",
+        "reference_policy",
+        "datatype_rules",
+        "datatype_allowlist",
+    ];
+    for key in object.keys() {
+        if !allowed_top_level.contains(&key.as_str()) {
+            return Err(format!("Unknown schema document key '{key}' in {file}"));
+        }
+    }
+
+    let schema_id = match object.get("id") {
+        Some(JsonValue::String(value)) if !value.is_empty() => value.clone(),
+        _ => {
+            return Err(format!(
+                "Schema document missing required string field 'id': {file}"
+            ));
+        }
+    };
+    if let Some(expected) = expected_schema_id {
+        if schema_id != expected {
+            return Err(format!(
+                "Schema contract id mismatch. Expected '{expected}', found '{schema_id}' in {file}"
+            ));
+        }
+    }
+    match object.get("version") {
+        Some(JsonValue::String(value)) if !value.is_empty() => {}
+        _ => {
+            return Err(format!(
+                "Schema document missing required string field 'version': {file}"
+            ));
+        }
+    }
+    if let Some(world) = object.get("world") {
+        match world.as_str() {
+            Some("open") | Some("closed") => {}
+            _ => {
+                return Err(format!(
+                    "Schema document field 'world' must be \"open\" or \"closed\": {file}"
+                ));
+            }
+        }
+    }
+    if let Some(reference_policy) = object.get("reference_policy") {
+        match reference_policy.as_str() {
+            Some("allow") | Some("forbid") => {}
+            _ => {
+                return Err(format!(
+                    "Schema document field 'reference_policy' must be \"allow\" or \"forbid\": {file}"
+                ));
+            }
+        }
+    }
+    if let Some(datatype_rules) = object.get("datatype_rules") {
+        let Some(map) = datatype_rules.as_object() else {
+            return Err(format!(
+                "Schema document field 'datatype_rules' must be object: {file}"
+            ));
+        };
+        for (key, value) in map {
+            if !value.is_object() {
+                return Err(format!(
+                    "Schema contract datatype_rules['{key}'] must be object: {file}"
+                ));
+            }
+        }
+    }
+    if let Some(datatype_allowlist) = object.get("datatype_allowlist") {
+        let Some(items) = datatype_allowlist.as_array() else {
+            return Err(format!(
+                "Schema document field 'datatype_allowlist' must be array<string>: {file}"
+            ));
+        };
+        if items.iter().any(|item| !item.is_string()) {
+            return Err(format!(
+                "Schema document field 'datatype_allowlist' must be array<string>: {file}"
+            ));
+        }
+    }
+
+    let rules = match object.get("rules") {
+        Some(JsonValue::Array(items)) => JsonValue::Array(items.clone()),
+        Some(JsonValue::Object(map)) => JsonValue::Array(
+            map.iter()
+                .map(|(path, constraints)| {
+                    json!({
+                        "path": path,
+                        "constraints": constraints,
+                    })
+                })
+                .collect(),
+        ),
+        _ => {
+            return Err(format!(
+                "Schema document missing required field 'rules': {file}"
+            ));
+        }
+    };
+
+    let mut normalized = Map::new();
+    normalized.insert(String::from("rules"), rules);
+    for key in [
+        "world",
+        "reference_policy",
+        "datatype_rules",
+        "datatype_allowlist",
+    ] {
+        if let Some(value) = object.get(key) {
+            normalized.insert(key.to_string(), value.clone());
+        }
+    }
+
+    let schema = serde_json::from_value(JsonValue::Object(normalized))
+        .map_err(|error| format!("failed to parse normalized schema {file}: {error}"))?;
+    Ok((schema, schema_id))
+}
+
+fn has_aeos_schema_root(events: &[AssignmentEvent]) -> bool {
+    events.iter().any(|event| {
+        event.key == "aeos"
+            && event.datatype.as_deref() == Some("schema")
+            && matches!(event.path.segments.as_slice(), [PathSegment::Root, PathSegment::Member(key)] if key == "aeos")
+    })
+}
+
 fn read_schema_contract_aeon_file(
     file: &str,
     expected_schema_id: Option<&str>,
@@ -3889,6 +4041,14 @@ fn read_schema_contract_aeon_file(
     }
 
     let document = finalized.document;
+    if has_aeos_schema_root(&compiled.events) {
+        let aeos_root = document
+            .as_object()
+            .and_then(|object| object.get("aeos"))
+            .cloned()
+            .ok_or_else(|| format!("Schema document missing required '$.aeos' object: {file}"))?;
+        return normalize_aeos_schema_contract_value(aeos_root, file, expected_schema_id);
+    }
     let object = document
         .as_object()
         .cloned()

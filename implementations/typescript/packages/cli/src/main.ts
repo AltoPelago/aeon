@@ -321,7 +321,7 @@ function getDefaultContractRegistryPath(): string {
     const specsRoot = process.env.AEONITE_SPECS_ROOT
         ? path.resolve(process.env.AEONITE_SPECS_ROOT)
         : path.resolve(repoRoot, '..', '..', 'aeonite-org', 'aeonite-specs');
-    return path.resolve(specsRoot, 'aeon/v1/drafts/contracts/registry.json');
+    return path.resolve(specsRoot, 'contracts/v1/drafts/artifacts/registry.json');
 }
 
 /**
