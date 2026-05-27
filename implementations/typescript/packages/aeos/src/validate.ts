@@ -618,7 +618,7 @@ function constraintBranchMatchesEvent(
         if (constraints.sign === 'unsigned' && isFormNegative(event.raw)) return false;
         if (constraints.min_digits !== undefined && digitCount < constraints.min_digits) return false;
         if (constraints.max_digits !== undefined && digitCount > constraints.max_digits) return false;
-        if (event.type === 'RadixLiteral' && constraints.radix !== undefined && firstInvalidRadixDigit(event.raw, constraints.radix) !== null) return false;
+        if (event.type === 'RadixLiteral' && constraints.radix !== undefined && !radixConstraintMatches(event.datatype, event.raw, constraints)) return false;
     }
     return true;
 }
@@ -1133,6 +1133,17 @@ function validateAttributeEntry(
             ));
         }
         if (entry.type === 'RadixLiteral' && effectiveConstraints.radix !== undefined) {
+            const declaredRadix = declaredRadixFromDatatype(entry.datatype);
+            if ((declaredRadix === null && effectiveConstraints.allow_unspecified_radix !== true)
+                || (declaredRadix !== null && declaredRadix !== effectiveConstraints.radix)) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected declared radix ${effectiveConstraints.radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                return;
+            }
             const invalidDigit = firstInvalidRadixDigit(entry.raw, effectiveConstraints.radix);
             if (invalidDigit !== null) {
                 emitError(ctx, createDiag(
@@ -1145,7 +1156,7 @@ function validateAttributeEntry(
         }
     }
 
-    if (entry.type === 'StringLiteral') {
+    if (isStringType(entry.type)) {
         if (effectiveConstraints.min_length !== undefined && entry.value.length < effectiveConstraints.min_length) {
             emitError(ctx, createDiag(
                 path,
@@ -1170,15 +1181,6 @@ function validateAttributeEntry(
                 ErrorCodes.PATTERN_MISMATCH
             ));
         }
-    }
-
-    if (entry.type === 'SeparatorLiteral' && effectiveConstraints.pattern !== undefined && !patternMatches(effectiveConstraints.pattern, entry.value)) {
-        emitError(ctx, createDiag(
-            path,
-            entry.span,
-            `Pattern mismatch: value does not match ${effectiveConstraints.pattern}`,
-            ErrorCodes.PATTERN_MISMATCH
-        ));
     }
 
     if (effectiveConstraints.attributes || effectiveConstraints.closed_attributes === true) {
@@ -1343,11 +1345,36 @@ function hasDigitFormConstraints(constraints: ConstraintsV1): boolean {
 }
 
 function isDigitFormLiteral(type: string): boolean {
-    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral';
+}
+
+function radixConstraintMatches(datatype: string | undefined, raw: string, constraints: ConstraintsV1): boolean {
+    if (constraints.radix === undefined) return true;
+    const declaredRadix = declaredRadixFromDatatype(datatype);
+    if (declaredRadix === null && constraints.allow_unspecified_radix !== true) return false;
+    if (declaredRadix !== null && declaredRadix !== constraints.radix) return false;
+    return firstInvalidRadixDigit(raw, constraints.radix) === null;
+}
+
+function declaredRadixFromDatatype(datatype: string | undefined): number | null {
+    if (datatype === undefined) return null;
+    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
+    if (!match) return null;
+    const value = Number(match[1] ?? match[2]);
+    return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isStringType(type: string): boolean {
-    return type === 'StringLiteral' || type === 'TrimtickLiteral';
+    return type === 'StringLiteral'
+        || type === 'TrimtickLiteral'
+        || type === 'TrimtickStringLiteral'
+        || type === 'SeparatorLiteral'
+        || type === 'NullLiteral'
+        || type === 'EncodingLiteral'
+        || type === 'DateLiteral'
+        || type === 'TimeLiteral'
+        || type === 'DateTimeLiteral'
+        || type === 'ZRUTDateTimeLiteral';
 }
 
 function countFormDigits(type: string, raw: string): number {
@@ -1358,7 +1385,7 @@ function countFormDigits(type: string, raw: string): number {
         .replace(/_/g, '');
     let count = 0;
     for (const char of body) {
-        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+        if ((char >= '0' && char <= '9') || ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!')) {
             count++;
         }
     }

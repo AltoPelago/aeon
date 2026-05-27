@@ -377,6 +377,16 @@ function validateConstraintTree(
         return false;
     }
 
+    if (constraints.allow_unspecified_radix !== undefined && typeof constraints.allow_unspecified_radix !== 'boolean') {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid allow_unspecified_radix constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
     if (constraints.any_of !== undefined) {
         if (!Array.isArray(constraints.any_of) || constraints.any_of.length === 0) {
             emitError(ctx, createDiag(

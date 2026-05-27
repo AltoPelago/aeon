@@ -341,6 +341,7 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "min_digits",
     "max_digits",
     "radix",
+    "allow_unspecified_radix",
     "min_value",
     "max_value",
     "min_length",
@@ -704,6 +705,22 @@ fn validate_constraint_tree(
             );
             return false;
         }
+    }
+
+    if constraints
+        .get("allow_unspecified_radix")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
     }
 
     if let Some(any_of) = constraints.get("any_of") {
@@ -1339,18 +1356,27 @@ fn check_numeric_form(
 
         if event.value_type == "RadixLiteral"
             && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
-            && let Some(_invalid_digit) = first_invalid_radix_digit(&event.raw, radix as usize)
         {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(path.clone()),
-                    code: String::from("numeric_form_violation"),
-                    phase: String::from("schema_validation"),
-                    span: event.span,
-                },
-            );
-            continue;
+            let declared_radix = declared_radix_from_datatype(event.datatype.as_deref());
+            if (declared_radix.is_none()
+                && constraints
+                    .get("allow_unspecified_radix")
+                    .and_then(JsonValue::as_bool)
+                    != Some(true))
+                || declared_radix.is_some_and(|declared| declared != radix as usize)
+                || first_invalid_radix_digit(&event.raw, radix as usize).is_some()
+            {
+                emit_error(
+                    ctx,
+                    ValidationDiagnostic {
+                        path: Some(path.clone()),
+                        code: String::from("numeric_form_violation"),
+                        phase: String::from("schema_validation"),
+                        span: event.span,
+                    },
+                );
+                continue;
+            }
         }
 
         if constraints.get("min_value").is_some() || constraints.get("max_value").is_some() {
@@ -1416,7 +1442,7 @@ fn check_string_form(
         let Some(event) = events_by_path.get(path) else {
             continue;
         };
-        if event.value_type != "StringLiteral" {
+        if !is_string_like_literal(&event.value_type) {
             continue;
         }
         let Some(value) = string_value(event.value.as_ref()) else {
@@ -1466,7 +1492,7 @@ fn check_patterns(
         let Some(event) = events_by_path.get(path) else {
             continue;
         };
-        if event.value_type != "StringLiteral" && event.value_type != "SeparatorLiteral" {
+        if !is_string_like_literal(&event.value_type) {
             continue;
         }
         let Some(value) = string_value(event.value.as_ref()) else {
@@ -1757,17 +1783,26 @@ fn validate_attribute_entry(
             && let Some(radix) = effective_constraints
                 .get("radix")
                 .and_then(JsonValue::as_u64)
-            && let Some(_invalid_digit) = first_invalid_radix_digit(&entry.raw, radix as usize)
         {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(String::from(path)),
-                    code: String::from("numeric_form_violation"),
-                    phase: String::from("schema_validation"),
-                    span: entry.span,
-                },
-            );
+            let declared_radix = declared_radix_from_datatype(entry.datatype.as_deref());
+            if (declared_radix.is_none()
+                && effective_constraints
+                    .get("allow_unspecified_radix")
+                    .and_then(JsonValue::as_bool)
+                    != Some(true))
+                || declared_radix.is_some_and(|declared| declared != radix as usize)
+                || first_invalid_radix_digit(&entry.raw, radix as usize).is_some()
+            {
+                emit_error(
+                    ctx,
+                    ValidationDiagnostic {
+                        path: Some(String::from(path)),
+                        code: String::from("numeric_form_violation"),
+                        phase: String::from("schema_validation"),
+                        span: entry.span,
+                    },
+                );
+            }
         }
         if effective_constraints.get("min_value").is_some()
             || effective_constraints.get("max_value").is_some()
@@ -1826,7 +1861,7 @@ fn validate_attribute_entry(
         }
     }
 
-    if entry.value_type == "StringLiteral" {
+    if is_string_like_literal(&entry.value_type) {
         let value = string_value(entry.value.as_ref()).unwrap_or_default();
         if let Some(min_length) = effective_constraints
             .get("min_length")
@@ -1874,25 +1909,6 @@ fn validate_attribute_entry(
             );
         }
     }
-    if entry.value_type == "SeparatorLiteral" {
-        let value = string_value(entry.value.as_ref()).unwrap_or_default();
-        if let Some(pattern) = effective_constraints
-            .get("pattern")
-            .and_then(JsonValue::as_str)
-            && Regex::new(pattern).is_ok_and(|regex| !regex.is_match(&value))
-        {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(String::from(path)),
-                    code: String::from("pattern_mismatch"),
-                    phase: String::from("schema_validation"),
-                    span: entry.span,
-                },
-            );
-        }
-    }
-
     let closed_attributes = effective_constraints
         .get("closed_attributes")
         .and_then(JsonValue::as_bool)
@@ -2262,7 +2278,7 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
             return false;
         }
     }
-    if event.value_type == "StringLiteral" {
+    if is_string_like_literal(&event.value_type) {
         let value = event
             .value
             .as_ref()
@@ -2303,9 +2319,18 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
         }
         if event.value_type == "RadixLiteral"
             && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
-            && first_invalid_radix_digit(&event.raw, radix as usize).is_some()
         {
-            return false;
+            let declared_radix = declared_radix_from_datatype(event.datatype.as_deref());
+            if (declared_radix.is_none()
+                && constraints
+                    .get("allow_unspecified_radix")
+                    .and_then(JsonValue::as_bool)
+                    != Some(true))
+                || declared_radix.is_some_and(|declared| declared != radix as usize)
+                || first_invalid_radix_digit(&event.raw, radix as usize).is_some()
+            {
+                return false;
+            }
         }
     }
     true
@@ -2631,13 +2656,38 @@ fn count_integer_digits(raw: &str) -> usize {
 fn is_digit_form_literal(value_type: &str) -> bool {
     matches!(
         value_type,
-        "NumberLiteral"
-            | "IntegerLiteral"
-            | "FloatLiteral"
-            | "HexLiteral"
-            | "RadixLiteral"
-            | "SeparatorLiteral"
+        "NumberLiteral" | "IntegerLiteral" | "FloatLiteral" | "HexLiteral" | "RadixLiteral"
     )
+}
+
+fn is_string_like_literal(value_type: &str) -> bool {
+    matches!(
+        value_type,
+        "StringLiteral"
+            | "TrimtickLiteral"
+            | "TrimtickStringLiteral"
+            | "SeparatorLiteral"
+            | "NullLiteral"
+            | "EncodingLiteral"
+            | "DateLiteral"
+            | "TimeLiteral"
+            | "DateTimeLiteral"
+            | "ZRUTDateTimeLiteral"
+    )
+}
+
+fn declared_radix_from_datatype(datatype: Option<&str>) -> Option<usize> {
+    let datatype = datatype?.trim().to_ascii_lowercase();
+    if let Some(inner) = datatype
+        .strip_prefix("radix[")
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return inner.parse::<usize>().ok();
+    }
+    datatype
+        .strip_prefix("radix")
+        .filter(|suffix| !suffix.is_empty())
+        .and_then(|suffix| suffix.parse::<usize>().ok())
 }
 
 fn has_digit_form_constraints(constraints: &JsonValue) -> bool {
@@ -2659,11 +2709,7 @@ fn count_form_digits(value_type: &str, raw: &str) -> usize {
         .trim_start_matches(|ch| matches!(ch, '+' | '-'))
         .replace('_', "");
     body.chars()
-        .filter(|ch| {
-            ch.is_ascii_digit()
-                || (value_type != "SeparatorLiteral"
-                    && (ch.is_ascii_alphabetic() || *ch == '&' || *ch == '!'))
-        })
+        .filter(|ch| ch.is_ascii_digit() || ch.is_ascii_alphabetic() || *ch == '&' || *ch == '!')
         .count()
 }
 

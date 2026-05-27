@@ -49,8 +49,8 @@ export function checkStringForm(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Length constraints only apply to string literals.
-        if (event.type !== 'StringLiteral') {
+        // Length constraints apply to normalized string-like literal payloads.
+        if (!isStringLikeLiteral(event.type)) {
             continue;
         }
 
@@ -108,7 +108,7 @@ export function checkPatterns(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        if (event.type !== 'StringLiteral' && event.type !== 'SeparatorLiteral') {
+        if (!isStringLikeLiteral(event.type)) {
             continue;
         }
 
@@ -139,4 +139,17 @@ export function checkPatterns(
             ));
         }
     }
+}
+
+function isStringLikeLiteral(type: string): boolean {
+    return type === 'StringLiteral'
+        || type === 'SeparatorLiteral'
+        || type === 'NullLiteral'
+        || type === 'EncodingLiteral'
+        || type === 'DateLiteral'
+        || type === 'TimeLiteral'
+        || type === 'DateTimeLiteral'
+        || type === 'ZRUTDateTimeLiteral'
+        || type === 'TrimtickLiteral'
+        || type === 'TrimtickStringLiteral';
 }

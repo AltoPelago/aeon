@@ -28,6 +28,7 @@ KNOWN_CONSTRAINT_KEYS = {
     "min_digits",
     "max_digits",
     "radix",
+    "allow_unspecified_radix",
     "min_value",
     "max_value",
     "min_length",
@@ -370,6 +371,10 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         if problem is not None:
             emit_error(ctx, create_diag(path, None, f"Invalid pattern regex for path {path}: {problem}", ERROR_CODES["unknown_constraint_key"]))
             return False
+    allow_unspecified_radix = constraints.get("allow_unspecified_radix")
+    if allow_unspecified_radix is not None and not isinstance(allow_unspecified_radix, bool):
+        emit_error(ctx, create_diag(path, None, f"allow_unspecified_radix must be boolean for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
     any_of = constraints.get("any_of")
     if any_of is not None:
         if not isinstance(any_of, list) or len(any_of) == 0:
@@ -587,6 +592,13 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
             emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
             continue
         if event_type == "RadixLiteral" and isinstance(radix, int):
+            declared_radix = declared_radix_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
+            if declared_radix is None and constraints.get("allow_unspecified_radix") is not True:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: radix literal requires declared radix {radix}", ERROR_CODES["numeric_form_violation"]))
+                continue
+            if declared_radix is not None and declared_radix != radix:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected radix {radix}, got declared radix {declared_radix}", ERROR_CODES["numeric_form_violation"]))
+                continue
             invalid_digit = first_invalid_radix_digit(raw, radix)
             if invalid_digit is not None:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
@@ -633,7 +645,7 @@ def check_string_form(rule_index: dict[str, dict[str, object]], events: dict[str
         if min_length is None and max_length is None:
             continue
         event = events.get(path)
-        if event is None or event.get("type") != "StringLiteral":
+        if event is None or not is_string_like_literal(str(event.get("type", ""))):
             continue
         value = str(event.get("value", ""))
         length = len(value.encode("utf-16-le")) // 2
@@ -653,7 +665,7 @@ def check_patterns(rule_index: dict[str, dict[str, object]], events: dict[str, d
         if not isinstance(pattern, str):
             continue
         event = events.get(path)
-        if event is None or event.get("type") not in {"StringLiteral", "SeparatorLiteral"}:
+        if event is None or not is_string_like_literal(str(event.get("type", ""))):
             continue
         regex = pattern
         if not regex.startswith("^"):
@@ -752,6 +764,11 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
         if isinstance(max_digits, int) and digit_count > max_digits:
             emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
         if actual_type == "RadixLiteral" and isinstance(radix, int):
+            declared_radix = declared_radix_from_datatype(datatype if isinstance(datatype, str) else None)
+            if declared_radix is None and effective_constraints.get("allow_unspecified_radix") is not True:
+                emit_error(ctx, create_diag(path, span, f"Numeric form violation: radix literal requires declared radix {radix}", ERROR_CODES["numeric_form_violation"]))
+            if declared_radix is not None and declared_radix != radix:
+                emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected radix {radix}, got declared radix {declared_radix}", ERROR_CODES["numeric_form_violation"]))
             invalid_digit = first_invalid_radix_digit(raw, radix)
             if invalid_digit is not None:
                 emit_error(ctx, create_diag(path, span, f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
@@ -766,7 +783,7 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
                 if isinstance(max_value, str) and numeric > int(max_value):
                     emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
 
-    if actual_type == "StringLiteral":
+    if is_string_like_literal(str(actual_type)):
         min_length = effective_constraints.get("min_length")
         max_length = effective_constraints.get("max_length")
         pattern = effective_constraints.get("pattern")
@@ -775,17 +792,6 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
             emit_error(ctx, create_diag(path, span, f"String form violation: expected min length {min_length}, got {length}", ERROR_CODES["string_length_violation"]))
         if isinstance(max_length, int) and length > max_length:
             emit_error(ctx, create_diag(path, span, f"String form violation: expected max length {max_length}, got {length}", ERROR_CODES["string_length_violation"]))
-        if isinstance(pattern, str):
-            regex = pattern
-            if not regex.startswith("^"):
-                regex = "^" + regex
-            if not regex.endswith("$"):
-                regex = regex + "$"
-            if not re.search(regex, value):
-                emit_error(ctx, create_diag(path, span, f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
-
-    if actual_type == "SeparatorLiteral":
-        pattern = effective_constraints.get("pattern")
         if isinstance(pattern, str):
             regex = pattern
             if not regex.startswith("^"):
@@ -1026,7 +1032,7 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
         pair = constraints.get("toggle_pair")
         if not (raw in {"yes", "no"} if pair == "yes_no" else raw in {"on", "off"} if pair == "on_off" else True):
             return False
-    if actual_type == "StringLiteral":
+    if is_string_like_literal(str(actual_type)):
         value = str(event.get("value", ""))
         length = len(value.encode("utf-16-le")) // 2
         if isinstance(constraints.get("min_length"), int) and length < constraints["min_length"]:
@@ -1044,8 +1050,15 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
             return False
         if isinstance(constraints.get("max_digits"), int) and digit_count > constraints["max_digits"]:
             return False
-        if actual_type == "RadixLiteral" and isinstance(constraints.get("radix"), int) and first_invalid_radix_digit(raw, constraints["radix"]) is not None:
-            return False
+        radix = constraints.get("radix")
+        if actual_type == "RadixLiteral" and isinstance(radix, int):
+            declared_radix = declared_radix_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
+            if declared_radix is None and constraints.get("allow_unspecified_radix") is not True:
+                return False
+            if declared_radix is not None and declared_radix != radix:
+                return False
+            if first_invalid_radix_digit(raw, radix) is not None:
+                return False
     return True
 
 
@@ -1380,7 +1393,22 @@ def count_integer_digits(raw: str) -> int:
 
 
 def is_digit_form_literal(value_type: str) -> bool:
-    return value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "HexLiteral", "RadixLiteral", "SeparatorLiteral"}
+    return value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral", "HexLiteral", "RadixLiteral"}
+
+
+def is_string_like_literal(value_type: str) -> bool:
+    return value_type in {
+        "StringLiteral",
+        "TrimtickLiteral",
+        "TrimtickStringLiteral",
+        "SeparatorLiteral",
+        "NullLiteral",
+        "EncodingLiteral",
+        "DateLiteral",
+        "TimeLiteral",
+        "DateTimeLiteral",
+        "ZRUTDateTimeLiteral",
+    }
 
 
 def has_digit_form_constraints(constraints: dict[str, object]) -> bool:
@@ -1391,11 +1419,20 @@ def count_form_digits(value_type: str, raw: str) -> int:
     if value_type in {"NumberLiteral", "IntegerLiteral", "FloatLiteral"}:
         return count_integer_digits(raw)
     body = raw.lstrip("#%^").lstrip("+-").replace("_", "")
-    return sum(1 for char in body if char.isdigit() or (value_type != "SeparatorLiteral" and (char.isalpha() or char in {"&", "!"})))
+    return sum(1 for char in body if char.isdigit() or char.isalpha() or char in {"&", "!"})
 
 
 def is_form_negative(raw: str) -> bool:
     return raw.startswith("-") or (len(raw) > 1 and raw[0] in "$#%^" and raw[1] == "-")
+
+
+def declared_radix_from_datatype(datatype: str | None) -> int | None:
+    if datatype is None:
+        return None
+    match = re.fullmatch(r"radix(?:\[(\d+)\]|(\d+))", datatype.strip(), re.IGNORECASE)
+    if match is None:
+        return None
+    return int(match.group(1) or match.group(2))
 
 
 def first_invalid_radix_digit(raw: str, radix: int) -> str | None:

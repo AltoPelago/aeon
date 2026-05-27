@@ -73,6 +73,9 @@ export interface ConstraintsV1 {
     /** Exact radix/base required for RadixLiteral digit forms */
     readonly radix?: number;
 
+    /** Allow RadixLiteral values without a matching radix datatype declaration */
+    readonly allow_unspecified_radix?: boolean;
+
     /** Minimum integer value (inclusive), encoded as base-10 string for exactness */
     readonly min_value?: string;
 
@@ -157,6 +160,7 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'min_digits',
     'max_digits',
     'radix',
+    'allow_unspecified_radix',
     'min_value',
     'max_value',
     'min_length',
