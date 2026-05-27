@@ -10,8 +10,26 @@ import type { DiagContext } from '../diag/emit.js';
 import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 
+const MAX_SCHEMA_REGEX_LENGTH = 512;
+const NESTED_QUANTIFIED_GROUP_PATTERN = /\((?:\?:|\?=|\?!|\?<=|\?<!)?(?:[^()[\]\\]|\\.|\[[^\]\\]*(?:\\.[^\]\\]*)*\])*[*+](?:[^()[\]\\]|\\.|\[[^\]\\]*(?:\\.[^\]\\]*)*\])*\)\s*(?:[*+]|\{\d+(?:,\d*)?\})/;
+
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
+}
+
+function regexConstraintProblem(value: string): string | null {
+    if (value.length > MAX_SCHEMA_REGEX_LENGTH) {
+        return `regex exceeds ${MAX_SCHEMA_REGEX_LENGTH} characters`;
+    }
+    if (NESTED_QUANTIFIED_GROUP_PATTERN.test(value)) {
+        return 'regex contains a nested quantified group';
+    }
+    try {
+        new RegExp(value);
+    } catch {
+        return 'regex is not valid ECMAScript syntax';
+    }
+    return null;
 }
 
 function validateReferenceConstraints(
@@ -67,13 +85,12 @@ function validateReferenceConstraints(
             ));
             return false;
         }
-        try {
-            new RegExp(referenceTargetPattern);
-        } catch {
+        const regexProblem = regexConstraintProblem(referenceTargetPattern);
+        if (regexProblem) {
             emitError(ctx, createDiag(
                 rulePath,
                 null,
-                `Invalid reference_target_pattern regex for path ${rulePath}: ${referenceTargetPattern}`,
+                `Invalid reference_target_pattern regex for path ${rulePath}: ${regexProblem}`,
                 ErrorCodes.INVALID_REFERENCE_CONSTRAINT
             ));
             return false;
@@ -168,13 +185,12 @@ function validateRegexConstraint(
         ));
         return false;
     }
-    try {
-        new RegExp(value);
-    } catch {
+    const regexProblem = regexConstraintProblem(value);
+    if (regexProblem) {
         emitError(ctx, createDiag(
             rulePath,
             null,
-            `Invalid ${key} regex for path ${rulePath}: ${value}`,
+            `Invalid ${key} regex for path ${rulePath}: ${regexProblem}`,
             ErrorCodes.UNKNOWN_CONSTRAINT_KEY
         ));
         return false;

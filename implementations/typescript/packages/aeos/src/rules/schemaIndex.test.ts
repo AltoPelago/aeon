@@ -243,6 +243,25 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
     });
 
+    it('rejects nested quantified reference_target_pattern regexes', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.postcode',
+                    constraints: {
+                        reference_target_pattern: '^(a+)+$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
+    });
+
     it('rejects invalid string pattern regex', () => {
         const schema: SchemaV1 = {
             rules: [
@@ -251,6 +270,46 @@ describe('buildRuleIndex()', () => {
                     constraints: {
                         type: 'StringLiteral',
                         pattern: '[',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
+    it('rejects overlong string pattern regexes', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: 'a'.repeat(513),
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
+    it('rejects nested quantified string pattern regexes', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^(a+)+$',
                     },
                 },
             ],

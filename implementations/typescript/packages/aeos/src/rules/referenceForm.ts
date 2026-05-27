@@ -41,6 +41,14 @@ function formatReferenceTargetPath(segments: readonly (string | number | { reado
     return out;
 }
 
+function targetPatternMatches(pattern: string, value: string): boolean {
+    try {
+        return new RegExp(pattern).test(value);
+    } catch {
+        return false;
+    }
+}
+
 export function checkReferenceForms(
     schema: SchemaV1,
     ruleIndex: RuleIndex,
@@ -110,7 +118,7 @@ export function checkReferenceForms(
         if (!isReferenceType(event.type) || !event.referencePath) {
             continue;
         }
-        if (!(new RegExp(targetPattern).test(formatReferenceTargetPath(event.referencePath)))) {
+        if (!targetPatternMatches(targetPattern, formatReferenceTargetPath(event.referencePath))) {
             emitError(ctx, createDiag(
                 path,
                 event.span,

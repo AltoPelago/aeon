@@ -485,6 +485,16 @@ describe('AEON CLI output contract', () => {
             ].join('\n')));
         });
 
+        it('fails closed when stdin exceeds --max-input-bytes', async () => {
+            const { code, stdout, stderr } = await runCliWithStdin(
+                ['fmt', '--max-input-bytes', '4'],
+                'b = 1\n'
+            );
+            assert.strictEqual(code, 1);
+            assert.strictEqual(stdout, '');
+            assert.ok(stderr.includes('exceeds configured limit'));
+        });
+
         it('fails closed on invalid input', async () => {
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-fmt-'));
             const file = path.join(tmpDir, 'invalid.aeon');
