@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 aeon-core.workspace = true
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
 
 [lib]
 path = "src/lib.rs"
