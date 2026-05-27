@@ -223,6 +223,31 @@ class AeosTests(unittest.TestCase):
                 result = validate([], {"rules": [{"path": "$.code", "constraints": {"type": "StringLiteral", "pattern": pattern}}]})
                 self.assertEqual(["unknown_constraint_key"], [error["code"] for error in result["errors"]])
 
+    def test_datatype_rule_pattern_applies_to_separator_literals(self) -> None:
+        aes = [
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "ip"}]},
+                "key": "ip",
+                "datatype": "kadot",
+                "value": {"type": "SeparatorLiteral", "raw": "^198.0.126.255", "value": "198.0.126.255"},
+                "span": [0, 14],
+            },
+            {
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "dimensions"}]},
+                "key": "dimensions",
+                "datatype": "kadot",
+                "value": {"type": "SeparatorLiteral", "raw": "^300x250", "value": "300x250"},
+                "span": [15, 23],
+            },
+        ]
+        result = validate(aes, {
+            "rules": [{"path": "$.ip", "constraints": {}}, {"path": "$.dimensions", "constraints": {}}],
+            "datatype_rules": {"kadot": {"type": "SeparatorLiteral", "pattern": "^[0-9]+(?:\\.[0-9]+)*$"}},
+        })
+        self.assertFalse(result["ok"])
+        self.assertFalse(any(error["path"] == "$.ip" for error in result["errors"]))
+        self.assertTrue(any(error["path"] == "$.dimensions" and error["code"] == "pattern_mismatch" for error in result["errors"]))
+
     def test_reference_target_pattern_rejects_non_portable_syntax(self) -> None:
         result = validate([], {"rules": [{"path": "$.postcode", "constraints": {"reference": "require", "reference_target_pattern": "^(\\$\\.postcodes)\\1$"}}]})
         self.assertEqual(["invalid_reference_constraint"], [error["code"] for error in result["errors"]])

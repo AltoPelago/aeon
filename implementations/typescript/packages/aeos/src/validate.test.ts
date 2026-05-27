@@ -1260,6 +1260,42 @@ describe('validate()', () => {
             assert.ok(!result.errors.some((e) => e.path === '$.hex'));
         });
 
+        it('applies datatype rule patterns to separator literals', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ip' }] },
+                    key: 'ip',
+                    datatype: 'kadot',
+                    value: { type: 'SeparatorLiteral', value: '198.0.126.255', raw: '^198.0.126.255', span: [1, 15] },
+                    span: [1, 15],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'dimensions' }] },
+                    key: 'dimensions',
+                    datatype: 'kadot',
+                    value: { type: 'SeparatorLiteral', value: '300x250', raw: '^300x250', span: [16, 24] },
+                    span: [16, 24],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.ip', constraints: {} },
+                    { path: '$.dimensions', constraints: {} },
+                ],
+                datatype_rules: {
+                    kadot: {
+                        type: 'SeparatorLiteral',
+                        pattern: '^[0-9]+(?:\\.[0-9]+)*$',
+                    },
+                },
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((e) => e.path === '$.ip'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.PATTERN_MISMATCH && e.path === '$.dimensions'));
+        });
+
         it('validates unsigned form for radix literals', () => {
             const aes: AES = [
                 {

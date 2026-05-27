@@ -5,7 +5,7 @@
  */
 
 import type { AES } from './types/aes.js';
-import type { SchemaV1 } from './types/schema.js';
+import type { SchemaRule, SchemaV1 } from './types/schema.js';
 import type { ResultEnvelope } from './types/envelope.js';
 import { createPassingEnvelope, createFailingEnvelope } from './types/envelope.js';
 import { createDiag, createDiagContext, emitError, emitWarning } from './diag/emit.js';
@@ -306,10 +306,11 @@ export function validate(
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
-    const effectiveRuleIndex = expandWildcardRules(
+    const expandedRuleIndex = expandWildcardRules(
         expandSelectorRules(ruleIndex, schema, eventsByPath, ctx),
         eventsByPath,
     );
+    const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(seen.keys());
@@ -958,6 +959,30 @@ function checkDatatypeRules(
     }
 }
 
+function mergeDatatypeRules(
+    ruleIndex: RuleIndex,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): RuleIndex {
+    if (!datatypeRules) return ruleIndex;
+    const merged = new Map<string, SchemaRule>();
+    for (const [path, rule] of ruleIndex.entries()) {
+        merged.set(path, { ...rule, constraints: { ...rule.constraints } });
+    }
+    for (const [path, event] of eventsByPath.entries()) {
+        if (!event.datatype) continue;
+        const datatypeRule = datatypeRules[datatypeBase(event.datatype).toLowerCase()];
+        if (!datatypeRule) continue;
+        const existing = merged.get(path);
+        const constraints = existing?.constraints ?? {};
+        merged.set(path, {
+            path,
+            constraints: { ...datatypeRule, ...constraints },
+        });
+    }
+    return merged;
+}
+
 function checkAttributeConstraints(
     ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
@@ -1145,6 +1170,15 @@ function validateAttributeEntry(
                 ErrorCodes.PATTERN_MISMATCH
             ));
         }
+    }
+
+    if (entry.type === 'SeparatorLiteral' && effectiveConstraints.pattern !== undefined && !patternMatches(effectiveConstraints.pattern, entry.value)) {
+        emitError(ctx, createDiag(
+            path,
+            entry.span,
+            `Pattern mismatch: value does not match ${effectiveConstraints.pattern}`,
+            ErrorCodes.PATTERN_MISMATCH
+        ));
     }
 
     if (effectiveConstraints.attributes || effectiveConstraints.closed_attributes === true) {

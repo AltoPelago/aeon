@@ -49,7 +49,7 @@ export function checkStringForm(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to string types
+        // Length constraints only apply to string literals.
         if (event.type !== 'StringLiteral') {
             continue;
         }
@@ -82,8 +82,8 @@ export function checkStringForm(
 /**
  * Check pattern constraints for events matching schema rules.
  *
- * For each event with a pattern constraint, verify the string value
- * matches the regex pattern.
+ * For each event with a pattern constraint, verify the normalized literal
+ * value matches the regex pattern.
  *
  * AEOS v1 Decision: Patterns are ECMAScript regex strings. The pattern
  * must match the entire string (anchored with ^...$). If the pattern
@@ -108,8 +108,7 @@ export function checkPatterns(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to string types
-        if (event.type !== 'StringLiteral') {
+        if (event.type !== 'StringLiteral' && event.type !== 'SeparatorLiteral') {
             continue;
         }
 
@@ -141,4 +140,3 @@ export function checkPatterns(
         }
     }
 }
-

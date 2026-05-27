@@ -257,10 +257,11 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     rule_index = build_rule_index(schema, ctx)
     selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx)
     expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path)
-    check_presence(expanded_rule_index, bound_paths, ctx)
-    check_reference_forms(schema, expanded_rule_index, events_by_path, ctx)
-    effective_events_by_path = resolve_reference_form_events(expanded_rule_index, events_by_path)
-    selected_rule_index = select_any_of_rules(expanded_rule_index, effective_events_by_path, ctx)
+    effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
+    check_presence(effective_rule_index, bound_paths, ctx)
+    check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
+    effective_events_by_path = resolve_reference_form_events(effective_rule_index, events_by_path)
+    selected_rule_index = select_any_of_rules(effective_rule_index, effective_events_by_path, ctx)
     check_types(selected_rule_index, effective_events_by_path, ctx)
 
     for path, rule in selected_rule_index.items():
@@ -629,8 +630,7 @@ def check_string_form(rule_index: dict[str, dict[str, object]], events: dict[str
             continue
         min_length = constraints.get("min_length")
         max_length = constraints.get("max_length")
-        pattern = constraints.get("pattern")
-        if min_length is None and max_length is None and pattern is None:
+        if min_length is None and max_length is None:
             continue
         event = events.get(path)
         if event is None or event.get("type") != "StringLiteral":
@@ -653,7 +653,7 @@ def check_patterns(rule_index: dict[str, dict[str, object]], events: dict[str, d
         if not isinstance(pattern, str):
             continue
         event = events.get(path)
-        if event is None or event.get("type") != "StringLiteral":
+        if event is None or event.get("type") not in {"StringLiteral", "SeparatorLiteral"}:
             continue
         regex = pattern
         if not regex.startswith("^"):
@@ -784,6 +784,17 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
             if not re.search(regex, value):
                 emit_error(ctx, create_diag(path, span, f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
 
+    if actual_type == "SeparatorLiteral":
+        pattern = effective_constraints.get("pattern")
+        if isinstance(pattern, str):
+            regex = pattern
+            if not regex.startswith("^"):
+                regex = "^" + regex
+            if not regex.endswith("$"):
+                regex = regex + "$"
+            if not re.search(regex, value):
+                emit_error(ctx, create_diag(path, span, f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
+
     if "attributes" in effective_constraints or effective_constraints.get("closed_attributes") is True:
         validate_attribute_map(path, entry.get("attributes"), effective_constraints, datatype_rules, ctx)
 
@@ -807,6 +818,29 @@ def merge_datatype_rule_constraints(constraints: dict[str, object], datatype: ob
     if not isinstance(rule, dict):
         return constraints
     return {**rule, **constraints}
+
+
+def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rules: object, events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    if not isinstance(datatype_rules, dict):
+        return rule_index
+    merged = {
+        path: {**rule, "constraints": {**rule.get("constraints", {})}}
+        for path, rule in rule_index.items()
+        if isinstance(rule, dict)
+    }
+    for path, event in events.items():
+        datatype = event.get("datatype")
+        if not isinstance(datatype, str):
+            continue
+        datatype_rule = datatype_rules.get(datatype_base(datatype).lower())
+        if not isinstance(datatype_rule, dict):
+            continue
+        existing = merged.get(path, {"path": path, "constraints": {}})
+        constraints = existing.get("constraints", {})
+        if not isinstance(constraints, dict):
+            constraints = {}
+        merged[path] = {**existing, "path": path, "constraints": {**datatype_rule, **constraints}}
+    return merged
 
 
 def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:

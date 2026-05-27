@@ -966,7 +966,9 @@ fn merge_datatype_rules(
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
         };
-        let Some(JsonValue::Object(datatype_constraints)) = datatype_rules.get(datatype) else {
+        let Some(JsonValue::Object(datatype_constraints)) =
+            datatype_rules.get(&datatype_base(datatype).to_lowercase())
+        else {
             continue;
         };
 
@@ -1464,7 +1466,7 @@ fn check_patterns(
         let Some(event) = events_by_path.get(path) else {
             continue;
         };
-        if event.value_type != "StringLiteral" {
+        if event.value_type != "StringLiteral" && event.value_type != "SeparatorLiteral" {
             continue;
         }
         let Some(value) = string_value(event.value.as_ref()) else {
@@ -1856,6 +1858,24 @@ fn validate_attribute_entry(
                 },
             );
         }
+        if let Some(pattern) = effective_constraints
+            .get("pattern")
+            .and_then(JsonValue::as_str)
+            && Regex::new(pattern).is_ok_and(|regex| !regex.is_match(&value))
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("pattern_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: entry.span,
+                },
+            );
+        }
+    }
+    if entry.value_type == "SeparatorLiteral" {
+        let value = string_value(entry.value.as_ref()).unwrap_or_default();
         if let Some(pattern) = effective_constraints
             .get("pattern")
             .and_then(JsonValue::as_str)
@@ -2905,6 +2925,53 @@ mod tests {
         assert!(!envelope.ok);
         assert!(envelope.errors.iter().any(|error| {
             error.path.as_deref() == Some("$.bits") && error.code == "numeric_form_violation"
+        }));
+    }
+
+    #[test]
+    fn datatype_rule_pattern_applies_to_separator_literals() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "ip" } ] },
+              "key": "ip",
+              "datatype": "kadot",
+              "value": { "type": "SeparatorLiteral", "raw": "^198.0.126.255", "value": "198.0.126.255" },
+              "span": [0, 14]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "dimensions" } ] },
+              "key": "dimensions",
+              "datatype": "kadot",
+              "value": { "type": "SeparatorLiteral", "raw": "^300x250", "value": "300x250" },
+              "span": [15, 23]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.ip", "constraints": {} },
+              { "path": "$.dimensions", "constraints": {} }
+            ],
+            "datatype_rules": {
+              "kadot": {
+                "type": "SeparatorLiteral",
+                "pattern": "^[0-9]+(?:\\.[0-9]+)*$"
+              }
+            }
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(
+            !envelope
+                .errors
+                .iter()
+                .any(|error| error.path.as_deref() == Some("$.ip"))
+        );
+        assert!(envelope.errors.iter().any(|error| {
+            error.path.as_deref() == Some("$.dimensions") && error.code == "pattern_mismatch"
         }));
     }
 
