@@ -282,6 +282,106 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
     });
 
+    it('accepts AEOS portable string pattern syntax', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.code',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^(?:[A-Z]{2}|\\d{3})-[\\w\\s]+$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 1);
+        assert.strictEqual(ctx.errors.length, 0);
+    });
+
+    it('rejects lookaround string pattern regexes as non-portable', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^(?=safe).+$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
+    it('rejects backreference string pattern regexes as non-portable', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^(a)\\1$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
+    it('rejects Unicode property string pattern regexes as non-portable', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^\\p{Letter}+$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
+    it('rejects unsupported alphabetic string pattern escapes as non-portable', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '^\\h+$',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
     it('rejects overlong string pattern regexes', () => {
         const schema: SchemaV1 = {
             rules: [

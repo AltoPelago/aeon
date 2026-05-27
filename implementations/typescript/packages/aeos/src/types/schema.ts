@@ -43,7 +43,7 @@ export interface ConstraintsV1 {
     /** Required reference kind when reference='require' */
     readonly reference_kind?: 'clone' | 'pointer' | 'either';
 
-    /** Regex pattern matched against the canonicalized reference target path */
+    /** AEOS portable pattern matched against the canonicalized reference target path */
     readonly reference_target_pattern?: string;
 
     /** Resolve reference chains before applying form/type constraints on this path */
@@ -85,7 +85,7 @@ export interface ConstraintsV1 {
     /** Maximum string length in UTF-16 code units (JavaScript string.length) */
     readonly max_length?: number;
 
-    /** Regex pattern for string matching */
+    /** AEOS portable pattern for string matching */
     readonly pattern?: string;
 
     /** Datatype label (presence check only, no capacity) */

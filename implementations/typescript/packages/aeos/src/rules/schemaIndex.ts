@@ -11,6 +11,10 @@ import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 
 const MAX_SCHEMA_REGEX_LENGTH = 512;
+const PORTABLE_REGEX_ESCAPES = new Set([
+    '0', 'b', 'B', 'd', 'D', 'f', 'n', 'r', 's', 'S', 't', 'v', 'w', 'W',
+    '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
+]);
 
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
@@ -72,9 +76,85 @@ function hasNestedQuantifiedGroup(pattern: string): boolean {
     return false;
 }
 
+function validatePortablePatternSyntax(pattern: string): string | null {
+    const stack: string[] = [];
+    let escaped = false;
+    let inCharacterClass = false;
+
+    for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i] ?? '';
+        if (escaped) {
+            if (/^[1-9]$/.test(char)) {
+                return 'backreferences are not part of the AEOS portable pattern profile';
+            }
+            if ((char === 'p' || char === 'P') && pattern[i + 1] === '{') {
+                return 'Unicode property escapes are not part of the AEOS portable pattern profile';
+            }
+            if (char === 'k' && pattern[i + 1] === '<') {
+                return 'named backreferences are not part of the AEOS portable pattern profile';
+            }
+            if (/^[A-Za-z0-9]$/.test(char) && !PORTABLE_REGEX_ESCAPES.has(char)) {
+                return `unsupported escape sequence \\${char}`;
+            }
+            escaped = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (inCharacterClass) {
+            if (char === ']') {
+                inCharacterClass = false;
+            }
+            continue;
+        }
+
+        if (char === '[') {
+            inCharacterClass = true;
+            continue;
+        }
+
+        if (char === '(') {
+            if (pattern[i + 1] === '?') {
+                if (pattern[i + 2] !== ':') {
+                    return 'lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile';
+                }
+                i += 2;
+            }
+            stack.push('(');
+            continue;
+        }
+
+        if (char === ')') {
+            if (stack.pop() === undefined) {
+                return 'unmatched closing group';
+            }
+        }
+    }
+
+    if (escaped) {
+        return 'trailing escape';
+    }
+    if (inCharacterClass) {
+        return 'unterminated character class';
+    }
+    if (stack.length > 0) {
+        return 'unterminated group';
+    }
+
+    return null;
+}
+
 function regexConstraintProblem(value: string): string | null {
     if (value.length > MAX_SCHEMA_REGEX_LENGTH) {
         return `regex exceeds ${MAX_SCHEMA_REGEX_LENGTH} characters`;
+    }
+    const portableProblem = validatePortablePatternSyntax(value);
+    if (portableProblem) {
+        return portableProblem;
     }
     if (hasNestedQuantifiedGroup(value)) {
         return 'regex contains a nested quantified group';

@@ -38,6 +38,107 @@ KNOWN_CONSTRAINT_KEYS = {
     "closed_attributes",
 }
 
+MAX_SCHEMA_REGEX_LENGTH = 512
+PORTABLE_REGEX_ESCAPES = set("0bBdDfnrsStvwW\\^$.|?*+()[]{}-")
+
+
+def _is_regex_quantifier_start(pattern: str, index: int) -> bool:
+    return index < len(pattern) and pattern[index] in "*+{"
+
+
+def _has_nested_quantified_group(pattern: str) -> bool:
+    stack: list[dict[str, bool]] = []
+    escaped = False
+    in_class = False
+
+    for index, char in enumerate(pattern):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "[":
+            in_class = True
+            continue
+        if char == "]" and in_class:
+            in_class = False
+            continue
+        if in_class:
+            continue
+        if char == "(":
+            stack.append({"inner": False})
+            continue
+        if char == ")":
+            group = stack.pop() if stack else None
+            if group is None:
+                continue
+            if group["inner"] and _is_regex_quantifier_start(pattern, index + 1):
+                return True
+            if stack and _is_regex_quantifier_start(pattern, index + 1):
+                stack[-1]["inner"] = True
+            continue
+        if stack and _is_regex_quantifier_start(pattern, index):
+            stack[-1]["inner"] = True
+
+    return False
+
+
+def _portable_pattern_problem(pattern: str) -> str | None:
+    if len(pattern) > MAX_SCHEMA_REGEX_LENGTH:
+        return f"regex exceeds {MAX_SCHEMA_REGEX_LENGTH} characters"
+
+    stack: list[str] = []
+    escaped = False
+    in_class = False
+    for index, char in enumerate(pattern):
+        if escaped:
+            if re.fullmatch(r"[1-9]", char):
+                return "backreferences are not part of the AEOS portable pattern profile"
+            if char in {"p", "P"} and index + 1 < len(pattern) and pattern[index + 1] == "{":
+                return "Unicode property escapes are not part of the AEOS portable pattern profile"
+            if char == "k" and index + 1 < len(pattern) and pattern[index + 1] == "<":
+                return "named backreferences are not part of the AEOS portable pattern profile"
+            if re.fullmatch(r"[A-Za-z0-9]", char) and char not in PORTABLE_REGEX_ESCAPES:
+                return f"unsupported escape sequence \\{char}"
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if in_class:
+            if char == "]":
+                in_class = False
+            continue
+        if char == "[":
+            in_class = True
+            continue
+        if char == "(":
+            if index + 1 < len(pattern) and pattern[index + 1] == "?":
+                if index + 2 >= len(pattern) or pattern[index + 2] != ":":
+                    return "lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile"
+            stack.append("(")
+            continue
+        if char == ")":
+            if not stack:
+                return "unmatched closing group"
+            stack.pop()
+
+    if escaped:
+        return "trailing escape"
+    if in_class:
+        return "unterminated character class"
+    if stack:
+        return "unterminated group"
+    if _has_nested_quantified_group(pattern):
+        return "regex contains a nested quantified group"
+    try:
+        re.compile(pattern)
+    except re.error:
+        return "regex is not valid portable syntax"
+    return None
+
+
 TYPE_ALIASES = {
     "NumberLiteral": {"NumberLiteral", "IntegerLiteral", "FloatLiteral"},
     "StringLiteral": {"StringLiteral"},
@@ -259,6 +360,15 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         return False
     if not validate_reference_constraints(schema, path, constraints, ctx):
         return False
+    pattern = constraints.get("pattern")
+    if pattern is not None:
+        if not isinstance(pattern, str):
+            emit_error(ctx, create_diag(path, None, f"Invalid pattern constraint for path {path}: {pattern}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+        problem = _portable_pattern_problem(pattern)
+        if problem is not None:
+            emit_error(ctx, create_diag(path, None, f"Invalid pattern regex for path {path}: {problem}", ERROR_CODES["unknown_constraint_key"]))
+            return False
     any_of = constraints.get("any_of")
     if any_of is not None:
         if not isinstance(any_of, list) or len(any_of) == 0:
@@ -316,10 +426,9 @@ def validate_reference_constraints(
         if not isinstance(reference_target_pattern, str):
             emit_error(ctx, create_diag(path, None, f"Invalid reference_target_pattern constraint for path {path}: {reference_target_pattern}", ERROR_CODES["invalid_reference_constraint"]))
             return False
-        try:
-            re.compile(reference_target_pattern)
-        except re.error:
-            emit_error(ctx, create_diag(path, None, f"Invalid reference_target_pattern regex for path {path}: {reference_target_pattern}", ERROR_CODES["invalid_reference_constraint"]))
+        problem = _portable_pattern_problem(reference_target_pattern)
+        if problem is not None:
+            emit_error(ctx, create_diag(path, None, f"Invalid reference_target_pattern regex for path {path}: {problem}", ERROR_CODES["invalid_reference_constraint"]))
             return False
         if reference == "forbid":
             emit_error(ctx, create_diag(path, None, f"reference_target_pattern conflicts with reference='forbid' for path {path}", ERROR_CODES["invalid_reference_constraint"]))

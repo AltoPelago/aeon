@@ -217,6 +217,16 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.postcode", "constraints": {"reference": "require", "reference_kind": "clone", "reference_target_pattern": '^\\$\\.postcodes\\[\\d+\\]$'}}]})
         self.assertTrue(any(error["code"] == "reference_target_mismatch" for error in result["errors"]))
 
+    def test_pattern_rejects_non_portable_syntax(self) -> None:
+        for pattern in ["^(?=ABC).+$", "^(A)\\1$", "^(A+)+$"]:
+            with self.subTest(pattern=pattern):
+                result = validate([], {"rules": [{"path": "$.code", "constraints": {"type": "StringLiteral", "pattern": pattern}}]})
+                self.assertEqual(["unknown_constraint_key"], [error["code"] for error in result["errors"]])
+
+    def test_reference_target_pattern_rejects_non_portable_syntax(self) -> None:
+        result = validate([], {"rules": [{"path": "$.postcode", "constraints": {"reference": "require", "reference_target_pattern": "^(\\$\\.postcodes)\\1$"}}]})
+        self.assertEqual(["invalid_reference_constraint"], [error["code"] for error in result["errors"]])
+
     def test_resolve_reference_form_checks_terminal_literal(self) -> None:
         aes = [
             {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "source"}]}, "key": "source", "value": {"type": "NumberLiteral", "raw": "2000", "value": "2000"}, "span": [0, 4]},

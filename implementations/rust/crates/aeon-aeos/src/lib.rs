@@ -29,6 +29,148 @@ fn default_trailing_separator_policy() -> String {
     String::from("off")
 }
 
+const MAX_SCHEMA_REGEX_LENGTH: usize = 512;
+const PORTABLE_REGEX_ESCAPES: &[char] = &[
+    '0', 'b', 'B', 'd', 'D', 'f', 'n', 'r', 's', 'S', 't', 'v', 'w', 'W', '\\', '^', '$', '.', '|',
+    '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
+];
+
+fn is_regex_quantifier_start(chars: &[char], index: usize) -> bool {
+    matches!(chars.get(index), Some('*' | '+' | '{'))
+}
+
+fn has_nested_quantified_group(pattern: &str) -> bool {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut stack: Vec<bool> = Vec::new();
+    let mut escaped = false;
+    let mut in_class = false;
+
+    for (index, char) in chars.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if *char == '\\' {
+            escaped = true;
+            continue;
+        }
+        if *char == '[' {
+            in_class = true;
+            continue;
+        }
+        if *char == ']' && in_class {
+            in_class = false;
+            continue;
+        }
+        if in_class {
+            continue;
+        }
+        if *char == '(' {
+            stack.push(false);
+            continue;
+        }
+        if *char == ')' {
+            let Some(has_inner_quantifier) = stack.pop() else {
+                continue;
+            };
+            if has_inner_quantifier && is_regex_quantifier_start(&chars, index + 1) {
+                return true;
+            }
+            if is_regex_quantifier_start(&chars, index + 1)
+                && let Some(parent) = stack.last_mut()
+            {
+                *parent = true;
+            }
+            continue;
+        }
+        if is_regex_quantifier_start(&chars, index)
+            && let Some(current) = stack.last_mut()
+        {
+            *current = true;
+        }
+    }
+
+    false
+}
+
+fn portable_pattern_problem(pattern: &str) -> Option<&'static str> {
+    if pattern.len() > MAX_SCHEMA_REGEX_LENGTH {
+        return Some("regex exceeds maximum length");
+    }
+
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut stack: Vec<char> = Vec::new();
+    let mut escaped = false;
+    let mut in_class = false;
+    for (index, char) in chars.iter().enumerate() {
+        if escaped {
+            if char.is_ascii_digit() && *char != '0' {
+                return Some("backreferences are not part of the AEOS portable pattern profile");
+            }
+            if matches!(*char, 'p' | 'P') && matches!(chars.get(index + 1), Some('{')) {
+                return Some(
+                    "Unicode property escapes are not part of the AEOS portable pattern profile",
+                );
+            }
+            if *char == 'k' && matches!(chars.get(index + 1), Some('<')) {
+                return Some(
+                    "named backreferences are not part of the AEOS portable pattern profile",
+                );
+            }
+            if char.is_ascii_alphanumeric() && !PORTABLE_REGEX_ESCAPES.contains(char) {
+                return Some("unsupported escape sequence");
+            }
+            escaped = false;
+            continue;
+        }
+        if *char == '\\' {
+            escaped = true;
+            continue;
+        }
+        if in_class {
+            if *char == ']' {
+                in_class = false;
+            }
+            continue;
+        }
+        if *char == '[' {
+            in_class = true;
+            continue;
+        }
+        if *char == '(' {
+            if matches!(chars.get(index + 1), Some('?')) {
+                if !matches!(chars.get(index + 2), Some(':')) {
+                    return Some(
+                        "lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile",
+                    );
+                }
+            }
+            stack.push('(');
+            continue;
+        }
+        if *char == ')' && stack.pop().is_none() {
+            return Some("unmatched closing group");
+        }
+    }
+
+    if escaped {
+        return Some("trailing escape");
+    }
+    if in_class {
+        return Some("unterminated character class");
+    }
+    if !stack.is_empty() {
+        return Some("unterminated group");
+    }
+    if has_nested_quantified_group(pattern) {
+        return Some("regex contains a nested quantified group");
+    }
+    if Regex::new(pattern).is_err() {
+        return Some("regex is not valid portable syntax");
+    }
+    None
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
     #[serde(default)]
@@ -537,6 +679,33 @@ fn validate_constraint_tree(
         return false;
     }
 
+    if let Some(pattern) = constraints.get("pattern") {
+        let Some(pattern) = pattern.as_str() else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        };
+        if portable_pattern_problem(pattern).is_some() {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
     if let Some(any_of) = constraints.get("any_of") {
         let Some(branches) = any_of.as_array() else {
             emit_error(
@@ -683,7 +852,7 @@ fn validate_reference_constraints(
     }
 
     if let Some(pattern) = reference_target_pattern {
-        if Regex::new(pattern).is_err() || reference == Some("forbid") {
+        if portable_pattern_problem(pattern).is_some() || reference == Some("forbid") {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -2895,6 +3064,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.a")),
+                    selector: None,
                     constraints: json!({
                         "reference": "require",
                         "reference_kind": "clone"
@@ -2920,9 +3090,56 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.a")),
+                    selector: None,
                     constraints: json!({
                         "reference_kind": "clone"
                     }),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "invalid_reference_constraint");
+    }
+
+    #[test]
+    fn non_portable_pattern_fails_schema_validation() {
+        let envelope = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.a")),
+                    selector: None,
+                    constraints: json!({ "pattern": "(?=test)test" }),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+        assert!(!result.ok);
+        assert_eq!(result.errors[0].code, "unknown_constraint_key");
+    }
+
+    #[test]
+    fn non_portable_reference_target_pattern_fails_schema_validation() {
+        let envelope = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.a")),
+                    selector: None,
+                    constraints: json!({ "reference_target_pattern": "^(a)\\1$" }),
                 }],
                 datatype_rules: BTreeMap::new(),
                 datatype_allowlist: Vec::new(),
@@ -2974,6 +3191,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.postcode")),
+                    selector: None,
                     constraints: json!({ "reference_target_pattern": "^\\$\\.\\[\"safe keys\"\\]\\.postcode$" }),
                 }],
                 datatype_rules: BTreeMap::new(),
@@ -3052,6 +3270,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.postcode")),
+                    selector: None,
                     constraints: json!({ "type": "IntegerLiteral", "min_value": "1000", "max_value": "9999", "resolve_reference_form": true }),
                 }],
                 datatype_rules: BTreeMap::new(),
@@ -3100,6 +3319,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.postcode")),
+                    selector: None,
                     constraints: json!({ "type": "IntegerLiteral", "min_value": "1000", "max_value": "9999", "resolve_reference_form": true }),
                 }],
                 datatype_rules: BTreeMap::new(),
@@ -3184,10 +3404,12 @@ mod tests {
                 rules: vec![
                     SchemaRule {
                         path: Some(String::from("$.page")),
+                        selector: None,
                         constraints: json!({ "type": "NodeLiteral" }),
                     },
                     SchemaRule {
                         path: Some(String::from("$.page[0]")),
+                        selector: None,
                         constraints: json!({ "type": "NumberLiteral" }),
                     },
                 ],
@@ -3243,6 +3465,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.page[0]")),
+                    selector: None,
                     constraints: json!({ "type": "StringLiteral" }),
                 }],
                 datatype_rules: BTreeMap::new(),
@@ -3293,6 +3516,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.value")),
+                    selector: None,
                     constraints: json!({
                         "type": "NumberLiteral",
                         "attributes": {
@@ -3380,6 +3604,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.value")),
+                    selector: None,
                     constraints: json!({
                         "attributes": {
                             "unit": { "type": "StringLiteral" }
@@ -3463,6 +3688,7 @@ mod tests {
             schema: Some(Schema {
                 rules: vec![SchemaRule {
                     path: Some(String::from("$.value")),
+                    selector: None,
                     constraints: json!({
                         "attributes": {
                             "unit": {}
