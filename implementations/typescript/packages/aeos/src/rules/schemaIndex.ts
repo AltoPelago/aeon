@@ -11,17 +11,72 @@ import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 
 const MAX_SCHEMA_REGEX_LENGTH = 512;
-const NESTED_QUANTIFIED_GROUP_PATTERN = /\((?:\?:|\?=|\?!|\?<=|\?<!)?(?:[^()[\]\\]|\\.|\[[^\]\\]*(?:\\.[^\]\\]*)*\])*[*+](?:[^()[\]\\]|\\.|\[[^\]\\]*(?:\\.[^\]\\]*)*\])*\)\s*(?:[*+]|\{\d+(?:,\d*)?\})/;
 
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
+}
+
+function isRegexQuantifierStart(pattern: string, index: number): boolean {
+    const char = pattern[index];
+    return char === '*' || char === '+' || char === '{';
+}
+
+function hasNestedQuantifiedGroup(pattern: string): boolean {
+    const stack: Array<{ hasInnerQuantifier: boolean }> = [];
+    let escaped = false;
+    let inCharacterClass = false;
+
+    for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+        if (char === '[') {
+            inCharacterClass = true;
+            continue;
+        }
+        if (char === ']' && inCharacterClass) {
+            inCharacterClass = false;
+            continue;
+        }
+        if (inCharacterClass) {
+            continue;
+        }
+        if (char === '(') {
+            stack.push({ hasInnerQuantifier: false });
+            continue;
+        }
+        if (char === ')') {
+            const group = stack.pop();
+            if (!group) continue;
+            if (group.hasInnerQuantifier && isRegexQuantifierStart(pattern, i + 1)) {
+                return true;
+            }
+            const parent = stack.at(-1);
+            if (parent && isRegexQuantifierStart(pattern, i + 1)) {
+                parent.hasInnerQuantifier = true;
+            }
+            continue;
+        }
+        const current = stack.at(-1);
+        if (current && isRegexQuantifierStart(pattern, i)) {
+            current.hasInnerQuantifier = true;
+        }
+    }
+
+    return false;
 }
 
 function regexConstraintProblem(value: string): string | null {
     if (value.length > MAX_SCHEMA_REGEX_LENGTH) {
         return `regex exceeds ${MAX_SCHEMA_REGEX_LENGTH} characters`;
     }
-    if (NESTED_QUANTIFIED_GROUP_PATTERN.test(value)) {
+    if (hasNestedQuantifiedGroup(value)) {
         return 'regex contains a nested quantified group';
     }
     try {
