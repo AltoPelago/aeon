@@ -243,6 +243,26 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
     });
 
+    it('rejects invalid string pattern regex', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                {
+                    path: '$.name',
+                    constraints: {
+                        type: 'StringLiteral',
+                        pattern: '[',
+                    },
+                },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
     it('rejects resolve_reference_form when it is not boolean', () => {
         const schema = {
             rules: [

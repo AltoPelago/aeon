@@ -49,6 +49,17 @@ test('runtime rejects inputs that exceed maxInputBytes', () => {
     assert.ok(result.meta.errors.some((diag) => diag.code === 'INPUT_SIZE_EXCEEDED' && diag.phase === 5));
 });
 
+test('runtime forwards clone reference depth limits to resolution', () => {
+    const result = runRuntime('a = "AEON"\nb = ~a\nc = ~b', {
+        mode: 'strict',
+        output: 'json',
+        maxReferenceDepth: 0,
+    });
+
+    assert.ok(result.meta.errors.some((diag) => diag.code === 'RESOLVE_REFERENCE_DEPTH_EXCEEDED' && diag.phase === 7));
+    assert.equal(result.document, undefined);
+});
+
 test('loose mode continues after schema errors', () => {
     const schema: SchemaV1 = {
         rules: [

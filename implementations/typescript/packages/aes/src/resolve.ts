@@ -27,6 +27,7 @@ export interface ResolveMeta {
 
 export interface ResolveOptions {
     readonly mode?: 'strict' | 'loose';
+    readonly maxReferenceDepth?: number;
 }
 
 export interface ResolveResult {
@@ -39,6 +40,7 @@ export function resolveRefs(
     options: ResolveOptions = {}
 ): ResolveResult {
     const strict = (options.mode ?? 'strict') === 'strict';
+    const maxReferenceDepth = options.maxReferenceDepth;
     const errors: ResolveDiagnostic[] = [];
     const warnings: ResolveDiagnostic[] = [];
     const resolutionMap: Record<string, string> = {};
@@ -148,6 +150,18 @@ export function resolveRefs(
                 strict ? 'error' : 'warning',
                 `Reference cycle detected at '${targetPath}'`,
                 'RESOLVE_CYCLE',
+                ref.span,
+                sourcePath
+            );
+            return { ...ref, type: 'CloneReference' } as Value;
+        }
+
+        const observedDepth = stack.length;
+        if (maxReferenceDepth !== undefined && observedDepth > maxReferenceDepth) {
+            addDiag(
+                strict ? 'error' : 'warning',
+                `Reference resolution depth ${observedDepth} exceeds maxReferenceDepth ${maxReferenceDepth}`,
+                'RESOLVE_REFERENCE_DEPTH_EXCEEDED',
                 ref.span,
                 sourcePath
             );

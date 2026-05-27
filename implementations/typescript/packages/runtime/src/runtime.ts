@@ -44,6 +44,8 @@ export interface RuntimeOptions {
     readonly maxAttributeDepth?: number;
     readonly maxSeparatorDepth?: number;
     readonly maxGenericDepth?: number;
+    readonly maxMaterializedWeight?: number;
+    readonly maxReferenceDepth?: number;
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
 }
 
@@ -124,6 +126,8 @@ function finalizeByOutput(
         readonly includePaths?: RuntimeOptions['includePaths'];
         readonly scope?: RuntimeOptions['scope'];
         readonly header?: FinalizeHeader;
+        readonly maxMaterializedWeight?: RuntimeOptions['maxMaterializedWeight'];
+        readonly maxReferenceDepth?: RuntimeOptions['maxReferenceDepth'];
     }
 ): {
     readonly document: JsonObject | FinalizedMap | FinalizedNodeDocument;
@@ -135,6 +139,8 @@ function finalizeByOutput(
         ...(options.includePaths !== undefined ? { includePaths: options.includePaths } : {}),
         ...(options.scope !== undefined ? { scope: options.scope } : {}),
         ...(options.header !== undefined ? { header: options.header } : {}),
+        ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
+        ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
     };
     if (output === 'map') return finalizeMap(aes, finalizeOptions);
     if (output === 'node') return finalizeNode(aes, finalizeOptions);
@@ -304,7 +310,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         }
     }
 
-    const resolved = resolveRefs(aes, { mode });
+    const resolved = resolveRefs(aes, {
+        mode,
+        ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
+    });
     appendResolveDiagnostics(errors, warnings, resolved.meta?.errors, 'error');
     appendResolveDiagnostics(errors, warnings, resolved.meta?.warnings, 'warning');
 
@@ -337,6 +346,8 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         includePaths: options.includePaths,
         scope,
         ...(coreResult?.header ? { header: coreResult.header } : {}),
+        ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
+        ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
     });
     appendFinalizeDiagnostics(errors, warnings, finalized.meta?.errors, 'error');
     appendFinalizeDiagnostics(errors, warnings, finalized.meta?.warnings, 'warning');
@@ -371,6 +382,8 @@ export function runTypedRuntime<TDocument>(
         ...(options.maxAttributeDepth !== undefined ? { maxAttributeDepth: options.maxAttributeDepth } : {}),
         ...(options.maxSeparatorDepth !== undefined ? { maxSeparatorDepth: options.maxSeparatorDepth } : {}),
         ...(options.maxGenericDepth !== undefined ? { maxGenericDepth: options.maxGenericDepth } : {}),
+        ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
+        ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         ...(options.materialization !== undefined ? { materialization: options.materialization } : {}),
         ...(options.includePaths !== undefined ? { includePaths: options.includePaths } : {}),
         ...(options.scope !== undefined ? { scope: options.scope } : {}),

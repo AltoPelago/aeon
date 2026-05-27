@@ -152,6 +152,36 @@ function validateReferenceConstraints(
     return true;
 }
 
+function validateRegexConstraint(
+    rulePath: string,
+    key: string,
+    value: unknown,
+    ctx: DiagContext
+): boolean {
+    if (value === undefined) return true;
+    if (typeof value !== 'string') {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid ${key} constraint for path ${rulePath}: ${String(value)}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+    try {
+        new RegExp(value);
+    } catch {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid ${key} regex for path ${rulePath}: ${value}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+    return true;
+}
+
 function validateConstraintTree(
     schema: SchemaV1,
     rulePath: string,
@@ -169,6 +199,10 @@ function validateConstraintTree(
     }
 
     if (!validateReferenceConstraints(schema, rulePath, constraints, ctx)) {
+        return false;
+    }
+
+    if (!validateRegexConstraint(rulePath, 'pattern', constraints.pattern, ctx)) {
         return false;
     }
 

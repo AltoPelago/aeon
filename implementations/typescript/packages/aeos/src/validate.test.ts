@@ -1434,6 +1434,70 @@ describe('validate()', () => {
             assert.strictEqual(result.ok, true);
         });
 
+        it('returns a schema diagnostic instead of throwing for invalid any_of pattern regex', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'StringLiteral', value: 'Alice', raw: '"Alice"' },
+                    span: [0, 14],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.name',
+                        constraints: {
+                            any_of: [
+                                { type: 'StringLiteral', pattern: '[' },
+                            ],
+                        },
+                    },
+                ],
+            };
+
+            assert.doesNotThrow(() => validate(aes, schema));
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
+        });
+
+        it('returns a schema diagnostic instead of throwing for invalid attribute pattern regex', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'StringLiteral', value: 'Alice', raw: '"Alice"' },
+                    annotations: new Map([
+                        ['label', {
+                            value: { type: 'StringLiteral', value: 'friend', raw: '"friend"', span: [5, 13] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [0, 14],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.name',
+                        constraints: {
+                            attributes: {
+                                label: { type: 'StringLiteral', pattern: '[' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            assert.doesNotThrow(() => validate(aes, schema));
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
+        });
+
         it('keeps missing targets and cycles Core-owned when resolve_reference_form is enabled', () => {
             const missingTargetAes: AES = [
                 {

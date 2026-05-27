@@ -569,6 +569,15 @@ function withoutAnyOf(constraints: ConstraintsV1): ConstraintsV1 {
     return rest;
 }
 
+function patternMatches(pattern: string | undefined, value: string): boolean {
+    if (pattern === undefined) return true;
+    try {
+        return new RegExp(pattern).test(value);
+    } catch {
+        return false;
+    }
+}
+
 function constraintBranchMatchesEvent(
     constraints: ConstraintsV1,
     event: EventInfo,
@@ -601,7 +610,7 @@ function constraintBranchMatchesEvent(
         const valueLength = event.value.length;
         if (constraints.min_length !== undefined && valueLength < constraints.min_length) return false;
         if (constraints.max_length !== undefined && valueLength > constraints.max_length) return false;
-        if (constraints.pattern !== undefined && !(new RegExp(constraints.pattern).test(event.value))) return false;
+        if (!patternMatches(constraints.pattern, event.value)) return false;
     }
     if (hasDigitFormConstraints(constraints) && isDigitFormLiteral(event.type)) {
         const digitCount = countFormDigits(event.type, event.raw);
@@ -1128,7 +1137,7 @@ function validateAttributeEntry(
                 ErrorCodes.STRING_LENGTH_VIOLATION
             ));
         }
-        if (effectiveConstraints.pattern !== undefined && !(new RegExp(effectiveConstraints.pattern).test(entry.value))) {
+        if (effectiveConstraints.pattern !== undefined && !patternMatches(effectiveConstraints.pattern, entry.value)) {
             emitError(ctx, createDiag(
                 path,
                 entry.span,
