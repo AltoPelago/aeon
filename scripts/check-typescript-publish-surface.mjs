@@ -19,10 +19,20 @@ if (!baseSha || !headSha) {
 }
 
 const highRiskFiles = new Set([
-  'implementations/typescript/package.json',
   'implementations/typescript/pnpm-workspace.yaml',
   'implementations/typescript/.npmrc',
 ]);
+const centralPackageJson = 'implementations/typescript/package.json';
+const dependencyFields = [
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'peerDependencies',
+  'peerDependenciesMeta',
+  'overrides',
+  'resolutions',
+  'pnpm',
+];
 const policyDocs = new Set([
   'README.md',
   'RELEASING.md',
@@ -87,6 +97,28 @@ function readPackageJsonAt(revision, relativePath) {
   return raw ? JSON.parse(raw) : null;
 }
 
+function changedTopLevelFields(basePkg, headPkg) {
+  const fields = new Set([
+    ...Object.keys(basePkg ?? {}),
+    ...Object.keys(headPkg ?? {}),
+  ]);
+  return [...fields].filter((field) => {
+    const before = basePkg?.[field] ?? null;
+    const after = headPkg?.[field] ?? null;
+    return JSON.stringify(before) !== JSON.stringify(after);
+  });
+}
+
+function isDependencyOnlyPackageChange(file) {
+  const basePkg = readPackageJsonAt(baseSha, file);
+  const headPkg = readPackageJsonAt(headSha, file);
+  if (basePkg === null || headPkg === null) {
+    return false;
+  }
+  const allowed = new Set(dependencyFields);
+  return changedTopLevelFields(basePkg, headPkg).every((field) => allowed.has(field));
+}
+
 const changedFiles = git(['diff', '--name-only', baseSha, headSha])
   .split('\n')
   .map((line) => line.trim())
@@ -96,6 +128,16 @@ const hasExplicitReleasePolicyChange = changedFiles.some((file) => policyDocs.ha
 const violations = [];
 
 for (const file of changedFiles) {
+  if (file === centralPackageJson) {
+    if (!hasExplicitReleasePolicyChange && !isDependencyOnlyPackageChange(file)) {
+      violations.push({
+        file,
+        reason: 'central TypeScript publish control file changed without a matching release-policy doc update',
+      });
+    }
+    continue;
+  }
+
   if (highRiskFiles.has(file)) {
     if (!hasExplicitReleasePolicyChange) {
       violations.push({
