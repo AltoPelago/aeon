@@ -41,6 +41,28 @@ KNOWN_CONSTRAINT_KEYS = {
 
 MAX_SCHEMA_REGEX_LENGTH = 512
 PORTABLE_REGEX_ESCAPES = set("0bBdDfnrsStvwW\\^$.|?*+()[]{}-")
+RESOURCE_POLICY_KEYS = {
+    "max_events",
+    "max_rules",
+    "max_any_of_cases",
+    "max_schema_depth",
+    "max_path_length",
+    "max_reference_resolution_steps",
+    "max_selector_expansions",
+    "max_string_length_default",
+    "max_container_children_default",
+}
+DEFAULT_RESOURCE_POLICY = {
+    "max_events": 100_000,
+    "max_rules": 10_000,
+    "max_any_of_cases": 64,
+    "max_schema_depth": 64,
+    "max_path_length": 4_096,
+    "max_reference_resolution_steps": 64,
+    "max_selector_expansions": 100_000,
+    "max_string_length_default": 10_000_000,
+    "max_container_children_default": 1_000_000,
+}
 
 
 def _is_regex_quantifier_start(pattern: str, index: int) -> bool:
@@ -161,6 +183,7 @@ ERROR_CODES = {
     "rule_missing_path": "rule_missing_path",
     "duplicate_rule_path": "duplicate_rule_path",
     "unknown_constraint_key": "unknown_constraint_key",
+    "invalid_schema_policy": "invalid_schema_policy",
     "invalid_reference_constraint": "invalid_reference_constraint",
     "missing_required_field": "missing_required_field",
     "type_mismatch": "type_mismatch",
@@ -195,6 +218,15 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     opts = options or {}
     trailing_policy = str(opts.get("trailingSeparatorDelimiterPolicy", "off"))
     ctx = DiagContext(errors=[], warnings=[])
+    resource_policy = resolve_resource_policy(schema.get("resource_policy"), opts.get("resourcePolicy"), ctx)
+    if len(aes) > resource_policy["max_events"]:
+        emit_resource_error(ctx, "$", f"AES event count {len(aes)} exceeds max_events {resource_policy['max_events']}")
+    rules = schema.get("rules")
+    if isinstance(rules, list) and len(rules) > resource_policy["max_rules"]:
+        emit_resource_error(ctx, "$", f"Schema rule count {len(rules)} exceeds max_rules {resource_policy['max_rules']}")
+    inspect_schema_resource_shape(schema, resource_policy, ctx)
+    if ctx.errors:
+        return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
 
     seen: dict[str, object] = {}
     bound_paths: set[str] = set()
@@ -203,6 +235,8 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
 
     for event in aes:
         path_str = format_canonical_path(event.get("path"))
+        if len(path_str) > resource_policy["max_path_length"]:
+            emit_resource_error(ctx, path_str, f"Path length {len(path_str)} exceeds max_path_length {resource_policy['max_path_length']}", to_span_tuple(event.get("span")))
         for segment in event.get("path", {}).get("segments", []) if isinstance(event.get("path"), dict) else []:
             if isinstance(segment, dict) and segment.get("type") == "index":
                 idx = segment.get("index")
@@ -229,11 +263,19 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     elements = value.get("elements")
                     assert isinstance(elements, list)
                     container_arity[path_str] = len(elements)
+                    if len(elements) > resource_policy["max_container_children_default"]:
+                        emit_resource_error(ctx, path_str, f"Container child count {len(elements)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
                     hydrate_indexed_fallback(path_str, value, to_span_tuple(event.get("span")), events_by_path)
                 elif value.get("type") == "ObjectNode" and isinstance(value.get("bindings"), list):
-                    container_arity[path_str] = len(value.get("bindings", []))
+                    bindings = value.get("bindings", [])
+                    container_arity[path_str] = len(bindings)
+                    if len(bindings) > resource_policy["max_container_children_default"]:
+                        emit_resource_error(ctx, path_str, f"Container child count {len(bindings)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
                 elif value.get("type") == "NodeLiteral" and isinstance(value.get("children"), list):
-                    container_arity[path_str] = len(value.get("children", []))
+                    children = value.get("children", [])
+                    container_arity[path_str] = len(children)
+                    if len(children) > resource_policy["max_container_children_default"]:
+                        emit_resource_error(ctx, path_str, f"Container child count {len(children)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
 
     if trailing_policy != "off":
         for event in aes:
@@ -256,12 +298,13 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                 emit_error(ctx, diag)
 
     rule_index = build_rule_index(schema, ctx)
-    selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx)
-    expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path)
+    expansion_budget = {"count": 0}
+    selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
+    expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path, ctx, resource_policy, expansion_budget)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
     check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
-    effective_events_by_path = resolve_reference_form_events(effective_rule_index, events_by_path)
+    effective_events_by_path = resolve_reference_form_events(effective_rule_index, events_by_path, resource_policy, ctx)
     selected_rule_index = select_any_of_rules(effective_rule_index, effective_events_by_path, ctx)
     check_types(selected_rule_index, effective_events_by_path, ctx)
 
@@ -310,6 +353,74 @@ def validate_events(events: list[dict[str, object]], schema: dict[str, object], 
             continue
         normalized.append({**event, "path": canonical_path_to_json(path)})
     return validate(normalized, schema, options)
+
+
+def emit_resource_error(ctx: DiagContext, path: str, message: str, span: tuple[int, int] | None = None) -> None:
+    emit_error(ctx, create_diag(path, span, message, ERROR_CODES["invalid_schema_policy"]))
+
+
+def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> dict[str, int]:
+    if policy is None:
+        return {}
+    if not isinstance(policy, dict):
+        emit_resource_error(ctx, "$", f"{source} resource policy must be an object")
+        return {}
+    normalized: dict[str, int] = {}
+    for key, value in policy.items():
+        if key not in RESOURCE_POLICY_KEYS:
+            emit_resource_error(ctx, "$", f"Unknown {source} resource policy key: {key}")
+            continue
+        if not isinstance(value, int) or value < 0:
+            emit_resource_error(ctx, "$", f"{source} resource policy {key} must be a non-negative integer")
+            continue
+        normalized[str(key)] = value
+    return normalized
+
+
+def resolve_resource_policy(schema_policy: object, option_policy: object, ctx: DiagContext) -> dict[str, int]:
+    return {
+        **DEFAULT_RESOURCE_POLICY,
+        **normalize_resource_policy(schema_policy, "schema", ctx),
+        **normalize_resource_policy(option_policy, "option", ctx),
+    }
+
+
+def inspect_schema_resource_shape(schema: dict[str, object], policy: dict[str, int], ctx: DiagContext) -> None:
+    rules = schema.get("rules")
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            rule_path = rule.get("path") if isinstance(rule.get("path"), str) and rule.get("path") else rule.get("selector")
+            path = rule_path if isinstance(rule_path, str) and rule_path else "$"
+            if len(path) > policy["max_path_length"]:
+                emit_resource_error(ctx, path, f"Rule path length {len(path)} exceeds max_path_length {policy['max_path_length']}")
+            constraints = rule.get("constraints")
+            if isinstance(constraints, dict):
+                inspect_constraint_resource_shape(constraints, path, 1, policy, ctx)
+    datatype_rules = schema.get("datatype_rules")
+    if isinstance(datatype_rules, dict):
+        for datatype, constraints in datatype_rules.items():
+            if isinstance(constraints, dict):
+                inspect_constraint_resource_shape(constraints, f"datatype_rules.{datatype}", 1, policy, ctx)
+
+
+def inspect_constraint_resource_shape(constraints: dict[str, object], path: str, depth: int, policy: dict[str, int], ctx: DiagContext) -> None:
+    if depth > policy["max_schema_depth"]:
+        emit_resource_error(ctx, path, f"Schema constraint depth exceeds max_schema_depth {policy['max_schema_depth']}")
+        return
+    any_of = constraints.get("any_of")
+    if isinstance(any_of, list):
+        if len(any_of) > policy["max_any_of_cases"]:
+            emit_resource_error(ctx, path, f"any_of case count {len(any_of)} exceeds max_any_of_cases {policy['max_any_of_cases']}")
+        for index, branch in enumerate(any_of):
+            if isinstance(branch, dict):
+                inspect_constraint_resource_shape(branch, f"{path}.any_of[{index}]", depth + 1, policy, ctx)
+    attributes = constraints.get("attributes")
+    if isinstance(attributes, dict):
+        for key, child in attributes.items():
+            if isinstance(child, dict):
+                inspect_constraint_resource_shape(child, f"{path}@{key}", depth + 1, policy, ctx)
 
 
 def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, dict[str, object]]:
@@ -375,6 +486,29 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
     if allow_unspecified_radix is not None and not isinstance(allow_unspecified_radix, bool):
         emit_error(ctx, create_diag(path, None, f"allow_unspecified_radix must be boolean for path {path}", ERROR_CODES["unknown_constraint_key"]))
         return False
+    for key in ("required", "nullable", "allow_infinity", "allow_nan", "resolve_reference_form", "closed_attributes"):
+        value = constraints.get(key)
+        if value is not None and not isinstance(value, bool):
+            emit_error(ctx, create_diag(path, None, f"{key} must be boolean for path {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+    for key in ("type", "null_value", "sign", "datatype"):
+        value = constraints.get(key)
+        if value is not None and not isinstance(value, str):
+            emit_error(ctx, create_diag(path, None, f"{key} must be string for path {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+    if constraints.get("sign") is not None and constraints.get("sign") not in {"signed", "unsigned"}:
+        emit_error(ctx, create_diag(path, None, f"Invalid sign constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
+    for key in ("min_children", "max_children", "length_exact", "radix", "min_digits", "max_digits", "min_length", "max_length"):
+        value = constraints.get(key)
+        if value is not None and (not isinstance(value, int) or value < 0):
+            emit_error(ctx, create_diag(path, None, f"Invalid {key} constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+    for key in ("min_value", "max_value"):
+        value = constraints.get(key)
+        if value is not None and not isinstance(value, str):
+            emit_error(ctx, create_diag(path, None, f"{key} must be string for path {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
     any_of = constraints.get("any_of")
     if any_of is not None:
         if not isinstance(any_of, list) or len(any_of) == 0:
@@ -559,7 +693,7 @@ def check_reference_forms(
         target_pattern = constraints.get("reference_target_pattern")
         if isinstance(target_pattern, str) and is_reference_type(actual_type):
             reference_path = event.get("reference_path")
-            if isinstance(reference_path, list) and re.search(target_pattern, format_reference_target_path(reference_path)) is None:
+            if isinstance(reference_path, list) and not matches_portable_pattern(target_pattern, format_reference_target_path(reference_path)):
                 emit_error(ctx, create_diag(path, event.get("span"), f"Reference target path does not satisfy reference_target_pattern at {path}", ERROR_CODES["reference_target_mismatch"]))
 
 
@@ -667,12 +801,7 @@ def check_patterns(rule_index: dict[str, dict[str, object]], events: dict[str, d
         event = events.get(path)
         if event is None or not is_string_like_literal(str(event.get("type", ""))):
             continue
-        regex = pattern
-        if not regex.startswith("^"):
-            regex = "^" + regex
-        if not regex.endswith("$"):
-            regex = regex + "$"
-        if not re.search(regex, str(event.get("value", ""))):
+        if not matches_portable_pattern(pattern, str(event.get("value", ""))):
             emit_error(ctx, create_diag(path, event.get("span"), f"Pattern mismatch: value does not match pattern \"{pattern}\"", ERROR_CODES["pattern_mismatch"]))
 
 
@@ -931,7 +1060,7 @@ def build_guarantees(bound_paths: set[str], events: dict[str, dict[str, object]]
     return guarantees
 
 
-def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], resource_policy: dict[str, int], ctx: DiagContext) -> dict[str, dict[str, object]]:
     resolved = dict(events)
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
@@ -940,8 +1069,11 @@ def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], even
         event = events.get(path)
         if not isinstance(event, dict) or not is_reference_type(event.get("type")):
             continue
-        terminal = resolve_terminal_reference_event(event, events, set())
+        state = {"exhausted": False}
+        terminal = resolve_terminal_reference_event(event, events, set(), resource_policy["max_reference_resolution_steps"], state)
         if terminal is None:
+            if state["exhausted"]:
+                emit_resource_error(ctx, path, f"Reference resolution exceeded max_reference_resolution_steps {resource_policy['max_reference_resolution_steps']}", to_span_tuple(event.get("span")))
             resolved.pop(path, None)
             continue
         resolved[path] = {**terminal, "span": event.get("span")}
@@ -953,6 +1085,8 @@ def expand_selector_rules(
     schema: dict[str, object],
     events: dict[str, dict[str, object]],
     ctx: DiagContext,
+    resource_policy: dict[str, int],
+    expansion_budget: dict[str, int],
 ) -> dict[str, dict[str, object]]:
     expanded = dict(rule_index)
     rules = schema.get("rules")
@@ -972,6 +1106,10 @@ def expand_selector_rules(
             if not matches_selector_path(actual_path, selector):
                 continue
             matched = True
+            expansion_budget["count"] = expansion_budget.get("count", 0) + 1
+            if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
+                emit_resource_error(ctx, selector, f"Selector expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
+                return expanded
             expanded.setdefault(actual_path, {**rule, "path": actual_path})
         constraints = rule.get("constraints")
         if not matched and isinstance(constraints, dict) and constraints.get("required") is True:
@@ -979,7 +1117,13 @@ def expand_selector_rules(
     return expanded
 
 
-def expand_wildcard_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+def expand_wildcard_rules(
+    rule_index: dict[str, dict[str, object]],
+    events: dict[str, dict[str, object]],
+    ctx: DiagContext,
+    resource_policy: dict[str, int],
+    expansion_budget: dict[str, int],
+) -> dict[str, dict[str, object]]:
     expanded = dict(rule_index)
     for path, rule in rule_index.items():
         if "[*]" not in path:
@@ -987,6 +1131,10 @@ def expand_wildcard_rules(rule_index: dict[str, dict[str, object]], events: dict
         expanded.pop(path, None)
         for actual_path in events:
             if matches_allowed_path(actual_path, path):
+                expansion_budget["count"] = expansion_budget.get("count", 0) + 1
+                if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
+                    emit_resource_error(ctx, path, f"Wildcard expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
+                    return expanded
                 expanded[actual_path] = rule
     return expanded
 
@@ -1170,9 +1318,12 @@ def matches_selector_path(actual_path: str, selector: str) -> bool:
     return match_from(0, 0)
 
 
-def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str]) -> dict[str, object] | None:
+def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str], remaining_steps: int, state: dict[str, bool]) -> dict[str, object] | None:
     if not is_reference_type(event.get("type")):
         return event
+    if remaining_steps <= 0:
+        state["exhausted"] = True
+        return None
     reference_path = event.get("reference_path")
     if not isinstance(reference_path, list):
         return None
@@ -1183,7 +1334,7 @@ def resolve_terminal_reference_event(event: dict[str, object], events: dict[str,
     if not isinstance(target, dict):
         return None
     active_paths.add(target_path)
-    resolved = resolve_terminal_reference_event(target, events, active_paths) if is_reference_type(target.get("type")) else target
+    resolved = resolve_terminal_reference_event(target, events, active_paths, remaining_steps - 1, state) if is_reference_type(target.get("type")) else target
     active_paths.discard(target_path)
     return resolved
 
@@ -1409,6 +1560,20 @@ def is_string_like_literal(value_type: str) -> bool:
         "DateTimeLiteral",
         "ZRUTDateTimeLiteral",
     }
+
+
+def matches_portable_pattern(pattern: str | None, value: str) -> bool:
+    if pattern is None:
+        return True
+    regex = pattern
+    if not regex.startswith("^"):
+        regex = "^" + regex
+    if not regex.endswith("$"):
+        regex = regex + "$"
+    try:
+        return re.search(regex, value) is not None
+    except re.error:
+        return False
 
 
 def has_digit_form_constraints(constraints: dict[str, object]) -> bool:

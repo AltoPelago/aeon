@@ -133,6 +133,21 @@ export interface SchemaV1 {
 
     /** Optional datatype-wide constraints keyed by datatype base label */
     readonly datatype_rules?: Readonly<Record<string, ConstraintsV1>>;
+
+    /** Optional consumer-controlled validation resource limits */
+    readonly resource_policy?: ResourcePolicyV1;
+}
+
+export interface ResourcePolicyV1 {
+    readonly max_events?: number;
+    readonly max_rules?: number;
+    readonly max_any_of_cases?: number;
+    readonly max_schema_depth?: number;
+    readonly max_path_length?: number;
+    readonly max_reference_resolution_steps?: number;
+    readonly max_selector_expansions?: number;
+    readonly max_string_length_default?: number;
+    readonly max_container_children_default?: number;
 }
 
 /**

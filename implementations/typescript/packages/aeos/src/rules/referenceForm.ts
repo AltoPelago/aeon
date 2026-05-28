@@ -2,6 +2,7 @@ import { createDiag, emitError, type DiagContext } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 import type { RuleIndex } from './schemaIndex.js';
 import type { SchemaV1 } from '../types/schema.js';
+import { matchesPortablePattern } from './stringForm.js';
 
 type EventInfo = {
     type: string;
@@ -42,11 +43,7 @@ function formatReferenceTargetPath(segments: readonly (string | number | { reado
 }
 
 function targetPatternMatches(pattern: string, value: string): boolean {
-    try {
-        return new RegExp(pattern).test(value);
-    } catch {
-        return false;
-    }
+    return matchesPortablePattern(pattern, value);
 }
 
 export function checkReferenceForms(

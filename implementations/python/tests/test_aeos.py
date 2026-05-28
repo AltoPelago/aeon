@@ -242,7 +242,7 @@ class AeosTests(unittest.TestCase):
         ]
         result = validate(aes, {
             "rules": [{"path": "$.ip", "constraints": {}}, {"path": "$.dimensions", "constraints": {}}],
-            "datatype_rules": {"kadot": {"type": "SeparatorLiteral", "pattern": "^[0-9]+(?:\\.[0-9]+)*$"}},
+            "datatype_rules": {"kadot": {"type": "SeparatorLiteral", "pattern": "^[0-9.]+$"}},
         })
         self.assertFalse(result["ok"])
         self.assertFalse(any(error["path"] == "$.ip" for error in result["errors"]))

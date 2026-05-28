@@ -19,6 +19,22 @@ interface StringValue {
     span: Span;
 }
 
+export function matchesPortablePattern(pattern: string | undefined, value: string): boolean {
+    if (pattern === undefined) return true;
+    let regexPattern = pattern;
+    if (!regexPattern.startsWith('^')) {
+        regexPattern = '^' + regexPattern;
+    }
+    if (!regexPattern.endsWith('$')) {
+        regexPattern = regexPattern + '$';
+    }
+    try {
+        return new RegExp(regexPattern).test(value);
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Check string form constraints for events matching schema rules.
  *
@@ -112,25 +128,7 @@ export function checkPatterns(
             continue;
         }
 
-        // Compile pattern (add anchors if not present for full-match semantics)
-        let regexPattern = pattern;
-        if (!regexPattern.startsWith('^')) {
-            regexPattern = '^' + regexPattern;
-        }
-        if (!regexPattern.endsWith('$')) {
-            regexPattern = regexPattern + '$';
-        }
-
-        let regex: RegExp;
-        try {
-            regex = new RegExp(regexPattern);
-        } catch {
-            // Invalid regex is a schema error, not a data error
-            // This should have been caught during schema validation
-            continue;
-        }
-
-        if (!regex.test(event.value)) {
+        if (!matchesPortablePattern(pattern, event.value)) {
             emitError(ctx, createDiag(
                 path,
                 event.span,

@@ -1287,7 +1287,7 @@ describe('validate()', () => {
                 datatype_rules: {
                     kadot: {
                         type: 'SeparatorLiteral',
-                        pattern: '^[0-9]+(?:\\.[0-9]+)*$',
+                        pattern: '^[0-9.]+$',
                     },
                 },
             });

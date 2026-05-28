@@ -357,6 +357,42 @@ function validateConstraintTree(
         return false;
     }
 
+    for (const key of ['required', 'nullable', 'allow_infinity', 'allow_nan', 'resolve_reference_form', 'closed_attributes', 'allow_unspecified_radix'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'boolean') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be boolean for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    for (const key of ['type', 'null_value', 'sign', 'datatype'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'string') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be string for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    if (constraints.sign !== undefined && !['signed', 'unsigned'].includes(String(constraints.sign))) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid sign constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
     if (constraints.toggle_pair !== undefined && !['any', 'yes_no', 'on_off'].includes(String(constraints.toggle_pair))) {
         emitError(ctx, createDiag(
             rulePath,
@@ -372,16 +408,6 @@ function validateConstraintTree(
             rulePath,
             null,
             `Invalid null_values constraint for path ${rulePath}`,
-            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
-        ));
-        return false;
-    }
-
-    if (constraints.allow_unspecified_radix !== undefined && typeof constraints.allow_unspecified_radix !== 'boolean') {
-        emitError(ctx, createDiag(
-            rulePath,
-            null,
-            `Invalid allow_unspecified_radix constraint for path ${rulePath}`,
             ErrorCodes.UNKNOWN_CONSTRAINT_KEY
         ));
         return false;
@@ -413,13 +439,26 @@ function validateConstraintTree(
         }
     }
 
-    for (const key of ['min_children', 'max_children', 'length_exact', 'radix'] as const) {
+    for (const key of ['min_children', 'max_children', 'length_exact', 'radix', 'min_digits', 'max_digits', 'min_length', 'max_length'] as const) {
         const value = constraints[key];
         if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
             emitError(ctx, createDiag(
                 rulePath,
                 null,
                 `Invalid ${key} constraint for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    for (const key of ['min_value', 'max_value'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'string') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be string for path ${rulePath}`,
                 ErrorCodes.UNKNOWN_CONSTRAINT_KEY
             ));
             return false;

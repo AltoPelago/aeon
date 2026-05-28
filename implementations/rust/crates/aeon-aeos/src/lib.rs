@@ -171,6 +171,19 @@ fn portable_pattern_problem(pattern: &str) -> Option<&'static str> {
     None
 }
 
+fn matches_portable_pattern(pattern: &str, value: &str) -> bool {
+    if portable_pattern_problem(pattern).is_some() {
+        return false;
+    }
+    let anchored = format!(
+        "{}{}{}",
+        if pattern.starts_with('^') { "" } else { "^" },
+        pattern,
+        if pattern.ends_with('$') { "" } else { "$" },
+    );
+    Regex::new(&anchored).is_ok_and(|regex| regex.is_match(value))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
     #[serde(default)]
@@ -676,6 +689,103 @@ fn validate_constraint_tree(
         return false;
     }
 
+    for key in [
+        "required",
+        "nullable",
+        "allow_infinity",
+        "allow_nan",
+        "closed_attributes",
+        "allow_unspecified_radix",
+    ] {
+        if constraints
+            .get(key)
+            .is_some_and(|value| !value.is_boolean())
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
+    for key in ["type", "null_value", "sign", "datatype"] {
+        if constraints.get(key).is_some_and(|value| !value.is_string()) {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
+    if let Some(sign) = constraints.get("sign").and_then(JsonValue::as_str)
+        && !matches!(sign, "signed" | "unsigned")
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    for key in [
+        "min_children",
+        "max_children",
+        "length_exact",
+        "radix",
+        "min_digits",
+        "max_digits",
+        "min_length",
+        "max_length",
+    ] {
+        if constraints
+            .get(key)
+            .is_some_and(|value| value.as_u64().is_none())
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
+    for key in ["min_value", "max_value"] {
+        if constraints.get(key).is_some_and(|value| !value.is_string()) {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
     if !validate_reference_constraints(schema, path, constraints, ctx) {
         return false;
     }
@@ -1169,8 +1279,7 @@ fn check_reference_forms(
         if let Some(pattern) = reference_target_pattern
             && is_reference_type(&event.value_type)
             && event.reference_path.as_ref().is_some_and(|segments| {
-                Regex::new(pattern)
-                    .is_ok_and(|regex| !regex.is_match(&format_reference_target_path(segments)))
+                !matches_portable_pattern(pattern, &format_reference_target_path(segments))
             })
         {
             emit_error(
@@ -1498,10 +1607,7 @@ fn check_patterns(
         let Some(value) = string_value(event.value.as_ref()) else {
             continue;
         };
-        let Ok(regex) = Regex::new(pattern) else {
-            continue;
-        };
-        if !regex.is_match(&value) {
+        if !matches_portable_pattern(pattern, &value) {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -1896,7 +2002,7 @@ fn validate_attribute_entry(
         if let Some(pattern) = effective_constraints
             .get("pattern")
             .and_then(JsonValue::as_str)
-            && Regex::new(pattern).is_ok_and(|regex| !regex.is_match(&value))
+            && !matches_portable_pattern(pattern, &value)
         {
             emit_error(
                 ctx,
@@ -2295,7 +2401,7 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
             return false;
         }
         if let Some(pattern) = constraints.get("pattern").and_then(JsonValue::as_str)
-            && Regex::new(pattern).map_or(false, |regex| !regex.is_match(value))
+            && !matches_portable_pattern(pattern, value)
         {
             return false;
         }
@@ -3001,7 +3107,7 @@ mod tests {
             "datatype_rules": {
               "kadot": {
                 "type": "SeparatorLiteral",
-                "pattern": "^[0-9]+(?:\\.[0-9]+)*$"
+                "pattern": "^[0-9.]+$"
               }
             }
           },
