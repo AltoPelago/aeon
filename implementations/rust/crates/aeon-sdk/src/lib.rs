@@ -379,6 +379,7 @@ fn materialize_schema(
         datatype_allowlist: datatype_allowlist_value,
         world: world_value,
         reference_policy: reference_policy_value,
+        resource_policy: None,
     })
 }
 
@@ -909,6 +910,7 @@ mod tests {
             datatype_allowlist: vec![String::from("farewell")],
             world: String::from("open"),
             reference_policy: None,
+            resource_policy: None,
         }
     }
 

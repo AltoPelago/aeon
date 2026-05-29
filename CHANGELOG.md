@@ -6,7 +6,7 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
-## 0.9.2 - Unreleased
+## 0.9.2 - 2026-05-30
 
 ### Security
 

@@ -12,7 +12,7 @@ pnpm add -D @altopelago/aeon-cli
 Or run a pinned release directly:
 
 ```bash
-npx @altopelago/aeon-cli@0.9.1 check ./document.aeon
+npx @altopelago/aeon-cli@0.9.2 check ./document.aeon
 ```
 
 ## Quick Start

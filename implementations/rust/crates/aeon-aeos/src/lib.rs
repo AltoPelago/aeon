@@ -19,6 +19,8 @@ pub struct ValidationOptions {
     pub mode: String,
     #[serde(default = "default_trailing_separator_policy")]
     pub trailing_separator_delimiter_policy: String,
+    #[serde(default)]
+    pub resource_policy: Option<JsonValue>,
 }
 
 fn default_mode() -> String {
@@ -184,6 +186,216 @@ fn matches_portable_pattern(pattern: &str, value: &str) -> bool {
     Regex::new(&anchored).is_ok_and(|regex| regex.is_match(value))
 }
 
+#[derive(Debug, Clone)]
+struct ResourcePolicy {
+    max_events: usize,
+    max_rules: usize,
+    max_any_of_cases: usize,
+    max_schema_depth: usize,
+    max_path_length: usize,
+    max_reference_resolution_steps: usize,
+    max_selector_expansions: usize,
+    max_string_length_default: usize,
+    max_container_children_default: usize,
+}
+
+impl Default for ResourcePolicy {
+    fn default() -> Self {
+        Self {
+            max_events: 100_000,
+            max_rules: 10_000,
+            max_any_of_cases: 64,
+            max_schema_depth: 64,
+            max_path_length: 4_096,
+            max_reference_resolution_steps: 64,
+            max_selector_expansions: 100_000,
+            max_string_length_default: 10_000_000,
+            max_container_children_default: 1_000_000,
+        }
+    }
+}
+
+fn resolve_resource_policy(
+    schema_policy: Option<&JsonValue>,
+    option_policy: Option<&JsonValue>,
+    ctx: &mut DiagContext,
+) -> ResourcePolicy {
+    let mut policy = ResourcePolicy::default();
+    normalize_resource_policy(&mut policy, schema_policy, "schema", ctx);
+    normalize_resource_policy(&mut policy, option_policy, "option", ctx);
+    policy
+}
+
+fn normalize_resource_policy(
+    policy: &mut ResourcePolicy,
+    input: Option<&JsonValue>,
+    source: &str,
+    ctx: &mut DiagContext,
+) {
+    let Some(input) = input else {
+        return;
+    };
+    let Some(map) = input.as_object() else {
+        emit_resource_error(
+            ctx,
+            "$",
+            format!("{source} resource policy must be an object"),
+            None,
+        );
+        return;
+    };
+    for (key, value) in map {
+        let Some(number) = value.as_u64() else {
+            emit_resource_error(
+                ctx,
+                "$",
+                format!("{source} resource policy {key} must be a non-negative integer"),
+                None,
+            );
+            continue;
+        };
+        let Ok(number) = usize::try_from(number) else {
+            emit_resource_error(
+                ctx,
+                "$",
+                format!("{source} resource policy {key} exceeds platform limits"),
+                None,
+            );
+            continue;
+        };
+        match key.as_str() {
+            "max_events" => policy.max_events = number,
+            "max_rules" => policy.max_rules = number,
+            "max_any_of_cases" => policy.max_any_of_cases = number,
+            "max_schema_depth" => policy.max_schema_depth = number,
+            "max_path_length" => policy.max_path_length = number,
+            "max_reference_resolution_steps" => policy.max_reference_resolution_steps = number,
+            "max_selector_expansions" => policy.max_selector_expansions = number,
+            "max_string_length_default" => policy.max_string_length_default = number,
+            "max_container_children_default" => policy.max_container_children_default = number,
+            _ => emit_resource_error(
+                ctx,
+                "$",
+                format!("Unknown {source} resource policy key: {key}"),
+                None,
+            ),
+        }
+    }
+}
+
+fn emit_resource_error(
+    ctx: &mut DiagContext,
+    path: &str,
+    message: String,
+    span: Option<[usize; 2]>,
+) {
+    emit_error(
+        ctx,
+        ValidationDiagnostic {
+            path: Some(String::from(path)),
+            code: String::from("invalid_schema_policy"),
+            phase: String::from("schema_validation"),
+            span,
+        },
+    );
+    let _ = message;
+}
+
+fn inspect_schema_resource_shape(schema: &Schema, policy: &ResourcePolicy, ctx: &mut DiagContext) {
+    for rule in &schema.rules {
+        let rule_path = rule
+            .path
+            .as_ref()
+            .filter(|path| !path.is_empty())
+            .or_else(|| {
+                rule.selector
+                    .as_ref()
+                    .filter(|selector| !selector.is_empty())
+            })
+            .map_or("$", String::as_str);
+        if rule_path.len() > policy.max_path_length {
+            emit_resource_error(
+                ctx,
+                rule_path,
+                format!(
+                    "Rule path length {} exceeds max_path_length {}",
+                    rule_path.len(),
+                    policy.max_path_length
+                ),
+                None,
+            );
+        }
+        inspect_constraint_resource_shape(&rule.constraints, rule_path, 1, policy, ctx);
+    }
+    for (datatype, constraints) in &schema.datatype_rules {
+        inspect_constraint_resource_shape(
+            constraints,
+            &format!("datatype_rules.{datatype}"),
+            1,
+            policy,
+            ctx,
+        );
+    }
+}
+
+fn inspect_constraint_resource_shape(
+    constraints: &JsonValue,
+    path: &str,
+    depth: usize,
+    policy: &ResourcePolicy,
+    ctx: &mut DiagContext,
+) {
+    if depth > policy.max_schema_depth {
+        emit_resource_error(
+            ctx,
+            path,
+            format!(
+                "Schema constraint depth exceeds max_schema_depth {}",
+                policy.max_schema_depth
+            ),
+            None,
+        );
+        return;
+    }
+    let Some(map) = constraints.as_object() else {
+        return;
+    };
+    if let Some(any_of) = map.get("any_of").and_then(JsonValue::as_array) {
+        if any_of.len() > policy.max_any_of_cases {
+            emit_resource_error(
+                ctx,
+                path,
+                format!(
+                    "any_of case count {} exceeds max_any_of_cases {}",
+                    any_of.len(),
+                    policy.max_any_of_cases
+                ),
+                None,
+            );
+        }
+        for (index, branch) in any_of.iter().enumerate() {
+            inspect_constraint_resource_shape(
+                branch,
+                &format!("{path}.any_of[{index}]"),
+                depth + 1,
+                policy,
+                ctx,
+            );
+        }
+    }
+    if let Some(attributes) = map.get("attributes").and_then(JsonValue::as_object) {
+        for (key, child) in attributes {
+            inspect_constraint_resource_shape(
+                child,
+                &format!("{path}@{key}"),
+                depth + 1,
+                policy,
+                ctx,
+            );
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
     #[serde(default)]
@@ -196,6 +408,8 @@ pub struct Schema {
     pub world: String,
     #[serde(default)]
     pub reference_policy: Option<String>,
+    #[serde(default)]
+    pub resource_policy: Option<JsonValue>,
 }
 
 fn default_world() -> String {
@@ -389,6 +603,45 @@ fn validate_inner(
     options: &ValidationOptions,
 ) -> ResultEnvelope {
     let mut ctx = DiagContext::default();
+    let resource_policy = resolve_resource_policy(
+        schema.and_then(|schema| schema.resource_policy.as_ref()),
+        options.resource_policy.as_ref(),
+        &mut ctx,
+    );
+    if !ctx.errors.is_empty() {
+        return finalize_result(ctx, &BTreeSet::new(), &BTreeMap::new());
+    }
+    if aes.len() > resource_policy.max_events {
+        emit_resource_error(
+            &mut ctx,
+            "$",
+            format!(
+                "AES event count {} exceeds max_events {}",
+                aes.len(),
+                resource_policy.max_events
+            ),
+            None,
+        );
+    }
+    if let Some(schema) = schema {
+        if schema.rules.len() > resource_policy.max_rules {
+            emit_resource_error(
+                &mut ctx,
+                "$",
+                format!(
+                    "Schema rule count {} exceeds max_rules {}",
+                    schema.rules.len(),
+                    resource_policy.max_rules
+                ),
+                None,
+            );
+        }
+        inspect_schema_resource_shape(schema, &resource_policy, &mut ctx);
+        if !ctx.errors.is_empty() {
+            return finalize_result(ctx, &BTreeSet::new(), &BTreeMap::new());
+        }
+    }
+
     let mut seen = BTreeSet::new();
     let mut bound_paths = BTreeSet::new();
     let mut events_by_path = BTreeMap::<String, EventInfo>::new();
@@ -396,6 +649,18 @@ fn validate_inner(
 
     for event in aes {
         let path = format_canonical_path(&event.path);
+        if path.len() > resource_policy.max_path_length {
+            emit_resource_error(
+                &mut ctx,
+                &path,
+                format!(
+                    "Path length {} exceeds max_path_length {}",
+                    path.len(),
+                    resource_policy.max_path_length
+                ),
+                event.span_pair(),
+            );
+        }
         if has_invalid_index_segment(&event.path) {
             emit_error(
                 &mut ctx,
@@ -440,6 +705,18 @@ fn validate_inner(
             "TupleLiteral" | "ListLiteral" | "ListNode"
         ) {
             container_arity.insert(path.clone(), event.value.elements.len());
+            if event.value.elements.len() > resource_policy.max_container_children_default {
+                emit_resource_error(
+                    &mut ctx,
+                    &path,
+                    format!(
+                        "Container child count {} exceeds max_container_children_default {}",
+                        event.value.elements.len(),
+                        resource_policy.max_container_children_default
+                    ),
+                    event.span_pair(),
+                );
+            }
             hydrate_indexed_fallback(
                 &path,
                 &event.value.elements,
@@ -448,8 +725,32 @@ fn validate_inner(
             );
         } else if event.value.value_type == "ObjectNode" {
             container_arity.insert(path.clone(), event.value.bindings.len());
+            if event.value.bindings.len() > resource_policy.max_container_children_default {
+                emit_resource_error(
+                    &mut ctx,
+                    &path,
+                    format!(
+                        "Container child count {} exceeds max_container_children_default {}",
+                        event.value.bindings.len(),
+                        resource_policy.max_container_children_default
+                    ),
+                    event.span_pair(),
+                );
+            }
         } else if event.value.value_type == "NodeLiteral" {
             container_arity.insert(path.clone(), event.value.elements.len());
+            if event.value.elements.len() > resource_policy.max_container_children_default {
+                emit_resource_error(
+                    &mut ctx,
+                    &path,
+                    format!(
+                        "Container child count {} exceeds max_container_children_default {}",
+                        event.value.elements.len(),
+                        resource_policy.max_container_children_default
+                    ),
+                    event.span_pair(),
+                );
+            }
             hydrate_indexed_fallback(
                 &path,
                 &event.value.elements,
@@ -501,8 +802,22 @@ fn validate_inner(
     };
 
     let rule_index = build_rule_index(schema, &mut ctx);
-    let selector_rule_index = expand_selector_rules(&rule_index, schema, &events_by_path, &mut ctx);
-    let expanded_rule_index = expand_wildcard_rules(&selector_rule_index, &events_by_path);
+    let mut expansion_budget = 0usize;
+    let selector_rule_index = expand_selector_rules(
+        &rule_index,
+        schema,
+        &events_by_path,
+        &mut ctx,
+        &resource_policy,
+        &mut expansion_budget,
+    );
+    let expanded_rule_index = expand_wildcard_rules(
+        &selector_rule_index,
+        &events_by_path,
+        &mut ctx,
+        &resource_policy,
+        &mut expansion_budget,
+    );
     let effective_rule_index = merge_datatype_rules(
         &expanded_rule_index,
         &schema.datatype_rules,
@@ -510,8 +825,12 @@ fn validate_inner(
     );
     check_presence(&effective_rule_index, &bound_paths, &mut ctx);
     check_reference_forms(schema, &effective_rule_index, &events_by_path, &mut ctx);
-    let effective_events_by_path =
-        resolve_reference_form_events(&effective_rule_index, &events_by_path);
+    let effective_events_by_path = resolve_reference_form_events(
+        &effective_rule_index,
+        &events_by_path,
+        &resource_policy,
+        &mut ctx,
+    );
     let selected_rule_index =
         select_any_of_rules(&effective_rule_index, &effective_events_by_path, &mut ctx);
     check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
@@ -2192,6 +2511,8 @@ fn build_attribute_info_map(
 fn resolve_reference_form_events(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
+    resource_policy: &ResourcePolicy,
+    ctx: &mut DiagContext,
 ) -> BTreeMap<String, EventInfo> {
     let mut resolved = events_by_path.clone();
     for (path, constraints) in rule_index {
@@ -2208,9 +2529,25 @@ fn resolve_reference_form_events(
         if !is_reference_type(&event.value_type) {
             continue;
         }
-        let Some(terminal) =
-            resolve_terminal_reference_event(event, events_by_path, &mut BTreeSet::new())
-        else {
+        let mut exhausted = false;
+        let Some(terminal) = resolve_terminal_reference_event(
+            event,
+            events_by_path,
+            &mut BTreeSet::new(),
+            resource_policy.max_reference_resolution_steps,
+            &mut exhausted,
+        ) else {
+            if exhausted {
+                emit_resource_error(
+                    ctx,
+                    path,
+                    format!(
+                        "Reference resolution exceeded max_reference_resolution_steps {}",
+                        resource_policy.max_reference_resolution_steps
+                    ),
+                    event.span,
+                );
+            }
             resolved.remove(path);
             continue;
         };
@@ -2226,6 +2563,8 @@ fn expand_selector_rules(
     schema: &Schema,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    resource_policy: &ResourcePolicy,
+    expansion_budget: &mut usize,
 ) -> BTreeMap<String, JsonValue> {
     let mut expanded = rule_index.clone();
     for rule in &schema.rules {
@@ -2245,6 +2584,19 @@ fn expand_selector_rules(
                 continue;
             }
             matched = true;
+            *expansion_budget += 1;
+            if *expansion_budget > resource_policy.max_selector_expansions {
+                emit_resource_error(
+                    ctx,
+                    selector,
+                    format!(
+                        "Selector expansion count exceeds max_selector_expansions {}",
+                        resource_policy.max_selector_expansions
+                    ),
+                    None,
+                );
+                return expanded;
+            }
             expanded
                 .entry(actual_path.clone())
                 .or_insert_with(|| rule.constraints.clone());
@@ -2273,6 +2625,9 @@ fn expand_selector_rules(
 fn expand_wildcard_rules(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+    resource_policy: &ResourcePolicy,
+    expansion_budget: &mut usize,
 ) -> BTreeMap<String, JsonValue> {
     let mut expanded = rule_index.clone();
     for (path, constraints) in rule_index {
@@ -2282,6 +2637,19 @@ fn expand_wildcard_rules(
         expanded.remove(path);
         for actual_path in events_by_path.keys() {
             if matches_allowed_path(actual_path, path) {
+                *expansion_budget += 1;
+                if *expansion_budget > resource_policy.max_selector_expansions {
+                    emit_resource_error(
+                        ctx,
+                        path,
+                        format!(
+                            "Wildcard expansion count exceeds max_selector_expansions {}",
+                            resource_policy.max_selector_expansions
+                        ),
+                        None,
+                    );
+                    return expanded;
+                }
                 expanded.insert(actual_path.clone(), constraints.clone());
             }
         }
@@ -2608,7 +2976,13 @@ fn resolve_terminal_reference_event(
     event: &EventInfo,
     events_by_path: &BTreeMap<String, EventInfo>,
     active_paths: &mut BTreeSet<String>,
+    remaining_steps: usize,
+    exhausted: &mut bool,
 ) -> Option<EventInfo> {
+    if remaining_steps == 0 {
+        *exhausted = true;
+        return None;
+    }
     if !is_reference_type(&event.value_type) {
         return Some(event.clone());
     }
@@ -2618,7 +2992,13 @@ fn resolve_terminal_reference_event(
     }
     let resolved = events_by_path.get(&target_path).and_then(|target| {
         if is_reference_type(&target.value_type) {
-            resolve_terminal_reference_event(target, events_by_path, active_paths)
+            resolve_terminal_reference_event(
+                target,
+                events_by_path,
+                active_paths,
+                remaining_steps - 1,
+                exhausted,
+            )
         } else {
             Some(target.clone())
         }
@@ -3035,6 +3415,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3240,6 +3621,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: Some(String::from("forbid")),
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3293,6 +3675,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3318,6 +3701,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3341,6 +3725,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3364,6 +3749,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3417,6 +3803,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3496,6 +3883,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3545,6 +3933,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3636,6 +4025,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3691,6 +4081,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3747,6 +4138,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3835,6 +4227,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };
@@ -3918,6 +4311,7 @@ mod tests {
                 datatype_allowlist: Vec::new(),
                 world: String::from("open"),
                 reference_policy: None,
+                resource_policy: None,
             }),
             options: ValidationOptions::default(),
         };

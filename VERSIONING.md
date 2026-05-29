@@ -46,7 +46,7 @@ Examples in this repo today:
 - Rust workspace/crates under `implementations/rust/**/Cargo.toml`
 
 At the moment, the public TypeScript, Python, and Rust implementation surfaces are
-all on `0.9.1`.
+all on `0.9.2`.
 
 These versions should follow SemVer as implementation releases:
 
@@ -79,13 +79,13 @@ Examples:
 
 Use annotated `vX.Y.Z` tags for implementation/package releases.
 
-For example, after the `0.9.1` release commit is merged to `main`:
+For example, after the `0.9.2` release commit is merged to `main`:
 
 ```sh
 git checkout main
 git pull --ff-only
-git tag -a v0.9.1 -m "AEON implementation packages 0.9.1"
-git push origin v0.9.1
+git tag -a v0.9.2 -m "AEON implementation packages 0.9.2"
+git push origin v0.9.2
 ```
 
 The npm publish workflow also listens for `v*.*.*` tag pushes, so push the tag
@@ -95,6 +95,6 @@ only after the intended release commit is present on `main`.
 
 - Language/spec line: `AEON v1`
 - CTS line: `v1`
-- TypeScript implementation/package line: `0.9.1`
-- Python implementation/package line: `0.9.1`
-- Rust implementation/package line: `0.9.1`
+- TypeScript implementation/package line: `0.9.2`
+- Python implementation/package line: `0.9.2`
+- Rust implementation/package line: `0.9.2`
