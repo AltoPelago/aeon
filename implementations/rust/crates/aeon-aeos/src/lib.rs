@@ -301,6 +301,105 @@ fn emit_resource_error(
     let _ = message;
 }
 
+fn is_string_like_value_type(value_type: &str) -> bool {
+    matches!(
+        value_type,
+        "StringLiteral"
+            | "TrimtickLiteral"
+            | "SeparatorLiteral"
+            | "HexLiteral"
+            | "EncodingLiteral"
+            | "NullLiteral"
+            | "DateLiteral"
+            | "TimeLiteral"
+            | "DateTimeLiteral"
+            | "ZRUTDateTimeLiteral"
+    )
+}
+
+fn string_like_payload_len(
+    value_type: &str,
+    raw: &str,
+    value: Option<&JsonValue>,
+) -> Option<usize> {
+    if !is_string_like_value_type(value_type) {
+        return None;
+    }
+    string_value(value)
+        .filter(|inner| !inner.is_empty())
+        .map(|inner| inner.chars().count())
+        .or_else(|| Some(raw.chars().count()))
+}
+
+fn enforce_string_length_resource_budget(
+    info: &EventInfo,
+    path: &str,
+    policy: &ResourcePolicy,
+    ctx: &mut DiagContext,
+) {
+    enforce_string_length_resource_budget_inner(
+        &info.value_type,
+        &info.raw,
+        info.value.as_ref(),
+        info.span,
+        &info.attributes,
+        path,
+        policy,
+        ctx,
+    );
+}
+
+fn enforce_attribute_string_length_resource_budget(
+    info: &AttributeInfo,
+    path: &str,
+    policy: &ResourcePolicy,
+    ctx: &mut DiagContext,
+) {
+    enforce_string_length_resource_budget_inner(
+        &info.value_type,
+        &info.raw,
+        info.value.as_ref(),
+        info.span,
+        &info.attributes,
+        path,
+        policy,
+        ctx,
+    );
+}
+
+fn enforce_string_length_resource_budget_inner(
+    value_type: &str,
+    raw: &str,
+    value: Option<&JsonValue>,
+    span: Option<[usize; 2]>,
+    attributes: &BTreeMap<String, AttributeInfo>,
+    path: &str,
+    policy: &ResourcePolicy,
+    ctx: &mut DiagContext,
+) {
+    if let Some(payload_len) = string_like_payload_len(value_type, raw, value) {
+        if payload_len > policy.max_string_length_default {
+            emit_resource_error(
+                ctx,
+                path,
+                format!(
+                    "String-like payload length {payload_len} exceeds max_string_length_default {}",
+                    policy.max_string_length_default
+                ),
+                span,
+            );
+        }
+    }
+    for (key, attribute) in attributes {
+        enforce_attribute_string_length_resource_budget(
+            attribute,
+            &format!("{path}@{key}"),
+            policy,
+            ctx,
+        );
+    }
+}
+
 fn inspect_schema_resource_shape(schema: &Schema, policy: &ResourcePolicy, ctx: &mut DiagContext) {
     for rule in &schema.rules {
         let rule_path = rule
@@ -758,6 +857,9 @@ fn validate_inner(
                 &mut events_by_path,
             );
         }
+    }
+    for (path, info) in &events_by_path {
+        enforce_string_length_resource_budget(info, path, &resource_policy, &mut ctx);
     }
 
     if matches!(

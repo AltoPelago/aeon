@@ -149,6 +149,40 @@ function emitResourceError(
     emitError(ctx, createDiag(path, span, message, ErrorCodes.INVALID_SCHEMA_POLICY));
 }
 
+const STRING_LIKE_VALUE_TYPES = new Set([
+    'StringLiteral',
+    'TrimtickLiteral',
+    'SeparatorLiteral',
+    'HexLiteral',
+    'EncodingLiteral',
+    'NullLiteral',
+    'DateLiteral',
+    'TimeLiteral',
+    'DateTimeLiteral',
+    'ZRUTDateTimeLiteral',
+]);
+
+function stringLikePayloadLength(event: Pick<EventInfo, 'type' | 'raw' | 'value'>): number | null {
+    if (!STRING_LIKE_VALUE_TYPES.has(event.type)) return null;
+    const payload = event.value.length > 0 ? event.value : event.raw;
+    return payload.length;
+}
+
+function enforceStringLengthResourceBudget(
+    info: EventInfo | AttributeInfo,
+    path: string,
+    policy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>
+): void {
+    const payloadLength = stringLikePayloadLength(info);
+    if (payloadLength !== null && payloadLength > policy.max_string_length_default) {
+        emitResourceError(ctx, path, `String-like payload length ${payloadLength} exceeds max_string_length_default ${policy.max_string_length_default}`, info.span);
+    }
+    for (const [key, attribute] of info.attributes ?? []) {
+        enforceStringLengthResourceBudget(attribute, `${path}@${key}`, policy, ctx);
+    }
+}
+
 function inspectSchemaResourceShape(
     schema: SchemaV1,
     policy: Required<ResourcePolicyV1>,
@@ -414,6 +448,9 @@ export function validate(
         }
 
         // Register index even for first occurrence
+    }
+    for (const [path, info] of eventsByPath) {
+        enforceStringLengthResourceBudget(info, path, resourcePolicy, ctx);
     }
 
     // Optional separator literal trailing-delimiter policy

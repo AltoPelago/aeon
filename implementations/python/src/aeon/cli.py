@@ -256,12 +256,12 @@ def first_non_flag(args: list[str]) -> str | None:
         if skip_next:
             skip_next = False
             continue
-        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             skip_next = True
             continue
         if item.startswith("--"):
             continue
-        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             continue
         return item
     return None
@@ -278,7 +278,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 

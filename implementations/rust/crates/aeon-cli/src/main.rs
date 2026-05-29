@@ -3795,6 +3795,7 @@ fn normalize_schema_contract_value(
         "rules",
         "world",
         "reference_policy",
+        "resource_policy",
         "datatype_rules",
         "datatype_allowlist",
     ];
@@ -4000,6 +4001,7 @@ fn normalize_aeos_schema_contract_value(
     for key in [
         "world",
         "reference_policy",
+        "resource_policy",
         "datatype_rules",
         "datatype_allowlist",
     ] {
@@ -4650,7 +4652,8 @@ mod tests {
         let result =
             run(vec![String::from("aeon-rust"), String::from("inspect")]).expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
-        assert!(result.contains("Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"));
+        assert!(result.contains("Usage: aeon inspect <file>"));
+        assert!(result.contains("[--max-events <n>]"));
     }
 
     #[test]
@@ -4696,7 +4699,8 @@ mod tests {
         assert!(result.contains(
             "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)"
         ));
-        assert!(result.contains("Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"));
+        assert!(result.contains("Usage: aeon inspect <file>"));
+        assert!(result.contains("[--max-events <n>]"));
         let _ = fs::remove_dir_all(&dir);
     }
 

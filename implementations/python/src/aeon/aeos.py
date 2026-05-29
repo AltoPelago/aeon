@@ -64,6 +64,19 @@ DEFAULT_RESOURCE_POLICY = {
     "max_container_children_default": 1_000_000,
 }
 
+STRING_LIKE_VALUE_TYPES = {
+    "StringLiteral",
+    "TrimtickLiteral",
+    "SeparatorLiteral",
+    "HexLiteral",
+    "EncodingLiteral",
+    "NullLiteral",
+    "DateLiteral",
+    "TimeLiteral",
+    "DateTimeLiteral",
+    "ZRUTDateTimeLiteral",
+}
+
 
 def _is_regex_quantifier_start(pattern: str, index: int) -> bool:
     return index < len(pattern) and pattern[index] in "*+{"
@@ -277,6 +290,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     if len(children) > resource_policy["max_container_children_default"]:
                         emit_resource_error(ctx, path_str, f"Container child count {len(children)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
 
+    for path_str, info in events_by_path.items():
+        enforce_string_length_resource_budget(info, path_str, resource_policy, ctx)
+
     if trailing_policy != "off":
         for event in aes:
             value = event.get("value")
@@ -357,6 +373,31 @@ def validate_events(events: list[dict[str, object]], schema: dict[str, object], 
 
 def emit_resource_error(ctx: DiagContext, path: str, message: str, span: tuple[int, int] | None = None) -> None:
     emit_error(ctx, create_diag(path, span, message, ERROR_CODES["invalid_schema_policy"]))
+
+
+def string_like_payload_length(info: dict[str, object]) -> int | None:
+    if info.get("type") not in STRING_LIKE_VALUE_TYPES:
+        return None
+    value = info.get("value")
+    raw = info.get("raw")
+    payload = value if isinstance(value, str) and value else raw
+    return len(payload) if isinstance(payload, str) else 0
+
+
+def enforce_string_length_resource_budget(info: dict[str, object], path: str, policy: dict[str, int], ctx: DiagContext) -> None:
+    payload_length = string_like_payload_length(info)
+    if payload_length is not None and payload_length > policy["max_string_length_default"]:
+        emit_resource_error(
+            ctx,
+            path,
+            f"String-like payload length {payload_length} exceeds max_string_length_default {policy['max_string_length_default']}",
+            info.get("span") if isinstance(info.get("span"), tuple) else None,
+        )
+    attributes = info.get("attributes")
+    if isinstance(attributes, dict):
+        for key, attribute in attributes.items():
+            if isinstance(attribute, dict):
+                enforce_string_length_resource_budget(attribute, f"{path}@{key}", policy, ctx)
 
 
 def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> dict[str, int]:
