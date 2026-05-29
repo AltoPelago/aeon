@@ -599,6 +599,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["INPUT_SIZE_EXCEEDED"], [error.code for error in result.errors])
         self.assertEqual([], result.events)
 
+    def test_max_events_fails_closed(self) -> None:
+        result = compile_source("a = 1\nb = 2", CompileOptions(max_events=1))
+        self.assertEqual(["EVENT_COUNT_EXCEEDED"], [error.code for error in result.errors])
+        self.assertEqual([], result.events)
+
     def test_exponent_underscore_is_accepted(self) -> None:
         result = compile_source("value:number = 3e3_3")
         self.assertEqual([], [error.code for error in result.errors])

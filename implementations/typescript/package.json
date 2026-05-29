@@ -12,6 +12,8 @@
 		"test:fuzz": "pnpm --filter @altopelago/aeon-phase-fuzz test",
 		"test:fuzz:lexer": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:lexer",
 		"test:fuzz:parser": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:parser",
+		"test:fuzz:parser:duplicates": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:parser:duplicates",
+		"test:fuzz:parser:duplicate-attributes": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:parser:duplicate-attributes",
 		"lint": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"depcheck": "node ./tools/depcheck.mjs",
 		"pack:preflight": "node ./tools/package-preflight.mjs",

@@ -160,6 +160,7 @@ function auditEntryPaths(packageJson, entries) {
     `tarball includes compiled test artifacts: ${packedTests.join(', ')}`,
   );
   check(packed.has('package/LICENSE'), 'tarball is missing LICENSE');
+  check(packed.has('package/README.md'), 'tarball is missing README.md');
 }
 
 function discoverPackages() {

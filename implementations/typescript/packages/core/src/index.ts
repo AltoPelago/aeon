@@ -35,7 +35,7 @@ export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type Ho
 // PUBLIC API
 // =============================================================================
 
-export const VERSION = '0.9.1';
+export const VERSION = '0.9.2';
 
 /**
  * Union of all possible AEON errors
@@ -47,7 +47,8 @@ export type AEONError =
     | EventEmissionError
     | ReferenceValidationError
     | ModeEnforcementError
-    | InputSizeExceededError;
+    | InputSizeExceededError
+    | EventCountExceededError;
 
 export class InputSizeExceededError extends Error {
     readonly code = 'INPUT_SIZE_EXCEEDED';
@@ -59,6 +60,19 @@ export class InputSizeExceededError extends Error {
         this.name = 'InputSizeExceededError';
         this.actualBytes = actualBytes;
         this.maxBytes = maxBytes;
+    }
+}
+
+export class EventCountExceededError extends Error {
+    readonly code = 'EVENT_COUNT_EXCEEDED';
+    readonly actualEvents: number;
+    readonly maxEvents: number;
+
+    constructor(actualEvents: number, maxEvents: number) {
+        super(`Event count ${actualEvents} exceeds configured limit of ${maxEvents}`);
+        this.name = 'EventCountExceededError';
+        this.actualEvents = actualEvents;
+        this.maxEvents = maxEvents;
     }
 }
 
@@ -106,6 +120,8 @@ export interface CompileOptions {
     readonly datatypePolicy?: DatatypePolicy;
     /** Maximum UTF-8 input size in bytes. Fail-closed when exceeded. */
     readonly maxInputBytes?: number;
+    /** Maximum number of AES events Core may emit. Fail-closed when exceeded. */
+    readonly maxEvents?: number;
 }
 
 /**
@@ -143,6 +159,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const emitAnnotations = options.emitAnnotations ?? true;
     const datatypePolicy = options.datatypePolicy;
     const maxInputBytes = options.maxInputBytes;
+    const maxEvents = options.maxEvents;
 
     if (maxInputBytes !== undefined) {
         const actualBytes = Buffer.byteLength(input, 'utf8');
@@ -186,6 +203,10 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
         }
     }
     if (emitResult.errors.length > 0 && !recovery && emitResult.events.length === 0) {
+        return { events: [], errors: allErrors };
+    }
+    if (maxEvents !== undefined && emitResult.events.length > maxEvents) {
+        allErrors.push(new EventCountExceededError(emitResult.events.length, maxEvents));
         return { events: [], errors: allErrors };
     }
 

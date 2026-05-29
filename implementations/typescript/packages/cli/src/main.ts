@@ -251,7 +251,7 @@ Examples:
  * Exit code: 0 = valid, 1 = errors
  */
 function check(args: string[]): void {
-    const file = findFile(args);
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
         console.error('Usage: aeon check <file>');
@@ -270,8 +270,7 @@ function check(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
@@ -322,7 +321,7 @@ function getDefaultContractRegistryPath(): string {
     const specsRoot = process.env.AEONITE_SPECS_ROOT
         ? path.resolve(process.env.AEONITE_SPECS_ROOT)
         : path.resolve(repoRoot, '..', '..', 'aeonite-org', 'aeonite-specs');
-    return path.resolve(specsRoot, 'aeon/v1/drafts/contracts/registry.json');
+    return path.resolve(specsRoot, 'contracts/v1/drafts/artifacts/registry.json');
 }
 
 /**
@@ -331,7 +330,7 @@ function getDefaultContractRegistryPath(): string {
  */
 function fmt(args: string[]): void {
     const writeOutput = args.includes('--write');
-    const file = findFile(args);
+    const file = findFileWithValueFlags(args, ['--max-input-bytes']);
     const maxInputBytes = resolveMaxInputBytes(args);
 
     if (writeOutput && !file) {
@@ -344,8 +343,7 @@ function fmt(args: string[]): void {
         process.exit(2);
     }
 
-    const input = file ? readFile(file) : readStdin();
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = file ? readFileWithLimit(file, maxInputBytes) : readStdin(maxInputBytes);
     const result = canonicalize(input);
     if (result.errors.length > 0) {
         for (const error of result.errors) {
@@ -370,8 +368,8 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
@@ -379,6 +377,7 @@ function inspect(args: string[]): void {
     const sortAnnotations = args.includes('--sort-annotations');
     const datatypePolicy = resolveDatatypePolicy(args);
     const maxInputBytes = resolveMaxInputBytes(args);
+    const maxEvents = resolveDepthOption(args, '--max-events');
     const maxAttributeDepth = resolveDepthOption(args, '--max-attribute-depth');
     const maxSeparatorDepth = resolveDepthOption(args, '--max-separator-depth');
     const maxGenericDepth = resolveDepthOption(args, '--max-generic-depth');
@@ -399,6 +398,10 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-input-bytes (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxEvents === null) {
+        console.error('Error: Invalid value for --max-events (expected a non-negative integer)');
+        process.exit(2);
+    }
     if (maxAttributeDepth === null) {
         console.error('Error: Invalid value for --max-attribute-depth (expected a non-negative integer)');
         process.exit(2);
@@ -416,13 +419,13 @@ function inspect(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
         recovery,
         emitAnnotations: includeAnnotations || annotationsOnly,
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
+        ...(maxEvents !== undefined ? { maxEvents } : {}),
         ...(maxAttributeDepth !== undefined ? { maxAttributeDepth } : {}),
         ...(maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
         ...(maxGenericDepth !== undefined ? { maxGenericDepth } : {}),
@@ -518,8 +521,7 @@ function finalize(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
         recovery,
         ...(datatypePolicy ? { datatypePolicy } : {}),
@@ -557,7 +559,7 @@ function bind(args: string[]): void {
         process.exit(2);
     }
 
-    const file = findFileWithValueFlags(args, ['--schema', '--profile', '--contract-registry', '--trailing-separator-delimiter-policy', '--datatype-policy', '--include-path']);
+    const file = findFileWithValueFlags(args, ['--schema', '--profile', '--contract-registry', '--trailing-separator-delimiter-policy', '--datatype-policy', '--include-path', '--scope', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
         console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
@@ -630,8 +632,7 @@ function bind(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const headerInfo = extractHeaderInfo(input);
     const resolvedRegistryPath = contractRegistryPath
         ? path.resolve(process.cwd(), contractRegistryPath)
@@ -752,15 +753,14 @@ function integrityValidate(args: string[]): void {
         process.exit(2);
     }
 
-    const file = findFileWithValueFlags(args, ['--public-key', '--pubkey', '--receipt']);
+    const file = findFileWithValueFlags(args, ['--public-key', '--pubkey', '--receipt', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
         console.error('Usage: aeon integrity validate <file> [--strict|--loose]');
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const compileResult = compile(input, {
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
@@ -809,15 +809,14 @@ function integrityVerify(args: string[]): void {
         process.exit(2);
     }
 
-    const file = findFileWithValueFlags(args, ['--public-key', '--pubkey']);
+    const file = findFileWithValueFlags(args, ['--public-key', '--pubkey', '--receipt', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
         console.error('Usage: aeon integrity verify <file> [--strict|--loose] [--public-key <path>] [--receipt <path>]');
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const baseInput = removeEnvelope(input);
     const compileResult = compile(input, {
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
@@ -1139,7 +1138,7 @@ function integrityVerify(args: string[]): void {
 }
 
 function integritySign(args: string[]): void {
-    const file = findFileWithValueFlags(args, ['--private-key', '--privkey', '--receipt']);
+    const file = findFileWithValueFlags(args, ['--private-key', '--privkey', '--receipt', '--max-input-bytes']);
     const jsonOutput = args.includes('--json');
     const writeOutput = args.includes('--write');
     const replaceOutput = args.includes('--replace');
@@ -1163,8 +1162,7 @@ function integritySign(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFile(file);
-    enforceInputByteLimitOrExit(input, maxInputBytes);
+    const input = readFileWithLimit(file, maxInputBytes);
     const baseInput = removeEnvelope(input);
     const envelopePresence = extractEnvelopeFields(input);
     if (envelopePresence.errors.length > 0) {
@@ -1722,10 +1720,6 @@ function formatGenericErrorLine(error: { code?: string; span?: unknown; message:
     return `${prefix}${message} [${code}] path=$ span=${span}`;
 }
 
-function findFile(args: string[]): string | undefined {
-    return args.find(arg => !arg.startsWith('--'));
-}
-
 function findFileWithValueFlags(args: string[], valueFlags: string[]): string | undefined {
     const skip = new Set<number>();
     for (let i = 0; i < args.length; i++) {
@@ -1777,12 +1771,16 @@ function resolveDepthOption(args: string[], flag: string): number | undefined | 
     return Number.parseInt(value, 10);
 }
 
+function failInputByteLimit(actualBytes: number, maxInputBytes: number): never {
+    console.error(`Error: Input size ${actualBytes} bytes exceeds configured limit of ${maxInputBytes} bytes`);
+    process.exit(1);
+}
+
 function enforceInputByteLimitOrExit(input: string, maxInputBytes: number | undefined): void {
     if (maxInputBytes === undefined) return;
     const actualBytes = Buffer.byteLength(input, 'utf8');
     if (actualBytes <= maxInputBytes) return;
-    console.error(`Error: Input size ${actualBytes} bytes exceeds configured limit of ${maxInputBytes} bytes`);
-    process.exit(1);
+    failInputByteLimit(actualBytes, maxInputBytes);
 }
 
 function readFile(file: string): string {
@@ -1794,9 +1792,43 @@ function readFile(file: string): string {
     }
 }
 
-function readStdin(): string {
+function readFileWithLimit(file: string, maxInputBytes: number | undefined): string {
+    if (maxInputBytes !== undefined) {
+        try {
+            const stats = fs.statSync(file);
+            if (stats.isFile() && stats.size > maxInputBytes) {
+                failInputByteLimit(stats.size, maxInputBytes);
+            }
+        } catch (err) {
+            console.error(`Error: Cannot read file: ${file}`);
+            process.exit(2);
+        }
+    }
+
+    const input = readFile(file);
+    enforceInputByteLimitOrExit(input, maxInputBytes);
+    return input;
+}
+
+function readStdin(maxInputBytes?: number): string {
     try {
-        return fs.readFileSync(0, 'utf-8');
+        if (maxInputBytes === undefined) {
+            return fs.readFileSync(0, 'utf-8');
+        }
+
+        const chunks: Buffer[] = [];
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        let actualBytes = 0;
+        while (true) {
+            const bytesRead = fs.readSync(0, buffer, 0, buffer.length, null);
+            if (bytesRead === 0) break;
+            actualBytes += bytesRead;
+            if (actualBytes > maxInputBytes) {
+                failInputByteLimit(actualBytes, maxInputBytes);
+            }
+            chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+        }
+        return Buffer.concat(chunks).toString('utf-8');
     } catch {
         console.error('Error: Cannot read stdin');
         process.exit(2);

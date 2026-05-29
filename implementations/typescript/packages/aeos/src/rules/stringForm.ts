@@ -19,6 +19,22 @@ interface StringValue {
     span: Span;
 }
 
+export function matchesPortablePattern(pattern: string | undefined, value: string): boolean {
+    if (pattern === undefined) return true;
+    let regexPattern = pattern;
+    if (!regexPattern.startsWith('^')) {
+        regexPattern = '^' + regexPattern;
+    }
+    if (!regexPattern.endsWith('$')) {
+        regexPattern = regexPattern + '$';
+    }
+    try {
+        return new RegExp(regexPattern).test(value);
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Check string form constraints for events matching schema rules.
  *
@@ -49,8 +65,8 @@ export function checkStringForm(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to string types
-        if (event.type !== 'StringLiteral') {
+        // Length constraints apply to normalized string-like literal payloads.
+        if (!isStringLikeLiteral(event.type)) {
             continue;
         }
 
@@ -82,8 +98,8 @@ export function checkStringForm(
 /**
  * Check pattern constraints for events matching schema rules.
  *
- * For each event with a pattern constraint, verify the string value
- * matches the regex pattern.
+ * For each event with a pattern constraint, verify the normalized literal
+ * value matches the regex pattern.
  *
  * AEOS v1 Decision: Patterns are ECMAScript regex strings. The pattern
  * must match the entire string (anchored with ^...$). If the pattern
@@ -108,30 +124,11 @@ export function checkPatterns(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to string types
-        if (event.type !== 'StringLiteral') {
+        if (!isStringLikeLiteral(event.type)) {
             continue;
         }
 
-        // Compile pattern (add anchors if not present for full-match semantics)
-        let regexPattern = pattern;
-        if (!regexPattern.startsWith('^')) {
-            regexPattern = '^' + regexPattern;
-        }
-        if (!regexPattern.endsWith('$')) {
-            regexPattern = regexPattern + '$';
-        }
-
-        let regex: RegExp;
-        try {
-            regex = new RegExp(regexPattern);
-        } catch {
-            // Invalid regex is a schema error, not a data error
-            // This should have been caught during schema validation
-            continue;
-        }
-
-        if (!regex.test(event.value)) {
+        if (!matchesPortablePattern(pattern, event.value)) {
             emitError(ctx, createDiag(
                 path,
                 event.span,
@@ -142,3 +139,15 @@ export function checkPatterns(
     }
 }
 
+function isStringLikeLiteral(type: string): boolean {
+    return type === 'StringLiteral'
+        || type === 'SeparatorLiteral'
+        || type === 'NullLiteral'
+        || type === 'EncodingLiteral'
+        || type === 'DateLiteral'
+        || type === 'TimeLiteral'
+        || type === 'DateTimeLiteral'
+        || type === 'ZRUTDateTimeLiteral'
+        || type === 'TrimtickLiteral'
+        || type === 'TrimtickStringLiteral';
+}

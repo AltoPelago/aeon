@@ -379,6 +379,7 @@ fn materialize_schema(
         datatype_allowlist: datatype_allowlist_value,
         world: world_value,
         reference_policy: reference_policy_value,
+        resource_policy: None,
     })
 }
 
@@ -411,6 +412,7 @@ fn materialize_rules(
                 })?;
                 Ok(aeon_aeos::SchemaRule {
                     path: Some(path.to_string()),
+                    selector: None,
                     constraints: project_constraints(constraints, path, file)?,
                 })
             })
@@ -420,6 +422,7 @@ fn materialize_rules(
             .map(|(path, constraints)| {
                 Ok(aeon_aeos::SchemaRule {
                     path: Some(path.clone()),
+                    selector: None,
                     constraints: project_constraints(constraints, path, file)?,
                 })
             })
@@ -609,6 +612,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
+            bindings: Vec::new(),
         },
         Value::TupleLiteral { items } => EventValue {
             value_type: String::from("TupleLiteral"),
@@ -616,6 +620,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: items.iter().map(core_value_to_aeos).collect(),
+            bindings: Vec::new(),
         },
         Value::ObjectNode { .. } => EventValue {
             value_type: String::from("ObjectNode"),
@@ -623,6 +628,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value: None,
             path: None,
             elements: Vec::new(),
+            bindings: Vec::new(),
         },
         Value::CloneReference { segments, .. } => reference_value("CloneReference", segments),
         Value::PointerReference { segments, .. } => reference_value("PointerReference", segments),
@@ -636,6 +642,7 @@ fn scalar_value(value_type: &str, raw: String, value: JsonValue) -> EventValue {
         value: Some(value),
         path: None,
         elements: Vec::new(),
+        bindings: Vec::new(),
     }
 }
 
@@ -648,6 +655,7 @@ fn reference_value(value_type: &str, segments: &[ReferenceSegment]) -> EventValu
         )),
         path: Some(segments.iter().map(reference_segment_to_aeos).collect()),
         elements: Vec::new(),
+        bindings: Vec::new(),
     }
 }
 
@@ -902,12 +910,14 @@ mod tests {
             datatype_allowlist: vec![String::from("farewell")],
             world: String::from("open"),
             reference_policy: None,
+            resource_policy: None,
         }
     }
 
     fn rule(path: &str, constraints: JsonValue) -> SchemaRule {
         SchemaRule {
             path: Some(String::from(path)),
+            selector: None,
             constraints,
         }
     }

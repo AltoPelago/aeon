@@ -2,6 +2,7 @@ import { createDiag, emitError, type DiagContext } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 import type { RuleIndex } from './schemaIndex.js';
 import type { SchemaV1 } from '../types/schema.js';
+import { matchesPortablePattern } from './stringForm.js';
 
 type EventInfo = {
     type: string;
@@ -39,6 +40,10 @@ function formatReferenceTargetPath(segments: readonly (string | number | { reado
             : `@[${JSON.stringify(segment.key)}]`;
     }
     return out;
+}
+
+function targetPatternMatches(pattern: string, value: string): boolean {
+    return matchesPortablePattern(pattern, value);
 }
 
 export function checkReferenceForms(
@@ -110,7 +115,7 @@ export function checkReferenceForms(
         if (!isReferenceType(event.type) || !event.referencePath) {
             continue;
         }
-        if (!(new RegExp(targetPattern).test(formatReferenceTargetPath(event.referencePath)))) {
+        if (!targetPatternMatches(targetPattern, formatReferenceTargetPath(event.referencePath))) {
             emitError(ctx, createDiag(
                 path,
                 event.span,

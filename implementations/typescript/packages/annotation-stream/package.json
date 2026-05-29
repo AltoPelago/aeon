@@ -1,7 +1,7 @@
 {
   "name": "@altopelago/aeon-annotation-stream",
-  "version": "0.9.1",
-  "description": "Annotation stream utilities for AEON source and token metadata.",
+  "version": "0.9.2",
+  "description": "Build AEON annotation streams from comments, attributes, and source metadata.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,8 +35,10 @@
   "keywords": [
     "aeon",
     "aeonite",
-    "parser",
-    "schema",
+    "annotations",
+    "comments",
+    "metadata",
+    "source-map",
     "typescript"
   ],
   "publishConfig": {

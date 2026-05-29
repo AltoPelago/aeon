@@ -171,9 +171,28 @@ test('emits runtime binder helper when requested', () => {
     });
 
     assert.equal(result.diagnostics.length, 0);
-    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from '@altopelago\/aeon-runtime';/);
+    assert.match(result.code, /import \{ createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult \} from "@altopelago\/aeon-runtime";/);
     assert.match(result.code, /export const AppConfigSchema: SchemaV1 = \{/);
     assert.match(result.code, /export function bindAppConfig\(options: TypedBinderOptions<AppConfig> = \{\}\): \(input: string\) => TypedRuntimeResult<AppConfig> \{/);
+});
+
+test('escapes runtime binder module specifiers', () => {
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.name', constraints: { type: 'StringLiteral' } },
+        ],
+    };
+
+    const result = generateTypes(schema, {
+        emitRuntimeBinder: true,
+        runtimeModule: "@safe/runtime'; console.log('oops'); //",
+        schemaModule: "@safe/schema'; console.log('oops'); //",
+    });
+
+    assert.equal(result.diagnostics.length, 0);
+    assert.match(result.code, /from "@safe\/runtime'; console\.log\('oops'\); \/\//);
+    assert.match(result.code, /from "@safe\/schema'; console\.log\('oops'\); \/\//);
+    assert.doesNotMatch(result.code, /from '@safe\/runtime'; console\.log/);
 });
 
 test('falls back invalid binder identifiers with diagnostics', () => {

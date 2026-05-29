@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     command = args[0]
     if command in {"version", "--version", "-v"}:
-        print("aeon-python 0.9.1")
+        print("aeon-python 0.9.2")
         return 0
     if command == "fmt":
         return fmt(args[1:])
@@ -66,6 +66,7 @@ def inspect(args: list[str]) -> int:
     max_generic_depth = numeric_flag_value(args, "--max-generic-depth")
     max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth")
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
+    max_events = numeric_flag_value(args, "--max-events")
     if max_attribute_depth is None and "--max-attribute-depth" in args:
         print("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
@@ -80,6 +81,9 @@ def inspect(args: list[str]) -> int:
         return 2
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_events is None and "--max-events" in args:
+        print("Error: Invalid value for --max-events (expected a non-negative integer)", file=sys.stderr)
         return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
@@ -96,6 +100,7 @@ def inspect(args: list[str]) -> int:
             max_generic_depth=1 if max_generic_depth is None else max_generic_depth,
             max_nesting_depth=256 if max_nesting_depth is None else max_nesting_depth,
             max_input_bytes=max_input_bytes,
+            max_events=max_events,
         ),
     )
     annotation_events = result.internal_events if result.internal_events is not None else result.events
@@ -123,11 +128,22 @@ def inspect(args: list[str]) -> int:
 
 def fmt(args: list[str]) -> int:
     write_output = "--write" in args
+    max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
+    if max_input_bytes is None and "--max-input-bytes" in args:
+        print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if write_output and file_arg is None:
         print("Error: --write requires a file path", file=sys.stderr)
         return 2
     source = Path(file_arg).read_text(encoding="utf-8") if file_arg is not None else sys.stdin.read()
+    actual_bytes = len(source.encode("utf-8"))
+    if max_input_bytes is not None and actual_bytes > max_input_bytes:
+        print(
+            f"Error: Input size {actual_bytes} bytes exceeds configured limit of {max_input_bytes} bytes",
+            file=sys.stderr,
+        )
+        return 1
     result = canonicalize(source)
     if result.errors:
         for error in result.errors:
@@ -240,12 +256,12 @@ def first_non_flag(args: list[str]) -> str | None:
         if skip_next:
             skip_next = False
             continue
-        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             skip_next = True
             continue
         if item.startswith("--"):
             continue
-        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             continue
         return item
     return None
@@ -262,7 +278,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 

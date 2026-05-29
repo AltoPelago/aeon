@@ -1,7 +1,7 @@
 {
   "name": "@altopelago/aeon-parser",
-  "version": "0.9.1",
-  "description": "Parser for AEON tokens and source text.",
+  "version": "0.9.2",
+  "description": "Parse AEON tokens into syntax trees and diagnostics.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,8 +35,9 @@
   "keywords": [
     "aeon",
     "aeonite",
+    "ast",
     "parser",
-    "schema",
+    "syntax",
     "typescript"
   ],
   "publishConfig": {

@@ -6,6 +6,30 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.9.2 - 2026-05-30
+
+### Security
+
+- Added AEOS portable pattern-profile enforcement for `pattern` and
+  `reference_target_pattern`, rejecting host-specific or high-risk regex
+  constructs such as lookaround, backreferences, named groups, Unicode property
+  escapes, unsupported alphabetic escapes, overlong patterns, and nested
+  quantified groups.
+- Added regression coverage for portable pattern enforcement across
+  TypeScript, Rust, and PHP implementation surfaces.
+- Added AEOS `resource_policy` budget enforcement across TypeScript, Rust,
+  and PHP for event counts, rule counts, alternatives, schema depth, path
+  length, reference-resolution steps, selector expansion, and default container
+  child counts.
+- Added Core `max_events` budget enforcement across TypeScript, Rust, and PHP
+  so consumers can fail closed before returning oversized AES event streams.
+
+### Fixed
+
+- Fixed TypeScript and Rust CLI default contract registry discovery after the
+  aeonite-specs contracts reorganization, and taught the Rust CLI to load the
+  current `aeos:schema` contract artifact shape.
+
 ## 0.9.1 - 2026-05-27
 
 ### Added

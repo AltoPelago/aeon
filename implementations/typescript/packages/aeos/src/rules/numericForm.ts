@@ -17,6 +17,7 @@ import { countIntegerDigits, isNegative } from '../util/digits.js';
 interface NumericValue {
     type: string;
     raw: string;
+    datatype?: string;
     span: Span;
 }
 
@@ -46,7 +47,7 @@ export function checkNumericForm(
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
 
-        // Only apply to numeric and digit-bearing symbolic literal forms.
+        // Only apply to numeric and radix-like symbolic literal forms.
         if (!isDigitFormLiteral(event.type)) {
             continue;
         }
@@ -91,6 +92,25 @@ export function checkNumericForm(
         }
 
         if (event.type === 'RadixLiteral' && radix !== undefined) {
+            const declaredRadix = declaredRadixFromDatatype(event.datatype);
+            if (declaredRadix === null && rule.constraints.allow_unspecified_radix !== true) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Numeric form violation: radix literal requires declared radix ${radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                continue;
+            }
+            if (declaredRadix !== null && declaredRadix !== radix) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Numeric form violation: expected radix ${radix}, got declared radix ${declaredRadix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                continue;
+            }
             const invalidDigit = firstInvalidRadixDigit(raw, radix);
             if (invalidDigit !== null) {
                 emitError(ctx, createDiag(
@@ -138,7 +158,7 @@ export function checkNumericForm(
 }
 
 function isDigitFormLiteral(type: string): boolean {
-    return type === 'NumberLiteral' || type === 'IntegerLiteral' || type === 'FloatLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+    return type === 'NumberLiteral' || type === 'IntegerLiteral' || type === 'FloatLiteral' || type === 'HexLiteral' || type === 'RadixLiteral';
 }
 
 function countFormDigits(type: string, raw: string): number {
@@ -149,11 +169,19 @@ function countFormDigits(type: string, raw: string): number {
         .replace(/_/g, '');
     let count = 0;
     for (const char of body) {
-        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+        if ((char >= '0' && char <= '9') || ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!')) {
             count++;
         }
     }
     return count;
+}
+
+function declaredRadixFromDatatype(datatype: string | undefined): number | null {
+    if (datatype === undefined) return null;
+    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
+    if (!match) return null;
+    const value = Number(match[1] ?? match[2]);
+    return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isFormNegative(raw: string): boolean {

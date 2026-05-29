@@ -71,4 +71,12 @@ describe('Reference Resolution (Resolved AES)', () => {
         assert.strictEqual(second!.value.type, 'NumberLiteral');
         assert.strictEqual((second!.value as any).raw, '20');
     });
+
+    it('fails closed when clone resolution exceeds maxReferenceDepth', () => {
+        const events = compileToEvents('a = 1\nb = ~a\nc = ~b');
+        const result = resolveRefs(events, { mode: 'strict', maxReferenceDepth: 0 });
+
+        assert.strictEqual(result.aes.length, 0);
+        assert.ok(result.meta?.errors?.some((error) => error.code === 'RESOLVE_REFERENCE_DEPTH_EXCEEDED'));
+    });
 });

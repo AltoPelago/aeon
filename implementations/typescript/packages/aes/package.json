@@ -1,7 +1,7 @@
 {
   "name": "@altopelago/aeon-aes",
-  "version": "0.9.1",
-  "description": "AEON encoded string helpers for the TypeScript implementation.",
+  "version": "0.9.2",
+  "description": "Assignment Event Stream emission and canonical path utilities for AEON.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,8 +35,10 @@
   "keywords": [
     "aeon",
     "aeonite",
-    "parser",
-    "schema",
+    "aes",
+    "assignment-event-stream",
+    "canonical-path",
+    "events",
     "typescript"
   ],
   "publishConfig": {

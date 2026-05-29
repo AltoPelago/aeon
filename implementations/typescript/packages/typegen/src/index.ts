@@ -265,8 +265,8 @@ function buildRuntimeBinderBlock(
     const schemaLiteral = JSON.stringify(schema, null, 2);
 
     return [
-        `import { createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult } from '${runtimeModule}';`,
-        `import type { SchemaV1 } from '${schemaModule}';`,
+        `import { createTypedRuntimeBinder, type TypedBinderOptions, type TypedRuntimeResult } from ${JSON.stringify(runtimeModule)};`,
+        `import type { SchemaV1 } from ${JSON.stringify(schemaModule)};`,
         '',
         `export const ${schemaConstName}: SchemaV1 = ${schemaLiteral};`,
         '',

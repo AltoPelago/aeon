@@ -10,8 +10,161 @@ import type { DiagContext } from '../diag/emit.js';
 import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 
+const MAX_SCHEMA_REGEX_LENGTH = 512;
+const PORTABLE_REGEX_ESCAPES = new Set([
+    '0', 'b', 'B', 'd', 'D', 'f', 'n', 'r', 's', 'S', 't', 'v', 'w', 'W',
+    '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
+]);
+
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
+}
+
+function isRegexQuantifierStart(pattern: string, index: number): boolean {
+    const char = pattern[index];
+    return char === '*' || char === '+' || char === '{';
+}
+
+function hasNestedQuantifiedGroup(pattern: string): boolean {
+    const stack: Array<{ hasInnerQuantifier: boolean }> = [];
+    let escaped = false;
+    let inCharacterClass = false;
+
+    for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+        if (char === '[') {
+            inCharacterClass = true;
+            continue;
+        }
+        if (char === ']' && inCharacterClass) {
+            inCharacterClass = false;
+            continue;
+        }
+        if (inCharacterClass) {
+            continue;
+        }
+        if (char === '(') {
+            stack.push({ hasInnerQuantifier: false });
+            continue;
+        }
+        if (char === ')') {
+            const group = stack.pop();
+            if (!group) continue;
+            if (group.hasInnerQuantifier && isRegexQuantifierStart(pattern, i + 1)) {
+                return true;
+            }
+            const parent = stack.at(-1);
+            if (parent && isRegexQuantifierStart(pattern, i + 1)) {
+                parent.hasInnerQuantifier = true;
+            }
+            continue;
+        }
+        const current = stack.at(-1);
+        if (current && isRegexQuantifierStart(pattern, i)) {
+            current.hasInnerQuantifier = true;
+        }
+    }
+
+    return false;
+}
+
+function validatePortablePatternSyntax(pattern: string): string | null {
+    const stack: string[] = [];
+    let escaped = false;
+    let inCharacterClass = false;
+
+    for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i] ?? '';
+        if (escaped) {
+            if (/^[1-9]$/.test(char)) {
+                return 'backreferences are not part of the AEOS portable pattern profile';
+            }
+            if ((char === 'p' || char === 'P') && pattern[i + 1] === '{') {
+                return 'Unicode property escapes are not part of the AEOS portable pattern profile';
+            }
+            if (char === 'k' && pattern[i + 1] === '<') {
+                return 'named backreferences are not part of the AEOS portable pattern profile';
+            }
+            if (/^[A-Za-z0-9]$/.test(char) && !PORTABLE_REGEX_ESCAPES.has(char)) {
+                return `unsupported escape sequence \\${char}`;
+            }
+            escaped = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (inCharacterClass) {
+            if (char === ']') {
+                inCharacterClass = false;
+            }
+            continue;
+        }
+
+        if (char === '[') {
+            inCharacterClass = true;
+            continue;
+        }
+
+        if (char === '(') {
+            if (pattern[i + 1] === '?') {
+                if (pattern[i + 2] !== ':') {
+                    return 'lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile';
+                }
+                i += 2;
+            }
+            stack.push('(');
+            continue;
+        }
+
+        if (char === ')') {
+            if (stack.pop() === undefined) {
+                return 'unmatched closing group';
+            }
+        }
+    }
+
+    if (escaped) {
+        return 'trailing escape';
+    }
+    if (inCharacterClass) {
+        return 'unterminated character class';
+    }
+    if (stack.length > 0) {
+        return 'unterminated group';
+    }
+
+    return null;
+}
+
+function regexConstraintProblem(value: string): string | null {
+    if (value.length > MAX_SCHEMA_REGEX_LENGTH) {
+        return `regex exceeds ${MAX_SCHEMA_REGEX_LENGTH} characters`;
+    }
+    const portableProblem = validatePortablePatternSyntax(value);
+    if (portableProblem) {
+        return portableProblem;
+    }
+    if (hasNestedQuantifiedGroup(value)) {
+        return 'regex contains a nested quantified group';
+    }
+    try {
+        new RegExp(value);
+    } catch {
+        return 'regex is not valid ECMAScript syntax';
+    }
+    return null;
 }
 
 function validateReferenceConstraints(
@@ -67,13 +220,12 @@ function validateReferenceConstraints(
             ));
             return false;
         }
-        try {
-            new RegExp(referenceTargetPattern);
-        } catch {
+        const regexProblem = regexConstraintProblem(referenceTargetPattern);
+        if (regexProblem) {
             emitError(ctx, createDiag(
                 rulePath,
                 null,
-                `Invalid reference_target_pattern regex for path ${rulePath}: ${referenceTargetPattern}`,
+                `Invalid reference_target_pattern regex for path ${rulePath}: ${regexProblem}`,
                 ErrorCodes.INVALID_REFERENCE_CONSTRAINT
             ));
             return false;
@@ -152,6 +304,35 @@ function validateReferenceConstraints(
     return true;
 }
 
+function validateRegexConstraint(
+    rulePath: string,
+    key: string,
+    value: unknown,
+    ctx: DiagContext
+): boolean {
+    if (value === undefined) return true;
+    if (typeof value !== 'string') {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid ${key} constraint for path ${rulePath}: ${String(value)}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+    const regexProblem = regexConstraintProblem(value);
+    if (regexProblem) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid ${key} regex for path ${rulePath}: ${regexProblem}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+    return true;
+}
+
 function validateConstraintTree(
     schema: SchemaV1,
     rulePath: string,
@@ -169,6 +350,46 @@ function validateConstraintTree(
     }
 
     if (!validateReferenceConstraints(schema, rulePath, constraints, ctx)) {
+        return false;
+    }
+
+    if (!validateRegexConstraint(rulePath, 'pattern', constraints.pattern, ctx)) {
+        return false;
+    }
+
+    for (const key of ['required', 'nullable', 'allow_infinity', 'allow_nan', 'resolve_reference_form', 'closed_attributes', 'allow_unspecified_radix'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'boolean') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be boolean for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    for (const key of ['type', 'null_value', 'sign', 'datatype'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'string') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be string for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    if (constraints.sign !== undefined && !['signed', 'unsigned'].includes(String(constraints.sign))) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Invalid sign constraint for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
         return false;
     }
 
@@ -218,13 +439,26 @@ function validateConstraintTree(
         }
     }
 
-    for (const key of ['min_children', 'max_children', 'length_exact', 'radix'] as const) {
+    for (const key of ['min_children', 'max_children', 'length_exact', 'radix', 'min_digits', 'max_digits', 'min_length', 'max_length'] as const) {
         const value = constraints[key];
         if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
             emitError(ctx, createDiag(
                 rulePath,
                 null,
                 `Invalid ${key} constraint for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    for (const key of ['min_value', 'max_value'] as const) {
+        const value = constraints[key];
+        if (value !== undefined && typeof value !== 'string') {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be string for path ${rulePath}`,
                 ErrorCodes.UNKNOWN_CONSTRAINT_KEY
             ));
             return false;

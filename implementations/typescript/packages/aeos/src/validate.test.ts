@@ -1220,7 +1220,7 @@ describe('validate()', () => {
     });
 
     describe('symbolic literal form constraints', () => {
-        it('validates min and max digits for hex, radix, and separator literals', () => {
+        it('validates min and max digits for hex and radix literals while treating separators as string-like', () => {
             const aes: AES = [
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'hex' }] },
@@ -1249,15 +1249,52 @@ describe('validate()', () => {
                 rules: [
                     { path: '$.hex', constraints: { type: 'HexLiteral', min_digits: 2, max_digits: 2 } },
                     { path: '$.radix', constraints: { type: 'RadixLiteral', min_digits: 4 } },
-                    { path: '$.sep', constraints: { type: 'SeparatorLiteral', max_digits: 2 } },
+                    { path: '$.sep', constraints: { type: 'SeparatorLiteral', max_digits: 2, max_length: 4 } },
                 ],
             };
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.radix'));
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.sep'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.STRING_LENGTH_VIOLATION && e.path === '$.sep'));
+            assert.ok(!result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.sep'));
             assert.ok(!result.errors.some((e) => e.path === '$.hex'));
+        });
+
+        it('applies datatype rule patterns to separator literals', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'ip' }] },
+                    key: 'ip',
+                    datatype: 'kadot',
+                    value: { type: 'SeparatorLiteral', value: '198.0.126.255', raw: '^198.0.126.255', span: [1, 15] },
+                    span: [1, 15],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'dimensions' }] },
+                    key: 'dimensions',
+                    datatype: 'kadot',
+                    value: { type: 'SeparatorLiteral', value: '300x250', raw: '^300x250', span: [16, 24] },
+                    span: [16, 24],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.ip', constraints: {} },
+                    { path: '$.dimensions', constraints: {} },
+                ],
+                datatype_rules: {
+                    kadot: {
+                        type: 'SeparatorLiteral',
+                        pattern: '^[0-9.]+$',
+                    },
+                },
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((e) => e.path === '$.ip'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.PATTERN_MISMATCH && e.path === '$.dimensions'));
         });
 
         it('validates unsigned form for radix literals', () => {
@@ -1283,14 +1320,14 @@ describe('validate()', () => {
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'binary' }] },
                     key: 'binary',
-                    datatype: null,
+                    datatype: 'radix[2]',
                     value: { type: 'RadixLiteral', value: '1010', raw: '%1010', span: [1, 6] },
                     span: [1, 6],
                 },
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'badBinary' }] },
                     key: 'badBinary',
-                    datatype: null,
+                    datatype: 'radix[2]',
                     value: { type: 'RadixLiteral', value: '1050', raw: '%1050', span: [7, 12] },
                     span: [7, 12],
                 },
@@ -1305,6 +1342,48 @@ describe('validate()', () => {
             assert.strictEqual(result.ok, false);
             assert.ok(!result.errors.some((e) => e.path === '$.binary'));
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.badBinary'));
+        });
+
+        it('requires radix literals to declare the constrained radix unless relaxed', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'unspecified' }] },
+                    key: 'unspecified',
+                    value: { type: 'RadixLiteral', value: '1010', raw: '%1010', span: [1, 6] },
+                    span: [1, 6],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'mismatch' }] },
+                    key: 'mismatch',
+                    datatype: 'radix[4]',
+                    value: { type: 'RadixLiteral', value: '1010', raw: '%1010', span: [7, 12] },
+                    span: [7, 12],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'alias' }] },
+                    key: 'alias',
+                    datatype: 'radix2',
+                    value: { type: 'RadixLiteral', value: '1010', raw: '%1010', span: [13, 18] },
+                    span: [13, 18],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.unspecified', constraints: { type: 'RadixLiteral', radix: 2 } },
+                    { path: '$.mismatch', constraints: { type: 'RadixLiteral', radix: 2 } },
+                    { path: '$.alias', constraints: { type: 'RadixLiteral', radix: 2 } },
+                ],
+            });
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.unspecified'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.mismatch'));
+            assert.ok(!result.errors.some((e) => e.path === '$.alias'));
+
+            const relaxed = validate([aes[0]!] as unknown as AES, {
+                rules: [{ path: '$.unspecified', constraints: { type: 'RadixLiteral', radix: 2, allow_unspecified_radix: true } }],
+            });
+            assert.strictEqual(relaxed.ok, true);
         });
     });
 
@@ -1432,6 +1511,70 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, true);
+        });
+
+        it('returns a schema diagnostic instead of throwing for invalid any_of pattern regex', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'StringLiteral', value: 'Alice', raw: '"Alice"' },
+                    span: [0, 14],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.name',
+                        constraints: {
+                            any_of: [
+                                { type: 'StringLiteral', pattern: '[' },
+                            ],
+                        },
+                    },
+                ],
+            };
+
+            assert.doesNotThrow(() => validate(aes, schema));
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
+        });
+
+        it('returns a schema diagnostic instead of throwing for invalid attribute pattern regex', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'name' }] },
+                    key: 'name',
+                    value: { type: 'StringLiteral', value: 'Alice', raw: '"Alice"' },
+                    annotations: new Map([
+                        ['label', {
+                            value: { type: 'StringLiteral', value: 'friend', raw: '"friend"', span: [5, 13] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [0, 14],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    {
+                        path: '$.name',
+                        constraints: {
+                            attributes: {
+                                label: { type: 'StringLiteral', pattern: '[' },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            assert.doesNotThrow(() => validate(aes, schema));
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
         });
 
         it('keeps missing targets and cycles Core-owned when resolve_reference_form is enabled', () => {

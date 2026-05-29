@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-cli",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Command-line tools for parsing, finalizing, and inspecting AEON documents.",
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "OUTPUT_CONTRACT.md",
     "!dist/**/*.test.d.ts",
     "!dist/**/*.test.d.ts.map",
     "!dist/**/*.test.js",
@@ -30,8 +31,11 @@
   "keywords": [
     "aeon",
     "aeonite",
-    "parser",
-    "schema",
+    "cli",
+    "command-line",
+    "validation",
+    "formatter",
+    "integrity",
     "typescript"
   ],
   "publishConfig": {

@@ -5,7 +5,7 @@
  */
 
 import type { AES } from './types/aes.js';
-import type { SchemaV1 } from './types/schema.js';
+import type { SchemaRule, SchemaV1 } from './types/schema.js';
 import type { ResultEnvelope } from './types/envelope.js';
 import { createPassingEnvelope, createFailingEnvelope } from './types/envelope.js';
 import { createDiag, createDiagContext, emitError, emitWarning } from './diag/emit.js';
@@ -16,8 +16,8 @@ import { checkPresence } from './rules/presence.js';
 import { checkTypes } from './rules/typeCheck.js';
 import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
-import { checkStringForm, checkPatterns } from './rules/stringForm.js';
-import type { ConstraintsV1 } from './types/schema.js';
+import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
+import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 
 const TYPE_ALIASES: Record<string, readonly string[]> = {
     NumberLiteral: ['NumberLiteral'],
@@ -83,6 +83,151 @@ export interface ValidateOptions {
      */
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
 
+    /** Optional consumer-controlled validation resource limits. */
+    readonly resourcePolicy?: ResourcePolicyV1;
+
+}
+
+const DEFAULT_RESOURCE_POLICY: Required<ResourcePolicyV1> = {
+    max_events: 100_000,
+    max_rules: 10_000,
+    max_any_of_cases: 64,
+    max_schema_depth: 64,
+    max_path_length: 4_096,
+    max_reference_resolution_steps: 64,
+    max_selector_expansions: 100_000,
+    max_string_length_default: 10_000_000,
+    max_container_children_default: 1_000_000,
+};
+
+function normalizeResourcePolicy(
+    policy: ResourcePolicyV1 | undefined,
+    source: string,
+    ctx: ReturnType<typeof createDiagContext>
+): Partial<Required<ResourcePolicyV1>> {
+    if (policy === undefined) return {};
+    if (policy === null || typeof policy !== 'object') {
+        emitResourceError(ctx, '$', `${source} resource policy must be an object`);
+        return {};
+    }
+    const normalized: Record<string, number> = {};
+    for (const key of Object.keys(policy) as (keyof ResourcePolicyV1)[]) {
+        if (!(key in DEFAULT_RESOURCE_POLICY)) {
+            emitResourceError(ctx, '$', `Unknown ${source} resource policy key: ${String(key)}`);
+            continue;
+        }
+        const value = policy[key];
+        if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
+            emitResourceError(ctx, '$', `${source} resource policy ${String(key)} must be a non-negative integer`);
+            continue;
+        }
+        if (value !== undefined) {
+            normalized[key] = value;
+        }
+    }
+    return normalized as Partial<Required<ResourcePolicyV1>>;
+}
+
+function resolveResourcePolicy(
+    schemaPolicy: ResourcePolicyV1 | undefined,
+    optionPolicy: ResourcePolicyV1 | undefined,
+    ctx: ReturnType<typeof createDiagContext>
+): Required<ResourcePolicyV1> {
+    return {
+        ...DEFAULT_RESOURCE_POLICY,
+        ...normalizeResourcePolicy(schemaPolicy, 'schema', ctx),
+        ...normalizeResourcePolicy(optionPolicy, 'option', ctx),
+    };
+}
+
+function emitResourceError(
+    ctx: ReturnType<typeof createDiagContext>,
+    path: string,
+    message: string,
+    span: [number, number] | null = null,
+): void {
+    emitError(ctx, createDiag(path, span, message, ErrorCodes.INVALID_SCHEMA_POLICY));
+}
+
+const STRING_LIKE_VALUE_TYPES = new Set([
+    'StringLiteral',
+    'TrimtickLiteral',
+    'SeparatorLiteral',
+    'HexLiteral',
+    'EncodingLiteral',
+    'NullLiteral',
+    'DateLiteral',
+    'TimeLiteral',
+    'DateTimeLiteral',
+    'ZRUTDateTimeLiteral',
+]);
+
+function stringLikePayloadLength(event: Pick<EventInfo, 'type' | 'raw' | 'value'>): number | null {
+    if (!STRING_LIKE_VALUE_TYPES.has(event.type)) return null;
+    const payload = event.value.length > 0 ? event.value : event.raw;
+    return payload.length;
+}
+
+function enforceStringLengthResourceBudget(
+    info: EventInfo | AttributeInfo,
+    path: string,
+    policy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>
+): void {
+    const payloadLength = stringLikePayloadLength(info);
+    if (payloadLength !== null && payloadLength > policy.max_string_length_default) {
+        emitResourceError(ctx, path, `String-like payload length ${payloadLength} exceeds max_string_length_default ${policy.max_string_length_default}`, info.span);
+    }
+    for (const [key, attribute] of info.attributes ?? []) {
+        enforceStringLengthResourceBudget(attribute, `${path}@${key}`, policy, ctx);
+    }
+}
+
+function inspectSchemaResourceShape(
+    schema: SchemaV1,
+    policy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>
+): void {
+    for (const rule of schema.rules) {
+        const rulePath = typeof rule.path === 'string' && rule.path.length > 0
+            ? rule.path
+            : typeof rule.selector === 'string' && rule.selector.length > 0
+                ? rule.selector
+                : '$';
+        if (rulePath.length > policy.max_path_length) {
+            emitResourceError(ctx, rulePath, `Rule path length ${rulePath.length} exceeds max_path_length ${policy.max_path_length}`);
+        }
+        inspectConstraintResourceShape(rule.constraints, rulePath, 1, policy, ctx);
+    }
+    for (const [datatype, constraints] of Object.entries(schema.datatype_rules ?? {})) {
+        inspectConstraintResourceShape(constraints, `datatype_rules.${datatype}`, 1, policy, ctx);
+    }
+}
+
+function inspectConstraintResourceShape(
+    constraints: ConstraintsV1,
+    path: string,
+    depth: number,
+    policy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>
+): void {
+    if (depth > policy.max_schema_depth) {
+        emitResourceError(ctx, path, `Schema constraint depth exceeds max_schema_depth ${policy.max_schema_depth}`);
+        return;
+    }
+    if (constraints.any_of !== undefined) {
+        if (constraints.any_of.length > policy.max_any_of_cases) {
+            emitResourceError(ctx, path, `any_of case count ${constraints.any_of.length} exceeds max_any_of_cases ${policy.max_any_of_cases}`);
+        }
+        constraints.any_of.forEach((branch, index) => {
+            inspectConstraintResourceShape(branch, `${path}.any_of[${index}]`, depth + 1, policy, ctx);
+        });
+    }
+    if (constraints.attributes !== undefined) {
+        for (const [key, child] of Object.entries(constraints.attributes)) {
+            inspectConstraintResourceShape(child, `${path}@${key}`, depth + 1, policy, ctx);
+        }
+    }
 }
 
 /**
@@ -121,6 +266,20 @@ export function validate(
 
     // Phase 1: Envelope plumbing
     const ctx = createDiagContext();
+    const resourcePolicy = resolveResourcePolicy(schema.resource_policy, options.resourcePolicy, ctx);
+    if (ctx.errors.length > 0) {
+        return createFailingEnvelope(ctx.errors, ctx.warnings, {});
+    }
+    if (aes.length > resourcePolicy.max_events) {
+        emitResourceError(ctx, '$', `AES event count ${aes.length} exceeds max_events ${resourcePolicy.max_events}`);
+    }
+    if (schema.rules.length > resourcePolicy.max_rules) {
+        emitResourceError(ctx, '$', `Schema rule count ${schema.rules.length} exceeds max_rules ${resourcePolicy.max_rules}`);
+    }
+    inspectSchemaResourceShape(schema, resourcePolicy, ctx);
+    if (ctx.errors.length > 0) {
+        return createFailingEnvelope(ctx.errors, ctx.warnings, {});
+    }
 
     // Phase 3: (moved to run after Phase 2)
 
@@ -230,6 +389,9 @@ export function validate(
     for (let i = 0; i < aes.length; i++) {
         const event = aes[i] as any;
         const pathStr = formatCanonicalPath(event.path);
+        if (pathStr.length > resourcePolicy.max_path_length) {
+            emitResourceError(ctx, pathStr, `Path length ${pathStr.length} exceeds max_path_length ${resourcePolicy.max_path_length}`, toTuple(event.span));
+        }
 
         if (Array.isArray(event.path?.segments)) {
             for (const seg of event.path.segments) {
@@ -266,17 +428,29 @@ export function validate(
                 if ((event.value.type === 'TupleLiteral' || event.value.type === 'ListLiteral' || event.value.type === 'ListNode')
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
+                    if ((event.value as any).elements.length > resourcePolicy.max_container_children_default) {
+                        emitResourceError(ctx, pathStr, `Container child count ${(event.value as any).elements.length} exceeds max_container_children_default ${resourcePolicy.max_container_children_default}`, toTuple(event.span));
+                    }
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
                 } else if (event.value.type === 'ObjectNode' && Array.isArray((event.value as any).bindings)) {
                     containerArity.set(pathStr, (event.value as any).bindings.length);
+                    if ((event.value as any).bindings.length > resourcePolicy.max_container_children_default) {
+                        emitResourceError(ctx, pathStr, `Container child count ${(event.value as any).bindings.length} exceeds max_container_children_default ${resourcePolicy.max_container_children_default}`, toTuple(event.span));
+                    }
                 } else if (event.value.type === 'NodeLiteral' && Array.isArray((event.value as any).children)) {
                     containerArity.set(pathStr, (event.value as any).children.length);
+                    if ((event.value as any).children.length > resourcePolicy.max_container_children_default) {
+                        emitResourceError(ctx, pathStr, `Container child count ${(event.value as any).children.length} exceeds max_container_children_default ${resourcePolicy.max_container_children_default}`, toTuple(event.span));
+                    }
                     hydrateIndexedFallback(pathStr, event.value, toTuple(event.span));
                 }
             }
         }
 
         // Register index even for first occurrence
+    }
+    for (const [path, info] of eventsByPath) {
+        enforceStringLengthResourceBudget(info, path, resourcePolicy, ctx);
     }
 
     // Optional separator literal trailing-delimiter policy
@@ -306,10 +480,15 @@ export function validate(
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
-    const effectiveRuleIndex = expandWildcardRules(
-        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx),
+    const selectorExpansionBudget = { count: 0 };
+    const expandedRuleIndex = expandWildcardRules(
+        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget),
         eventsByPath,
+        ctx,
+        resourcePolicy,
+        selectorExpansionBudget,
     );
+    const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(seen.keys());
@@ -319,7 +498,7 @@ export function validate(
     // Phase 5: Type checks (literal kind)
     checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
 
-    const effectiveEventsByPath = resolveReferenceFormEvents(effectiveRuleIndex, eventsByPath);
+    const effectiveEventsByPath = resolveReferenceFormEvents(effectiveRuleIndex, eventsByPath, resourcePolicy, ctx);
     const selectedRuleIndex = selectAnyOfRules(effectiveRuleIndex, effectiveEventsByPath, ctx);
     checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
 
@@ -471,14 +650,20 @@ function checkWorldPolicy(
 function resolveReferenceFormEvents(
     ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
+    resourcePolicy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>,
 ): ReadonlyMap<string, EventInfo> {
     const resolved = new Map(eventsByPath);
     for (const [path, rule] of ruleIndex.entries()) {
         if ((rule.constraints as any).resolve_reference_form !== true) continue;
         const event = eventsByPath.get(path);
         if (!event || !isReferenceType(event.type) || !event.referencePath) continue;
-        const terminal = resolveTerminalReferenceEvent(event, eventsByPath, new Set<string>());
+        const resolutionState = { exhausted: false };
+        const terminal = resolveTerminalReferenceEvent(event, eventsByPath, new Set<string>(), resourcePolicy.max_reference_resolution_steps, resolutionState);
         if (!terminal) {
+            if (resolutionState.exhausted) {
+                emitResourceError(ctx, path, `Reference resolution exceeded max_reference_resolution_steps ${resourcePolicy.max_reference_resolution_steps}`, event.span);
+            }
             resolved.delete(path);
             continue;
         }
@@ -495,6 +680,8 @@ function expandSelectorRules(
     schema: SchemaV1,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
+    resourcePolicy: Required<ResourcePolicyV1>,
+    expansionBudget: { count: number },
 ): RuleIndex {
     const expanded = new Map(ruleIndex);
     for (const rule of schema.rules) {
@@ -504,6 +691,11 @@ function expandSelectorRules(
         for (const actualPath of eventsByPath.keys()) {
             if (!matchesSelectorPath(actualPath, rule.selector)) continue;
             matched = true;
+            expansionBudget.count += 1;
+            if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
+                emitResourceError(ctx, rule.selector, `Selector expansion count exceeds max_selector_expansions ${resourcePolicy.max_selector_expansions}`);
+                return expanded;
+            }
             if (!expanded.has(actualPath)) {
                 expanded.set(actualPath, { ...rule, path: actualPath });
             }
@@ -523,6 +715,9 @@ function expandSelectorRules(
 function expandWildcardRules(
     ruleIndex: RuleIndex,
     eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+    resourcePolicy: Required<ResourcePolicyV1>,
+    expansionBudget: { count: number },
 ): RuleIndex {
     const expanded = new Map(ruleIndex);
     for (const [path, rule] of ruleIndex.entries()) {
@@ -530,6 +725,11 @@ function expandWildcardRules(
         expanded.delete(path);
         for (const actualPath of eventsByPath.keys()) {
             if (matchesAllowedPath(actualPath, path)) {
+                expansionBudget.count += 1;
+                if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
+                    emitResourceError(ctx, path, `Wildcard expansion count exceeds max_selector_expansions ${resourcePolicy.max_selector_expansions}`);
+                    return expanded;
+                }
                 expanded.set(actualPath, { ...rule, path: actualPath });
             }
         }
@@ -569,6 +769,10 @@ function withoutAnyOf(constraints: ConstraintsV1): ConstraintsV1 {
     return rest;
 }
 
+function patternMatches(pattern: string | undefined, value: string): boolean {
+    return matchesPortablePattern(pattern, value);
+}
+
 function constraintBranchMatchesEvent(
     constraints: ConstraintsV1,
     event: EventInfo,
@@ -601,14 +805,14 @@ function constraintBranchMatchesEvent(
         const valueLength = event.value.length;
         if (constraints.min_length !== undefined && valueLength < constraints.min_length) return false;
         if (constraints.max_length !== undefined && valueLength > constraints.max_length) return false;
-        if (constraints.pattern !== undefined && !(new RegExp(constraints.pattern).test(event.value))) return false;
+        if (!patternMatches(constraints.pattern, event.value)) return false;
     }
     if (hasDigitFormConstraints(constraints) && isDigitFormLiteral(event.type)) {
         const digitCount = countFormDigits(event.type, event.raw);
         if (constraints.sign === 'unsigned' && isFormNegative(event.raw)) return false;
         if (constraints.min_digits !== undefined && digitCount < constraints.min_digits) return false;
         if (constraints.max_digits !== undefined && digitCount > constraints.max_digits) return false;
-        if (event.type === 'RadixLiteral' && constraints.radix !== undefined && firstInvalidRadixDigit(event.raw, constraints.radix) !== null) return false;
+        if (event.type === 'RadixLiteral' && constraints.radix !== undefined && !radixConstraintMatches(event.datatype, event.raw, constraints)) return false;
     }
     return true;
 }
@@ -617,9 +821,15 @@ function resolveTerminalReferenceEvent(
     event: EventInfo,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     activePaths: Set<string>,
+    remainingSteps: number,
+    state: { exhausted: boolean },
 ): EventInfo | null {
     if (!isReferenceType(event.type) || !event.referencePath) {
         return event;
+    }
+    if (remainingSteps <= 0) {
+        state.exhausted = true;
+        return null;
     }
 
     const targetPath = formatReferenceLookupPath(event.referencePath);
@@ -633,7 +843,7 @@ function resolveTerminalReferenceEvent(
 
     activePaths.add(targetPath);
     const resolved = isReferenceType(target.type)
-        ? resolveTerminalReferenceEvent(target, eventsByPath, activePaths)
+        ? resolveTerminalReferenceEvent(target, eventsByPath, activePaths, remainingSteps - 1, state)
         : target;
     activePaths.delete(targetPath);
     return resolved;
@@ -949,6 +1159,30 @@ function checkDatatypeRules(
     }
 }
 
+function mergeDatatypeRules(
+    ruleIndex: RuleIndex,
+    datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): RuleIndex {
+    if (!datatypeRules) return ruleIndex;
+    const merged = new Map<string, SchemaRule>();
+    for (const [path, rule] of ruleIndex.entries()) {
+        merged.set(path, { ...rule, constraints: { ...rule.constraints } });
+    }
+    for (const [path, event] of eventsByPath.entries()) {
+        if (!event.datatype) continue;
+        const datatypeRule = datatypeRules[datatypeBase(event.datatype).toLowerCase()];
+        if (!datatypeRule) continue;
+        const existing = merged.get(path);
+        const constraints = existing?.constraints ?? {};
+        merged.set(path, {
+            path,
+            constraints: { ...datatypeRule, ...constraints },
+        });
+    }
+    return merged;
+}
+
 function checkAttributeConstraints(
     ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
@@ -1099,6 +1333,17 @@ function validateAttributeEntry(
             ));
         }
         if (entry.type === 'RadixLiteral' && effectiveConstraints.radix !== undefined) {
+            const declaredRadix = declaredRadixFromDatatype(entry.datatype);
+            if ((declaredRadix === null && effectiveConstraints.allow_unspecified_radix !== true)
+                || (declaredRadix !== null && declaredRadix !== effectiveConstraints.radix)) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected declared radix ${effectiveConstraints.radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                return;
+            }
             const invalidDigit = firstInvalidRadixDigit(entry.raw, effectiveConstraints.radix);
             if (invalidDigit !== null) {
                 emitError(ctx, createDiag(
@@ -1111,7 +1356,7 @@ function validateAttributeEntry(
         }
     }
 
-    if (entry.type === 'StringLiteral') {
+    if (isStringType(entry.type)) {
         if (effectiveConstraints.min_length !== undefined && entry.value.length < effectiveConstraints.min_length) {
             emitError(ctx, createDiag(
                 path,
@@ -1128,7 +1373,7 @@ function validateAttributeEntry(
                 ErrorCodes.STRING_LENGTH_VIOLATION
             ));
         }
-        if (effectiveConstraints.pattern !== undefined && !(new RegExp(effectiveConstraints.pattern).test(entry.value))) {
+        if (effectiveConstraints.pattern !== undefined && !patternMatches(effectiveConstraints.pattern, entry.value)) {
             emitError(ctx, createDiag(
                 path,
                 entry.span,
@@ -1300,11 +1545,36 @@ function hasDigitFormConstraints(constraints: ConstraintsV1): boolean {
 }
 
 function isDigitFormLiteral(type: string): boolean {
-    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral' || type === 'SeparatorLiteral';
+    return type === 'NumberLiteral' || type === 'HexLiteral' || type === 'RadixLiteral';
+}
+
+function radixConstraintMatches(datatype: string | undefined, raw: string, constraints: ConstraintsV1): boolean {
+    if (constraints.radix === undefined) return true;
+    const declaredRadix = declaredRadixFromDatatype(datatype);
+    if (declaredRadix === null && constraints.allow_unspecified_radix !== true) return false;
+    if (declaredRadix !== null && declaredRadix !== constraints.radix) return false;
+    return firstInvalidRadixDigit(raw, constraints.radix) === null;
+}
+
+function declaredRadixFromDatatype(datatype: string | undefined): number | null {
+    if (datatype === undefined) return null;
+    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
+    if (!match) return null;
+    const value = Number(match[1] ?? match[2]);
+    return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isStringType(type: string): boolean {
-    return type === 'StringLiteral' || type === 'TrimtickLiteral';
+    return type === 'StringLiteral'
+        || type === 'TrimtickLiteral'
+        || type === 'TrimtickStringLiteral'
+        || type === 'SeparatorLiteral'
+        || type === 'NullLiteral'
+        || type === 'EncodingLiteral'
+        || type === 'DateLiteral'
+        || type === 'TimeLiteral'
+        || type === 'DateTimeLiteral'
+        || type === 'ZRUTDateTimeLiteral';
 }
 
 function countFormDigits(type: string, raw: string): number {
@@ -1315,7 +1585,7 @@ function countFormDigits(type: string, raw: string): number {
         .replace(/_/g, '');
     let count = 0;
     for (const char of body) {
-        if ((char >= '0' && char <= '9') || (type !== 'SeparatorLiteral' && ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!'))) {
+        if ((char >= '0' && char <= '9') || ((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char === '&' || char === '!')) {
             count++;
         }
     }

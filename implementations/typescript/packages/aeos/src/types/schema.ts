@@ -43,7 +43,7 @@ export interface ConstraintsV1 {
     /** Required reference kind when reference='require' */
     readonly reference_kind?: 'clone' | 'pointer' | 'either';
 
-    /** Regex pattern matched against the canonicalized reference target path */
+    /** AEOS portable pattern matched against the canonicalized reference target path */
     readonly reference_target_pattern?: string;
 
     /** Resolve reference chains before applying form/type constraints on this path */
@@ -73,6 +73,9 @@ export interface ConstraintsV1 {
     /** Exact radix/base required for RadixLiteral digit forms */
     readonly radix?: number;
 
+    /** Allow RadixLiteral values without a matching radix datatype declaration */
+    readonly allow_unspecified_radix?: boolean;
+
     /** Minimum integer value (inclusive), encoded as base-10 string for exactness */
     readonly min_value?: string;
 
@@ -85,7 +88,7 @@ export interface ConstraintsV1 {
     /** Maximum string length in UTF-16 code units (JavaScript string.length) */
     readonly max_length?: number;
 
-    /** Regex pattern for string matching */
+    /** AEOS portable pattern for string matching */
     readonly pattern?: string;
 
     /** Datatype label (presence check only, no capacity) */
@@ -130,6 +133,21 @@ export interface SchemaV1 {
 
     /** Optional datatype-wide constraints keyed by datatype base label */
     readonly datatype_rules?: Readonly<Record<string, ConstraintsV1>>;
+
+    /** Optional consumer-controlled validation resource limits */
+    readonly resource_policy?: ResourcePolicyV1;
+}
+
+export interface ResourcePolicyV1 {
+    readonly max_events?: number;
+    readonly max_rules?: number;
+    readonly max_any_of_cases?: number;
+    readonly max_schema_depth?: number;
+    readonly max_path_length?: number;
+    readonly max_reference_resolution_steps?: number;
+    readonly max_selector_expansions?: number;
+    readonly max_string_length_default?: number;
+    readonly max_container_children_default?: number;
 }
 
 /**
@@ -157,6 +175,7 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'min_digits',
     'max_digits',
     'radix',
+    'allow_unspecified_radix',
     'min_value',
     'max_value',
     'min_length',

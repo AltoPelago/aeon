@@ -56,7 +56,7 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv = {}) {
 
 function createDefaultSpecsRootFixture(): { specsRoot: string; registryPath: string } {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-specs-root-'));
-    const contractsDir = path.join(tmpDir, 'aeon', 'v1', 'drafts', 'contracts');
+    const contractsDir = path.join(tmpDir, 'contracts', 'v1', 'drafts', 'artifacts');
     fs.mkdirSync(contractsDir, { recursive: true });
 
     const schemaArtifact = `${schemaContractAeonText('aeon.gp.schema.v1')}\n`;
@@ -483,6 +483,16 @@ describe('AEON CLI output contract', () => {
                 'a = 2',
                 'b = 1',
             ].join('\n')));
+        });
+
+        it('fails closed when stdin exceeds --max-input-bytes', async () => {
+            const { code, stdout, stderr } = await runCliWithStdin(
+                ['fmt', '--max-input-bytes', '4'],
+                'b = 1\n'
+            );
+            assert.strictEqual(code, 1);
+            assert.strictEqual(stdout, '');
+            assert.ok(stderr.includes('exceeds configured limit'));
         });
 
         it('fails closed on invalid input', async () => {
