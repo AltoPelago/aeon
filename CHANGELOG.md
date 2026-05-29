@@ -16,12 +16,16 @@ repositories.
   escapes, unsupported alphabetic escapes, overlong patterns, and nested
   quantified groups.
 - Added regression coverage for portable pattern enforcement across
-  TypeScript, Rust, Python, and PHP implementation surfaces.
+  TypeScript, Rust, and PHP implementation surfaces.
+- Added AEOS `resource_policy` budget enforcement across TypeScript, Rust,
+  and PHP for event counts, rule counts, alternatives, schema depth, path
+  length, reference-resolution steps, selector expansion, and default container
+  child counts.
+- Added Core `max_events` budget enforcement across TypeScript, Rust, and PHP
+  so consumers can fail closed before returning oversized AES event streams.
 
 ### Fixed
 
-- Fixed Python CLI `fmt` so `--max-input-bytes` is enforced consistently with
-  other command surfaces.
 - Fixed TypeScript and Rust CLI default contract registry discovery after the
   aeonite-specs contracts reorganization, and taught the Rust CLI to load the
   current `aeos:schema` contract artifact shape.
