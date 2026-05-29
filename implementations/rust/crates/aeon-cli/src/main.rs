@@ -176,7 +176,7 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
@@ -186,6 +186,9 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
     let datatype_policy = flag_value(args, "--datatype-policy");
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
+    })?;
+    let max_events = optional_numeric_flag_value(args, "--max-events").map_err(|_| {
+        String::from("Error: Invalid value for --max-events (expected a non-negative integer)")
     })?;
     let max_attribute_depth = numeric_flag_value(
         args,
@@ -233,6 +236,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         &[
             "--datatype-policy",
             "--max-input-bytes",
+            "--max-events",
             "--max-attribute-depth",
             "--max-separator-depth",
             "--max-generic-depth",
@@ -254,6 +258,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         CompileOptions {
             recovery,
             max_input_bytes,
+            max_events,
             datatype_policy: resolve_datatype_policy(datatype_policy.as_deref(), rich).map_err(|_| {
                 format!(
                     "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)\n{INSPECT_USAGE}"

@@ -39,6 +39,7 @@ from .errors import (
     MissingReferenceTargetError,
     SelfReferenceError,
     SyntaxError,
+    EventCountExceededError,
     InputSizeExceededError,
     UntypedToggleLiteralError,
     UntypedValueInStrictModeError,
@@ -57,6 +58,7 @@ class CompileOptions:
     max_nesting_depth: int = 256
     datatype_policy: str | None = None
     max_input_bytes: int | None = None
+    max_events: int | None = None
 
 
 @dataclass(slots=True)
@@ -184,6 +186,11 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         return CompileResult(events=[], errors=all_errors)
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
+    if opts.max_events is not None and len(internal_events) > opts.max_events:
+        return CompileResult(
+            events=[],
+            errors=[*all_errors, EventCountExceededError(len(internal_events), opts.max_events)],
+        )
     events = [
         event
         for event in internal_events

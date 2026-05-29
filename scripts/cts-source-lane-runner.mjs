@@ -270,7 +270,7 @@ function sortObjectKeys(value) {
   );
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth }) {
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -285,6 +285,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
   if (Number.isInteger(maxGenericDepth)) args.push('--max-generic-depth', String(maxGenericDepth));
+  if (Number.isInteger(maxEvents)) args.push('--max-events', String(maxEvents));
 
   const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
@@ -479,6 +480,7 @@ async function main() {
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
+      const maxEvents = Number.isInteger(test.input?.options?.max_events) ? test.input.options.max_events : undefined;
       let errors = [];
       let warnings = [];
       let ok = false;
@@ -531,6 +533,7 @@ async function main() {
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
+          maxEvents,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -554,6 +557,7 @@ async function main() {
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
+          maxEvents,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);

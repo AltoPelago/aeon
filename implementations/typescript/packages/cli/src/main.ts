@@ -368,8 +368,8 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
@@ -377,6 +377,7 @@ function inspect(args: string[]): void {
     const sortAnnotations = args.includes('--sort-annotations');
     const datatypePolicy = resolveDatatypePolicy(args);
     const maxInputBytes = resolveMaxInputBytes(args);
+    const maxEvents = resolveDepthOption(args, '--max-events');
     const maxAttributeDepth = resolveDepthOption(args, '--max-attribute-depth');
     const maxSeparatorDepth = resolveDepthOption(args, '--max-separator-depth');
     const maxGenericDepth = resolveDepthOption(args, '--max-generic-depth');
@@ -395,6 +396,10 @@ function inspect(args: string[]): void {
     }
     if (maxInputBytes === null) {
         console.error('Error: Invalid value for --max-input-bytes (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxEvents === null) {
+        console.error('Error: Invalid value for --max-events (expected a non-negative integer)');
         process.exit(2);
     }
     if (maxAttributeDepth === null) {
@@ -420,6 +425,7 @@ function inspect(args: string[]): void {
         emitAnnotations: includeAnnotations || annotationsOnly,
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
+        ...(maxEvents !== undefined ? { maxEvents } : {}),
         ...(maxAttributeDepth !== undefined ? { maxAttributeDepth } : {}),
         ...(maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
         ...(maxGenericDepth !== undefined ? { maxGenericDepth } : {}),

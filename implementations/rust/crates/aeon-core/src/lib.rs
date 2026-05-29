@@ -169,6 +169,7 @@ pub(crate) enum BehaviorMode {
 pub struct CompileOptions {
     pub recovery: bool,
     pub max_input_bytes: Option<usize>,
+    pub max_events: Option<usize>,
     pub max_attribute_depth: usize,
     pub max_separator_depth: usize,
     pub max_generic_depth: usize,
@@ -185,6 +186,7 @@ impl Default for CompileOptions {
         Self {
             recovery: false,
             max_input_bytes: None,
+            max_events: None,
             max_attribute_depth: 1,
             max_separator_depth: 1,
             max_generic_depth: 1,
@@ -680,6 +682,22 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
+    if let Some(max_events) = options.max_events {
+        if flattened.events.len() > max_events {
+            return CompileResult {
+                source,
+                events: Vec::new(),
+                errors: vec![event_count_exceeded_error(
+                    flattened.events.len(),
+                    max_events,
+                )],
+                bindings: Vec::new(),
+                header: options
+                    .include_header
+                    .then(|| extract_header_fields(&bindings)),
+            };
+        }
+    }
     validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
     let indexes = build_validation_indexes(&flattened);
     let header = options
@@ -739,6 +757,20 @@ fn validate_only_compile(
     let mut errors = Vec::new();
     validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
+    if let Some(max_events) = options.max_events {
+        if flattened.events.len() > max_events {
+            return CompileResult {
+                source,
+                events: Vec::new(),
+                errors: vec![event_count_exceeded_error(
+                    flattened.events.len(),
+                    max_events,
+                )],
+                bindings: Vec::new(),
+                header: None,
+            };
+        }
+    }
     trace_compile(format!(
         "compile:validation_only:flattened events={} ref_steps={} ref_targets={}",
         flattened.events.len(),
@@ -781,6 +813,16 @@ fn validate_only_compile(
     }
 }
 
+fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagnostic {
+    Diagnostic {
+        code: String::from("EVENT_COUNT_EXCEEDED"),
+        path: Some(String::from("$")),
+        span: Some(Span::zero()),
+        phase: Some(4),
+        message: format!("Event count {actual_events} exceeds configured limit of {max_events}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -805,6 +847,21 @@ mod tests {
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
+    }
+
+    #[test]
+    fn rejects_inputs_over_the_configured_event_limit() {
+        let result = compile(
+            "a = 1\nb = 2",
+            CompileOptions {
+                max_events: Some(1),
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "EVENT_COUNT_EXCEEDED");
     }
 
     #[test]

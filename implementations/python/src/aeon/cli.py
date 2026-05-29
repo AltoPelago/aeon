@@ -66,6 +66,7 @@ def inspect(args: list[str]) -> int:
     max_generic_depth = numeric_flag_value(args, "--max-generic-depth")
     max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth")
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
+    max_events = numeric_flag_value(args, "--max-events")
     if max_attribute_depth is None and "--max-attribute-depth" in args:
         print("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
@@ -80,6 +81,9 @@ def inspect(args: list[str]) -> int:
         return 2
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_events is None and "--max-events" in args:
+        print("Error: Invalid value for --max-events (expected a non-negative integer)", file=sys.stderr)
         return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
@@ -96,6 +100,7 @@ def inspect(args: list[str]) -> int:
             max_generic_depth=1 if max_generic_depth is None else max_generic_depth,
             max_nesting_depth=256 if max_nesting_depth is None else max_nesting_depth,
             max_input_bytes=max_input_bytes,
+            max_events=max_events,
         ),
     )
     annotation_events = result.internal_events if result.internal_events is not None else result.events

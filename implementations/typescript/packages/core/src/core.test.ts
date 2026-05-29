@@ -44,6 +44,13 @@ describe('API Surface', () => {
         assert.ok(result);
     });
 
+    it('should fail closed when emitted events exceed maxEvents', () => {
+        const result = compile('a = 1\nb = 2', { maxEvents: 1 });
+        assert.strictEqual(result.events.length, 0);
+        assert.strictEqual(result.errors.length, 1);
+        assert.strictEqual(result.errors[0]!.code, 'EVENT_COUNT_EXCEEDED');
+    });
+
     it('should accept maxNestingDepth in CompileOptions', () => {
         const options: CompileOptions = { maxNestingDepth: 64 };
         const result = compile('a = 1', options);

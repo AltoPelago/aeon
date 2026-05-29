@@ -32,6 +32,8 @@ class AeonError(Exception):
 def infer_phase_label_from_code(code: str) -> str | None:
     if code == "INPUT_SIZE_EXCEEDED":
         return "Input Validation"
+    if code == "EVENT_COUNT_EXCEEDED":
+        return "Core Validation"
     if code == "UNSAFE_MAX_NESTING_DEPTH":
         return "Input Validation"
     if code in {"UNEXPECTED_CHARACTER", "UNTERMINATED_BLOCK_COMMENT", "UNTERMINATED_STRING", "UNTERMINATED_TRIMTICK"}:
@@ -172,6 +174,16 @@ class UnsafeMaxNestingDepthError(AeonError):
             ),
             span=span or Span(start=zero, end=zero),
             code="UNSAFE_MAX_NESTING_DEPTH",
+        )
+
+
+class EventCountExceededError(AeonError):
+    def __init__(self, actual: int, limit: int, span: Span | None = None) -> None:
+        zero = Position(line=1, column=1, offset=0)
+        super().__init__(
+            message=f"Event count {actual} exceeds configured limit of {limit}",
+            span=span or Span(start=zero, end=zero),
+            code="EVENT_COUNT_EXCEEDED",
         )
 
 
