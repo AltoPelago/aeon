@@ -13,6 +13,7 @@ export function runParserFuzz(options: FuzzRunOptions): FuzzRunSummary {
     ];
 
     cases.forEach((entry) => {
+        logCase(entry.id, entry.source, options.verbose);
         verifyParserCase(entry.source, entry.id);
     });
 
@@ -22,6 +23,14 @@ export function runParserFuzz(options: FuzzRunOptions): FuzzRunSummary {
         regressionCases: PARSER_REGRESSION_CASES.length,
         seed: options.seed,
     };
+}
+
+function logCase(caseId: string, source: string, verbose: boolean | undefined): void {
+    if (!verbose) {
+        return;
+    }
+
+    console.log(`[case ${caseId}] ${JSON.stringify(source)}`);
 }
 
 function verifyParserCase(source: string, caseId: string): void {

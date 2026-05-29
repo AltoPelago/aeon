@@ -7,10 +7,13 @@ export interface FuzzRunOptions {
     readonly cases: number;
     readonly maxLength: number;
     readonly seed: number;
+    readonly verbose?: boolean;
+    readonly duplicateStepWeights?: readonly [number, number, number];
+    readonly focusedFamily?: 'attribute' | 'type' | 'container' | 'scalar';
 }
 
 export interface FuzzRunSummary {
-    readonly lane: 'lexer' | 'parser';
+    readonly lane: 'lexer' | 'parser' | 'parser-duplicates' | 'parser-duplicate-attributes';
     readonly cases: number;
     readonly regressionCases: number;
     readonly seed: number;
@@ -24,6 +27,7 @@ export function runLexerFuzz(options: FuzzRunOptions): FuzzRunSummary {
     ];
 
     cases.forEach((entry) => {
+        logCase(entry.id, entry.source, options.verbose);
         const plain = verifyLexCase(entry.source, entry.id, {});
         const withComments = verifyLexCase(entry.source, entry.id, { includeComments: true });
         const withNewlines = verifyLexCase(entry.source, entry.id, { includeNewlines: true });
@@ -37,6 +41,14 @@ export function runLexerFuzz(options: FuzzRunOptions): FuzzRunSummary {
         regressionCases: LEXER_REGRESSION_CASES.length,
         seed: options.seed,
     };
+}
+
+function logCase(caseId: string, source: string, verbose: boolean | undefined): void {
+    if (!verbose) {
+        return;
+    }
+
+    console.log(`[case ${caseId}] ${JSON.stringify(source)}`);
 }
 
 function verifyLexCase(source: string, caseId: string, options: LexerOptions): LexResult {
