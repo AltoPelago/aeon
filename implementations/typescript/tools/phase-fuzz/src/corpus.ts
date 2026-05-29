@@ -689,13 +689,13 @@ function duplicateReferencePrefix(prng: PRNG, source: string): string {
 
 function duplicateContainerSeparator(prng: PRNG, source: string): string {
     if (source.includes('[')) {
-        return source.replace('[', '[, ').replace(',', ',,');
+        return duplicateFirstContainerSeparator(replaceFirstOccurrence(source, '[', '[, '));
     }
     if (source.includes('(')) {
-        return source.replace('(', '(, ').replace(',', ',,');
+        return duplicateFirstContainerSeparator(replaceFirstOccurrence(source, '(', '(, '));
     }
     if (source.includes('{')) {
-        return source.replace('{', '{, ').replace(',', ',,');
+        return duplicateFirstContainerSeparator(replaceFirstOccurrence(source, '{', '{, '));
     }
 
     const key = source.split(' = ')[0]?.trim() || 'items';
@@ -709,13 +709,13 @@ function duplicateContainerSeparator(prng: PRNG, source: string): string {
 
 function duplicateContainerDelimiter(prng: PRNG, source: string): string {
     if (source.includes('[')) {
-        return prng.bool(0.5) ? source.replace('[', '[[',) : `${source}]`;
+        return prng.bool(0.5) ? replaceFirstOccurrence(source, '[', '[[') : `${source}]`;
     }
     if (source.includes('(')) {
-        return prng.bool(0.5) ? source.replace('(', '((',) : `${source})`;
+        return prng.bool(0.5) ? replaceFirstOccurrence(source, '(', '((') : `${source})`;
     }
     if (source.includes('{')) {
-        return prng.bool(0.5) ? source.replace('{', '{{',) : `${source}}`;
+        return prng.bool(0.5) ? replaceFirstOccurrence(source, '{', '{{') : `${source}}`;
     }
 
     const key = source.split(' = ')[0]?.trim() || 'value';
@@ -726,6 +726,18 @@ function duplicateContainerDelimiter(prng: PRNG, source: string): string {
         `${key} = <div(("x")>`,
     ];
     return variants[prng.int(variants.length)] ?? `${key} = [[1, 2]`;
+}
+
+function duplicateFirstContainerSeparator(source: string): string {
+    return replaceFirstOccurrence(source, ',', ',,');
+}
+
+function replaceFirstOccurrence(source: string, search: string, replacement: string): string {
+    const index = source.indexOf(search);
+    if (index === -1) {
+        return source;
+    }
+    return `${source.slice(0, index)}${replacement}${source.slice(index + search.length)}`;
 }
 
 function duplicateLiteralFamily(prng: PRNG, source: string): string {
