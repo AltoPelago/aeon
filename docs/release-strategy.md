@@ -72,7 +72,8 @@ Normal release flow:
 2. Cut `release/<implementation>/<version>` from `main`.
 3. Run the implementation-specific verification set on that branch.
 4. Apply only release-stabilization fixes there.
-5. Tag the release with an implementation-specific tag.
+5. Tag the release with a signed implementation-specific tag and verify it
+   locally before pushing.
 6. Merge release-only fixes back into `main`.
 
 Use a release branch when:

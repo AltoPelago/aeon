@@ -15,7 +15,8 @@ pnpm run build
 5. Tag and push:
 
 ```bash
-git tag -a vX.Y.Z -m "release annotation-cts-runner vX.Y.Z"
+git tag -s vX.Y.Z -m "release annotation-cts-runner vX.Y.Z"
+git tag -v vX.Y.Z
 git push --tags
 ```
 
