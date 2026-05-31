@@ -16,17 +16,17 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/altopelago/Aeon"
 rust-version = "1.93.1"
-version = "0.9.2"
+version = "0.9.3"
 
 [workspace.dependencies]
-aeon-sdk = { path = "crates/aeon-sdk", version = "0.9.2" }
-aeon-aeos = { path = "crates/aeon-aeos", version = "0.9.2" }
-aeon-annotations = { path = "crates/aeon-annotations", version = "0.9.2" }
-aeon-canonical = { path = "crates/aeon-canonical", version = "0.9.2" }
-aeon-cli = { path = "crates/aeon-cli", version = "0.9.2" }
-aeon-core = { path = "crates/aeon-core", version = "0.9.2" }
-aeon-finalize = { path = "crates/aeon-finalize", version = "0.9.2" }
-aeon-wasm = { path = "crates/aeon-wasm", version = "0.9.2" }
+aeon-sdk = { path = "crates/aeon-sdk", version = "0.9.3" }
+aeon-aeos = { path = "crates/aeon-aeos", version = "0.9.3" }
+aeon-annotations = { path = "crates/aeon-annotations", version = "0.9.3" }
+aeon-canonical = { path = "crates/aeon-canonical", version = "0.9.3" }
+aeon-cli = { path = "crates/aeon-cli", version = "0.9.3" }
+aeon-core = { path = "crates/aeon-core", version = "0.9.3" }
+aeon-finalize = { path = "crates/aeon-finalize", version = "0.9.3" }
+aeon-wasm = { path = "crates/aeon-wasm", version = "0.9.3" }
 
 [workspace.lints.clippy]
 dbg_macro = "deny"

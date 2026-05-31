@@ -19,8 +19,7 @@ pub use pathing::format_path;
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
     validate_datatypes_light, validate_duplicate_canonical_paths,
-    validate_duplicate_object_member_keys, validate_header_typing, validate_reference_steps,
-    validate_typed_mode_rules,
+    validate_duplicate_object_member_keys, validate_reference_steps, validate_typed_mode_rules,
 };
 
 pub use lexer::{
@@ -159,7 +158,7 @@ pub enum DatatypePolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BehaviorMode {
+pub enum BehaviorMode {
     Transport,
     Strict,
     Custom,
@@ -175,6 +174,7 @@ pub struct CompileOptions {
     pub max_generic_depth: usize,
     pub max_nesting_depth: usize,
     pub datatype_policy: Option<DatatypePolicy>,
+    pub mode: Option<BehaviorMode>,
     pub shallow_event_values: bool,
     pub emit_binding_projections: bool,
     pub include_header: bool,
@@ -192,6 +192,7 @@ impl Default for CompileOptions {
             max_generic_depth: 1,
             max_nesting_depth: 256,
             datatype_policy: None,
+            mode: None,
             shallow_event_values: false,
             emit_binding_projections: true,
             include_header: true,
@@ -601,8 +602,7 @@ pub fn benchmark_validation_phases(
 
     let mode_start = std::time::Instant::now();
     let mut mode_errors = Vec::new();
-    validate_header_typing(&lowered, &mut mode_errors);
-    validate_typed_mode_rules(&lowered, &mut mode_errors);
+    validate_typed_mode_rules(&lowered, options.mode, &mut mode_errors);
     let mode_validation_ns = mode_start.elapsed().as_nanos();
 
     Ok(PhaseTiming {
@@ -720,8 +720,7 @@ fn finalize_compile(
         options.max_attribute_depth,
         &mut errors,
     );
-    validate_header_typing(&bindings, &mut errors);
-    validate_typed_mode_rules(&bindings, &mut errors);
+    validate_typed_mode_rules(&bindings, options.mode, &mut errors);
     trace_compile(format!(
         "compile:finalize:done events={} errors={}",
         flattened.events.len(),
@@ -797,8 +796,7 @@ fn validate_only_compile(
         &mut errors,
     );
     trace_compile("compile:validation_only:mode");
-    validate_header_typing(&bindings, &mut errors);
-    validate_typed_mode_rules(&bindings, &mut errors);
+    validate_typed_mode_rules(&bindings, options.mode, &mut errors);
     trace_compile(format!(
         "compile:validation_only:done errors={}",
         errors.len()
@@ -1677,6 +1675,31 @@ mod tests {
                 trimticks: None,
             })
         );
+    }
+
+    #[test]
+    fn treats_structured_header_metadata_as_control_plane_in_strict_mode() {
+        let result = compile(
+            "aeon:header = {\n  mode = \"strict\"\n  version = \"1\"\n  profile = \"aeon.gp.profile.v1\"\n  schema = \"altopelago.example.schema.v1\"\n}\nname:string = \"AEON\"\n",
+            CompileOptions::default(),
+        );
+
+        assert!(result.errors.is_empty());
+        assert!(!result.events.is_empty());
+    }
+
+    #[test]
+    fn consumer_selected_transport_mode_overrides_declared_strict_mode() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nname = \"AEON\"\n",
+            CompileOptions {
+                mode: Some(BehaviorMode::Transport),
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty());
+        assert!(!result.events.is_empty());
     }
 
     #[test]

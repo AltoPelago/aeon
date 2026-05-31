@@ -15,9 +15,9 @@ pnpm run build
 5. Tag and push:
 
 ```bash
-git tag -s vX.Y.Z -m "release annotation-cts-runner vX.Y.Z"
-git tag -v vX.Y.Z
-git push --tags
+git tag -s typescript/vX.Y.Z -m "release annotation-cts-runner vX.Y.Z"
+git tag -v typescript/vX.Y.Z
+git push origin typescript/vX.Y.Z
 ```
 
 6. Publish with pnpm (or your preferred registry automation):

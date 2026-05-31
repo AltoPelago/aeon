@@ -1,6 +1,6 @@
 # Release notes — @altopelago/aeon-annotation-cts-runner
 
-## 0.9.2 (unreleased)
+## 0.9.3 - 2026-06-01
 
 - Initial scaffold of annotation-stream CTS runner
 - Adds CLI wrapper `aeon-annotation-cts-runner` to run annotation CTS suites
@@ -10,10 +10,10 @@
 ## Publishing checklist
 
 - [ ] Bump `version` in `package.json`
-- [ ] Run `pnpm install` then `pnpm run build`
-- [ ] Run `pnpm run typecheck` and package tests (if any)
+- [ ] Run `pnpm install --frozen-lockfile --ignore-scripts`
+- [ ] Run `pnpm publish:preflight` from the TypeScript workspace root
 - [ ] Ensure `dist` contains `index.js` and types
-- [ ] Tag the release in git and push tag
-- [ ] Run `pnpm publish --access public` from package folder (or use your release automation)
+- [ ] Tag the release with a signed `typescript/vX.Y.Z` tag after the release commit is on `main`
+- [ ] Let the workspace npm publish workflow publish the package set
 
 Notes: this package is a tooling runner and reuses CTS artifacts in the repository; it does not alter CTS semantics by itself.

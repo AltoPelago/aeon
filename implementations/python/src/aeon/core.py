@@ -57,6 +57,9 @@ class CompileOptions:
     max_generic_depth: int = 1
     max_nesting_depth: int = 256
     datatype_policy: str | None = None
+    # Consumer-selected effective mode. When omitted, Core honors aeon:mode
+    # declared in the document for backwards-compatible authoring flows.
+    mode: str | None = None
     max_input_bytes: int | None = None
     max_events: int | None = None
 
@@ -176,7 +179,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     if path_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors])
 
-    mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy)
+    mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode)
     if mode_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors])
 
@@ -428,8 +431,13 @@ def attribute_to_json(attribute: Attribute) -> dict[str, object]:
     }
 
 
-def enforce_mode(document: Document, bindings: list[ResolvedBinding], datatype_policy: str | None) -> list[AeonError]:
-    mode = extract_mode(document)
+def enforce_mode(
+    document: Document,
+    bindings: list[ResolvedBinding],
+    datatype_policy: str | None,
+    effective_mode: str | None = None,
+) -> list[AeonError]:
+    mode = normalize_mode(effective_mode) if effective_mode is not None else extract_mode(document)
     effective_policy = effective_datatype_policy(mode, datatype_policy)
     errors: list[AeonError] = []
     lookup = {format_path(binding.path): binding for binding in bindings}
@@ -595,17 +603,7 @@ def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBin
         return False
     if document.header is None:
         return False
-    if document.header.has_structured and not document.header.has_shorthand:
-        return is_mode_selector_header_binding(binding)
     return True
-
-
-def is_mode_selector_header_binding(binding: ResolvedBinding) -> bool:
-    return (
-        len(binding.path.segments) == 2
-        and binding.path.segments[1].type == "member"
-        and binding.path.segments[1].key == "aeon:mode"
-    )
 
 
 def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: int) -> list[AeonError]:
@@ -923,9 +921,14 @@ def extract_mode(document: Document) -> str:
         return "transport"
     mode_value = document.header.fields.get("mode")
     if mode_value is not None and getattr(mode_value, "type", None) == "StringLiteral":
-        lowered = getattr(mode_value, "value", "").lower()
-        if lowered in {"transport", "strict", "custom"}:
-            return lowered
+        return normalize_mode(getattr(mode_value, "value", ""))
+    return "transport"
+
+
+def normalize_mode(mode: str) -> str:
+    lowered = mode.lower()
+    if lowered in {"transport", "strict", "custom"}:
+        return lowered
     return "transport"
 
 

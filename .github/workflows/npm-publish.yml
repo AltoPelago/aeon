@@ -3,7 +3,7 @@ name: npm Publish
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "typescript/v*.*.*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -29,9 +29,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Require signed annotated release tag
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+          git cat-file tag "${GITHUB_REF_NAME}" | grep -Eq '^-+BEGIN (PGP|SSH) SIGNATURE-+$'
+
       - name: Verify tag commit is on main
         if: ${{ github.event_name == 'push' }}
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+        run: |
+          TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8

@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-lexer",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Tokenize AEON source text for parsers, editors, and tooling.",
   "license": "MIT",
   "type": "module",

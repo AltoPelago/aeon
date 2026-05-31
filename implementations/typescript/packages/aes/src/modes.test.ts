@@ -8,7 +8,10 @@ import { datatypeHasGenericArgs, enforceMode, type ModeEnforcementResult } from 
 
 describe('Mode Enforcement', () => {
     // Helper to compile and enforce mode
-    function enforce(input: string, options: { datatypePolicy?: 'reserved_only' | 'allow_custom' } = {}): ModeEnforcementResult {
+    function enforce(
+        input: string,
+        options: { mode?: 'transport' | 'strict' | 'custom'; datatypePolicy?: 'reserved_only' | 'allow_custom' } = {}
+    ): ModeEnforcementResult {
         const tokens = tokenize(input).tokens;
         const ast = parse(tokens);
         if (!ast.document) {
@@ -37,6 +40,11 @@ describe('Mode Enforcement', () => {
     // ============================================
 
     describe('strict mode typing', () => {
+        it('should let consumer-selected transport mode override declared strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\na = 1', { mode: 'transport' });
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should error on untyped value in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\na = 1');
 
@@ -471,29 +479,29 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should enforce strict typing for structured header payload bindings', () => {
+        it('should allow structured header metadata fields beyond mode', () => {
+            const result = enforce([
+                'aeon:header = {',
+                '  mode = "strict"',
+                '  version = "1"',
+                '  profile = "aeon.gp.profile.v1"',
+                '  schema = "aeon.gp.schema.v1"',
+                '}',
+                'a:int32 = 1',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should allow untyped nested structured header metadata in strict mode', () => {
             const result = enforce([
                 'aeon:header = {',
                 '  mode = "strict"',
                 '  meta = {',
-                '    document:string = "public"',
+                '    document = "public"',
                 '  }',
                 '}',
-            ].join('\n'));
-
-            assert.ok(result.errors.length > 0);
-            assert.ok(result.errors.some((e) => e.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
-            assert.ok(result.errors.some((e) => e.path.includes('aeon:meta')));
-        });
-
-        it('should allow typed structured header payload bindings in strict mode', () => {
-            const result = enforce([
-                'aeon:header = {',
-                '  mode = "strict"',
-                '  meta:object = {',
-                '    document:string = "public"',
-                '  }',
-                '}',
+                'a:int32 = 1',
             ].join('\n'));
 
             assert.strictEqual(result.errors.length, 0);
