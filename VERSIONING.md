@@ -77,19 +77,21 @@ Examples:
 
 ## Release Tags
 
-Use annotated `vX.Y.Z` tags for implementation/package releases.
+Use signed annotated `vX.Y.Z` tags for implementation/package releases.
 
 For example, after the `0.9.2` release commit is merged to `main`:
 
 ```sh
 git checkout main
 git pull --ff-only
-git tag -a v0.9.2 -m "AEON implementation packages 0.9.2"
+git tag -s v0.9.2 -m "AEON implementation packages 0.9.2"
+git tag -v v0.9.2
 git push origin v0.9.2
 ```
 
 The npm publish workflow also listens for `v*.*.*` tag pushes, so push the tag
-only after the intended release commit is present on `main`.
+only after the intended release commit is present on `main` and the local tag
+signature verifies.
 
 ## Current Public Baseline
 
