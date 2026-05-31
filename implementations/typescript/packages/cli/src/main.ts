@@ -480,6 +480,7 @@ function finalize(args: string[]): void {
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
+    const effectiveMode = resolveCoreMode(args);
     const outputMap = args.includes('--map');
     const datatypePolicy = resolveDatatypePolicy(args);
     const scope = resolveFinalizeScope(args);
@@ -495,7 +496,7 @@ function finalize(args: string[]): void {
         process.exit(2);
     }
 
-    if (!mode) {
+    if (!mode || effectiveMode === null) {
         console.error('Error: Cannot use both --strict and --loose');
         console.error(finalizeUsage);
         process.exit(2);
@@ -538,7 +539,7 @@ function finalize(args: string[]): void {
     const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
         recovery,
-        mode: mode === 'loose' ? 'transport' : 'strict',
+        ...(effectiveMode ? { mode: effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
