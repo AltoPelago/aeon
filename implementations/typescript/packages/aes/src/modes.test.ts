@@ -8,7 +8,10 @@ import { datatypeHasGenericArgs, enforceMode, type ModeEnforcementResult } from 
 
 describe('Mode Enforcement', () => {
     // Helper to compile and enforce mode
-    function enforce(input: string, options: { datatypePolicy?: 'reserved_only' | 'allow_custom' } = {}): ModeEnforcementResult {
+    function enforce(
+        input: string,
+        options: { mode?: 'transport' | 'strict' | 'custom'; datatypePolicy?: 'reserved_only' | 'allow_custom' } = {}
+    ): ModeEnforcementResult {
         const tokens = tokenize(input).tokens;
         const ast = parse(tokens);
         if (!ast.document) {
@@ -37,6 +40,11 @@ describe('Mode Enforcement', () => {
     // ============================================
 
     describe('strict mode typing', () => {
+        it('should let consumer-selected transport mode override declared strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\na = 1', { mode: 'transport' });
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should error on untyped value in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\na = 1');
 

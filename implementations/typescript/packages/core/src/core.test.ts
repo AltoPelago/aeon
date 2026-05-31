@@ -715,6 +715,13 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should let consumer-selected transport mode override declared strict mode', () => {
+            const result = compile('aeon:mode = "strict"\nname = "AEON"', { mode: 'transport' });
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
         it('should accept typed list object items in strict mode', () => {
             const result = compile('aeon:mode = "strict"\ncontacts:list = [{ email:string = "ava@example.com" }]');
             assert.strictEqual(result.errors.length, 0);

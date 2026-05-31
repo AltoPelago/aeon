@@ -594,8 +594,12 @@ pub(crate) fn validate_header_typing(bindings: &[Binding], errors: &mut Vec<Diag
     let _ = (bindings, errors);
 }
 
-pub(crate) fn validate_typed_mode_rules(bindings: &[Binding], errors: &mut Vec<Diagnostic>) {
-    let mode = extract_behavior_mode(bindings);
+pub(crate) fn validate_typed_mode_rules(
+    bindings: &[Binding],
+    effective_mode: Option<BehaviorMode>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     if !matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom) {
         return;
     }

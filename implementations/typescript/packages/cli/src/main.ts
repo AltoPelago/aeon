@@ -259,10 +259,16 @@ function check(args: string[]): void {
     }
 
     const datatypePolicy = resolveDatatypePolicy(args);
+    const effectiveMode = resolveCoreMode(args);
     const maxInputBytes = resolveMaxInputBytes(args);
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon check <file> [--datatype-policy <reserved_only|allow_custom>]');
+        console.error('Usage: aeon check <file> [--strict|--loose] [--datatype-policy <reserved_only|allow_custom>]');
+        process.exit(2);
+    }
+    if (effectiveMode === null) {
+        console.error('Error: Cannot use both --strict and --loose');
+        console.error('Usage: aeon check <file> [--strict|--loose] [--datatype-policy <reserved_only|allow_custom>]');
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -272,6 +278,7 @@ function check(args: string[]): void {
 
     const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
+        ...(effectiveMode ? { mode: effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
@@ -368,13 +375,14 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--strict|--loose] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
      const includeAnnotations = args.includes('--annotations');
     const sortAnnotations = args.includes('--sort-annotations');
+    const effectiveMode = resolveCoreMode(args);
     const datatypePolicy = resolveDatatypePolicy(args);
     const maxInputBytes = resolveMaxInputBytes(args);
     const maxEvents = resolveDepthOption(args, '--max-events');
@@ -391,6 +399,11 @@ function inspect(args: string[]): void {
 
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (effectiveMode === null) {
+        console.error('Error: Cannot use both --strict and --loose');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -423,6 +436,7 @@ function inspect(args: string[]): void {
     const result = compile(input, {
         recovery,
         emitAnnotations: includeAnnotations || annotationsOnly,
+        ...(effectiveMode ? { mode: effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         ...(maxEvents !== undefined ? { maxEvents } : {}),
@@ -524,6 +538,7 @@ function finalize(args: string[]): void {
     const input = readFileWithLimit(file, maxInputBytes);
     const result = compile(input, {
         recovery,
+        mode: mode === 'loose' ? 'transport' : 'strict',
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
@@ -1400,6 +1415,15 @@ function resolveFinalizeMode(args: string[]): 'strict' | 'loose' | null {
     if (hasStrict && hasLoose) return null;
     if (hasLoose) return 'loose';
     return 'strict';
+}
+
+function resolveCoreMode(args: string[]): 'strict' | 'transport' | null | undefined {
+    const hasStrict = args.includes('--strict');
+    const hasLoose = args.includes('--loose');
+    if (hasStrict && hasLoose) return null;
+    if (hasStrict) return 'strict';
+    if (hasLoose) return 'transport';
+    return undefined;
 }
 
 function resolveFinalizeScope(args: string[]): 'payload' | 'header' | 'full' | null {

@@ -90,6 +90,10 @@ class CoreCompileTests(unittest.TestCase):
         )
         self.assertEqual([], result.errors)
 
+    def test_consumer_selected_transport_mode_overrides_declared_strict_mode(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nname = "AEON"', CompileOptions(mode="transport"))
+        self.assertEqual([], result.errors)
+
     def test_list_emits_indexed_paths(self) -> None:
         result = compile_source("a = [1]")
         self.assertEqual([], result.errors)

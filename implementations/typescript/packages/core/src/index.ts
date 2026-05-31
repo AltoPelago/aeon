@@ -27,6 +27,7 @@ import {
     type ReferenceValidationError,
     type ModeEnforcementError,
     type DatatypePolicy,
+    type Mode,
 } from '@altopelago/aeon-aes';
 import { buildAnnotationStreamFromSourceAndSpans, type AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type HostDirectiveKind } from './preamble.js';
@@ -118,6 +119,11 @@ export interface CompileOptions {
     readonly emitAnnotations?: boolean;
     /** Datatype policy in strict mode. Default: reserved_only */
     readonly datatypePolicy?: DatatypePolicy;
+    /**
+     * Consumer-selected effective mode. When omitted, Core honors aeon:mode
+     * declared in the document for backwards-compatible authoring flows.
+     */
+    readonly mode?: Mode;
     /** Maximum UTF-8 input size in bytes. Fail-closed when exceeded. */
     readonly maxInputBytes?: number;
     /** Maximum number of AES events Core may emit. Fail-closed when exceeded. */
@@ -220,6 +226,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     // Phase 6: Mode Enforcement
     const modeResult = enforceMode(refResult.events, parseResult.document.header, {
         recovery,
+        ...(options.mode ? { mode: options.mode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
     });
     allErrors.push(...modeResult.errors);

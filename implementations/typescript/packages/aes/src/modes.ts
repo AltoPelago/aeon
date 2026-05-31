@@ -191,6 +191,11 @@ export class InvalidNodeHeadDatatypeError extends ModeEnforcementError {
 export interface ModeEnforcementOptions {
     /** Enable recovery mode (return events even with errors) */
     readonly recovery?: boolean;
+    /**
+     * Consumer-selected effective mode. When omitted, enforcement honors the
+     * document-declared aeon:mode for backwards-compatible authoring flows.
+     */
+    readonly mode?: Mode;
     /** Explicit datatype compatibility override for typed modes */
     readonly datatypePolicy?: DatatypePolicy;
 }
@@ -247,7 +252,7 @@ export function enforceMode(
     header: Header | null,
     options: ModeEnforcementOptions = {}
 ): ModeEnforcementResult {
-    const mode = extractMode(header);
+    const mode = options.mode ?? extractMode(header);
     const datatypePolicy = options.datatypePolicy ?? defaultDatatypePolicyForMode(mode);
     const errors: ModeEnforcementError[] = [];
     const pathToIndex = new Map<string, number>();

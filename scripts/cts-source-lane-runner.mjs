@@ -279,7 +279,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'inspect', file, '--json'] : ['inspect', file, '--json'];
   if (mode === 'transport') args.push('--loose');
-  else args.push('--strict');
+  else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
@@ -474,7 +474,8 @@ async function main() {
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
       const source = String(test.input?.source ?? '');
-      const mode = String(test.input?.mode ?? 'strict');
+      const mode = typeof test.input?.mode === 'string' ? test.input.mode : undefined;
+      const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
@@ -504,7 +505,7 @@ async function main() {
         const finalized = await runFinalize({
           sutPath: args.sut,
           source,
-          mode,
+          mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           scope: typeof test.input?.options?.scope === 'string' ? test.input.options.scope : 'payload',
           materialization: typeof test.input?.options?.materialization === 'string' ? test.input.options.materialization : 'all',
@@ -527,7 +528,7 @@ async function main() {
         const inspect = await runInspect({
           sutPath: args.sut,
           source,
-          mode,
+          mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
           maxAttributeDepth,
@@ -551,7 +552,7 @@ async function main() {
         const inspect = await runInspect({
           sutPath: args.sut,
           source,
-          mode,
+          mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
           maxAttributeDepth,
