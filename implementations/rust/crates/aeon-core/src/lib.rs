@@ -19,8 +19,7 @@ pub use pathing::format_path;
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
     validate_datatypes_light, validate_duplicate_canonical_paths,
-    validate_duplicate_object_member_keys, validate_header_typing, validate_reference_steps,
-    validate_typed_mode_rules,
+    validate_duplicate_object_member_keys, validate_reference_steps, validate_typed_mode_rules,
 };
 
 pub use lexer::{
@@ -603,7 +602,6 @@ pub fn benchmark_validation_phases(
 
     let mode_start = std::time::Instant::now();
     let mut mode_errors = Vec::new();
-    validate_header_typing(&lowered, &mut mode_errors);
     validate_typed_mode_rules(&lowered, options.mode, &mut mode_errors);
     let mode_validation_ns = mode_start.elapsed().as_nanos();
 
@@ -722,7 +720,6 @@ fn finalize_compile(
         options.max_attribute_depth,
         &mut errors,
     );
-    validate_header_typing(&bindings, &mut errors);
     validate_typed_mode_rules(&bindings, options.mode, &mut errors);
     trace_compile(format!(
         "compile:finalize:done events={} errors={}",
@@ -799,7 +796,6 @@ fn validate_only_compile(
         &mut errors,
     );
     trace_compile("compile:validation_only:mode");
-    validate_header_typing(&bindings, &mut errors);
     validate_typed_mode_rules(&bindings, options.mode, &mut errors);
     trace_compile(format!(
         "compile:validation_only:done errors={}",

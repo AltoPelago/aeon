@@ -590,10 +590,6 @@ pub(crate) fn validate_datatypes_light(
     );
 }
 
-pub(crate) fn validate_header_typing(bindings: &[Binding], errors: &mut Vec<Diagnostic>) {
-    let _ = (bindings, errors);
-}
-
 pub(crate) fn validate_typed_mode_rules(
     bindings: &[Binding],
     effective_mode: Option<BehaviorMode>,
