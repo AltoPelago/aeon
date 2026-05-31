@@ -92,7 +92,7 @@ const GP_DOCUMENT_FIELDS = [
 
 export function getDiagnostics(text: string): Diagnostic[] {
     const result = compile(text);
-    const diagnostics = result.errors.map(toDiagnostic);
+    const diagnostics = suppressMultilineStringCascadeDiagnostics(text, result.errors.map(toDiagnostic));
     const document = parseDocument(text);
     if (document) {
         diagnostics.push(...getConventionDiagnostics(document));
@@ -857,6 +857,60 @@ function toDiagnostic(error: AEONError): Diagnostic {
             : {}),
         source: 'aeon-lsp',
     };
+}
+
+function suppressMultilineStringCascadeDiagnostics(text: string, diagnostics: Diagnostic[]): Diagnostic[] {
+    const ranges = findLikelyMultilineQuotedStringRanges(text);
+    if (ranges.length === 0) {
+        return diagnostics;
+    }
+
+    return diagnostics.filter((diagnostic) => {
+        const start = offsetAt(text, diagnostic.range.start);
+        return !ranges.some((range) => start > range.start && start <= range.end);
+    });
+}
+
+function findLikelyMultilineQuotedStringRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+
+    for (let offset = 0; offset < text.length; offset++) {
+        const delimiter = text[offset];
+        if (delimiter !== '"' && delimiter !== "'") {
+            continue;
+        }
+        if (offset > 0 && text[offset - 1] === '\\') {
+            continue;
+        }
+
+        const start = offset;
+        let sawNewline = false;
+        offset += 1;
+
+        for (; offset < text.length; offset++) {
+            const current = text[offset];
+            if (current === '\\') {
+                offset += 1;
+                continue;
+            }
+            if (current === '\n') {
+                sawNewline = true;
+                continue;
+            }
+            if (current === delimiter) {
+                if (sawNewline) {
+                    ranges.push({ start, end: offset });
+                }
+                break;
+            }
+        }
+
+        if (offset >= text.length && sawNewline) {
+            ranges.push({ start, end: text.length });
+        }
+    }
+
+    return ranges;
 }
 
 function toRange(span: Span | undefined): Range {
