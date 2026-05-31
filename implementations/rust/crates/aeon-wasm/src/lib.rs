@@ -1,9 +1,9 @@
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, HeaderFields,
-    LexerOptions, NullLiteralMode, ReferenceSegment, Span, TokenKind, Value, compile, format_path,
-    normalize_number_literal, tokenize,
+    AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
+    HeaderFields, NullLiteralMode, ReferenceSegment, Span, Value, compile, format_path,
+    normalize_number_literal,
 };
 use aeon_finalize::{FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json};
 use serde::Deserialize;
@@ -123,10 +123,7 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         });
     }
 
-    let compile_result = compile(
-        &apply_validation_mode(source, &options.validation_mode),
-        compile_options(options),
-    );
+    let compile_result = compile(source, compile_options(options));
 
     let events = events_json(
         &compile_result.events,
@@ -172,13 +169,24 @@ fn compile_options(options: &ProcessOptions) -> CompileOptions {
             "custom" => Some(DatatypePolicy::AllowCustom),
             _ => None,
         },
+        mode: effective_mode(options),
         ..CompileOptions::default()
+    }
+}
+
+fn effective_mode(options: &ProcessOptions) -> Option<BehaviorMode> {
+    match options.validation_mode.as_str() {
+        "none" => None,
+        "loose" | "transport" => Some(BehaviorMode::Transport),
+        "strict" => Some(BehaviorMode::Strict),
+        "custom" => Some(BehaviorMode::Custom),
+        _ => None,
     }
 }
 
 fn finalize_options(options: &ProcessOptions, header: Option<HeaderFields>) -> FinalizeOptions {
     FinalizeOptions {
-        mode: if options.validation_mode == "loose" {
+        mode: if matches!(options.validation_mode.as_str(), "loose" | "transport") {
             FinalizeMode::Loose
         } else {
             FinalizeMode::Strict
@@ -197,412 +205,6 @@ fn finalize_options(options: &ProcessOptions, header: Option<HeaderFields>) -> F
         header,
         ..FinalizeOptions::default()
     }
-}
-
-fn apply_validation_mode(source: &str, mode: &str) -> String {
-    if mode == "none" {
-        return source.to_owned();
-    }
-
-    let compile_mode = if mode == "loose" { "transport" } else { mode };
-    if let Some(updated) = replace_structured_header_mode(source, compile_mode) {
-        return updated;
-    }
-    if let Some((_, close_index)) = find_structured_header_bounds(source) {
-        let mut updated = String::with_capacity(source.len() + compile_mode.len() + 14);
-        updated.push_str(&source[..close_index]);
-        updated.push_str(&format!("\n  mode = \"{compile_mode}\""));
-        updated.push_str(&source[close_index..]);
-        return updated;
-    }
-    if let Some(updated) = replace_shorthand_mode(source, compile_mode) {
-        return updated;
-    }
-
-    format!("aeon:mode = \"{compile_mode}\"\n{source}")
-}
-
-fn replace_structured_header_mode(source: &str, compile_mode: &str) -> Option<String> {
-    let (open_index, close_index) = find_structured_header_bounds(source)?;
-    let mut index = open_index + 1;
-    let mut depth = 1usize;
-    while index < close_index {
-        index = consume_source_trivia(source, index);
-        if depth == 1 {
-            if let Some(mode_end) = consume_keyword(source, index, "mode") {
-                if let Some((value_start, value_end)) =
-                    find_mode_value_range(source, mode_end, close_index)
-                {
-                    let mut updated = String::with_capacity(source.len() + compile_mode.len() + 2);
-                    updated.push_str(&source[..value_start]);
-                    updated.push_str(compile_mode);
-                    updated.push_str(&source[value_end..]);
-                    return Some(updated);
-                }
-            }
-        }
-        let Some(ch) = source[index..].chars().next() else {
-            break;
-        };
-        match ch {
-            '"' | '\'' | '`' => index = consume_quoted_source(source, index),
-            '{' => {
-                depth += 1;
-                index += 1;
-            }
-            '}' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += ch.len_utf8(),
-        }
-    }
-    None
-}
-
-fn replace_shorthand_mode(source: &str, compile_mode: &str) -> Option<String> {
-    let mut index = 0;
-    while index < source.len() {
-        index = consume_source_trivia(source, index);
-        let Some(next) = consume_keyword(source, index, "aeon") else {
-            let Some(ch) = source[index..].chars().next() else {
-                break;
-            };
-            index += ch.len_utf8();
-            continue;
-        };
-        index = consume_source_trivia(source, next);
-        let Some(next) = consume_literal(source, index, ":") else {
-            continue;
-        };
-        index = consume_source_trivia(source, next);
-        let Some(mode_end) = consume_keyword(source, index, "mode") else {
-            continue;
-        };
-        if let Some((value_start, value_end)) =
-            find_mode_value_range(source, mode_end, source.len())
-        {
-            let mut updated = String::with_capacity(source.len() + compile_mode.len() + 2);
-            updated.push_str(&source[..value_start]);
-            updated.push_str(compile_mode);
-            updated.push_str(&source[value_end..]);
-            return Some(updated);
-        }
-    }
-    None
-}
-
-fn find_mode_value_range(source: &str, mut index: usize, limit: usize) -> Option<(usize, usize)> {
-    index = consume_source_trivia(source, index);
-    if let Some(next) = consume_literal(source, index, ":") {
-        index = next;
-        while index < limit && !source[index..].starts_with('=') {
-            let ch = source[index..].chars().next()?;
-            index += ch.len_utf8();
-        }
-    }
-    index = consume_source_trivia(source, index);
-    let next = consume_literal(source, index, "=")?;
-    index = consume_source_trivia(source, next);
-    let value_start_quote = consume_literal(source, index, "\"")?;
-    let value_end = find_closing_quote(source, value_start_quote, '"')?;
-    Some((value_start_quote, value_end))
-}
-
-fn find_structured_header_bounds(source: &str) -> Option<(usize, usize)> {
-    let mut index = 0;
-    while index < source.len() {
-        index = consume_source_trivia(source, index);
-        let Some(next) = consume_keyword(source, index, "aeon") else {
-            let Some(ch) = source[index..].chars().next() else {
-                break;
-            };
-            index += ch.len_utf8();
-            continue;
-        };
-        let mut cursor = consume_source_trivia(source, next);
-        cursor = consume_literal(source, cursor, ":")?;
-        cursor = consume_source_trivia(source, cursor);
-        cursor = consume_keyword(source, cursor, "header")?;
-        cursor = consume_source_trivia(source, cursor);
-        cursor = consume_literal(source, cursor, "=")?;
-        cursor = consume_source_trivia(source, cursor);
-        if source[cursor..].starts_with('{') {
-            let close_index = find_matching_brace(source, cursor)?;
-            return Some((cursor, close_index));
-        }
-        index = cursor;
-    }
-    None
-}
-
-fn find_matching_brace(source: &str, open_index: usize) -> Option<usize> {
-    let mut index = open_index;
-    let mut depth = 0usize;
-    while index < source.len() {
-        index = consume_source_trivia(source, index);
-        let ch = source[index..].chars().next()?;
-        match ch {
-            '"' | '\'' | '`' => index = consume_quoted_source(source, index),
-            '{' => {
-                depth += 1;
-                index += 1;
-            }
-            '}' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(index);
-                }
-                index += 1;
-            }
-            _ => index += ch.len_utf8(),
-        }
-    }
-    None
-}
-
-fn consume_source_trivia(source: &str, mut index: usize) -> usize {
-    loop {
-        let before = index;
-        while let Some(ch) = source[index..].chars().next() {
-            if ch.is_whitespace() {
-                index += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        if source[index..].starts_with("/#") {
-            if let Some(end) = source[index + 2..].find("#/") {
-                index += 2 + end + 2;
-                continue;
-            }
-        }
-        if source[index..].starts_with("/*") {
-            if let Some(end) = source[index + 2..].find("*/") {
-                index += 2 + end + 2;
-                continue;
-            }
-        }
-        if index == before {
-            return index;
-        }
-    }
-}
-
-fn consume_keyword(source: &str, index: usize, literal: &str) -> Option<usize> {
-    let next = consume_literal(source, index, literal)?;
-    let after = source[next..].chars().next();
-    (!after.is_some_and(is_identifier_char)).then_some(next)
-}
-
-fn is_identifier_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
-}
-
-fn consume_quoted_source(source: &str, index: usize) -> usize {
-    let Some(quote) = source[index..].chars().next() else {
-        return index;
-    };
-    find_closing_quote(source, index + quote.len_utf8(), quote)
-        .map_or(source.len(), |end| end + quote.len_utf8())
-}
-
-fn find_closing_quote(source: &str, mut index: usize, quote: char) -> Option<usize> {
-    while index < source.len() {
-        let ch = source[index..].chars().next()?;
-        if ch == '\\' {
-            index += ch.len_utf8();
-            if let Some(escaped) = source[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-        if ch == quote {
-            return Some(index);
-        }
-        index += ch.len_utf8();
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn apply_validation_mode_by_line(source: &str, mode: &str) -> String {
-    let compile_mode = if mode == "loose" { "transport" } else { mode };
-    let lines: Vec<&str> = source.lines().collect();
-    let Some(header_start) = lines
-        .iter()
-        .position(|line| line_has_structured_header_start(line))
-    else {
-        if has_flexible_header_mode(source) {
-            return source.to_owned();
-        }
-        return format!("aeon:mode = \"{compile_mode}\"\n{source}");
-    };
-
-    let mut output = Vec::with_capacity(lines.len() + 1);
-    let mut in_header = false;
-    let mut mode_written = false;
-
-    for (index, line) in lines.iter().enumerate() {
-        if index == header_start {
-            in_header = true;
-        }
-
-        if in_header && line_starts_with_mode_binding(line) {
-            let indent = line
-                .chars()
-                .take_while(|ch| ch.is_whitespace())
-                .collect::<String>();
-            let datatype = line
-                .split_once('=')
-                .and_then(|(left, _)| left.split_once(':').map(|(_, datatype)| datatype.trim()))
-                .map_or(String::new(), |datatype| format!(":{datatype}"));
-            output.push(format!("{indent}mode{datatype} = \"{compile_mode}\""));
-            mode_written = true;
-        } else if in_header && line.trim() == "}" && !mode_written {
-            output.push(format!("  mode = \"{compile_mode}\""));
-            output.push((*line).to_owned());
-            mode_written = true;
-            in_header = false;
-            continue;
-        } else {
-            output.push((*line).to_owned());
-        }
-
-        if in_header && line.trim() == "}" {
-            in_header = false;
-        }
-    }
-
-    output.join("\n")
-}
-
-fn line_has_structured_header_start(line: &str) -> bool {
-    let mut index = consume_inline_trivia(line, 0);
-    let Some(next) = consume_literal(line, index, "aeon") else {
-        return false;
-    };
-    index = consume_inline_trivia(line, next);
-    let Some(next) = consume_literal(line, index, ":") else {
-        return false;
-    };
-    index = consume_inline_trivia(line, next);
-    let Some(next) = consume_literal(line, index, "header") else {
-        return false;
-    };
-    index = consume_inline_trivia(line, next);
-    let Some(next) = consume_literal(line, index, "=") else {
-        return false;
-    };
-    index = consume_inline_trivia(line, next);
-    line[index..].starts_with('{')
-}
-
-fn line_starts_with_mode_binding(line: &str) -> bool {
-    let mut index = consume_inline_trivia(line, 0);
-    let Some(next) = consume_literal(line, index, "mode") else {
-        return false;
-    };
-    index = consume_inline_trivia(line, next);
-    if let Some(next) = consume_literal(line, index, ":") {
-        index = next;
-        while index < line.len() {
-            index = consume_inline_trivia(line, index);
-            if line[index..].starts_with('=') {
-                return true;
-            }
-            let Some(ch) = line[index..].chars().next() else {
-                return false;
-            };
-            index += ch.len_utf8();
-        }
-        return false;
-    }
-    index = consume_inline_trivia(line, index);
-    line[index..].starts_with('=')
-}
-
-fn consume_literal(line: &str, index: usize, literal: &str) -> Option<usize> {
-    line[index..]
-        .starts_with(literal)
-        .then_some(index + literal.len())
-}
-
-fn consume_inline_trivia(line: &str, mut index: usize) -> usize {
-    loop {
-        let before = index;
-        while let Some(ch) = line[index..].chars().next() {
-            if ch.is_whitespace() {
-                index += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        if line[index..].starts_with("/#") {
-            if let Some(end) = line[index + 2..].find("#/") {
-                index += 2 + end + 2;
-                continue;
-            }
-        }
-        if line[index..].starts_with("/*") {
-            if let Some(end) = line[index + 2..].find("*/") {
-                index += 2 + end + 2;
-                continue;
-            }
-        }
-        if index == before {
-            return index;
-        }
-    }
-}
-
-fn has_flexible_header_mode(source: &str) -> bool {
-    let lexed = tokenize(
-        source,
-        LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        },
-    );
-    if !lexed.errors.is_empty() {
-        return false;
-    }
-
-    for index in 0..lexed.tokens.len() {
-        let Some(token) = lexed.tokens.get(index) else {
-            continue;
-        };
-        if token.kind != TokenKind::Identifier || token.text != "aeon" {
-            continue;
-        }
-
-        let Some(colon_index) = next_non_newline_token_index(&lexed.tokens, index + 1) else {
-            continue;
-        };
-        if lexed.tokens[colon_index].kind != TokenKind::Colon {
-            continue;
-        }
-
-        let Some(field_index) = next_non_newline_token_index(&lexed.tokens, colon_index + 1) else {
-            continue;
-        };
-        let field = &lexed.tokens[field_index];
-        if field.kind == TokenKind::Identifier && matches!(field.text.as_str(), "header" | "mode") {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn next_non_newline_token_index(tokens: &[aeon_core::Token], mut index: usize) -> Option<usize> {
-    while let Some(token) = tokens.get(index) {
-        if token.kind != TokenKind::Newline {
-            return Some(index);
-        }
-        index += 1;
-    }
-    None
 }
 
 fn diagnostics_json(diagnostics: &[Diagnostic]) -> Vec<JsonValue> {
@@ -900,6 +502,20 @@ mod tests {
         assert_eq!(parsed["finalized"]["header"]["encoding"], "utf-8");
         assert_eq!(parsed["events"][0]["path"], "$.[\"aeon:encoding\"]");
         assert_eq!(parsed["events"][1]["path"], "$.[\"aeon:mode\"]");
+    }
+
+    #[test]
+    fn validation_mode_overrides_declared_mode_without_rewriting_header() {
+        let output = process_aeon_json(
+            "aeon:mode = \"strict\"\nname = \"AEON\"\n",
+            r#"{"validationMode":"loose","maxSeparatorDepth":8,"finalizeScope":"full"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["errors"], serde_json::json!([]));
+        assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
+        assert_eq!(parsed["finalized"]["payload"]["name"], "AEON");
     }
 
     #[test]
