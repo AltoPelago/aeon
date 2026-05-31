@@ -11,6 +11,8 @@ permissions:
 jobs:
   phase-fuzz-nightly:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
     defaults:
       run:
         working-directory: implementations/typescript
@@ -32,7 +34,7 @@ jobs:
           cache-dependency-path: implementations/typescript/pnpm-lock.yaml
 
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: pnpm build

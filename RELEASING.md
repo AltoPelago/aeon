@@ -112,6 +112,12 @@ Prefer the CI path for public releases so npm can attach package provenance.
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,
   `VERSIONING.md`, `README.md`, or `docs/release-strategy.md`.
+- As of 2026-05-31, the TypeScript workspace `.npmrc` enforces `ignore-scripts=true`
+  (and CI installs pass `--ignore-scripts`) to reduce npm/pnpm supply-chain risk.
+  If a release requires lifecycle scripts for a specific dependency/tooling step,
+  treat it as an explicit, reviewed exception and document the rationale in this
+  section (including the exact commands/env overrides used, e.g.
+  `NPM_CONFIG_IGNORE_SCRIPTS=false pnpm install`).
 - The current `typescript 6.0.3` uplift is one such intentional workspace
   toolchain baseline change and should be reviewed as publish-surface policy,
   even though it is a developer-tooling update.

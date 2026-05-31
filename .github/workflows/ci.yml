@@ -14,6 +14,8 @@ permissions:
 jobs:
   typescript:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
     defaults:
       run:
         working-directory: implementations/typescript
@@ -35,7 +37,7 @@ jobs:
           cache-dependency-path: implementations/typescript/pnpm-lock.yaml
 
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: pnpm build
@@ -71,6 +73,8 @@ jobs:
 
   canonical-cts:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
 
     steps:
       - name: Checkout
@@ -95,7 +99,7 @@ jobs:
 
       - name: Install TypeScript workspace dependencies
         working-directory: implementations/typescript
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build TypeScript workspace
         working-directory: implementations/typescript

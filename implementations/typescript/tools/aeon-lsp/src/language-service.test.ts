@@ -17,6 +17,51 @@ test('diagnostics mirror compile errors for invalid documents', () => {
     assert.equal(diagnostics[0]?.source, 'aeon-lsp');
 });
 
+test('diagnostics suppress cascades inside likely multiline quoted strings', () => {
+    const diagnostics = getDiagnostics([
+        'schema:string = "//# AEOS schema: use AEOS Composer to set up custom rules.',
+        '//# This starter schema requires contact, contact.name, and contact.status.',
+        'aeos:schema = {',
+        '  id:string = \\"playground.required\\"',
+        '  version:string = \\"1\\"',
+        '}',
+        '"',
+        '',
+    ].join('\n'));
+
+    assert.equal(diagnostics.length, 1);
+    assert.equal(diagnostics[0]?.code, 'UNTERMINATED_STRING');
+    assert.equal(diagnostics[0]?.range.start.line, 0);
+});
+
+test('diagnostics preserve lexer errors inside likely multiline quoted strings', () => {
+    const diagnostics = getDiagnostics([
+        'schema:string = "bad \\q escape',
+        'id:string = \\"still inside intended string\\"',
+        '"',
+        '',
+    ].join('\n'));
+
+    assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'UNTERMINATED_STRING'));
+    assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'INVALID_ESCAPE'));
+});
+
+test('diagnostics do not suppress errors between quotes inside comments', () => {
+    const diagnostics = getDiagnostics([
+        '// " comment text is not a string opener',
+        'broken = {',
+        '  inner =',
+        '}',
+        '// " another comment quote',
+        '',
+    ].join('\n'));
+
+    assert.ok(
+        diagnostics.some((diagnostic) => diagnostic.code === 'SYNTAX_ERROR' && diagnostic.range.start.line === 3),
+        'syntax error after incomplete binding should remain visible',
+    );
+});
+
 test('hover reports datatype annotations', () => {
     const text = 'coords:tuple<int32, int32> = (1, 2)\n';
     const hover = getHover(text, { line: 0, character: 9 });

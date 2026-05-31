@@ -92,7 +92,7 @@ const GP_DOCUMENT_FIELDS = [
 
 export function getDiagnostics(text: string): Diagnostic[] {
     const result = compile(text);
-    const diagnostics = result.errors.map(toDiagnostic);
+    const diagnostics = suppressMultilineStringCascadeDiagnostics(text, result.errors.map(toDiagnostic));
     const document = parseDocument(text);
     if (document) {
         diagnostics.push(...getConventionDiagnostics(document));
@@ -857,6 +857,110 @@ function toDiagnostic(error: AEONError): Diagnostic {
             : {}),
         source: 'aeon-lsp',
     };
+}
+
+function suppressMultilineStringCascadeDiagnostics(text: string, diagnostics: Diagnostic[]): Diagnostic[] {
+    const ranges = findLikelyMultilineQuotedStringRanges(text);
+    if (ranges.length === 0) {
+        return diagnostics;
+    }
+
+    return diagnostics.filter((diagnostic) => {
+        const start = offsetAt(text, diagnostic.range.start);
+        if (!isMultilineStringCascadeDiagnostic(diagnostic)) {
+            return true;
+        }
+        return !ranges.some((range) => start > range.start && start <= range.end);
+    });
+}
+
+function isMultilineStringCascadeDiagnostic(diagnostic: Diagnostic): boolean {
+    return diagnostic.code === 'SYNTAX_ERROR' || diagnostic.code === 'UNTERMINATED_STRING';
+}
+
+function findLikelyMultilineQuotedStringRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+
+    for (let offset = 0; offset < text.length; offset++) {
+        const commentEnd = commentEndOffset(text, offset);
+        if (commentEnd !== null) {
+            offset = commentEnd - 1;
+            continue;
+        }
+
+        const delimiter = text[offset];
+        if (delimiter !== '"' && delimiter !== "'") {
+            continue;
+        }
+        if (isEscaped(text, offset)) {
+            continue;
+        }
+
+        const start = offset;
+        let sawNewline = false;
+        offset += 1;
+
+        for (; offset < text.length; offset++) {
+            const current = text[offset];
+            if (current === '\\') {
+                offset += 1;
+                continue;
+            }
+            if (current === '\n') {
+                sawNewline = true;
+                continue;
+            }
+            if (current === delimiter) {
+                if (sawNewline) {
+                    ranges.push({ start, end: offset });
+                }
+                break;
+            }
+        }
+
+        if (offset >= text.length && sawNewline) {
+            ranges.push({ start, end: text.length });
+        }
+    }
+
+    return ranges;
+}
+
+function commentEndOffset(text: string, offset: number): number | null {
+    if (text[offset] !== '/') {
+        return null;
+    }
+
+    const marker = text.slice(offset, offset + 2);
+    if (marker === '//') {
+        const newline = text.indexOf('\n', offset + 2);
+        return newline === -1 ? text.length : newline;
+    }
+
+    const blockCommentEnds: Record<string, string> = {
+        '/*': '*/',
+        '/#': '#/',
+        '/@': '@/',
+        '/?': '?/',
+        '/{': '}/',
+        '/[': ']/',
+        '/(': ')/',
+    };
+    const endMarker = blockCommentEnds[marker];
+    if (!endMarker) {
+        return null;
+    }
+
+    const end = text.indexOf(endMarker, offset + 2);
+    return end === -1 ? text.length : end + endMarker.length;
+}
+
+function isEscaped(text: string, offset: number): boolean {
+    let slashCount = 0;
+    for (let index = offset - 1; index >= 0 && text[index] === '\\'; index--) {
+        slashCount += 1;
+    }
+    return slashCount % 2 === 1;
 }
 
 function toRange(span: Span | undefined): Range {
