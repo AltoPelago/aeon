@@ -11,6 +11,8 @@ permissions:
 jobs:
   phase-fuzz-nightly:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
     defaults:
       run:
         working-directory: implementations/typescript
