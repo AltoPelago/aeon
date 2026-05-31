@@ -591,26 +591,7 @@ pub(crate) fn validate_datatypes_light(
 }
 
 pub(crate) fn validate_header_typing(bindings: &[Binding], errors: &mut Vec<Diagnostic>) {
-    for binding in bindings {
-        if binding.key.starts_with("aeon:")
-            && binding.key != "aeon:mode"
-            && binding.datatype.is_none()
-            && matches!(
-                binding.value,
-                Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
-            )
-        {
-            errors.push(
-                Diagnostic::new(
-                    "UNTYPED_VALUE_IN_STRICT_MODE",
-                    format!("Structured header binding `{}` must be typed", binding.key),
-                )
-                .at_path(format_path(
-                    &CanonicalPath::root().member(binding.key.clone()),
-                )),
-            );
-        }
-    }
+    let _ = (bindings, errors);
 }
 
 pub(crate) fn validate_typed_mode_rules(bindings: &[Binding], errors: &mut Vec<Diagnostic>) {
@@ -832,6 +813,11 @@ fn validate_typed_mode_rules_in_scope(
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
+        if matches!(parent.segments.as_slice(), [crate::PathSegment::Root])
+            && binding.key.starts_with("aeon:")
+        {
+            continue;
+        }
         let should_emit_untyped_value_error = !binding.key.starts_with("aeon:")
             && binding.datatype.is_none()
             && !(matches!(mode, BehaviorMode::Strict)

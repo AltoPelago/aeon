@@ -595,17 +595,7 @@ def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBin
         return False
     if document.header is None:
         return False
-    if document.header.has_structured and not document.header.has_shorthand:
-        return is_mode_selector_header_binding(binding)
     return True
-
-
-def is_mode_selector_header_binding(binding: ResolvedBinding) -> bool:
-    return (
-        len(binding.path.segments) == 2
-        and binding.path.segments[1].type == "member"
-        and binding.path.segments[1].key == "aeon:mode"
-    )
 
 
 def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: int) -> list[AeonError]:

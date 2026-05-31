@@ -700,6 +700,21 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should treat structured header metadata as control-plane in strict mode', () => {
+            const result = compile([
+                'aeon:header = {',
+                '  mode = "strict"',
+                '  version = "1"',
+                '  profile = "aeon.gp.profile.v1"',
+                '  schema = "altopelago.example.schema.v1"',
+                '}',
+                'name:string = "AEON"',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
         it('should accept typed list object items in strict mode', () => {
             const result = compile('aeon:mode = "strict"\ncontacts:list = [{ email:string = "ava@example.com" }]');
             assert.strictEqual(result.errors.length, 0);

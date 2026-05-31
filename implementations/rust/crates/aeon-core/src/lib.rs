@@ -1680,6 +1680,17 @@ mod tests {
     }
 
     #[test]
+    fn treats_structured_header_metadata_as_control_plane_in_strict_mode() {
+        let result = compile(
+            "aeon:header = {\n  mode = \"strict\"\n  version = \"1\"\n  profile = \"aeon.gp.profile.v1\"\n  schema = \"altopelago.example.schema.v1\"\n}\nname:string = \"AEON\"\n",
+            CompileOptions::default(),
+        );
+
+        assert!(result.errors.is_empty());
+        assert!(!result.events.is_empty());
+    }
+
+    #[test]
     fn supports_single_quoted_keys_and_references() {
         let result = compile(
             "'single\\'quote':int32 = 2\nref = ~['single\\'quote']\n",

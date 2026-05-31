@@ -78,6 +78,18 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "strict"\nref_source_num:number = 99\npointer001:number = ~>ref_source_num')
         self.assertEqual([], result.errors)
 
+    def test_structured_header_metadata_is_control_plane_in_strict_mode(self) -> None:
+        result = compile_source(
+            'aeon:header = {\n'
+            '  mode = "strict"\n'
+            '  version = "1"\n'
+            '  profile = "aeon.gp.profile.v1"\n'
+            '  schema = "altopelago.example.schema.v1"\n'
+            '}\n'
+            'name:string = "AEON"'
+        )
+        self.assertEqual([], result.errors)
+
     def test_list_emits_indexed_paths(self) -> None:
         result = compile_source("a = [1]")
         self.assertEqual([], result.errors)

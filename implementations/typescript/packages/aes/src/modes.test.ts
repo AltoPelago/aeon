@@ -471,29 +471,29 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should enforce strict typing for structured header payload bindings', () => {
+        it('should allow structured header metadata fields beyond mode', () => {
+            const result = enforce([
+                'aeon:header = {',
+                '  mode = "strict"',
+                '  version = "1"',
+                '  profile = "aeon.gp.profile.v1"',
+                '  schema = "aeon.gp.schema.v1"',
+                '}',
+                'a:int32 = 1',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should allow untyped nested structured header metadata in strict mode', () => {
             const result = enforce([
                 'aeon:header = {',
                 '  mode = "strict"',
                 '  meta = {',
-                '    document:string = "public"',
+                '    document = "public"',
                 '  }',
                 '}',
-            ].join('\n'));
-
-            assert.ok(result.errors.length > 0);
-            assert.ok(result.errors.some((e) => e.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
-            assert.ok(result.errors.some((e) => e.path.includes('aeon:meta')));
-        });
-
-        it('should allow typed structured header payload bindings in strict mode', () => {
-            const result = enforce([
-                'aeon:header = {',
-                '  mode = "strict"',
-                '  meta:object = {',
-                '    document:string = "public"',
-                '  }',
-                '}',
+                'a:int32 = 1',
             ].join('\n'));
 
             assert.strictEqual(result.errors.length, 0);
