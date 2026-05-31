@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-parser",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Parse AEON tokens into syntax trees and diagnostics.",
   "license": "MIT",
   "type": "module",

@@ -136,6 +136,8 @@ Release-specific checks:
 - confirm the first-wave publish set still matches [`RELEASING.md`](../RELEASING.md)
 - run `npm pack --dry-run --json` on intended public packages
 - confirm no unexpected lifecycle scripts or publish-surface drift were added
+- create a signed annotated tag, verify it locally with `git tag -v`, and push
+  it only after the tagged commit is on `main`
 
 Tag shape:
 
@@ -169,6 +171,8 @@ Security and policy checks:
 - ensure `cargo audit` is green
 - ensure `cargo deny check` is green
 - confirm crate metadata matches the intended public release surface
+- create a signed annotated tag, verify it locally with `git tag -v`, and push
+  it only after the tagged commit is on `main`
 
 Tag shape:
 
@@ -201,6 +205,8 @@ Release-specific checks:
 - confirm the dependency-free runtime surface is still intact unless an explicit
   policy change was made
 - confirm package metadata and console entry points are correct
+- create a signed annotated tag, verify it locally with `git tag -v`, and push
+  it only after the tagged commit is on `main`
 
 Tag shape:
 

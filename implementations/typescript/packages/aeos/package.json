@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeos-core",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "AEOS schema validation runtime and CLI for AEON documents.",
   "license": "MIT",
   "type": "module",

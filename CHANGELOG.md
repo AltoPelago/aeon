@@ -6,6 +6,39 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.9.3 - 2026-06-01
+
+### Security
+
+- Hardened mode authority by separating document-declared `aeon:mode` from the
+  processor-selected effective mode. External processor/runtime policy now wins
+  when supplied, so untrusted document metadata cannot force strict, transport,
+  or custom behavior.
+- Added CTS coverage for declared-mode/effective-mode disagreement in both
+  directions: declared strict with effective transport, and declared transport
+  with effective strict.
+- Updated release guidance and npm publish automation to use signed,
+  implementation-specific tags and require signed annotated tags before publish.
+
+### Changed
+
+- Updated AEON v1 spec-aligned behavior for mode resolution: absent declared
+  mode defaults to transport, declared mode is honored only when no external
+  effective mode is provided, and explicit effective mode overrides declared
+  mode.
+- Updated TypeScript CLI `check`, `inspect`, and `finalize` so `--strict` and
+  `--loose` are treated as external effective-mode selections rather than
+  document metadata edits.
+- Updated CTS source-lane runner support for explicit `options.effective_mode`
+  so legacy `input.mode` metadata is not confused with processor authority.
+
+### Fixed
+
+- Treated structured header metadata under `aeon:*` as control-plane data
+  during typed-mode enforcement, matching shorthand header behavior and
+  preventing strict-mode payload typing diagnostics from firing on header
+  metadata.
+
 ## 0.9.2 - 2026-05-30
 
 ### Security
