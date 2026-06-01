@@ -42,6 +42,29 @@ jobs:
           TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
           git merge-base --is-ancestor "$TAG_COMMIT" origin/main
 
+      - name: Verify release tag is signed
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(printf '%s' "$tag_ref" | jq -r '.object.type')"
+          tag_sha="$(printf '%s' "$tag_ref" | jq -r '.object.sha')"
+
+          if [ "$tag_type" != "tag" ]; then
+            echo "Release ref ${GITHUB_REF_NAME} is not an annotated tag."
+            exit 1
+          fi
+
+          verification="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.verification')"
+          verified="$(printf '%s' "$verification" | jq -r '.verified')"
+          reason="$(printf '%s' "$verification" | jq -r '.reason')"
+
+          if [ "$verified" != "true" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} is not verified. Reason: ${reason}"
+            exit 1
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
