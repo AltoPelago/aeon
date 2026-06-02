@@ -344,6 +344,18 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should allow parameterized object and node claims without enforcing child semantics in core', () => {
+            const result = enforce([
+                'aeon:mode = "strict"',
+                'scores:object<number> = {',
+                '  alice:string = "ten"',
+                '}',
+                'title:node = <title:node<string>(<span("hello")>)>',
+            ].join('\n'));
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should treat untyped toggle literals like other untyped bindings in custom mode', () => {
             const result = enforce('aeon:mode = "custom"\ndebug = yes');
 

@@ -230,6 +230,24 @@ describe('Assignment Event Emission', () => {
             assert.strictEqual(result.events[0]!.datatype, 'tuple<int32, int32>');
         });
 
+        it('should include parameterized object and node datatype signatures in core v1', () => {
+            const result = emit('scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>', true);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events[0]!.datatype, 'object<number>');
+            assert.strictEqual(result.events[2]!.datatype, 'node<html>');
+        });
+
+        it('should include parameterized node-head datatype signatures in core v1', () => {
+            const result = emit('title:node = <title:node<string>("Hello")>', true);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events[0]!.datatype, 'node');
+            assert.strictEqual(result.events[0]!.value.type, 'NodeLiteral');
+            assert.strictEqual((result.events[0]!.value as any).datatype?.name, 'node');
+            assert.deepStrictEqual((result.events[0]!.value as any).datatype?.genericArgs, ['string']);
+        });
+
         it('should include typed annotation signature for attributes in core v1', () => {
             const result = emit('value@{meta:pair<int32, string> = "ok"} = 1', true);
 

@@ -724,11 +724,15 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            if (datatype.genericArgs.length > 0 || datatype.radixBase !== null || datatype.separators.length > 0) {
+            if (
+                (datatype.genericArgs.length > 0 && datatype.name !== 'node')
+                || datatype.radixBase !== null
+                || datatype.separators.length > 0
+            ) {
                 throw new SyntaxError(
-                    'Node head datatypes must be simple labels without generics or separator specs',
+                    'Node head datatypes must be simple labels or node<T> without separator specs',
                     datatype.span,
-                    'simple node head datatype',
+                    'simple node head datatype or node<T>',
                     this.formatTypeAnnotation(datatype)
                 );
             }
@@ -1763,7 +1767,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
 }
 
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);

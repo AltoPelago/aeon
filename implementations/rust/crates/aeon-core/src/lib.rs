@@ -1056,6 +1056,17 @@ mod tests {
     }
 
     #[test]
+    fn accepts_parameterized_object_and_node_claims() {
+        let result = compile(
+            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("object<number>"));
+        assert_eq!(result.events[2].datatype.as_deref(), Some("node<html>"));
+    }
+
+    #[test]
     fn strict_mode_accepts_embed_and_inline_as_reserved_encoding_aliases() {
         for datatype in ["embed", "inline"] {
             let source = format!("aeon:mode = \"strict\"\npayload:{datatype} = $QmFzZTY0IQ==\n");

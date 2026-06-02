@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-transport",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "AEON transport envelope helpers.",
   "license": "MIT",
   "type": "module",

@@ -51,7 +51,7 @@ from .errors import (
 from .lexer import Token
 from .spans import Span
 
-GENERIC_V1_DATATYPES = {"list", "tuple"}
+GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node"}
 BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
@@ -555,8 +555,8 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
-            if datatype.generic_args or datatype.separators:
-                raise SyntaxError("Node head datatypes must be simple labels without generics or separator specs", datatype.span)
+            if (datatype.generic_args and datatype.name != "node") or datatype.radix_base is not None or datatype.separators:
+                raise SyntaxError("Node head datatypes must be simple labels or node<T> without separator specs", datatype.span)
             self.skip_layout()
         children: list[Value] = []
         if self.check("RANGLE"):

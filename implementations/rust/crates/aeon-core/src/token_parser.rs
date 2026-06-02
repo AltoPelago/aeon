@@ -1054,9 +1054,10 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             let parsed = self.parse_simple_datatype()?;
-            if parsed.contains('<') || parsed.contains('[') {
+            let base = datatype_base(&parsed);
+            if (parsed.contains('<') && base != "node") || !datatype_bracket_specs(&parsed).is_empty() {
                 return Err(self.error_at_current(
-                    "Node head datatypes must be simple labels without generics or separator specs",
+                    "Node head datatypes must be simple labels or node<T> without separator specs",
                 ));
             }
             datatype = Some(parsed);
@@ -1443,7 +1444,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     if !is_reserved_v1_datatype(base) {
         return Ok(());
     }
-    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple") {
+    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple" | "object" | "node") {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -2054,7 +2055,18 @@ group:object = {
     }
 
     #[test]
-    fn rejects_generic_inline_node_head_datatypes() {
+    fn parses_parameterized_node_head_datatypes() {
+        let bindings = parse("v:node = <title:node<string>(\"Hello\")>\n").expect("token parse");
+        match &bindings[0].value {
+            Value::NodeLiteral { datatype, .. } => {
+                assert_eq!(datatype.as_deref(), Some("node<string>"));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_non_node_generic_inline_node_head_datatypes() {
         let err = parse("v:node = <tag:pair<int32,string>(\"x\")>\n")
             .expect_err("generic node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");

@@ -281,6 +281,18 @@ describe('Parser', () => {
             assert.deepStrictEqual(datatype!.genericArgs, ['int32', 'int32']);
         });
 
+        it('should parse parameterized object and node binding claims in core v1', () => {
+            const tokens = tokenize('scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const [scores, doc] = result.document!.bindings;
+            assert.strictEqual(scores!.datatype!.name, 'object');
+            assert.deepStrictEqual(scores!.datatype!.genericArgs, ['number']);
+            assert.strictEqual(doc!.datatype!.name, 'node');
+            assert.deepStrictEqual(doc!.datatype!.genericArgs, ['html']);
+        });
+
         it('should parse generic args on attribute type in core v1', () => {
             const tokens = tokenize('value@{meta:pair<int32, string> = "ok"} = 1').tokens;
             const result = parse(tokens);
@@ -1361,12 +1373,25 @@ describe('Parser', () => {
             }
         });
 
-        it('should reject generic inline node head datatypes', () => {
+        it('should parse parameterized node child-content claims on node heads', () => {
+            const tokens = tokenize('item = <title:node<string>("Hello world")>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            if (value.type === 'NodeLiteral') {
+                assert.strictEqual(value.datatype?.name, 'node');
+                assert.deepStrictEqual(value.datatype?.genericArgs, ['string']);
+            }
+        });
+
+        it('should reject non-node generic inline node head datatypes', () => {
             const tokens = tokenize('item = <tag:pair<int32,string>("x")>').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels or node<T>/);
         });
 
         it('should reject separator-spec inline node head datatypes', () => {
@@ -1374,7 +1399,7 @@ describe('Parser', () => {
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels/);
+            assert.match(result.errors[0]!.message, /Node head datatypes must be simple labels or node<T>/);
         });
     });
 

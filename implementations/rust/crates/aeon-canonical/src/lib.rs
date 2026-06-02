@@ -1077,7 +1077,7 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    if datatype.contains('<') && !matches!(base, "list" | "tuple") {
+    if datatype.contains('<') && !matches!(base, "list" | "tuple" | "object" | "node") {
         return Err(format!(
             "Datatype `{base}` does not support generic arguments in v1"
         ));
@@ -1643,9 +1643,16 @@ impl<'a> Parser<'a> {
             }
             if self.peek() == Some(':') && datatype.is_none() {
                 self.index += 1;
-                self.skip_ws(true);
-                datatype =
-                    Some(self.parse_identifier_like(&['@', '(', '>', ' ', '\t', '\n', '\r'])?);
+                let parsed = self.parse_datatype_like()?;
+                let base = datatype_base(&parsed);
+                if (parsed.contains('<') && base != "node")
+                    || !datatype_bracket_specs(&parsed).is_empty()
+                {
+                    return Err(self.syntax_error(
+                        "Node head datatypes must be simple labels or node<T> without separator specs",
+                    ));
+                }
+                datatype = Some(parsed);
                 continue;
             }
             break;
@@ -2564,6 +2571,18 @@ mod tests {
         assert_eq!(
             result.text,
             "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[x] = ^300x250\n"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_parameterized_object_and_node_claims() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ntitle:node = <title:node<string>(\"Hello\")>\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
         );
     }
 
