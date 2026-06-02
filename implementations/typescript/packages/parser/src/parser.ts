@@ -322,6 +322,9 @@ class Parser {
 
         // Parse value
         const value = this.parseValue();
+        if (datatype) {
+            this.validateBindingNodeGeneric(datatype, value);
+        }
 
         const end = this.previous().span.end;
         return {
@@ -500,6 +503,24 @@ class Parser {
                 null,
                 name
             );
+        }
+    }
+
+    private validateBindingNodeGeneric(datatype: TypeAnnotation, value: Value): void {
+        if (datatype.name !== 'node' || datatype.genericArgs.length === 0 || value.type !== 'NodeLiteral') {
+            return;
+        }
+
+        for (const arg of datatype.genericArgs) {
+            const base = arg.split('<', 1)[0] ?? arg;
+            if (base !== 'node' && RESERVED_V1_DATATYPES.has(base)) {
+                throw new SyntaxError(
+                    "Binding-level node<T> claims over node values may use node<T> only for custom profile/domain claims or node<node>",
+                    datatype.span,
+                    'node<node> or node<custom>',
+                    this.formatTypeAnnotation(datatype)
+                );
+            }
         }
     }
 
@@ -724,11 +745,19 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            if (datatype.genericArgs.length > 0 || datatype.radixBase !== null || datatype.separators.length > 0) {
+            if (datatype.genericArgs.length > 0 && datatype.name !== 'node') {
                 throw new SyntaxError(
-                    'Node head datatypes must be simple labels without generics or separator specs',
+                    'Generic node head datatypes must use node<T>',
                     datatype.span,
-                    'simple node head datatype',
+                    'node<T>',
+                    this.formatTypeAnnotation(datatype)
+                );
+            }
+            if (datatype.radixBase !== null || datatype.separators.length > 0) {
+                throw new SyntaxError(
+                    'Node head datatypes must not use bracket specs',
+                    datatype.span,
+                    'node head datatype',
                     this.formatTypeAnnotation(datatype)
                 );
             }
@@ -1763,7 +1792,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
 }
 
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple']);
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);

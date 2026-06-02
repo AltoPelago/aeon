@@ -40,7 +40,7 @@
  * - --datatype-policy  reserved_only|allow_custom (check/inspect/finalize/bind)
  * - --rich         Preset alias for --datatype-policy allow_custom
  * - --strict       Strict mode (default)
- * - --loose        Loose mode (warnings only)
+ * - --transport        Transport mode
  * - --public-key   Public key path for signature verification
  * - --private-key  Private key path for signing
  * - --receipt      Receipt sidecar path override
@@ -189,7 +189,7 @@ Options:
   --datatype-policy  reserved_only|allow_custom (check/inspect/finalize/bind)
   --rich             Preset alias for --datatype-policy allow_custom
   --strict           Strict mode (default)
-  --loose            Loose mode (warnings only)
+  --transport            Transport mode
   --public-key       Public key path for signature verification
   --private-key      Private key path for signing
   --receipt          Receipt sidecar path override
@@ -216,7 +216,7 @@ Examples:
   aeon finalize config.aeon --json
   aeon finalize config.aeon --map
   aeon finalize config.aeon --scope full
-  aeon finalize config.aeon --loose
+  aeon finalize config.aeon --transport
   aeon finalize config.aeon --projected --include-path '$.app.name'
   aeon finalize config.aeon --map --include-path '$.app.name' --include-path '$.app.port'
   aeon bind config.aeon --schema config.schema.json
@@ -229,7 +229,7 @@ Examples:
   aeon inspect config.aeon --rich
   aeon bind config.aeon --schema config.schema.json --datatype-policy allow_custom
   aeon bind config.aeon --schema config.schema.json --rich
-  aeon bind config.aeon --schema config.schema.json --loose
+  aeon bind config.aeon --schema config.schema.json --transport
     aeon bind config.aeon --schema config.schema.json --annotations
     aeon bind config.aeon --schema config.schema.json --annotations --sort-annotations
   aeon integrity validate config.aeon
@@ -263,12 +263,12 @@ function check(args: string[]): void {
     const maxInputBytes = resolveMaxInputBytes(args);
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon check <file> [--strict|--loose] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error('Usage: aeon check <file> [--strict|--transport] [--datatype-policy <reserved_only|allow_custom>]');
         process.exit(2);
     }
     if (effectiveMode === null) {
-        console.error('Error: Cannot use both --strict and --loose');
-        console.error('Usage: aeon check <file> [--strict|--loose] [--datatype-policy <reserved_only|allow_custom>]');
+        console.error('Error: Cannot use both --strict and --transport');
+        console.error('Usage: aeon check <file> [--strict|--transport] [--datatype-policy <reserved_only|allow_custom>]');
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -375,7 +375,7 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--strict|--loose] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const recovery = args.includes('--recovery');
@@ -403,7 +403,7 @@ function inspect(args: string[]): void {
         process.exit(2);
     }
     if (effectiveMode === null) {
-        console.error('Error: Cannot use both --strict and --loose');
+        console.error('Error: Cannot use both --strict and --transport');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -472,11 +472,11 @@ function inspect(args: string[]): void {
 }
 
 /**
- * aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose]
+ * aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport]
  * Purpose: finalize AES into JSON output
  */
 function finalize(args: string[]): void {
-    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
@@ -497,7 +497,7 @@ function finalize(args: string[]): void {
     }
 
     if (!mode || effectiveMode === null) {
-        console.error('Error: Cannot use both --strict and --loose');
+        console.error('Error: Cannot use both --strict and --transport');
         console.error(finalizeUsage);
         process.exit(2);
     }
@@ -564,21 +564,21 @@ function finalize(args: string[]): void {
 }
 
 /**
- * aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]
+ * aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]
  * Purpose: run phase-ordered runtime binding with schema validation
  */
 function bind(args: string[]): void {
     const mode = resolveFinalizeMode(args);
     if (!mode) {
-        console.error('Error: Cannot use both --strict and --loose');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Error: Cannot use both --strict and --transport');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
 
     const file = findFileWithValueFlags(args, ['--schema', '--profile', '--contract-registry', '--trailing-separator-delimiter-policy', '--datatype-policy', '--include-path', '--scope', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
 
@@ -605,28 +605,28 @@ function bind(args: string[]): void {
     const projected = args.includes('--projected') || includePaths.length > 0;
     if (hasProfileFlag && !profile) {
         console.error('Error: Missing value for --profile <id>');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (hasRegistryFlag && !contractRegistryPath) {
         console.error('Error: Missing value for --contract-registry <registry.json>');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (hasTrailingSeparatorPolicy && !trailingSeparatorPolicyValue) {
         console.error('Error: Missing value for --trailing-separator-delimiter-policy <off|warn|error>');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (hasTrailingSeparatorPolicy && !trailingSeparatorDelimiterPolicy) {
         console.error(`Error: Invalid value for --trailing-separator-delimiter-policy: ${trailingSeparatorPolicyValue}`);
         console.error('Allowed values: off, warn, error');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (args.includes('--datatype-policy') && !datatypePolicy) {
         console.error('Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (!scope) {
@@ -639,12 +639,12 @@ function bind(args: string[]): void {
     }
     if (args.includes('--include-path') && includePaths.length === 0) {
         console.error('Error: Missing value for --include-path <$.path>');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
     if (projected && includePaths.length === 0) {
         console.error('Error: --projected requires at least one --include-path <$.path>');
-        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--loose] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
+        console.error('Usage: aeon bind <file> [--schema <schema.json>] [--profile <id>] [--contract-registry <registry.json>] [--trailing-separator-delimiter-policy <off|warn|error>] [--datatype-policy <reserved_only|allow_custom>] [--strict|--transport] [--projected] [--include-path <$.path>] [--annotations] [--sort-annotations]');
         process.exit(2);
     }
 
@@ -727,14 +727,14 @@ function bind(args: string[]): void {
 }
 
 /**
- * aeon integrity <validate|verify> <file> [--strict|--loose] [--public-key <path>]
+ * aeon integrity <validate|verify> <file> [--strict|--transport] [--public-key <path>]
  * Purpose: validate/verify integrity envelopes
  */
 function integrity(args: string[]): void {
     const subcommand = args[0];
     if (!subcommand) {
         console.error('Error: Missing integrity subcommand');
-        console.error('Usage: aeon integrity <validate|verify> <file> [--strict|--loose]');
+        console.error('Usage: aeon integrity <validate|verify> <file> [--strict|--transport]');
         process.exit(2);
     }
 
@@ -760,8 +760,8 @@ function integrityValidate(args: string[]): void {
     const jsonOutput = args.includes('--json');
     const maxInputBytes = resolveMaxInputBytes(args);
     if (!mode) {
-        console.error('Error: Cannot use both --strict and --loose');
-        console.error('Usage: aeon integrity validate <file> [--strict|--loose]');
+        console.error('Error: Cannot use both --strict and --transport');
+        console.error('Usage: aeon integrity validate <file> [--strict|--transport]');
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -772,7 +772,7 @@ function integrityValidate(args: string[]): void {
     const file = findFileWithValueFlags(args, ['--public-key', '--pubkey', '--receipt', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon integrity validate <file> [--strict|--loose]');
+        console.error('Usage: aeon integrity validate <file> [--strict|--transport]');
         process.exit(2);
     }
 
@@ -816,8 +816,8 @@ function integrityVerify(args: string[]): void {
     const jsonOutput = args.includes('--json');
     const maxInputBytes = resolveMaxInputBytes(args);
     if (!mode) {
-        console.error('Error: Cannot use both --strict and --loose');
-        console.error('Usage: aeon integrity verify <file> [--strict|--loose] [--public-key <path>] [--receipt <path>]');
+        console.error('Error: Cannot use both --strict and --transport');
+        console.error('Usage: aeon integrity verify <file> [--strict|--transport] [--public-key <path>] [--receipt <path>]');
         process.exit(2);
     }
     if (maxInputBytes === null) {
@@ -828,7 +828,7 @@ function integrityVerify(args: string[]): void {
     const file = findFileWithValueFlags(args, ['--public-key', '--pubkey', '--receipt', '--max-input-bytes']);
     if (!file) {
         console.error('Error: No file specified');
-        console.error('Usage: aeon integrity verify <file> [--strict|--loose] [--public-key <path>] [--receipt <path>]');
+        console.error('Usage: aeon integrity verify <file> [--strict|--transport] [--public-key <path>] [--receipt <path>]');
         process.exit(2);
     }
 
@@ -1412,18 +1412,18 @@ function jsonSafe(value: unknown): unknown {
 
 function resolveFinalizeMode(args: string[]): 'strict' | 'loose' | null {
     const hasStrict = args.includes('--strict');
-    const hasLoose = args.includes('--loose');
-    if (hasStrict && hasLoose) return null;
-    if (hasLoose) return 'loose';
+    const hasTransport = args.includes('--transport') || args.includes('--loose');
+    if (hasStrict && hasTransport) return null;
+    if (hasTransport) return 'loose';
     return 'strict';
 }
 
 function resolveCoreMode(args: string[]): 'strict' | 'transport' | null | undefined {
     const hasStrict = args.includes('--strict');
-    const hasLoose = args.includes('--loose');
-    if (hasStrict && hasLoose) return null;
+    const hasTransport = args.includes('--transport') || args.includes('--loose');
+    if (hasStrict && hasTransport) return null;
     if (hasStrict) return 'strict';
-    if (hasLoose) return 'transport';
+    if (hasTransport) return 'transport';
     return undefined;
 }
 
@@ -1452,9 +1452,9 @@ function resolveDatatypePolicy(args: string[]): 'reserved_only' | 'allow_custom'
 
 function resolveIntegrityMode(args: string[]): 'strict' | 'loose' | null {
     const hasStrict = args.includes('--strict');
-    const hasLoose = args.includes('--loose');
-    if (hasStrict && hasLoose) return null;
-    if (hasLoose) return 'loose';
+    const hasTransport = args.includes('--transport') || args.includes('--loose');
+    if (hasStrict && hasTransport) return null;
+    if (hasTransport) return 'loose';
     return 'strict';
 }
 
