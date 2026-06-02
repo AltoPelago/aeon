@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from './compile.js';
-import { createDefaultRegistry, createRegistry } from './registry.js';
+import { createDefaultRegistry } from './default-registry.js';
+import { createRegistry } from './registry.js';
 import { formatPath } from '@altopelago/aeon-aes';
 import type { Profile } from './types.js';
 

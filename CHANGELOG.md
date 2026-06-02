@@ -39,7 +39,7 @@ repositories.
   effective mode is provided, and explicit effective mode overrides declared
   mode.
 - Updated TypeScript CLI `check`, `inspect`, and `finalize` so `--strict` and
-  `--loose` are treated as external effective-mode selections rather than
+  `--transport` are treated as external effective-mode selections rather than
   document metadata edits.
 - Updated CTS source-lane runner support for explicit `options.effective_mode`
   so legacy `input.mode` metadata is not confused with processor authority.

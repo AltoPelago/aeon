@@ -1174,7 +1174,24 @@ describe('AEON CLI output contract', () => {
             assert.ok(parsed.meta.errors.some((err) => err.code === 'unexpected_binding' && err.phase === 6));
         });
 
-        it('loose mode keeps document but reports errors', async () => {
+        it('transport mode keeps document but reports errors', async () => {
+            const { code, stdout, stderr } = await runCli([
+                'bind',
+                fixture('bind-missing.aeon'),
+                '--schema',
+                fixture('bind-schema.json'),
+                '--transport',
+            ]);
+
+            assert.strictEqual(code, 1);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout);
+            assert.ok(parsed.document);
+            assert.ok(Array.isArray(parsed.meta.errors));
+            assert.ok(parsed.meta.errors.some((err: { phase?: number }) => err.phase === 6));
+        });
+
+        it('accepts --loose as a compatibility alias for transport mode', async () => {
             const { code, stdout, stderr } = await runCli([
                 'bind',
                 fixture('bind-missing.aeon'),
@@ -1188,7 +1205,6 @@ describe('AEON CLI output contract', () => {
             const parsed = JSON.parse(stdout);
             assert.ok(parsed.document);
             assert.ok(Array.isArray(parsed.meta.errors));
-            assert.ok(parsed.meta.errors.some((err: { phase?: number }) => err.phase === 6));
         });
 
         it('accepts explicit profile and surfaces processor-skip warning when relevant', async () => {
@@ -1215,7 +1231,7 @@ describe('AEON CLI output contract', () => {
                 '--schema',
                 fixture('bind-schema.json'),
                 '--annotations',
-                '--loose',
+                '--transport',
             ]);
 
             assert.strictEqual(code, 1);

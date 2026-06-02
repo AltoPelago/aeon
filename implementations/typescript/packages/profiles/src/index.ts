@@ -6,7 +6,8 @@
  */
 
 export { compile } from './compile.js';
-export { createRegistry, createDefaultRegistry } from './registry.js';
+export { createDefaultRegistry } from './default-registry.js';
+export { createRegistry } from './registry.js';
 export { coreProfile } from './profiles/altopelago-core.js';
 export { aeonGpCoreProfile } from './profiles/aeon-gp-core.js';
 export { jsonProfile } from './profiles/json.js';

@@ -307,7 +307,6 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            this.validateBindingNodeDatatype(datatype);
         }
 
         // Expect =
@@ -323,6 +322,9 @@ class Parser {
 
         // Parse value
         const value = this.parseValue();
+        if (datatype) {
+            this.validateBindingNodeGeneric(datatype, value);
+        }
 
         const end = this.previous().span.end;
         return {
@@ -374,7 +376,6 @@ class Parser {
             if (this.check(TokenType.Colon)) {
                 this.advance();
                 attrDatatype = this.parseTypeAnnotation();
-                this.validateBindingNodeDatatype(attrDatatype);
             }
 
             this.consume(TokenType.Equals, "Expected '=' in attribute");
@@ -505,16 +506,19 @@ class Parser {
         }
     }
 
-    private validateBindingNodeDatatype(datatype: TypeAnnotation): void {
-        if (datatype.name !== 'node') return;
-        for (const genericArg of datatype.genericArgs) {
-            const base = datatypeBase(genericArg);
+    private validateBindingNodeGeneric(datatype: TypeAnnotation, value: Value): void {
+        if (datatype.name !== 'node' || datatype.genericArgs.length === 0 || value.type !== 'NodeLiteral') {
+            return;
+        }
+
+        for (const arg of datatype.genericArgs) {
+            const base = arg.split('<', 1)[0] ?? arg;
             if (base !== 'node' && RESERVED_V1_DATATYPES.has(base)) {
                 throw new SyntaxError(
-                    "Binding datatype 'node<T>' may use 'node' or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+                    "Binding-level node<T> claims over node values may use node<T> only for custom profile/domain claims or node<node>",
                     datatype.span,
                     'node<node> or node<custom>',
-                    this.previous().value
+                    this.formatTypeAnnotation(datatype)
                 );
             }
         }
@@ -634,7 +638,6 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            this.validateBindingNodeDatatype(datatype);
         }
 
         this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
@@ -742,15 +745,19 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            if (
-                (datatype.genericArgs.length > 0 && datatype.name !== 'node')
-                || datatype.radixBase !== null
-                || datatype.separators.length > 0
-            ) {
+            if (datatype.genericArgs.length > 0 && datatype.name !== 'node') {
                 throw new SyntaxError(
-                    'Node head datatypes must be simple labels or node<T> without separator specs',
+                    'Generic node head datatypes must use node<T>',
                     datatype.span,
-                    'simple node head datatype or node<T>',
+                    'node<T>',
+                    this.formatTypeAnnotation(datatype)
+                );
+            }
+            if (datatype.radixBase !== null || datatype.separators.length > 0) {
+                throw new SyntaxError(
+                    'Node head datatypes must not use bracket specs',
+                    datatype.span,
+                    'node head datatype',
                     this.formatTypeAnnotation(datatype)
                 );
             }
@@ -1783,16 +1790,6 @@ class Parser {
 
 function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
-}
-
-function datatypeBase(datatype: string): string {
-    const genericIndex = datatype.indexOf('<');
-    const bracketIndex = datatype.indexOf('[');
-    const end = Math.min(
-        genericIndex === -1 ? datatype.length : genericIndex,
-        bracketIndex === -1 ? datatype.length : bracketIndex
-    );
-    return datatype.slice(0, end);
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node']);
