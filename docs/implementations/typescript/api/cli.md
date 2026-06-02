@@ -24,7 +24,7 @@ Informative status: implementation documentation for the TypeScript `aeon` CLI.
 - `--datatype-policy reserved_only|allow_custom`
 - `--rich`
 - `--strict`
-- `--loose`
+- `--transport`
 - `--recovery`
 - `--max-input-bytes <n>`
 
@@ -58,6 +58,8 @@ Informative status: implementation documentation for the TypeScript `aeon` CLI.
 ## Notes
 
 - `--rich` is a preset alias for `--datatype-policy allow_custom`.
+- `--transport` selects transport-mode Core processing; the older `--loose`
+  spelling is accepted as a compatibility alias.
 - CLI flags are implementation-facing controls, not AEON document syntax.
 - `aeon bind` applies additional runtime/schema stages beyond Core parsing and AES emission.
 

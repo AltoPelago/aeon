@@ -8,7 +8,7 @@ import type {
     ProfileRef,
 } from './types.js';
 import type { AssignmentEvent } from '@altopelago/aeon-aes';
-import { createDefaultRegistry } from './registry.js';
+import { createDefaultRegistry } from './default-registry.js';
 
 function normalizeDiagnostic(level: 'error' | 'warning', diag: Omit<Diagnostic, 'level'>): Diagnostic {
     return {

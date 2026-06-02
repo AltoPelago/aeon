@@ -278,7 +278,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'inspect', file, '--json'] : ['inspect', file, '--json'];
-  if (mode === 'transport') args.push('--loose');
+  if (mode === 'transport') args.push('--transport');
   else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
@@ -310,7 +310,7 @@ async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, mater
   const command = isJs ? process.execPath : sutPath;
   const formatFlag = outputMode === 'map' ? '--map' : '--json';
   const args = isJs ? [sutPath, 'finalize', file, formatFlag] : ['finalize', file, formatFlag];
-  args.push(mode === 'transport' ? '--loose' : '--strict');
+  args.push(mode === 'transport' ? '--transport' : '--strict');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (scope) args.push('--scope', scope);
   if (materialization === 'projected') {

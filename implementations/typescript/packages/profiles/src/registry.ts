@@ -1,5 +1,4 @@
 import type { Profile, ProfileRegistry } from './types.js';
-import { createRequire } from 'node:module';
 
 class Registry implements ProfileRegistry {
     private readonly profiles = new Map<string, Profile>();
@@ -24,21 +23,4 @@ class Registry implements ProfileRegistry {
 
 export function createRegistry(): ProfileRegistry {
     return new Registry();
-}
-
-export function createDefaultRegistry(): ProfileRegistry {
-    const require = createRequire(import.meta.url);
-    const { coreProfile } = require('./profiles/altopelago-core.js') as {
-        coreProfile: Profile;
-    };
-    const { aeonGpCoreProfile } = require('./profiles/aeon-gp-core.js') as {
-        aeonGpCoreProfile: Profile;
-    };
-    const { jsonProfile } = require('./profiles/json.js') as {
-        jsonProfile: Profile;
-    };
-    return createRegistry()
-        .register(coreProfile)
-        .register(aeonGpCoreProfile)
-        .register(jsonProfile);
 }
