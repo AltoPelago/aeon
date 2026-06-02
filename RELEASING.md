@@ -55,6 +55,7 @@ Recommended commands:
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm ci
+pnpm --filter @altopelago/aeon-wasm build:wasm
 pnpm publish:preflight
 ```
 
@@ -75,6 +76,9 @@ The expected tarballs should:
 
 - include built `dist/`
 - include `README.md`
+- include regenerated `pkg/` artifacts for `@altopelago/aeon-wasm` when that
+  package is part of the release, with `pkg/package.json` matching the wrapper
+  package version
 - exclude compiled `*.test.*` artifacts
 
 ## Publish Flow
@@ -108,6 +112,10 @@ Prefer the CI path for public releases so npm can attach package provenance.
 ## Notes
 
 - If version bumps are needed, do them before the build and dry-run pass.
+- If `@altopelago/aeon-wasm` is in the release set, regenerate
+  `implementations/typescript/packages/wasm/pkg/` with
+  `pnpm --filter @altopelago/aeon-wasm build:wasm` after version bumps and
+  commit the generated artifacts.
 - If the workspace-root TypeScript toolchain baseline changes, such as
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,

@@ -153,6 +153,10 @@ function auditEntryPaths(packageJson, entries) {
       packed.has('package/pkg/aeon_wasm_bg.wasm'),
       '@altopelago/aeon-wasm tarball is missing pkg/aeon_wasm_bg.wasm',
     );
+    check(
+      packed.has('package/pkg/package.json'),
+      '@altopelago/aeon-wasm tarball is missing pkg/package.json',
+    );
   }
 
   check(
@@ -161,6 +165,21 @@ function auditEntryPaths(packageJson, entries) {
   );
   check(packed.has('package/LICENSE'), 'tarball is missing LICENSE');
   check(packed.has('package/README.md'), 'tarball is missing README.md');
+}
+
+function auditGeneratedWasmPackage(packageJson, tarball, entries) {
+  if (packageJson.name !== '@altopelago/aeon-wasm') {
+    return;
+  }
+  if (!entries.includes('package/pkg/package.json')) {
+    return;
+  }
+
+  const generatedManifest = tarReadJson(tarball, 'package/pkg/package.json');
+  check(
+    generatedManifest.version === packageJson.version,
+    `@altopelago/aeon-wasm generated pkg version is ${generatedManifest.version}, expected ${packageJson.version}`,
+  );
 }
 
 function discoverPackages() {
@@ -206,6 +225,7 @@ try {
     auditPackageMetadata(packedManifest);
     auditDependencies(packedManifest);
     auditEntryPaths(packedManifest, entries);
+    auditGeneratedWasmPackage(packedManifest, tarball, entries);
     console.log(`  packed ${relative(workspaceRoot, tarball)}`);
   }
 

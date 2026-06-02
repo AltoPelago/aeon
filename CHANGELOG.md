@@ -15,7 +15,7 @@ repositories.
 - Allowed `node<T>` on node heads as a preserved child-content claim while
   keeping non-`node` generic node-head datatypes invalid.
 - Added CTS/spec coverage for parameterized object and node claims and updated
-  TypeScript, Rust, Python, and PHP parser/Core behavior to preserve the new
+  TypeScript, Rust, and Python parser/Core behavior to preserve the new
   claims without Core-level child/member enforcement.
 
 ## 0.9.3 - 2026-06-01
@@ -61,12 +61,12 @@ repositories.
   escapes, unsupported alphabetic escapes, overlong patterns, and nested
   quantified groups.
 - Added regression coverage for portable pattern enforcement across
-  TypeScript, Rust, and PHP implementation surfaces.
+  TypeScript and Rust implementation surfaces.
 - Added AEOS `resource_policy` budget enforcement across TypeScript, Rust,
-  and PHP for event counts, rule counts, alternatives, schema depth, path
+  and Python for event counts, rule counts, alternatives, schema depth, path
   length, reference-resolution steps, selector expansion, and default container
   child counts.
-- Added Core `max_events` budget enforcement across TypeScript, Rust, and PHP
+- Added Core `max_events` budget enforcement across TypeScript, Rust, and Python
   so consumers can fail closed before returning oversized AES event streams.
 
 ### Fixed
