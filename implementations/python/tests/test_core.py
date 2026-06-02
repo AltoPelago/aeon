@@ -267,6 +267,20 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a:n<string> = 3")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_parameterized_object_and_node_claims_are_preserved(self) -> None:
+        result = compile_source(
+            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>'
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual("object<number>", result.events[0]["datatype"])
+        self.assertEqual("node<html>", result.events[2]["datatype"])
+        self.assertEqual("node<node>", result.events[3]["datatype"])
+
+    def test_binding_node_claim_rejects_reserved_child_value_datatypes(self) -> None:
+        result = compile_source("tag:node<string> = <tag>")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertIn("reserved child value datatypes belong on node heads", result.errors[0].message)
+
     def test_reserved_scalar_brackets_are_rejected(self) -> None:
         result = compile_source('b:string[333] = "hello world"')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
@@ -403,6 +417,19 @@ class CoreCompileTests(unittest.TestCase):
     def test_custom_mode_allows_custom_inline_node_head_datatype(self) -> None:
         result = compile_source('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>')
         self.assertEqual([], result.errors)
+
+    def test_parameterized_node_head_claims_are_preserved_without_core_enforcement(self) -> None:
+        result = compile_source(
+            'aeon:mode = "strict"\ntitle:node = <title:node<string>(<span("hello")>)>'
+        )
+        self.assertEqual([], result.errors)
+        node_value = result.events[0]["value"]
+        self.assertEqual("node", node_value["datatype"]["name"])
+        self.assertEqual(["string"], node_value["datatype"]["genericArgs"])
+
+    def test_non_node_generic_inline_node_head_datatype_is_rejected(self) -> None:
+        result = compile_source('aeon:mode = "transport"\nwidget:node = <tag:pair<int32,string>("x")>')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_custom_mode_rejects_scalar_values_for_generic_custom_datatypes(self) -> None:
         result = compile_source('aeon:mode = "custom"\na:custom<custom> = 0')

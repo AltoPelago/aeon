@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-aes",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Assignment Event Stream emission and canonical path utilities for AEON.",
   "license": "MIT",
   "type": "module",

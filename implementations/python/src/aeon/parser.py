@@ -51,7 +51,7 @@ from .errors import (
 from .lexer import Token
 from .spans import Span
 
-GENERIC_V1_DATATYPES = {"list", "tuple"}
+GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node"}
 BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
@@ -71,6 +71,15 @@ RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 BARE_KEY_TOKEN_KINDS = {"IDENT", "TRUE", "FALSE", "YES", "NO", "ON", "OFF"}
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
+
+
+def datatype_base(datatype: str) -> str:
+    generic_idx = datatype.find("<")
+    bracket_idx = datatype.find("[")
+    indices = [idx for idx in (generic_idx, bracket_idx) if idx >= 0]
+    if not indices:
+        return datatype
+    return datatype[:min(indices)]
 
 
 @dataclass(slots=True)
@@ -260,6 +269,7 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
+            self.validate_binding_node_datatype(datatype)
             self.skip_layout()
         self.consume("EQUALS", f"Expected '=' after key '{key}'")
         self.skip_separators()
@@ -297,6 +307,7 @@ class Parser:
                 self.advance()
                 self.skip_layout()
                 datatype = self.parse_type_annotation()
+                self.validate_binding_node_datatype(datatype)
                 self.skip_layout()
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
@@ -397,6 +408,17 @@ class Parser:
             raise SyntaxError(f"Datatype '{name}' does not support generic arguments in v1", self.previous().span)
         if (radix_base is not None or separators) and name not in BRACKETED_V1_DATATYPES:
             raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.previous().span)
+
+    def validate_binding_node_datatype(self, annotation: TypeAnnotation) -> None:
+        if annotation.name != "node":
+            return
+        for generic_arg in annotation.generic_args:
+            base = datatype_base(generic_arg)
+            if base != "node" and base in RESERVED_V1_DATATYPES:
+                raise SyntaxError(
+                    "Binding datatype 'node<T>' may use 'node' or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+                    annotation.span,
+                )
 
     def parse_separator_char(self) -> str:
         token = self.peek()
@@ -528,6 +550,7 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
+            self.validate_binding_node_datatype(datatype)
         self.skip_layout()
         self.consume("EQUALS", "Expected '=' after anonymous value head")
         self.skip_separators()
@@ -555,8 +578,8 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
-            if datatype.generic_args or datatype.separators:
-                raise SyntaxError("Node head datatypes must be simple labels without generics or separator specs", datatype.span)
+            if (datatype.generic_args and datatype.name != "node") or datatype.radix_base is not None or datatype.separators:
+                raise SyntaxError("Node head datatypes must be simple labels or node<T> without separator specs", datatype.span)
             self.skip_layout()
         children: list[Value] = []
         if self.check("RANGLE"):

@@ -2,7 +2,7 @@
 
 Reference AEON implementation workspace.
 
-Current package line: `0.9.3`.
+Current package line: `0.9.4`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -86,7 +86,14 @@ The preflight builds the workspace, packs every non-private package with `pnpm`,
 then inspects each generated tarball for unresolved `workspace:`, `file:`,
 `link:`, `portal:`, or absolute-path dependency ranges. It also checks that
 manifest entry points are present in the packed files, including the Rust WASM
-binary for `@altopelago/aeon-wasm`.
+binary and generated `pkg/package.json` version for `@altopelago/aeon-wasm`.
+
+When publishing `@altopelago/aeon-wasm`, regenerate the generated Rust WASM
+package after version bumps:
+
+```bash
+pnpm --filter @altopelago/aeon-wasm build:wasm
+```
 
 ## Common Paths
 

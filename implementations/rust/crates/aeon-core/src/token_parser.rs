@@ -211,6 +211,9 @@ impl<'a> TokenParser<'a> {
                 return Err(self.error_at_current("Expected datatype annotation"));
             }
             datatype = Some(self.parse_simple_datatype()?);
+            if let Some(ref parsed_datatype) = datatype {
+                validate_binding_node_datatype(parsed_datatype, self.previous().span)?;
+            }
             if let Some(ref parsed_datatype) = datatype
                 && datatype_bracket_specs(parsed_datatype).len() > self.max_separator_depth
             {
@@ -560,7 +563,9 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let datatype = if self.match_kind(TokenKind::Colon) {
             self.skip_newlines();
-            Some(self.parse_simple_datatype()?)
+            let parsed = self.parse_simple_datatype()?;
+            validate_binding_node_datatype(&parsed, self.previous().span)?;
+            Some(parsed)
         } else {
             None
         };
@@ -1054,9 +1059,10 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             let parsed = self.parse_simple_datatype()?;
-            if parsed.contains('<') || parsed.contains('[') {
+            let base = datatype_base(&parsed);
+            if (parsed.contains('<') && base != "node") || !datatype_bracket_specs(&parsed).is_empty() {
                 return Err(self.error_at_current(
-                    "Node head datatypes must be simple labels without generics or separator specs",
+                    "Node head datatypes must be simple labels or node<T> without separator specs",
                 ));
             }
             datatype = Some(parsed);
@@ -1223,7 +1229,9 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
             if self.match_kind(TokenKind::Colon) {
                 self.skip_newlines();
-                datatype = Some(self.parse_simple_datatype()?);
+                let parsed = self.parse_simple_datatype()?;
+                validate_binding_node_datatype(&parsed, self.previous().span)?;
+                datatype = Some(parsed);
             }
             self.skip_newlines();
             self.consume(TokenKind::Equals, equals_message)?;
@@ -1443,7 +1451,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     if !is_reserved_v1_datatype(base) {
         return Ok(());
     }
-    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple") {
+    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple" | "object" | "node") {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -1460,6 +1468,27 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
             phase: None,
             message: format!("Datatype `{base}` does not support bracket specifiers in v1"),
         });
+    }
+    Ok(())
+}
+
+fn validate_binding_node_datatype(datatype: &str, span: Span) -> Result<(), Diagnostic> {
+    if datatype_base(datatype) != "node" {
+        return Ok(());
+    }
+    for generic_arg in datatype_generic_args(datatype) {
+        let base = datatype_base(generic_arg);
+        if base != "node" && is_reserved_v1_datatype(base) {
+            return Err(Diagnostic {
+                code: String::from("SYNTAX_ERROR"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: String::from(
+                    "Binding datatype `node<T>` may use `node` or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+                ),
+            });
+        }
     }
     Ok(())
 }
@@ -1501,6 +1530,41 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
         specs.remove(0);
     }
     specs
+}
+
+fn datatype_generic_args(datatype: &str) -> Vec<&str> {
+    let Some(start) = datatype.find('<') else {
+        return Vec::new();
+    };
+    let mut args = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut arg_start = start + 1;
+    for (index, ch) in datatype[start + 1..].char_indices() {
+        let absolute_index = start + 1 + index;
+        match ch {
+            '<' if bracket_depth == 0 => angle_depth += 1,
+            '>' if bracket_depth == 0 && angle_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                break;
+            }
+            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_depth += 1,
+            ']' if angle_depth == 0 => bracket_depth = bracket_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && bracket_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                arg_start = absolute_index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    args
 }
 
 fn is_reserved_v1_datatype(base: &str) -> bool {
@@ -2054,7 +2118,29 @@ group:object = {
     }
 
     #[test]
-    fn rejects_generic_inline_node_head_datatypes() {
+    fn parses_parameterized_node_head_datatypes() {
+        let bindings = parse("v:node = <title:node<string>(\"Hello\")>\n").expect("token parse");
+        match &bindings[0].value {
+            Value::NodeLiteral { datatype, .. } => {
+                assert_eq!(datatype.as_deref(), Some("node<string>"));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_reserved_child_value_datatypes_on_binding_node_claims() {
+        let err = parse("tag:node<string> = <tag>\n")
+            .expect_err("binding node<string> should fail");
+        assert_eq!(err.code, "SYNTAX_ERROR");
+        assert!(
+            err.message
+                .contains("reserved child value datatypes belong on node heads")
+        );
+    }
+
+    #[test]
+    fn rejects_non_node_generic_inline_node_head_datatypes() {
         let err = parse("v:node = <tag:pair<int32,string>(\"x\")>\n")
             .expect_err("generic node head datatype should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");

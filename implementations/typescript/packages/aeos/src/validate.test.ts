@@ -704,6 +704,41 @@ describe('validate()', () => {
             assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.contact.measurements[*]'));
         });
 
+        it('enforces node<T> child intent with indexed child rules', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'title' }] },
+                    key: 'title',
+                    datatype: 'node',
+                    value: {
+                        type: 'NodeLiteral',
+                        tag: 'title',
+                        datatype: 'node<string>',
+                        children: [],
+                        attributes: [],
+                        span: [1, 4],
+                    },
+                    span: [1, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'title' }, { type: 'index', index: 0 }] },
+                    key: '0',
+                    value: { type: 'NodeLiteral', tag: 'span', children: [], attributes: [], span: [2, 3] },
+                    span: [2, 3],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.title[*]', constraints: { type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.title[0]'));
+        });
+
         it('allows wildcard paths to accept any matching constraint branch', () => {
             const aes: AES = [
                 {
@@ -765,6 +800,43 @@ describe('validate()', () => {
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, true);
             assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('enforces object<T> member intent with selector rules', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'scores' }] },
+                    key: 'scores',
+                    datatype: 'object<number>',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'scores' }, { type: 'member', key: 'alice' }] },
+                    key: 'alice',
+                    datatype: 'number',
+                    value: { type: 'NumberLiteral', value: '10', raw: '10', span: [3, 4] },
+                    span: [3, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'scores' }, { type: 'member', key: 'bob' }] },
+                    key: 'bob',
+                    datatype: 'string',
+                    value: { type: 'StringLiteral', value: 'twelve', raw: '"twelve"', delimiter: '"', span: [5, 6] },
+                    span: [5, 6],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.scores', constraints: { type: 'ObjectNode', datatype: 'object<number>' } },
+                    { selector: '$.scores.*', constraints: { type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.scores.bob'));
         });
 
         it('applies recursive selector rules at any descendant depth', () => {
