@@ -307,6 +307,7 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            this.validateBindingNodeDatatype(datatype);
         }
 
         // Expect =
@@ -373,6 +374,7 @@ class Parser {
             if (this.check(TokenType.Colon)) {
                 this.advance();
                 attrDatatype = this.parseTypeAnnotation();
+                this.validateBindingNodeDatatype(attrDatatype);
             }
 
             this.consume(TokenType.Equals, "Expected '=' in attribute");
@@ -503,6 +505,21 @@ class Parser {
         }
     }
 
+    private validateBindingNodeDatatype(datatype: TypeAnnotation): void {
+        if (datatype.name !== 'node') return;
+        for (const genericArg of datatype.genericArgs) {
+            const base = datatypeBase(genericArg);
+            if (base !== 'node' && RESERVED_V1_DATATYPES.has(base)) {
+                throw new SyntaxError(
+                    "Binding datatype 'node<T>' may use 'node' or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+                    datatype.span,
+                    'node<node> or node<custom>',
+                    this.previous().value
+                );
+            }
+        }
+    }
+
     private parseGenericArgument(genericDepth: number): string {
         const token = this.peek();
         if (token.type !== TokenType.Identifier && token.type !== TokenType.Number) {
@@ -617,6 +634,7 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            this.validateBindingNodeDatatype(datatype);
         }
 
         this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
@@ -1765,6 +1783,16 @@ class Parser {
 
 function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
+}
+
+function datatypeBase(datatype: string): string {
+    const genericIndex = datatype.indexOf('<');
+    const bracketIndex = datatype.indexOf('[');
+    const end = Math.min(
+        genericIndex === -1 ? datatype.length : genericIndex,
+        bracketIndex === -1 ? datatype.length : bracketIndex
+    );
+    return datatype.slice(0, end);
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node']);

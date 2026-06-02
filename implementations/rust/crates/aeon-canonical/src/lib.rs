@@ -1092,6 +1092,21 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_binding_node_datatype(datatype: &str) -> Result<(), String> {
+    if datatype_base(datatype) != "node" {
+        return Ok(());
+    }
+    for generic_arg in datatype_generic_args(datatype) {
+        let base = datatype_base(generic_arg);
+        if base != "node" && is_reserved_v1_datatype(base) {
+            return Err(String::from(
+                "Binding datatype `node<T>` may use `node` or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn datatype_base(datatype: &str) -> &str {
     datatype
         .find(['<', '['])
@@ -1123,6 +1138,41 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     }
 
     specs
+}
+
+fn datatype_generic_args(datatype: &str) -> Vec<&str> {
+    let Some(start) = datatype.find('<') else {
+        return Vec::new();
+    };
+    let mut args = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut arg_start = start + 1;
+    for (index, ch) in datatype[start + 1..].char_indices() {
+        let absolute_index = start + 1 + index;
+        match ch {
+            '<' if bracket_depth == 0 => angle_depth += 1,
+            '>' if bracket_depth == 0 && angle_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                break;
+            }
+            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_depth += 1,
+            ']' if angle_depth == 0 => bracket_depth = bracket_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && bracket_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                arg_start = absolute_index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    args
 }
 
 fn is_reserved_v1_datatype(base: &str) -> bool {
@@ -1341,7 +1391,9 @@ impl<'a> Parser<'a> {
             if self.peek() == Some(':') {
                 return Err(self.syntax_error("Expected datatype annotation"));
             }
-            Some(self.parse_datatype_like()?)
+            let parsed = self.parse_datatype_like()?;
+            validate_binding_node_datatype(&parsed).map_err(|message| self.syntax_error(&message))?;
+            Some(parsed)
         } else {
             None
         };
@@ -1402,7 +1454,10 @@ impl<'a> Parser<'a> {
                 if self.peek() == Some(':') {
                     return Err(self.syntax_error("Expected datatype annotation"));
                 }
-                Some(self.parse_datatype_like()?)
+                let parsed = self.parse_datatype_like()?;
+                validate_binding_node_datatype(&parsed)
+                    .map_err(|message| self.syntax_error(&message))?;
+                Some(parsed)
             } else {
                 None
             };
@@ -1503,7 +1558,10 @@ impl<'a> Parser<'a> {
             let datatype = if self.peek() == Some(':') {
                 self.index += 1;
                 self.skip_ws(true);
-                Some(self.parse_datatype_like()?)
+                let parsed = self.parse_datatype_like()?;
+                validate_binding_node_datatype(&parsed)
+                    .map_err(|message| self.syntax_error(&message))?;
+                Some(parsed)
             } else {
                 None
             };
@@ -1526,6 +1584,7 @@ impl<'a> Parser<'a> {
         self.index += 1;
         self.skip_ws(true);
         let datatype = self.parse_datatype_like()?;
+        validate_binding_node_datatype(&datatype).map_err(|message| self.syntax_error(&message))?;
         self.skip_ws(true);
         self.expect_char_message('=', "Expected '=' after anonymous type annotation")?;
         self.skip_ws(true);
@@ -2577,12 +2636,23 @@ mod tests {
     #[test]
     fn canonicalizes_parameterized_object_and_node_claims() {
         let result = canonicalize(
-            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ntitle:node = <title:node<string>(\"Hello\")>\n",
+            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\ntitle:node = <title:node<string>(\"Hello\")>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nchild:node<node> = <tag>\ndoc:node<html> = <html>\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
+        );
+    }
+
+    #[test]
+    fn rejects_binding_node_claims_with_reserved_child_value_datatypes() {
+        let result = canonicalize("tag:node<string> = <tag>\n");
+        assert_eq!(result.errors.len(), 1);
+        assert!(
+            result.errors[0]
+                .message
+                .contains("reserved child value datatypes belong on node heads")
         );
     }
 

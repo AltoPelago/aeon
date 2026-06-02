@@ -269,11 +269,17 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_parameterized_object_and_node_claims_are_preserved(self) -> None:
         result = compile_source(
-            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>'
+            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>'
         )
         self.assertEqual([], result.errors)
         self.assertEqual("object<number>", result.events[0]["datatype"])
         self.assertEqual("node<html>", result.events[2]["datatype"])
+        self.assertEqual("node<node>", result.events[3]["datatype"])
+
+    def test_binding_node_claim_rejects_reserved_child_value_datatypes(self) -> None:
+        result = compile_source("tag:node<string> = <tag>")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertIn("reserved child value datatypes belong on node heads", result.errors[0].message)
 
     def test_reserved_scalar_brackets_are_rejected(self) -> None:
         result = compile_source('b:string[333] = "hello world"')

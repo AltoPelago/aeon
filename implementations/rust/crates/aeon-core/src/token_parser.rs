@@ -211,6 +211,9 @@ impl<'a> TokenParser<'a> {
                 return Err(self.error_at_current("Expected datatype annotation"));
             }
             datatype = Some(self.parse_simple_datatype()?);
+            if let Some(ref parsed_datatype) = datatype {
+                validate_binding_node_datatype(parsed_datatype, self.previous().span)?;
+            }
             if let Some(ref parsed_datatype) = datatype
                 && datatype_bracket_specs(parsed_datatype).len() > self.max_separator_depth
             {
@@ -560,7 +563,9 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let datatype = if self.match_kind(TokenKind::Colon) {
             self.skip_newlines();
-            Some(self.parse_simple_datatype()?)
+            let parsed = self.parse_simple_datatype()?;
+            validate_binding_node_datatype(&parsed, self.previous().span)?;
+            Some(parsed)
         } else {
             None
         };
@@ -1224,7 +1229,9 @@ impl<'a> TokenParser<'a> {
             self.skip_newlines();
             if self.match_kind(TokenKind::Colon) {
                 self.skip_newlines();
-                datatype = Some(self.parse_simple_datatype()?);
+                let parsed = self.parse_simple_datatype()?;
+                validate_binding_node_datatype(&parsed, self.previous().span)?;
+                datatype = Some(parsed);
             }
             self.skip_newlines();
             self.consume(TokenKind::Equals, equals_message)?;
@@ -1465,6 +1472,27 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     Ok(())
 }
 
+fn validate_binding_node_datatype(datatype: &str, span: Span) -> Result<(), Diagnostic> {
+    if datatype_base(datatype) != "node" {
+        return Ok(());
+    }
+    for generic_arg in datatype_generic_args(datatype) {
+        let base = datatype_base(generic_arg);
+        if base != "node" && is_reserved_v1_datatype(base) {
+            return Err(Diagnostic {
+                code: String::from("SYNTAX_ERROR"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: String::from(
+                    "Binding datatype `node<T>` may use `node` or a custom profile/domain argument; reserved child value datatypes belong on node heads",
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn datatype_base(datatype: &str) -> &str {
     let generic_idx = datatype.find('<').unwrap_or(datatype.len());
     let bracket_idx = datatype.find('[').unwrap_or(datatype.len());
@@ -1502,6 +1530,41 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
         specs.remove(0);
     }
     specs
+}
+
+fn datatype_generic_args(datatype: &str) -> Vec<&str> {
+    let Some(start) = datatype.find('<') else {
+        return Vec::new();
+    };
+    let mut args = Vec::new();
+    let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut arg_start = start + 1;
+    for (index, ch) in datatype[start + 1..].char_indices() {
+        let absolute_index = start + 1 + index;
+        match ch {
+            '<' if bracket_depth == 0 => angle_depth += 1,
+            '>' if bracket_depth == 0 && angle_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                break;
+            }
+            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
+            '[' if angle_depth == 0 => bracket_depth += 1,
+            ']' if angle_depth == 0 => bracket_depth = bracket_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && bracket_depth == 0 => {
+                let arg = datatype[arg_start..absolute_index].trim();
+                if !arg.is_empty() {
+                    args.push(arg);
+                }
+                arg_start = absolute_index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    args
 }
 
 fn is_reserved_v1_datatype(base: &str) -> bool {
@@ -2063,6 +2126,17 @@ group:object = {
             }
             other => panic!("expected node literal, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_reserved_child_value_datatypes_on_binding_node_claims() {
+        let err = parse("tag:node<string> = <tag>\n")
+            .expect_err("binding node<string> should fail");
+        assert_eq!(err.code, "SYNTAX_ERROR");
+        assert!(
+            err.message
+                .contains("reserved child value datatypes belong on node heads")
+        );
     }
 
     #[test]

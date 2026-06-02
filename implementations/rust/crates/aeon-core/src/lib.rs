@@ -1058,12 +1058,25 @@ mod tests {
     #[test]
     fn accepts_parameterized_object_and_node_claims() {
         let result = compile(
-            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\n",
+            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events[0].datatype.as_deref(), Some("object<number>"));
         assert_eq!(result.events[2].datatype.as_deref(), Some("node<html>"));
+        assert_eq!(result.events[3].datatype.as_deref(), Some("node<node>"));
+    }
+
+    #[test]
+    fn rejects_binding_node_claims_with_reserved_child_value_datatypes() {
+        let result = compile("tag:node<string> = <tag>\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert!(
+            result.errors[0]
+                .message
+                .contains("reserved child value datatypes belong on node heads")
+        );
     }
 
     #[test]

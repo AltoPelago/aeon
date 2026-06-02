@@ -282,15 +282,26 @@ describe('Parser', () => {
         });
 
         it('should parse parameterized object and node binding claims in core v1', () => {
-            const tokens = tokenize('scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>').tokens;
+            const tokens = tokenize('scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            const [scores, doc] = result.document!.bindings;
+            const [scores, doc, child] = result.document!.bindings;
             assert.strictEqual(scores!.datatype!.name, 'object');
             assert.deepStrictEqual(scores!.datatype!.genericArgs, ['number']);
             assert.strictEqual(doc!.datatype!.name, 'node');
             assert.deepStrictEqual(doc!.datatype!.genericArgs, ['html']);
+            assert.strictEqual(child!.datatype!.name, 'node');
+            assert.deepStrictEqual(child!.datatype!.genericArgs, ['node']);
+        });
+
+        it('should reject reserved child-value datatypes on binding node<T> claims', () => {
+            const tokens = tokenize('tag:node<string> = <tag>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.match(result.errors[0]!.message, /reserved child value datatypes belong on node heads/);
         });
 
         it('should parse generic args on attribute type in core v1', () => {
