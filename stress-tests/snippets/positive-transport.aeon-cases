@@ -91,6 +91,10 @@ a:infinity = Infinity
 ---
 a:infinity = -Infinity
 ---
+a:infinity<speedofmass> = Infinity
+---
+n0:nan<number> = NaN
+---
 n1:null = !none
 ---
 n2:null = !notSet

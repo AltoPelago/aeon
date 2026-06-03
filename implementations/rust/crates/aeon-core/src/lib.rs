@@ -1058,7 +1058,7 @@ mod tests {
     #[test]
     fn accepts_parameterized_object_and_node_claims() {
         let result = compile(
-            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\n",
+            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1066,6 +1066,11 @@ mod tests {
         assert_eq!(result.events[2].datatype.as_deref(), Some("node<html>"));
         assert_eq!(result.events[3].datatype.as_deref(), Some("node<node>"));
         assert_eq!(result.events[4].datatype.as_deref(), Some("null<number>"));
+        assert_eq!(result.events[5].datatype.as_deref(), Some("nan<number>"));
+        assert_eq!(
+            result.events[6].datatype.as_deref(),
+            Some("infinity<speedofmass>")
+        );
     }
 
     #[test]

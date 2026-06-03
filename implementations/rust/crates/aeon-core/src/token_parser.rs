@@ -1454,7 +1454,10 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
         return Ok(());
     }
     if datatype_has_generic_args(datatype)
-        && !matches!(base, "list" | "tuple" | "object" | "node" | "null")
+        && !matches!(
+            base,
+            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+        )
     {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),

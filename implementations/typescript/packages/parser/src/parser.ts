@@ -1792,7 +1792,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
 }
 
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node', 'null']);
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node', 'null', 'nan', 'infinity']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);

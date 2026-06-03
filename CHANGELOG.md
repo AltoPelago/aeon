@@ -11,12 +11,13 @@ repositories.
 ### Changed
 
 - Extended reserved generic datatype claims to include `object<T>`, `node<T>`,
-  and `null<T>` alongside `list<T>` and `tuple<T...>`.
+  `null<T>`, `nan<T>`, and `infinity<T>` alongside `list<T>` and
+  `tuple<T...>`.
 - Allowed `node<T>` on node heads as a preserved child-content claim while
   keeping non-`node` generic node-head datatypes invalid.
-- Added CTS/spec coverage for parameterized object, node, and null claims and
-  updated TypeScript, Rust, and Python parser/Core behavior to preserve the new
-  claims without Core-level child/member enforcement.
+- Added CTS/spec coverage for parameterized object, node, null, NaN, and
+  infinity claims and updated TypeScript, Rust, and Python parser/Core behavior
+  to preserve the new claims without Core-level child/member enforcement.
 
 ## 0.9.3 - 2026-06-01
 
