@@ -1058,13 +1058,14 @@ mod tests {
     #[test]
     fn accepts_parameterized_object_and_node_claims() {
         let result = compile(
-            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\n",
+            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events[0].datatype.as_deref(), Some("object<number>"));
         assert_eq!(result.events[2].datatype.as_deref(), Some("node<html>"));
         assert_eq!(result.events[3].datatype.as_deref(), Some("node<node>"));
+        assert_eq!(result.events[4].datatype.as_deref(), Some("null<number>"));
     }
 
     #[test]

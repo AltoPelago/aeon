@@ -51,7 +51,7 @@ from .errors import (
 from .lexer import Token
 from .spans import Span
 
-GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node"}
+GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node", "null"}
 BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",

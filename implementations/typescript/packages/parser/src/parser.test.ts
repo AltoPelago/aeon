@@ -286,6 +286,7 @@ describe('Parser', () => {
                 'scores:object<number> = { alice:number = 10 }',
                 'doc:node<html> = <html>',
                 'child:node<node> = <tag>',
+                'missing:null<number> = !none',
             ].join('\n')).tokens;
             const result = parse(tokens);
 
@@ -296,6 +297,8 @@ describe('Parser', () => {
             assert.deepStrictEqual(result.document!.bindings[1]!.datatype?.genericArgs, ['html']);
             assert.strictEqual(result.document!.bindings[2]!.datatype?.name, 'node');
             assert.deepStrictEqual(result.document!.bindings[2]!.datatype?.genericArgs, ['node']);
+            assert.strictEqual(result.document!.bindings[3]!.datatype?.name, 'null');
+            assert.deepStrictEqual(result.document!.bindings[3]!.datatype?.genericArgs, ['number']);
         });
 
         it('should reject reserved child datatype claims on ordinary node bindings', () => {

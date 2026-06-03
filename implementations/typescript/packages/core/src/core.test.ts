@@ -856,6 +856,15 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should preserve parameterized null claims', () => {
+            const result = compile('aeon:mode = "transport"\nmissing:null<number> = !none');
+            const event = result.events.find(item => item.key === 'missing');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(event);
+            assert.strictEqual(event.datatype, 'null<number>');
+            assert.strictEqual(event.value.type, 'NullLiteral');
+        });
+
         it('should require typed values in custom mode', () => {
             const result = compile('aeon:mode = "custom"\nstroke = #ff00ff');
             assert.strictEqual(result.events.length, 0);
