@@ -1,10 +1,34 @@
 import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
-import { tokenize, type Span, type Token, TokenType } from '@altopelago/aeon-lexer';
+import { tokenize, type CommentMetadata, type Span, type Token, TokenType } from '@altopelago/aeon-lexer';
 
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
 export type AnnotationForm = 'line' | 'block';
 export type AnnotationReservedSubtype = 'structure' | 'profile' | 'instructions';
-export type AnnotationPlacementPart = 'key' | 'attributes' | 'datatype-colon' | 'datatype' | 'equals' | 'value';
+export type AnnotationPlacementPart =
+    | 'key'
+    | 'attributes'
+    | 'attribute-marker'
+    | 'attribute-open'
+    | 'attribute-key'
+    | 'attribute-datatype-colon'
+    | 'attribute-datatype'
+    | 'attribute-equals'
+    | 'attribute-value'
+    | 'attribute-separator'
+    | 'attribute-close'
+    | 'datatype-colon'
+    | 'datatype'
+    | 'equals'
+    | 'value'
+    | 'node-open'
+    | 'node-tag'
+    | 'node-datatype-colon'
+    | 'node-datatype'
+    | 'node-children-open'
+    | 'node-child-value'
+    | 'node-child-separator'
+    | 'node-children-close'
+    | 'node-close';
 
 export interface AnnotationPlacement {
     readonly after?: AnnotationPlacementPart;
@@ -46,8 +70,12 @@ export interface BuildAnnotationStreamInput {
 
 interface Bindable {
     readonly span: Span;
+    readonly valueSpan: Span;
+    readonly valueType: AssignmentEvent['value']['type'];
     readonly path: string;
     readonly order: number;
+    readonly kind: 'binding' | 'attribute';
+    readonly landmarks: readonly PlacementLandmark[];
 }
 
 interface SpanBindable {
@@ -71,6 +99,14 @@ interface PlacementLandmark {
     readonly part: AnnotationPlacementPart;
     readonly span: Span;
 }
+
+type StructuredCommentToken = Token & {
+    readonly comment: CommentMetadata & {
+        readonly channel: AnnotationKind;
+        readonly form: AnnotationForm;
+        readonly subtype?: AnnotationReservedSubtype;
+    };
+};
 
 class AnnotationResolver {
     private readonly pathBindables: readonly Bindable[];
@@ -123,7 +159,7 @@ class AnnotationResolver {
 
         const container = smallestContaining(commentSpan, this.pathActive);
         if (container) {
-            const nearestChild = nearestDescendant(commentSpan, this.descendantsByPath.get(container.path));
+            const nearestChild = nearestDescendant(commentSpan, container, this.descendantsByPath.get(container.path));
             if (nearestChild) {
                 return { kind: 'path', path: nearestChild.path };
             }
@@ -167,27 +203,18 @@ class AnnotationResolver {
 }
 
 export function buildAnnotationStream(input: BuildAnnotationStreamInput): readonly AnnotationRecord[] {
-    const bindables = input.events.map((event, order) => ({
-        span: event.span,
-        path: formatPath(event.path),
-        order,
-    }));
-    const eventByPath = new Map(input.events.map((event) => [formatPath(event.path), event]));
+    const commentTokens = input.tokens.filter(isStructuredCommentToken);
+    if (commentTokens.length === 0) {
+        return [];
+    }
+
+    const bindables = buildPathBindables(input.events, input.tokens);
+    const bindableByPath = new Map(bindables.map((bindable) => [bindable.path, bindable]));
     const spanBindables = (input.spans ?? []).map((span, order) => ({ span, order }));
     const resolver = new AnnotationResolver(bindables, spanBindables);
 
     const records: AnnotationRecord[] = [];
-    for (const token of input.tokens) {
-        if (token.type !== TokenType.LineComment && token.type !== TokenType.BlockComment) {
-            continue;
-        }
-        if (!token.comment) {
-            continue;
-        }
-        if (token.comment.channel === 'plain' || token.comment.channel === 'host') {
-            continue;
-        }
-
+    for (const token of commentTokens) {
         const target = resolver.resolveTarget(token.span);
         const record: AnnotationRecord = {
             kind: token.comment.channel,
@@ -196,7 +223,7 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
             span: token.span,
             target,
         };
-        const placement = resolvePlacement(token, target, eventByPath, input.tokens);
+        const placement = resolvePlacement(token, target, bindableByPath);
         if (placement) {
             (record as { placement: AnnotationPlacement }).placement = placement;
         }
@@ -207,6 +234,32 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
     }
 
     return records;
+}
+
+function isStructuredCommentToken(token: Token): token is StructuredCommentToken {
+    return (token.type === TokenType.LineComment || token.type === TokenType.BlockComment)
+        && token.comment !== undefined
+        && token.comment.channel !== 'plain'
+        && token.comment.channel !== 'host';
+}
+
+function buildPathBindables(events: readonly AssignmentEvent[], tokens: readonly Token[]): readonly Bindable[] {
+    const bindables: Bindable[] = [];
+    for (const [eventIndex, event] of events.entries()) {
+        const path = formatPath(event.path);
+        const landmarks = bindingLandmarks(event, tokens);
+        bindables.push({
+            span: event.span,
+            valueSpan: event.value.span,
+            valueType: event.value.type,
+            path,
+            order: eventIndex * 1000,
+            kind: 'binding',
+            landmarks,
+        });
+        bindables.push(...attributeBindables(event, path, tokens, eventIndex * 1000 + 1));
+    }
+    return bindables;
 }
 
 export function buildAnnotationStreamFromSource(source: string, events: readonly AssignmentEvent[]): readonly AnnotationRecord[] {
@@ -259,7 +312,7 @@ function smallestContaining<T extends { readonly span: Span; readonly order: num
     return best;
 }
 
-function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined): Bindable | null {
+function nearestDescendant(commentSpan: Span, container: Bindable, index: DescendantIndex | undefined): Bindable | null {
     if (!index) {
         return null;
     }
@@ -267,6 +320,20 @@ function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined
     const forwardIndex = lowerBound(index.starts, commentSpan.end.offset);
     const trailingHit = trailingIndex >= 0 ? index.byEnd[trailingIndex] ?? null : null;
     const forwardHit = forwardIndex < index.byStart.length ? index.byStart[forwardIndex] ?? null : null;
+    if (
+        container.kind === 'binding'
+        && ((trailingHit?.kind === 'attribute') || (forwardHit?.kind === 'attribute'))
+        && !index.byStart.some((candidate) => candidate.kind === 'attribute' && spanContains(candidate.span, commentSpan))
+    ) {
+        return null;
+    }
+    if (
+        forwardHit
+        && !trailingHit
+        && shouldKeepCommentOnContainerBeforeDescendant(commentSpan, container, forwardHit)
+    ) {
+        return null;
+    }
     if (trailingHit && forwardHit) {
         const trailingDistance = commentSpan.start.offset - trailingHit.span.end.offset;
         const forwardDistance = forwardHit.span.start.offset - commentSpan.end.offset;
@@ -275,21 +342,33 @@ function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined
     return forwardHit ?? trailingHit;
 }
 
+function shouldKeepCommentOnContainerBeforeDescendant(
+    commentSpan: Span,
+    container: Bindable,
+    forwardHit: Bindable,
+): boolean {
+    if (commentSpan.end.offset <= container.valueSpan.start.offset) {
+        return true;
+    }
+    return container.valueType === 'NodeLiteral'
+        && commentSpan.start.offset >= container.valueSpan.start.offset
+        && commentSpan.end.offset <= forwardHit.span.start.offset;
+}
+
 function resolvePlacement(
     comment: Token,
     target: AnnotationTarget,
-    eventByPath: ReadonlyMap<string, AssignmentEvent>,
-    tokens: readonly Token[],
+    bindableByPath: ReadonlyMap<string, Bindable>,
 ): AnnotationPlacement | undefined {
     if (target.kind !== 'path') {
         return undefined;
     }
-    const event = eventByPath.get(target.path);
-    if (!event) {
+    const bindable = bindableByPath.get(target.path);
+    if (!bindable) {
         return undefined;
     }
 
-    const landmarks = bindingLandmarks(event, tokens);
+    const landmarks = bindable.landmarks;
     if (landmarks.length === 0) {
         return undefined;
     }
@@ -314,6 +393,7 @@ function resolvePlacement(
 function bindingLandmarks(event: AssignmentEvent, tokens: readonly Token[]): readonly PlacementLandmark[] {
     const eventTokens = tokens
         .filter((token) => token.type !== TokenType.EOF)
+        .filter((token) => token.type !== TokenType.Newline)
         .filter((token) => !isCommentToken(token))
         .filter((token) => token.span.start.offset >= event.span.start.offset && token.span.end.offset <= event.span.end.offset);
     const topLevel = topLevelTokens(eventTokens);
@@ -327,22 +407,258 @@ function bindingLandmarks(event: AssignmentEvent, tokens: readonly Token[]): rea
         .filter((token) => token.type === TokenType.Equals && token.span.end.offset <= valueSpan.start.offset)
         .at(-1);
     const headEnd = equals?.span.start.offset ?? valueSpan.start.offset;
-    const attributes = findAttributesLandmark(eventTokens, topLevel, key.span.end.offset, headEnd);
+    const attributes = findAttributesLandmarks(eventTokens, key.span.end.offset, headEnd);
+    const attributeEnd = attributes.at(-1)?.span.end.offset ?? key.span.end.offset;
     const datatypeColon = topLevel.find((token) =>
         token.type === TokenType.Colon
-        && token.span.start.offset >= (attributes?.span.end.offset ?? key.span.end.offset)
+        && token.span.start.offset >= attributeEnd
         && token.span.end.offset <= headEnd
     );
     const datatype = datatypeColon ? findDatatypeLandmark(eventTokens, datatypeColon.span.end.offset, headEnd) : undefined;
+    const valueLandmarks = event.value.type === 'NodeLiteral'
+        ? findNodeValueLandmarks(eventTokens, valueSpan)
+        : [{ part: 'value' as const, span: valueSpan }];
 
     return [
         { part: 'key' as const, span: key.span },
-        ...(attributes ? [attributes] : []),
+        ...attributes,
         ...(datatypeColon ? [{ part: 'datatype-colon' as const, span: datatypeColon.span }] : []),
         ...(datatype ? [datatype] : []),
         ...(equals ? [{ part: 'equals' as const, span: equals.span }] : []),
-        { part: 'value' as const, span: valueSpan },
-    ].sort((left, right) => left.span.start.offset - right.span.start.offset);
+        ...valueLandmarks,
+    ].sort(compareLandmarks);
+}
+
+function attributeBindables(
+    event: AssignmentEvent,
+    ownerPath: string,
+    tokens: readonly Token[],
+    orderStart: number,
+): readonly Bindable[] {
+    const eventTokens = semanticEventTokens(event, tokens);
+    const topLevel = topLevelTokens(eventTokens);
+    const key = topLevel[0];
+    if (!key) {
+        return [];
+    }
+
+    const valueSpan = event.value.span;
+    const equals = topLevel
+        .filter((token) => token.type === TokenType.Equals && token.span.end.offset <= valueSpan.start.offset)
+        .at(-1);
+    const headEnd = equals?.span.start.offset ?? valueSpan.start.offset;
+    const entries: AttributeEntryBindable[] = [];
+    entries.push(...findAttributeEntryBindables(eventTokens, ownerPath, key.span.end.offset, headEnd));
+
+    if (event.value.type === 'NodeLiteral') {
+        entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, ownerPath, valueSpan));
+    }
+
+    return entries.map((entry, index): Bindable => ({
+        span: entry.span,
+        valueSpan: entry.valueSpan,
+        valueType: 'StringLiteral' as AssignmentEvent['value']['type'],
+        path: entry.path,
+        order: orderStart + index,
+        kind: 'attribute',
+        landmarks: entry.landmarks,
+    }));
+}
+
+interface AttributeEntryBindable {
+    readonly path: string;
+    readonly span: Span;
+    readonly valueSpan: Span;
+    readonly landmarks: readonly PlacementLandmark[];
+}
+
+function semanticEventTokens(event: AssignmentEvent, tokens: readonly Token[]): readonly Token[] {
+    return tokens
+        .filter((token) => token.type !== TokenType.EOF)
+        .filter((token) => token.type !== TokenType.Newline)
+        .filter((token) => !isCommentToken(token))
+        .filter((token) => token.span.start.offset >= event.span.start.offset && token.span.end.offset <= event.span.end.offset);
+}
+
+function findAttributeEntryBindables(
+    tokens: readonly Token[],
+    ownerPath: string,
+    afterOffset: number,
+    beforeOffset: number,
+): readonly AttributeEntryBindable[] {
+    const entries: AttributeEntryBindable[] = [];
+    let index = 0;
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (
+            token.type !== TokenType.At
+            || token.span.start.offset < afterOffset
+            || token.span.end.offset > beforeOffset
+        ) {
+            index += 1;
+            continue;
+        }
+
+        const scanned = scanAttributeEntryBindables(tokens, index, beforeOffset, ownerPath);
+        entries.push(...scanned.entries);
+        index = Math.max(index + 1, scanned.nextIndex);
+    }
+    return entries;
+}
+
+function findNodeHeadAttributeEntryBindables(
+    tokens: readonly Token[],
+    ownerPath: string,
+    valueSpan: Span,
+): readonly AttributeEntryBindable[] {
+    const valueTokens = tokens.filter((token) =>
+        token.span.start.offset >= valueSpan.start.offset
+        && token.span.end.offset <= valueSpan.end.offset
+    );
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let tagSeen = false;
+    const entries: AttributeEntryBindable[] = [];
+
+    for (let index = 0; index < valueTokens.length; index += 1) {
+        const token = valueTokens[index]!;
+        if (token.type === TokenType.LeftAngle && angleDepth === 0) {
+            angleDepth = 1;
+            continue;
+        }
+        if (angleDepth === 1 && !tagSeen && isSemanticToken(token)) {
+            tagSeen = true;
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 0 && (token.type === TokenType.LeftParen || token.type === TokenType.RightAngle)) {
+            break;
+        }
+        if (angleDepth === 1 && token.type === TokenType.LeftParen) {
+            parenDepth += 1;
+            continue;
+        }
+        if (angleDepth === 1 && token.type === TokenType.RightParen) {
+            parenDepth = Math.max(0, parenDepth - 1);
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 0 && token.type === TokenType.At) {
+            const scanned = scanAttributeEntryBindables(valueTokens, index, valueSpan.end.offset, ownerPath);
+            entries.push(...scanned.entries);
+            index = Math.max(index, scanned.nextIndex - 1);
+        }
+    }
+
+    return entries;
+}
+
+function scanAttributeEntryBindables(
+    tokens: readonly Token[],
+    atIndex: number,
+    beforeOffset: number,
+    ownerPath: string,
+): { readonly entries: readonly AttributeEntryBindable[]; readonly nextIndex: number } {
+    const entries: AttributeEntryBindable[] = [];
+    let index = atIndex + 1;
+    let depth = 0;
+    let keyToken: Token | undefined;
+    let entryLandmarks: PlacementLandmark[] = [];
+    let valueStart: Span['start'] | undefined;
+    let valueEnd: Span['end'] | undefined;
+
+    const finishEntry = (end: Span['start']): void => {
+        if (!keyToken) {
+            return;
+        }
+        entries.push({
+            path: formatAttributePath(ownerPath, keyToken.value),
+            span: { start: keyToken.span.start, end },
+            valueSpan: {
+                start: valueStart ?? keyToken.span.start,
+                end: valueEnd ?? keyToken.span.end,
+            },
+            landmarks: entryLandmarks,
+        });
+        keyToken = undefined;
+        entryLandmarks = [];
+        valueStart = undefined;
+        valueEnd = undefined;
+    };
+
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (token.span.start.offset > beforeOffset) {
+            break;
+        }
+        if (token.type === TokenType.LeftBrace) {
+            depth += 1;
+            index += 1;
+            continue;
+        }
+        if (token.type === TokenType.RightBrace) {
+            if (depth <= 1) {
+                finishEntry(token.span.start);
+                return { entries, nextIndex: index + 1 };
+            }
+            depth -= 1;
+            if (keyToken) {
+                valueEnd = token.span.end;
+            }
+            index += 1;
+            continue;
+        }
+        if (depth === 1) {
+            if (token.type === TokenType.Comma) {
+                finishEntry(token.span.start);
+                index += 1;
+                continue;
+            }
+            if (!keyToken && isSemanticToken(token)) {
+                keyToken = token;
+                entryLandmarks.push({ part: 'attribute-key', span: token.span });
+                index += 1;
+                continue;
+            }
+            if (keyToken) {
+                switch (token.type) {
+                    case TokenType.Colon:
+                        entryLandmarks.push({ part: 'attribute-datatype-colon', span: token.span });
+                        break;
+                    case TokenType.Equals:
+                        entryLandmarks.push({ part: 'attribute-equals', span: token.span });
+                        valueStart = undefined;
+                        break;
+                    default:
+                        if (isSemanticToken(token)) {
+                            const previous = entryLandmarks.at(-1)?.part;
+                            const part = previous === 'attribute-datatype-colon' ? 'attribute-datatype' : previous === 'attribute-equals' || valueStart ? 'attribute-value' : 'attribute-key';
+                            entryLandmarks.push({ part, span: token.span });
+                            if (part === 'attribute-value') {
+                                valueStart ??= token.span.start;
+                                valueEnd = token.span.end;
+                            }
+                        }
+                        break;
+                }
+            }
+        } else if (depth > 1 && keyToken && isSemanticToken(token)) {
+            valueStart ??= token.span.start;
+            valueEnd = token.span.end;
+            entryLandmarks.push({ part: 'attribute-value', span: token.span });
+        }
+        index += 1;
+    }
+
+    if (keyToken) {
+        const end = tokens[Math.max(atIndex, index - 1)]?.span.end ?? keyToken.span.end;
+        finishEntry(end);
+    }
+    return { entries, nextIndex: index };
+}
+
+function formatAttributePath(ownerPath: string, key: string): string {
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+        ? `${ownerPath}@${key}`
+        : `${ownerPath}@[${JSON.stringify(key)}]`;
 }
 
 function isCommentToken(token: Token): boolean {
@@ -381,34 +697,163 @@ function depthDelta(token: Token): number {
     }
 }
 
-function findAttributesLandmark(
+function findAttributesLandmarks(
     tokens: readonly Token[],
-    topLevel: readonly Token[],
     afterOffset: number,
     beforeOffset: number,
-): PlacementLandmark | undefined {
-    const at = topLevel.find((token) =>
-        token.type === TokenType.At
-        && token.span.start.offset >= afterOffset
-        && token.span.end.offset <= beforeOffset
-    );
-    if (!at) {
-        return undefined;
+): readonly PlacementLandmark[] {
+    const landmarks: PlacementLandmark[] = [];
+    let index = 0;
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (
+            token.type !== TokenType.At
+            || token.span.start.offset < afterOffset
+            || token.span.end.offset > beforeOffset
+        ) {
+            index += 1;
+            continue;
+        }
+
+        const attrLandmarks = scanAttributeLandmarks(tokens, index, beforeOffset);
+        landmarks.push(...attrLandmarks.landmarks);
+        index = Math.max(index + 1, attrLandmarks.nextIndex);
     }
-    const nextHeadPart = topLevel.find((token) =>
-        token.span.start.offset > at.span.start.offset
-        && token.span.start.offset <= beforeOffset
-        && (token.type === TokenType.Colon || token.type === TokenType.Equals)
+    return landmarks;
+}
+
+function scanAttributeLandmarks(
+    tokens: readonly Token[],
+    atIndex: number,
+    beforeOffset: number,
+): { readonly landmarks: readonly PlacementLandmark[]; readonly nextIndex: number } {
+    const at = tokens[atIndex]!;
+    const landmarks: PlacementLandmark[] = [{ part: 'attribute-marker', span: at.span }];
+    let index = atIndex + 1;
+    let depth = 0;
+    let entryPart: 'key' | 'datatype' | 'value' = 'key';
+    let opened = false;
+
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (token.span.start.offset > beforeOffset) {
+            break;
+        }
+        if (token.type === TokenType.LeftBrace) {
+            depth += 1;
+            landmarks.push({ part: opened ? 'attribute-value' : 'attribute-open', span: token.span });
+            opened = true;
+            index += 1;
+            continue;
+        }
+        if (token.type === TokenType.RightBrace) {
+            if (depth <= 1) {
+                landmarks.push({ part: 'attribute-close', span: token.span });
+                return { landmarks, nextIndex: index + 1 };
+            }
+            depth -= 1;
+            landmarks.push({ part: 'attribute-value', span: token.span });
+            index += 1;
+            continue;
+        }
+        if (depth === 1) {
+            switch (token.type) {
+                case TokenType.Colon:
+                    landmarks.push({ part: 'attribute-datatype-colon', span: token.span });
+                    entryPart = 'datatype';
+                    break;
+                case TokenType.Equals:
+                    landmarks.push({ part: 'attribute-equals', span: token.span });
+                    entryPart = 'value';
+                    break;
+                case TokenType.Comma:
+                    landmarks.push({ part: 'attribute-separator', span: token.span });
+                    entryPart = 'key';
+                    break;
+                default:
+                    if (isSemanticToken(token)) {
+                        landmarks.push({ part: attributeEntryPart(entryPart), span: token.span });
+                    }
+                    break;
+            }
+        } else if (depth > 1 && isSemanticToken(token)) {
+            landmarks.push({ part: 'attribute-value', span: token.span });
+        }
+        index += 1;
+    }
+
+    return { landmarks, nextIndex: index };
+}
+
+function attributeEntryPart(part: 'key' | 'datatype' | 'value'): AnnotationPlacementPart {
+    if (part === 'key') {
+        return 'attribute-key';
+    }
+    if (part === 'datatype') {
+        return 'attribute-datatype';
+    }
+    return 'attribute-value';
+}
+
+function findNodeValueLandmarks(tokens: readonly Token[], valueSpan: Span): readonly PlacementLandmark[] {
+    const valueTokens = tokens.filter((token) =>
+        token.span.start.offset >= valueSpan.start.offset
+        && token.span.end.offset <= valueSpan.end.offset
     );
-    const end = nextHeadPart
-        ? tokens
-            .filter((token) => token.span.end.offset <= nextHeadPart.span.start.offset)
-            .at(-1)?.span.end ?? at.span.end
-        : at.span.end;
-    return {
-        part: 'attributes',
-        span: { start: at.span.start, end },
-    };
+    const landmarks: PlacementLandmark[] = [];
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let state: 'open' | 'tag' | 'datatype' | 'children' | 'done' = 'open';
+
+    for (const token of valueTokens) {
+        if (token.type === TokenType.LeftAngle && angleDepth === 0) {
+            landmarks.push({ part: 'node-open', span: token.span });
+            angleDepth = 1;
+            state = 'tag';
+            continue;
+        }
+        if (token.type === TokenType.RightAngle && angleDepth === 1 && parenDepth === 0) {
+            landmarks.push({ part: 'node-close', span: token.span });
+            state = 'done';
+            continue;
+        }
+        if (state === 'tag' && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-tag', span: token.span });
+            state = 'open';
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 0 && token.type === TokenType.Colon) {
+            landmarks.push({ part: 'node-datatype-colon', span: token.span });
+            state = 'datatype';
+            continue;
+        }
+        if (state === 'datatype' && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-datatype', span: token.span });
+            continue;
+        }
+        if (angleDepth === 1 && token.type === TokenType.LeftParen) {
+            parenDepth += 1;
+            landmarks.push({ part: parenDepth === 1 ? 'node-children-open' : 'value', span: token.span });
+            state = 'children';
+            continue;
+        }
+        if (angleDepth === 1 && token.type === TokenType.RightParen) {
+            if (parenDepth === 1) {
+                landmarks.push({ part: 'node-children-close', span: token.span });
+            }
+            parenDepth = Math.max(0, parenDepth - 1);
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 1 && token.type === TokenType.Comma) {
+            landmarks.push({ part: 'node-child-separator', span: token.span });
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 1 && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-child-value', span: token.span });
+        }
+    }
+
+    return landmarks.length > 0 ? landmarks : [{ part: 'value', span: valueSpan }];
 }
 
 function findDatatypeLandmark(
@@ -434,6 +879,24 @@ function findDatatypeLandmark(
 
 function spansOverlapInterior(left: Span, right: Span): boolean {
     return left.start.offset < right.end.offset && right.start.offset < left.end.offset;
+}
+
+function compareLandmarks(left: PlacementLandmark, right: PlacementLandmark): number {
+    const start = left.span.start.offset - right.span.start.offset;
+    if (start !== 0) {
+        return start;
+    }
+    return landmarkSpecificity(left.part) - landmarkSpecificity(right.part);
+}
+
+function landmarkSpecificity(part: AnnotationPlacementPart): number {
+    return part === 'value' || part === 'attributes' ? 1 : 0;
+}
+
+function isSemanticToken(token: Token): boolean {
+    return token.type !== TokenType.Newline
+        && token.type !== TokenType.EOF
+        && !isCommentToken(token);
 }
 
 function buildDescendantIndex(bindables: readonly Bindable[]): ReadonlyMap<string, DescendantIndex> {
@@ -484,6 +947,24 @@ function ancestorPaths(path: string): string[] {
             }
             if (index < path.length) {
                 index += 1;
+            }
+            result.push(path.slice(0, index));
+            continue;
+        }
+        if (marker === '@') {
+            index += 1;
+            if (path[index] === '[') {
+                index += 1;
+                while (index < path.length && path[index] !== ']') {
+                    index += 1;
+                }
+                if (index < path.length) {
+                    index += 1;
+                }
+            } else {
+                while (index < path.length && path[index] !== '@' && path[index] !== '.' && path[index] !== '[') {
+                    index += 1;
+                }
             }
             result.push(path.slice(0, index));
             continue;

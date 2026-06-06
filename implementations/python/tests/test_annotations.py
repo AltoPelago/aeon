@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.annotations import build_annotation_stream
+from aeon.annotations import build_annotation_stream, format_attribute_path
 from aeon.core import compile_source
 
 
@@ -17,6 +17,10 @@ class AnnotationStreamTests(unittest.TestCase):
     def annotations_for(self, source: str) -> list[dict[str, object]]:
         result = compile_source(source)
         return build_annotation_stream(source, result.events)
+
+    def test_no_structured_comments_returns_no_annotations(self) -> None:
+        annotations = self.annotations_for("a = 1\n// plain\nb = 2")
+        self.assertEqual([], annotations)
 
     def test_inline_trailing_binds_backward(self) -> None:
         annotations = self.annotations_for("a = 1 //? x: number = [>0]")
@@ -46,6 +50,31 @@ class AnnotationStreamTests(unittest.TestCase):
         annotations = self.annotations_for("//# docs\na = 1 //? required\n")
         self.assertEqual({"before": "key"}, annotations[0]["placement"])
         self.assertEqual({"after": "value"}, annotations[1]["placement"])
+
+    def test_at_sign_inside_comment_does_not_become_attribute_landmark(self) -> None:
+        annotations = self.annotations_for('a/#@#/ :string = "hello"')
+        self.assertEqual({"kind": "path", "path": "$.a"}, annotations[0]["target"])
+        self.assertEqual({"after": "key", "before": "datatype-colon"}, annotations[0]["placement"])
+
+    def test_non_ascii_attribute_key_uses_quoted_path_segment(self) -> None:
+        self.assertEqual('$.a@["é"]', format_attribute_path("$.a", "é"))
+
+    def test_binding_and_node_head_comments_stay_on_container_path(self) -> None:
+        annotations = self.annotations_for(
+            '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/'
+        )
+
+        self.assertEqual(21, len(annotations))
+        for annotation in annotations[1:4]:
+            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
+        for annotation in annotations[4:9]:
+            self.assertEqual({"kind": "path", "path": "$.a@b"}, annotation["target"], annotation["raw"])
+        for annotation in annotations[9:16]:
+            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
+        self.assertEqual({"kind": "path", "path": "$.a[0]"}, annotations[16]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[17]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[18]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a"}, annotations[20]["target"])
 
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(

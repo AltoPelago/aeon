@@ -74,6 +74,20 @@ function pathToSegments(path: string): AssignmentEvent['path']['segments'] {
 }
 
 describe('annotation stream', () => {
+    it('returns no records when the document has no structured comments', () => {
+        const source = 'a = 1\n// plain\nb = 2';
+        const events = [
+            createEvent('$.a', 0, 5, 1),
+            createEvent('$.b', 15, 20, 3),
+        ];
+        const lexResult = tokenize(source, { includeComments: true });
+        assert.strictEqual(lexResult.errors.length, 0);
+
+        const records = buildAnnotationStream({ tokens: lexResult.tokens, events });
+
+        assert.deepStrictEqual(records, []);
+    });
+
     it('emits structured records in source order', () => {
         const source = '//# one\na = 1\n//@ two\n//? three\n// plain';
         const events = [createEvent('$.a', 8, 13, 2)];
@@ -131,11 +145,11 @@ describe('annotation stream', () => {
             },
             {
                 source: 'e @{a:n=2} /?comment?/ :string = "hello"',
-                placement: { after: 'attributes', before: 'datatype-colon' },
+                placement: { after: 'attribute-close', before: 'datatype-colon' },
             },
             {
                 source: 'f /?comment?/ @{a:n=2} :string = "hello"',
-                placement: { after: 'key', before: 'attributes' },
+                placement: { after: 'key', before: 'attribute-marker' },
             },
         ] as const;
 
@@ -148,6 +162,62 @@ describe('annotation stream', () => {
             assert.deepStrictEqual(records[0]?.target, { kind: 'path', path: `$.${source[0]}` }, source);
             assert.deepStrictEqual(records[0]?.placement, placement, source);
         }
+    });
+
+    it('targets comments inside attribute entries with attribute paths', () => {
+        const source = '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#@=#/3/#3#/,/#@,#/c/#c#/=/#@=#/4/#4#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/';
+        const valueStart = source.indexOf('<');
+        const lexResult = tokenize(source, { includeComments: true });
+        const records = buildAnnotationStream({
+            tokens: lexResult.tokens,
+            events: [{
+                path: { segments: pathToSegments('$.a') },
+                key: 'a',
+                datatype: 'node',
+                span: {
+                    start: { offset: source.indexOf('a'), line: 1, column: source.indexOf('a') + 1 },
+                    end: { offset: source.length, line: 1, column: source.length + 1 },
+                },
+                value: {
+                    type: 'NodeLiteral',
+                    tag: 'tag',
+                    attributes: [],
+                    datatype: null,
+                    children: [],
+                    span: {
+                        start: { offset: valueStart, line: 1, column: valueStart + 1 },
+                        end: { offset: source.length, line: 1, column: source.length + 1 },
+                    },
+                } as AssignmentEvent['value'],
+            }],
+        });
+
+        assert.deepStrictEqual(lexResult.errors, []);
+        const byRaw = records.map((record) => ({
+            raw: record.raw,
+            path: record.target.kind === 'path' ? record.target.path : '',
+            placement: record.placement,
+        }));
+
+        assert.deepStrictEqual(
+            byRaw.filter((record) => record.raw === '/#b#/' || record.raw === '/#:#/' || record.raw === '/#@=#/' || record.raw === '/#3#/').slice(0, 4),
+            [
+                { raw: '/#b#/', path: '$.a@b', placement: { after: 'attribute-key', before: 'attribute-datatype-colon' } },
+                { raw: '/#:#/', path: '$.a@b', placement: { after: 'attribute-datatype-colon', before: 'attribute-datatype' } },
+                { raw: '/#@=#/', path: '$.a@b', placement: { after: 'attribute-equals', before: 'attribute-value' } },
+                { raw: '/#3#/', path: '$.a@b', placement: { after: 'attribute-value' } },
+            ],
+        );
+        assert.deepStrictEqual(byRaw.find((record) => record.raw === '/#@,#/'), {
+            raw: '/#@,#/',
+            path: '$.a',
+            placement: { after: 'attribute-separator', before: 'attribute-key' },
+        });
+        assert.deepStrictEqual(byRaw.find((record) => record.raw === '/#c#/'), {
+            raw: '/#c#/',
+            path: '$.a@c',
+            placement: { after: 'attribute-key', before: 'attribute-equals' },
+        });
     });
 
     it('binds infix comments to nearest indexed element inside a container', () => {
