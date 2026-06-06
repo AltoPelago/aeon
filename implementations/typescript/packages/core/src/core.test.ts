@@ -236,7 +236,13 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors.length, 0);
             const annotations = result.annotations ?? [];
             assert.strictEqual(annotations.length, 21);
-            for (const annotation of annotations.slice(1, 16)) {
+            for (const annotation of annotations.slice(1, 4)) {
+                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
+            }
+            for (const annotation of annotations.slice(4, 9)) {
+                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a@b' }, annotation.raw);
+            }
+            for (const annotation of annotations.slice(9, 16)) {
                 assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
             }
             assert.deepStrictEqual(annotations[16]?.target, { kind: 'path', path: '$.a[0]' });

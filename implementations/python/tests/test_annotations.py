@@ -18,6 +18,10 @@ class AnnotationStreamTests(unittest.TestCase):
         result = compile_source(source)
         return build_annotation_stream(source, result.events)
 
+    def test_no_structured_comments_returns_no_annotations(self) -> None:
+        annotations = self.annotations_for("a = 1\n// plain\nb = 2")
+        self.assertEqual([], annotations)
+
     def test_inline_trailing_binds_backward(self) -> None:
         annotations = self.annotations_for("a = 1 //? x: number = [>0]")
         self.assertEqual("$.a", annotations[0]["target"]["path"])
@@ -53,7 +57,11 @@ class AnnotationStreamTests(unittest.TestCase):
         )
 
         self.assertEqual(21, len(annotations))
-        for annotation in annotations[1:16]:
+        for annotation in annotations[1:4]:
+            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
+        for annotation in annotations[4:9]:
+            self.assertEqual({"kind": "path", "path": "$.a@b"}, annotation["target"], annotation["raw"])
+        for annotation in annotations[9:16]:
             self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
         self.assertEqual({"kind": "path", "path": "$.a[0]"}, annotations[16]["target"])
         self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[17]["target"])
