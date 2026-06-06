@@ -1060,7 +1060,9 @@ impl<'a> TokenParser<'a> {
         if self.match_kind(TokenKind::Colon) {
             let parsed = self.parse_simple_datatype()?;
             let base = datatype_base(&parsed);
-            if (parsed.contains('<') && base != "node") || !datatype_bracket_specs(&parsed).is_empty() {
+            if (parsed.contains('<') && base != "node")
+                || !datatype_bracket_specs(&parsed).is_empty()
+            {
                 return Err(self.error_at_current(
                     "Node head datatypes must be simple labels or node<T> without separator specs",
                 ));
@@ -1451,7 +1453,12 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     if !is_reserved_v1_datatype(base) {
         return Ok(());
     }
-    if datatype_has_generic_args(datatype) && !matches!(base, "list" | "tuple" | "object" | "node") {
+    if datatype_has_generic_args(datatype)
+        && !matches!(
+            base,
+            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+        )
+    {
         return Err(Diagnostic {
             code: String::from("SYNTAX_ERROR"),
             path: Some(String::from("$")),
@@ -2130,8 +2137,8 @@ group:object = {
 
     #[test]
     fn rejects_reserved_child_value_datatypes_on_binding_node_claims() {
-        let err = parse("tag:node<string> = <tag>\n")
-            .expect_err("binding node<string> should fail");
+        let err =
+            parse("tag:node<string> = <tag>\n").expect_err("binding node<string> should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
         assert!(
             err.message

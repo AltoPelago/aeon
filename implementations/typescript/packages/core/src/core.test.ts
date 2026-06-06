@@ -856,6 +856,28 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
+        it('should preserve parameterized void-container claims', () => {
+            const result = compile([
+                'aeon:mode = "transport"',
+                'missing:null<number> = !none',
+                'bad:nan<number> = NaN',
+                'fast:infinity<speedofmass> = Infinity',
+            ].join('\n'));
+            const missing = result.events.find(item => item.key === 'missing');
+            const bad = result.events.find(item => item.key === 'bad');
+            const fast = result.events.find(item => item.key === 'fast');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(missing);
+            assert.strictEqual(missing.datatype, 'null<number>');
+            assert.strictEqual(missing.value.type, 'NullLiteral');
+            assert.ok(bad);
+            assert.strictEqual(bad.datatype, 'nan<number>');
+            assert.strictEqual(bad.value.type, 'NaNLiteral');
+            assert.ok(fast);
+            assert.strictEqual(fast.datatype, 'infinity<speedofmass>');
+            assert.strictEqual(fast.value.type, 'InfinityLiteral');
+        });
+
         it('should require typed values in custom mode', () => {
             const result = compile('aeon:mode = "custom"\nstroke = #ff00ff');
             assert.strictEqual(result.events.length, 0);

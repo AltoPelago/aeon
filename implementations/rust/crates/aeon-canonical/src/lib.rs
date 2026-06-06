@@ -1077,7 +1077,12 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    if datatype.contains('<') && !matches!(base, "list" | "tuple" | "object" | "node") {
+    if datatype.contains('<')
+        && !matches!(
+            base,
+            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+        )
+    {
         return Err(format!(
             "Datatype `{base}` does not support generic arguments in v1"
         ));
@@ -1392,7 +1397,8 @@ impl<'a> Parser<'a> {
                 return Err(self.syntax_error("Expected datatype annotation"));
             }
             let parsed = self.parse_datatype_like()?;
-            validate_binding_node_datatype(&parsed).map_err(|message| self.syntax_error(&message))?;
+            validate_binding_node_datatype(&parsed)
+                .map_err(|message| self.syntax_error(&message))?;
             Some(parsed)
         } else {
             None
@@ -2636,12 +2642,12 @@ mod tests {
     #[test]
     fn canonicalizes_parameterized_object_and_node_claims() {
         let result = canonicalize(
-            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\ntitle:node = <title:node<string>(\"Hello\")>\n",
+            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\ntitle:node = <title:node<string>(\"Hello\")>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nchild:node<node> = <tag>\ndoc:node<html> = <html>\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nbad:nan<number> = NaN\nchild:node<node> = <tag>\ndoc:node<html> = <html>\nfast:infinity<speedofmass> = Infinity\nmissing:null<number> = !none\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
         );
     }
 

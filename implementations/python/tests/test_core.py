@@ -269,12 +269,15 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_parameterized_object_and_node_claims_are_preserved(self) -> None:
         result = compile_source(
-            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>'
+            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity'
         )
         self.assertEqual([], result.errors)
         self.assertEqual("object<number>", result.events[0]["datatype"])
         self.assertEqual("node<html>", result.events[2]["datatype"])
         self.assertEqual("node<node>", result.events[3]["datatype"])
+        self.assertEqual("null<number>", result.events[4]["datatype"])
+        self.assertEqual("nan<number>", result.events[5]["datatype"])
+        self.assertEqual("infinity<speedofmass>", result.events[6]["datatype"])
 
     def test_binding_node_claim_rejects_reserved_child_value_datatypes(self) -> None:
         result = compile_source("tag:node<string> = <tag>")
