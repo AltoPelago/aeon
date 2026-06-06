@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-wasm",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Browser-friendly WebAssembly wrapper for the Rust AEON implementation.",
   "license": "MIT",
   "type": "module",

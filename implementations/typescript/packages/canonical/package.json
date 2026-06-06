@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-canonical",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Canonical AEON serialization for the TypeScript implementation.",
   "license": "MIT",
   "type": "module",
