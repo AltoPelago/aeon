@@ -6,18 +6,41 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.9.5 - 2026-06-07
+
+### Changed
+
+- Preserved parameterized `null<T>`, `nan<T>`, and `infinity<T>` datatype
+  claims across the TypeScript, Rust, and Python implementation surfaces.
+- Added attribute-addressed annotation targeting so structured comments inside
+  attribute blocks bind to paths such as `$.a@b` instead of the owning value.
+- Added placement landmarks for node heads and attribute entries, improving
+  annotation placement around node tags, parameters, attribute keys, datatypes,
+  separators, equals signs, and values.
+
+### Fixed
+
+- Kept comments in binding and node heads attached to the container path instead
+  of drifting onto the first descendant binding or child value.
+- Ignored `@` markers inside structured comments while scanning Python
+  annotation landmarks.
+- Aligned Python attribute path formatting with TypeScript and Rust by using
+  ASCII-only bare attribute identifiers.
+- Avoided unnecessary annotation-stream work for documents with no structured
+  comments and cached Rust offset-to-position lookups for denser annotation
+  streams.
+
 ## 0.9.4 - 2026-06-02
 
 ### Changed
 
-- Extended reserved generic datatype claims to include `object<T>`, `node<T>`,
-  `null<T>`, `nan<T>`, and `infinity<T>` alongside `list<T>` and
-  `tuple<T...>`.
+- Extended reserved structural generic datatype claims to include
+  `object<T>` and `node<T>` alongside `list<T>` and `tuple<T...>`.
 - Allowed `node<T>` on node heads as a preserved child-content claim while
   keeping non-`node` generic node-head datatypes invalid.
-- Added CTS/spec coverage for parameterized object, node, null, NaN, and
-  infinity claims and updated TypeScript, Rust, and Python parser/Core behavior
-  to preserve the new claims without Core-level child/member enforcement.
+- Added CTS/spec coverage for parameterized object and node claims and updated
+  TypeScript, Rust, and Python parser/Core behavior to preserve the new
+  claims without Core-level child/member enforcement.
 
 ## 0.9.3 - 2026-06-01
 
