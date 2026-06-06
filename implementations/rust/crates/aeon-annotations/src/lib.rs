@@ -600,6 +600,7 @@ fn collect_bindables(source: &str) -> Vec<Bindable> {
 fn collect_attribute_bindables(source: &str, bindables: &[Bindable]) -> Vec<Bindable> {
     let mut out = Vec::new();
     let mut order = bindables.len() + 1;
+    let positions = SourcePositions::new(source);
     for bindable in bindables {
         if bindable.kind != BindableKind::Binding {
             continue;
@@ -611,6 +612,7 @@ fn collect_attribute_bindables(source: &str, bindables: &[Bindable]) -> Vec<Bind
             bindable.span.start.offset,
             head_end,
             &mut order,
+            &positions,
         ));
         if bindable.value_kind == BindableValueKind::Node {
             out.extend(node_head_attribute_bindables(
@@ -619,6 +621,7 @@ fn collect_attribute_bindables(source: &str, bindables: &[Bindable]) -> Vec<Bind
                 bindable.value_start.offset,
                 bindable.span.end.offset,
                 &mut order,
+                &positions,
             ));
         }
     }
@@ -631,6 +634,7 @@ fn node_head_attribute_bindables(
     start: usize,
     end: usize,
     order: &mut usize,
+    positions: &SourcePositions,
 ) -> Vec<Bindable> {
     if source.get(start..start + 1) != Some("<") {
         return Vec::new();
@@ -643,7 +647,7 @@ fn node_head_attribute_bindables(
         match source_char(source, offset) {
             Some('(' | '>') | None => break,
             Some('@') => {
-                let (entries, next) = scan_attribute_bindables_at(source, offset, end, owner_path, order);
+                let (entries, next) = scan_attribute_bindables_at(source, offset, end, owner_path, order, positions);
                 out.extend(entries);
                 offset = next.max(offset + 1);
             }
@@ -659,12 +663,13 @@ fn attribute_bindables_in_range(
     start: usize,
     end: usize,
     order: &mut usize,
+    positions: &SourcePositions,
 ) -> Vec<Bindable> {
     let mut out = Vec::new();
     let mut offset = start;
     while offset < end {
         if let Some(at) = find_top_level_source_char(source, '@', offset, end) {
-            let (entries, next) = scan_attribute_bindables_at(source, at, end, owner_path, order);
+            let (entries, next) = scan_attribute_bindables_at(source, at, end, owner_path, order, positions);
             out.extend(entries);
             offset = next.max(at + 1);
         } else {
@@ -680,6 +685,7 @@ fn scan_attribute_bindables_at(
     end: usize,
     owner_path: &str,
     order: &mut usize,
+    positions: &SourcePositions,
 ) -> (Vec<Bindable>, usize) {
     let mut entries = Vec::new();
     let open = skip_source_trivia(source, at + 1, end);
@@ -700,15 +706,15 @@ fn scan_attribute_bindables_at(
         }
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
-        let landmarks = attribute_entry_landmarks(source, key_start, entry_end);
-        let value_span = attribute_entry_value_span(source, key_end, entry_end)
+        let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
+        let value_span = attribute_entry_value_span(source, key_end, entry_end, positions)
             .unwrap_or(Span {
-                start: position_at_offset(source, key_start),
-                end: position_at_offset(source, key_end),
+                start: positions.position_at(key_start),
+                end: positions.position_at(key_end),
             });
         let span = Span {
-            start: position_at_offset(source, key_start),
-            end: position_at_offset(source, entry_end),
+            start: positions.position_at(key_start),
+            end: positions.position_at(entry_end),
         };
         entries.push(Bindable {
             path: format_attribute_path(owner_path, &key),
@@ -727,12 +733,17 @@ fn scan_attribute_bindables_at(
     (entries, offset)
 }
 
-fn attribute_landmarks_in_span(source: &str, start: Position, end: Position) -> Vec<PlacementLandmark> {
+fn attribute_landmarks_in_span(
+    source: &str,
+    start: Position,
+    end: Position,
+    positions: &SourcePositions,
+) -> Vec<PlacementLandmark> {
     let mut landmarks = Vec::new();
     let mut offset = start.offset;
     while offset < end.offset {
         if let Some(at) = find_top_level_source_char(source, '@', offset, end.offset) {
-            let (marks, next) = scan_attribute_landmarks_at(source, at, end.offset);
+            let (marks, next) = scan_attribute_landmarks_at(source, at, end.offset, positions);
             landmarks.extend(marks);
             offset = next.max(at + 1);
         } else {
@@ -746,12 +757,13 @@ fn scan_attribute_landmarks_at(
     source: &str,
     at: usize,
     end: usize,
+    positions: &SourcePositions,
 ) -> (Vec<PlacementLandmark>, usize) {
     let mut landmarks = vec![PlacementLandmark {
         part: AnnotationPlacementPart::AttributeMarker,
         span: Span {
-            start: position_at_offset(source, at),
-            end: position_at_offset(source, at + 1),
+            start: positions.position_at(at),
+            end: positions.position_at(at + 1),
         },
     }];
     let open = skip_source_trivia(source, at + 1, end);
@@ -761,8 +773,8 @@ fn scan_attribute_landmarks_at(
     landmarks.push(PlacementLandmark {
         part: AnnotationPlacementPart::AttributeOpen,
         span: Span {
-            start: position_at_offset(source, open),
-            end: position_at_offset(source, open + 1),
+            start: positions.position_at(open),
+            end: positions.position_at(open + 1),
         },
     });
     let mut offset = open + 1;
@@ -772,8 +784,8 @@ fn scan_attribute_landmarks_at(
             landmarks.push(PlacementLandmark {
                 part: AnnotationPlacementPart::AttributeClose,
                 span: Span {
-                    start: position_at_offset(source, offset),
-                    end: position_at_offset(source, offset + 1),
+                    start: positions.position_at(offset),
+                    end: positions.position_at(offset + 1),
                 },
             });
             return (landmarks, offset + 1);
@@ -785,14 +797,14 @@ fn scan_attribute_landmarks_at(
             continue;
         }
         let entry_end = scan_attribute_entry_end(source, key_end, end);
-        landmarks.extend(attribute_entry_landmarks(source, key_start, entry_end));
+        landmarks.extend(attribute_entry_landmarks(source, key_start, entry_end, positions));
         offset = skip_source_trivia(source, entry_end, end);
         if source_char(source, offset) == Some(',') {
             landmarks.push(PlacementLandmark {
                 part: AnnotationPlacementPart::AttributeSeparator,
                 span: Span {
-                    start: position_at_offset(source, offset),
-                    end: position_at_offset(source, offset + 1),
+                    start: positions.position_at(offset),
+                    end: positions.position_at(offset + 1),
                 },
             });
             offset += 1;
@@ -801,7 +813,12 @@ fn scan_attribute_landmarks_at(
     (landmarks, offset)
 }
 
-fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<PlacementLandmark> {
+fn attribute_entry_landmarks(
+    source: &str,
+    start: usize,
+    end: usize,
+    positions: &SourcePositions,
+) -> Vec<PlacementLandmark> {
     let mut landmarks = Vec::new();
     let key_end = scan_source_key_end(source, start, end);
     if key_end <= start {
@@ -810,8 +827,8 @@ fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<Plac
     landmarks.push(PlacementLandmark {
         part: AnnotationPlacementPart::AttributeKey,
         span: Span {
-            start: position_at_offset(source, start),
-            end: position_at_offset(source, key_end),
+            start: positions.position_at(start),
+            end: positions.position_at(key_end),
         },
     });
     let mut offset = key_end;
@@ -822,8 +839,8 @@ fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<Plac
                 landmarks.push(PlacementLandmark {
                     part: AnnotationPlacementPart::AttributeDatatypeColon,
                     span: Span {
-                        start: position_at_offset(source, offset),
-                        end: position_at_offset(source, offset + 1),
+                        start: positions.position_at(offset),
+                        end: positions.position_at(offset + 1),
                     },
                 });
                 let dtype_start = skip_source_trivia(source, offset + 1, end);
@@ -832,8 +849,8 @@ fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<Plac
                     landmarks.push(PlacementLandmark {
                         part: AnnotationPlacementPart::AttributeDatatype,
                         span: Span {
-                            start: position_at_offset(source, dtype_start),
-                            end: position_at_offset(source, dtype_end),
+                            start: positions.position_at(dtype_start),
+                            end: positions.position_at(dtype_end),
                         },
                     });
                 }
@@ -843,11 +860,11 @@ fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<Plac
                 landmarks.push(PlacementLandmark {
                     part: AnnotationPlacementPart::AttributeEquals,
                     span: Span {
-                        start: position_at_offset(source, offset),
-                        end: position_at_offset(source, offset + 1),
+                        start: positions.position_at(offset),
+                        end: positions.position_at(offset + 1),
                     },
                 });
-                if let Some(value_span) = attribute_entry_value_span(source, offset + 1, end) {
+                if let Some(value_span) = attribute_entry_value_span(source, offset + 1, end, positions) {
                     landmarks.push(PlacementLandmark {
                         part: AnnotationPlacementPart::AttributeValue,
                         span: value_span,
@@ -864,12 +881,17 @@ fn attribute_entry_landmarks(source: &str, start: usize, end: usize) -> Vec<Plac
     landmarks
 }
 
-fn attribute_entry_value_span(source: &str, start: usize, end: usize) -> Option<Span> {
+fn attribute_entry_value_span(
+    source: &str,
+    start: usize,
+    end: usize,
+    positions: &SourcePositions,
+) -> Option<Span> {
     let value_start = skip_source_trivia(source, start, end);
     let value_end = scan_source_value_end(source, value_start, end);
     (value_start < value_end).then(|| Span {
-        start: position_at_offset(source, value_start),
-        end: position_at_offset(source, value_end),
+        start: positions.position_at(value_start),
+        end: positions.position_at(value_end),
     })
 }
 
@@ -1077,28 +1099,54 @@ fn source_char(source: &str, offset: usize) -> Option<char> {
     source.get(offset..)?.chars().next()
 }
 
-fn position_at_offset(source: &str, offset: usize) -> Position {
-    let mut line = 1usize;
-    let mut column = 1usize;
-    let mut current = 0usize;
-    while current < offset && current < source.len() {
-        if let Some(ch) = source_char(source, current) {
-            current += ch.len_utf8();
+struct SourcePositions {
+    source_len: usize,
+    line_starts: Vec<usize>,
+    line_start_chars: Vec<usize>,
+    char_offsets: Vec<usize>,
+}
+
+impl SourcePositions {
+    fn new(source: &str) -> Self {
+        let mut line_starts = vec![0];
+        let mut line_start_chars = vec![0];
+        let mut char_offsets = Vec::new();
+        for (char_index, (byte_index, ch)) in source.char_indices().enumerate() {
+            char_offsets.push(byte_index);
             if ch == '\n' {
-                line += 1;
-                column = 1;
-            } else {
-                column += 1;
+                line_starts.push(byte_index + 1);
+                line_start_chars.push(char_index + 1);
             }
-        } else {
-            break;
+        }
+        Self {
+            source_len: source.len(),
+            line_starts,
+            line_start_chars,
+            char_offsets,
         }
     }
-    Position { line, column, offset }
+
+    fn position_at(&self, offset: usize) -> Position {
+        let bounded = offset.min(self.source_len);
+        let line_index = match self.line_starts.binary_search(&bounded) {
+            Ok(index) => index,
+            Err(index) => index.saturating_sub(1),
+        };
+        let char_index = match self.char_offsets.binary_search(&bounded) {
+            Ok(index) | Err(index) => index,
+        };
+        let column = char_index - self.line_start_chars[line_index] + 1;
+        Position {
+            line: line_index + 1,
+            column,
+            offset,
+        }
+    }
 }
 
 struct AnnotationParser<'a> {
     scanner: Scanner<'a>,
+    positions: SourcePositions,
 }
 
 const AEON_HEADER_CHILD_PARENT: &str = "$<aeon_header>";
@@ -1107,6 +1155,7 @@ impl<'a> AnnotationParser<'a> {
     fn new(source: &'a str) -> Self {
         Self {
             scanner: Scanner::new(source),
+            positions: SourcePositions::new(source),
         }
     }
 
@@ -1884,6 +1933,7 @@ impl<'a> AnnotationParser<'a> {
                 self.scanner.source,
                 attr_start,
                 attr_end,
+                &self.positions,
             ));
             end = Some(attr_end);
             self.skip_trivia(false);

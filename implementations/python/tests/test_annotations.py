@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.annotations import build_annotation_stream
+from aeon.annotations import build_annotation_stream, format_attribute_path
 from aeon.core import compile_source
 
 
@@ -50,6 +50,14 @@ class AnnotationStreamTests(unittest.TestCase):
         annotations = self.annotations_for("//# docs\na = 1 //? required\n")
         self.assertEqual({"before": "key"}, annotations[0]["placement"])
         self.assertEqual({"after": "value"}, annotations[1]["placement"])
+
+    def test_at_sign_inside_comment_does_not_become_attribute_landmark(self) -> None:
+        annotations = self.annotations_for('a/#@#/ :string = "hello"')
+        self.assertEqual({"kind": "path", "path": "$.a"}, annotations[0]["target"])
+        self.assertEqual({"after": "key", "before": "datatype-colon"}, annotations[0]["placement"])
+
+    def test_non_ascii_attribute_key_uses_quoted_path_segment(self) -> None:
+        self.assertEqual('$.a@["é"]', format_attribute_path("$.a", "é"))
 
     def test_binding_and_node_head_comments_stay_on_container_path(self) -> None:
         annotations = self.annotations_for(

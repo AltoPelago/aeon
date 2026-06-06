@@ -784,7 +784,16 @@ def scan_attribute_value_end(source: str, start: int, end: int) -> int:
 
 
 def format_attribute_path(owner_path: str, key: str) -> str:
-    return f"{owner_path}@{key}" if key and key.replace("_", "a").isalnum() and (key[0].isalpha() or key[0] == "_") else f"{owner_path}@[{json.dumps(key)}]"
+    return f"{owner_path}@{key}" if is_ascii_identifier(key) else f"{owner_path}@[{json.dumps(key, ensure_ascii=False)}]"
+
+
+def is_ascii_identifier(value: str) -> bool:
+    if not value:
+        return False
+    first = value[0]
+    if first != "_" and not ("A" <= first <= "Z" or "a" <= first <= "z"):
+        return False
+    return all(ch == "_" or "A" <= ch <= "Z" or "a" <= ch <= "z" or "0" <= ch <= "9" for ch in value[1:])
 
 
 def node_value_landmarks(source: str, value_span: Span, positions: PositionLookup) -> list[PlacementLandmark]:
@@ -949,6 +958,12 @@ def find_top_level_char(source: str, needle: str, start: int, end: int) -> int |
     depth = 0
     offset = start
     while offset < min(end, len(source)):
+        if starts_comment(source, offset):
+            if starts_line_comment(source, offset):
+                offset = skip_line_comment(source, offset, end)
+            else:
+                offset = skip_block_comment(source, offset, end)
+            continue
         char = source[offset]
         if char in {'"', "'", "`"}:
             offset = skip_string(source, offset, char)
