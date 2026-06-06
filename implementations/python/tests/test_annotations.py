@@ -47,6 +47,19 @@ class AnnotationStreamTests(unittest.TestCase):
         self.assertEqual({"before": "key"}, annotations[0]["placement"])
         self.assertEqual({"after": "value"}, annotations[1]["placement"])
 
+    def test_binding_and_node_head_comments_stay_on_container_path(self) -> None:
+        annotations = self.annotations_for(
+            '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/'
+        )
+
+        self.assertEqual(21, len(annotations))
+        for annotation in annotations[1:16]:
+            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
+        self.assertEqual({"kind": "path", "path": "$.a[0]"}, annotations[16]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[17]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[18]["target"])
+        self.assertEqual({"kind": "path", "path": "$.a"}, annotations[20]["target"])
+
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(
             'aname/#A#/ :string = "alignment playground"\n'

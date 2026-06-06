@@ -46,6 +46,8 @@ export interface BuildAnnotationStreamInput {
 
 interface Bindable {
     readonly span: Span;
+    readonly valueSpan: Span;
+    readonly valueType: AssignmentEvent['value']['type'];
     readonly path: string;
     readonly order: number;
 }
@@ -123,7 +125,7 @@ class AnnotationResolver {
 
         const container = smallestContaining(commentSpan, this.pathActive);
         if (container) {
-            const nearestChild = nearestDescendant(commentSpan, this.descendantsByPath.get(container.path));
+            const nearestChild = nearestDescendant(commentSpan, container, this.descendantsByPath.get(container.path));
             if (nearestChild) {
                 return { kind: 'path', path: nearestChild.path };
             }
@@ -169,6 +171,8 @@ class AnnotationResolver {
 export function buildAnnotationStream(input: BuildAnnotationStreamInput): readonly AnnotationRecord[] {
     const bindables = input.events.map((event, order) => ({
         span: event.span,
+        valueSpan: event.value.span,
+        valueType: event.value.type,
         path: formatPath(event.path),
         order,
     }));
@@ -259,7 +263,7 @@ function smallestContaining<T extends { readonly span: Span; readonly order: num
     return best;
 }
 
-function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined): Bindable | null {
+function nearestDescendant(commentSpan: Span, container: Bindable, index: DescendantIndex | undefined): Bindable | null {
     if (!index) {
         return null;
     }
@@ -267,12 +271,32 @@ function nearestDescendant(commentSpan: Span, index: DescendantIndex | undefined
     const forwardIndex = lowerBound(index.starts, commentSpan.end.offset);
     const trailingHit = trailingIndex >= 0 ? index.byEnd[trailingIndex] ?? null : null;
     const forwardHit = forwardIndex < index.byStart.length ? index.byStart[forwardIndex] ?? null : null;
+    if (
+        forwardHit
+        && !trailingHit
+        && shouldKeepCommentOnContainerBeforeDescendant(commentSpan, container, forwardHit)
+    ) {
+        return null;
+    }
     if (trailingHit && forwardHit) {
         const trailingDistance = commentSpan.start.offset - trailingHit.span.end.offset;
         const forwardDistance = forwardHit.span.start.offset - commentSpan.end.offset;
         return forwardDistance <= trailingDistance ? forwardHit : trailingHit;
     }
     return forwardHit ?? trailingHit;
+}
+
+function shouldKeepCommentOnContainerBeforeDescendant(
+    commentSpan: Span,
+    container: Bindable,
+    forwardHit: Bindable,
+): boolean {
+    if (commentSpan.end.offset <= container.valueSpan.start.offset) {
+        return true;
+    }
+    return container.valueType === 'NodeLiteral'
+        && commentSpan.start.offset >= container.valueSpan.start.offset
+        && commentSpan.end.offset <= forwardHit.span.start.offset;
 }
 
 function resolvePlacement(

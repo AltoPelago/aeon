@@ -227,6 +227,24 @@ describe('Core - compile()', () => {
             assert.deepStrictEqual(result.annotations?.[1]?.target, { kind: 'path', path: '$.a' });
         });
 
+        it('should keep binding and node head comments on the container path', () => {
+            const result = compile(
+                '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/',
+                { datatypePolicy: 'allow_custom' },
+            );
+
+            assert.strictEqual(result.errors.length, 0);
+            const annotations = result.annotations ?? [];
+            assert.strictEqual(annotations.length, 21);
+            for (const annotation of annotations.slice(1, 16)) {
+                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
+            }
+            assert.deepStrictEqual(annotations[16]?.target, { kind: 'path', path: '$.a[0]' });
+            assert.deepStrictEqual(annotations[17]?.target, { kind: 'path', path: '$.a[1]' });
+            assert.deepStrictEqual(annotations[18]?.target, { kind: 'path', path: '$.a[1]' });
+            assert.deepStrictEqual(annotations[20]?.target, { kind: 'path', path: '$.a' });
+        });
+
         it('should allow disabling annotation stream emission', () => {
             const result = compile('//# doc\na = 1', { emitAnnotations: false });
             assert.strictEqual(result.annotations, undefined);

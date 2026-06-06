@@ -20,6 +20,8 @@ class BindableRecord:
     span: Span
     order: int
     path: str | None = None
+    value_span: Span | None = None
+    value_type: str | None = None
     span_json: dict[str, object] | None = None
     landmarks: list[PlacementLandmark] | None = None
 
@@ -179,6 +181,8 @@ def build_annotation_stream(
                 span=parse_span(event["span"]),
                 order=index,
                 path=str(event["path"]),
+                value_span=event_value_span(event),
+                value_type=event_value_type(event),
                 landmarks=binding_landmarks(source, event, positions),
             )
             for index, event in enumerate(events)
@@ -333,7 +337,29 @@ def nearest_descendant(
     if trailing_hit is not None and forward_hit is not None:
         assert trailing_distance is not None and forward_distance is not None
         return forward_hit if forward_distance <= trailing_distance else trailing_hit
+    if (
+        forward_hit is not None
+        and trailing_hit is None
+        and should_keep_comment_on_container_before_descendant(comment_span, container, forward_hit)
+    ):
+        return None
     return forward_hit or trailing_hit
+
+
+def should_keep_comment_on_container_before_descendant(
+    comment_span: Span,
+    container: BindableRecord,
+    forward_hit: BindableRecord,
+) -> bool:
+    if container.value_span is None:
+        return False
+    if comment_span.end.offset <= container.value_span.start.offset:
+        return True
+    return (
+        container.value_type == "NodeLiteral"
+        and comment_span.start.offset >= container.value_span.start.offset
+        and comment_span.end.offset <= forward_hit.span.start.offset
+    )
 
 
 def scan_structured_comments(source: str) -> list[CommentRecord]:
@@ -527,6 +553,14 @@ def event_value_span(event: dict[str, object]) -> Span | None:
     if not isinstance(span, dict):
         return None
     return parse_span(span)
+
+
+def event_value_type(event: dict[str, object]) -> str | None:
+    value = event.get("value")
+    if not isinstance(value, dict):
+        return None
+    value_type = value.get("type")
+    return value_type if isinstance(value_type, str) else None
 
 
 def scan_key_span(

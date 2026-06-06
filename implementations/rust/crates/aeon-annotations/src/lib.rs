@@ -51,7 +51,15 @@ impl AnnotationPlacementPart {
 struct Bindable {
     path: String,
     span: Span,
+    value_start: Position,
+    value_kind: BindableValueKind,
     landmarks: Vec<PlacementLandmark>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindableValueKind {
+    Node,
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +178,14 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
             .filter(|candidate| bindable_descends_from(container, candidate))
             .collect::<Vec<_>>();
         if let Some(nearest) = resolve_nearest_by_offset(comment_span, &descendants) {
+            if should_keep_comment_on_container_before_descendant(
+                comment_span,
+                container,
+                nearest,
+                &descendants,
+            ) {
+                continue;
+            }
             return AnnotationTarget::Path {
                 path: nearest.path.clone(),
             };
@@ -219,6 +235,32 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
     }
 
     AnnotationTarget::Unbound { reason: "eof" }
+}
+
+fn should_keep_comment_on_container_before_descendant(
+    comment_span: Span,
+    container: &Bindable,
+    nearest: &Bindable,
+    descendants: &[&Bindable],
+) -> bool {
+    if container.path == "$.[\"aeon:header\"]" {
+        return false;
+    }
+    if descendants
+        .iter()
+        .any(|descendant| descendant.span.end.offset <= comment_span.start.offset)
+    {
+        return false;
+    }
+    if nearest.span.start.offset < comment_span.end.offset {
+        return false;
+    }
+    if comment_span.end.offset <= container.value_start.offset {
+        return true;
+    }
+    container.value_kind == BindableValueKind::Node
+        && comment_span.start.offset >= container.value_start.offset
+        && comment_span.end.offset <= nearest.span.start.offset
 }
 
 fn resolve_nearest_by_offset<'a>(
@@ -526,19 +568,28 @@ impl<'a> AnnotationParser<'a> {
         let value_start = self.scanner.position();
         let path = format_path(parent_path, &key);
         let mut bindables = Vec::new();
-        let end = match self.scanner.peek()? {
+        let (end, value_kind) = match self.scanner.peek()? {
             '{' => {
                 let child_parent_path = if parent_path == "$" && key == "aeon:header" {
                     AEON_HEADER_CHILD_PARENT
                 } else {
                     &path
                 };
-                self.capture_object(child_parent_path, &mut bindables)
+                (
+                    self.capture_object(child_parent_path, &mut bindables),
+                    BindableValueKind::Other,
+                )
             }
-            '[' => self.capture_sequence('[', ']', &path, &mut bindables),
-            '(' => self.capture_sequence('(', ')', &path, &mut bindables),
-            '<' => self.capture_node(&path, &mut bindables),
-            _ => self.capture_scalar(),
+            '[' => (
+                self.capture_sequence('[', ']', &path, &mut bindables),
+                BindableValueKind::Other,
+            ),
+            '(' => (
+                self.capture_sequence('(', ')', &path, &mut bindables),
+                BindableValueKind::Other,
+            ),
+            '<' => (self.capture_node(&path, &mut bindables), BindableValueKind::Node),
+            _ => (self.capture_scalar(), BindableValueKind::Other),
         };
         landmarks.push(PlacementLandmark {
             part: AnnotationPlacementPart::Value,
@@ -553,6 +604,8 @@ impl<'a> AnnotationParser<'a> {
             Bindable {
                 path,
                 span: Span { start, end },
+                value_start,
+                value_kind,
                 landmarks,
             },
         );
@@ -599,10 +652,13 @@ impl<'a> AnnotationParser<'a> {
             let item_path = format!("{parent_path}[{index}]");
             match self.scanner.peek() {
                 Some('@') | Some(':') => {
-                    let end = self.capture_anonymous_headed_value(&item_path, bindables);
+                    let (value_start, value_kind, end) =
+                        self.capture_anonymous_headed_value(&item_path, bindables);
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
+                        value_start,
+                        value_kind,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -611,6 +667,8 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        value_start: start,
+                        value_kind: BindableValueKind::Other,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -619,6 +677,8 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        value_start: start,
+                        value_kind: BindableValueKind::Other,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -627,6 +687,8 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        value_start: start,
+                        value_kind: BindableValueKind::Other,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -635,6 +697,8 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path.clone(),
                         span: Span { start, end },
+                        value_start: start,
+                        value_kind: BindableValueKind::Node,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -643,6 +707,8 @@ impl<'a> AnnotationParser<'a> {
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
+                        value_start: start,
+                        value_kind: BindableValueKind::Other,
                         landmarks: anonymous_value_landmarks(start, end),
                     });
                 }
@@ -666,7 +732,7 @@ impl<'a> AnnotationParser<'a> {
         &mut self,
         item_path: &str,
         bindables: &mut Vec<Bindable>,
-    ) -> Position {
+    ) -> (Position, BindableValueKind, Position) {
         if self.scanner.peek() == Some('@') {
             let _ = self.skip_attributes();
             self.skip_trivia(true);
@@ -679,13 +745,34 @@ impl<'a> AnnotationParser<'a> {
             self.scanner.bump();
             self.skip_trivia(true);
         }
+        let value_start = self.scanner.position();
         match self.scanner.peek() {
-            Some('{') => self.capture_object(item_path, bindables),
-            Some('[') => self.capture_sequence('[', ']', item_path, bindables),
-            Some('(') => self.capture_sequence('(', ')', item_path, bindables),
-            Some('<') => self.capture_node(item_path, bindables),
-            Some(_) => self.capture_scalar(),
-            None => self.scanner.position(),
+            Some('{') => (
+                value_start,
+                BindableValueKind::Other,
+                self.capture_object(item_path, bindables),
+            ),
+            Some('[') => (
+                value_start,
+                BindableValueKind::Other,
+                self.capture_sequence('[', ']', item_path, bindables),
+            ),
+            Some('(') => (
+                value_start,
+                BindableValueKind::Other,
+                self.capture_sequence('(', ')', item_path, bindables),
+            ),
+            Some('<') => (
+                value_start,
+                BindableValueKind::Node,
+                self.capture_node(item_path, bindables),
+            ),
+            Some(_) => (
+                value_start,
+                BindableValueKind::Other,
+                self.capture_scalar(),
+            ),
+            None => (value_start, BindableValueKind::Other, self.scanner.position()),
         }
     }
 
