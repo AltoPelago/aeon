@@ -4,7 +4,31 @@ import { tokenize, type Span, type Token, TokenType } from '@altopelago/aeon-lex
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
 export type AnnotationForm = 'line' | 'block';
 export type AnnotationReservedSubtype = 'structure' | 'profile' | 'instructions';
-export type AnnotationPlacementPart = 'key' | 'attributes' | 'datatype-colon' | 'datatype' | 'equals' | 'value';
+export type AnnotationPlacementPart =
+    | 'key'
+    | 'attributes'
+    | 'attribute-marker'
+    | 'attribute-open'
+    | 'attribute-key'
+    | 'attribute-datatype-colon'
+    | 'attribute-datatype'
+    | 'attribute-equals'
+    | 'attribute-value'
+    | 'attribute-separator'
+    | 'attribute-close'
+    | 'datatype-colon'
+    | 'datatype'
+    | 'equals'
+    | 'value'
+    | 'node-open'
+    | 'node-tag'
+    | 'node-datatype-colon'
+    | 'node-datatype'
+    | 'node-children-open'
+    | 'node-child-value'
+    | 'node-child-separator'
+    | 'node-children-close'
+    | 'node-close';
 
 export interface AnnotationPlacement {
     readonly after?: AnnotationPlacementPart;
@@ -338,6 +362,7 @@ function resolvePlacement(
 function bindingLandmarks(event: AssignmentEvent, tokens: readonly Token[]): readonly PlacementLandmark[] {
     const eventTokens = tokens
         .filter((token) => token.type !== TokenType.EOF)
+        .filter((token) => token.type !== TokenType.Newline)
         .filter((token) => !isCommentToken(token))
         .filter((token) => token.span.start.offset >= event.span.start.offset && token.span.end.offset <= event.span.end.offset);
     const topLevel = topLevelTokens(eventTokens);
@@ -351,22 +376,26 @@ function bindingLandmarks(event: AssignmentEvent, tokens: readonly Token[]): rea
         .filter((token) => token.type === TokenType.Equals && token.span.end.offset <= valueSpan.start.offset)
         .at(-1);
     const headEnd = equals?.span.start.offset ?? valueSpan.start.offset;
-    const attributes = findAttributesLandmark(eventTokens, topLevel, key.span.end.offset, headEnd);
+    const attributes = findAttributesLandmarks(eventTokens, key.span.end.offset, headEnd);
+    const attributeEnd = attributes.at(-1)?.span.end.offset ?? key.span.end.offset;
     const datatypeColon = topLevel.find((token) =>
         token.type === TokenType.Colon
-        && token.span.start.offset >= (attributes?.span.end.offset ?? key.span.end.offset)
+        && token.span.start.offset >= attributeEnd
         && token.span.end.offset <= headEnd
     );
     const datatype = datatypeColon ? findDatatypeLandmark(eventTokens, datatypeColon.span.end.offset, headEnd) : undefined;
+    const valueLandmarks = event.value.type === 'NodeLiteral'
+        ? findNodeValueLandmarks(eventTokens, valueSpan)
+        : [{ part: 'value' as const, span: valueSpan }];
 
     return [
         { part: 'key' as const, span: key.span },
-        ...(attributes ? [attributes] : []),
+        ...attributes,
         ...(datatypeColon ? [{ part: 'datatype-colon' as const, span: datatypeColon.span }] : []),
         ...(datatype ? [datatype] : []),
         ...(equals ? [{ part: 'equals' as const, span: equals.span }] : []),
-        { part: 'value' as const, span: valueSpan },
-    ].sort((left, right) => left.span.start.offset - right.span.start.offset);
+        ...valueLandmarks,
+    ].sort(compareLandmarks);
 }
 
 function isCommentToken(token: Token): boolean {
@@ -405,34 +434,163 @@ function depthDelta(token: Token): number {
     }
 }
 
-function findAttributesLandmark(
+function findAttributesLandmarks(
     tokens: readonly Token[],
-    topLevel: readonly Token[],
     afterOffset: number,
     beforeOffset: number,
-): PlacementLandmark | undefined {
-    const at = topLevel.find((token) =>
-        token.type === TokenType.At
-        && token.span.start.offset >= afterOffset
-        && token.span.end.offset <= beforeOffset
-    );
-    if (!at) {
-        return undefined;
+): readonly PlacementLandmark[] {
+    const landmarks: PlacementLandmark[] = [];
+    let index = 0;
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (
+            token.type !== TokenType.At
+            || token.span.start.offset < afterOffset
+            || token.span.end.offset > beforeOffset
+        ) {
+            index += 1;
+            continue;
+        }
+
+        const attrLandmarks = scanAttributeLandmarks(tokens, index, beforeOffset);
+        landmarks.push(...attrLandmarks.landmarks);
+        index = Math.max(index + 1, attrLandmarks.nextIndex);
     }
-    const nextHeadPart = topLevel.find((token) =>
-        token.span.start.offset > at.span.start.offset
-        && token.span.start.offset <= beforeOffset
-        && (token.type === TokenType.Colon || token.type === TokenType.Equals)
+    return landmarks;
+}
+
+function scanAttributeLandmarks(
+    tokens: readonly Token[],
+    atIndex: number,
+    beforeOffset: number,
+): { readonly landmarks: readonly PlacementLandmark[]; readonly nextIndex: number } {
+    const at = tokens[atIndex]!;
+    const landmarks: PlacementLandmark[] = [{ part: 'attribute-marker', span: at.span }];
+    let index = atIndex + 1;
+    let depth = 0;
+    let entryPart: 'key' | 'datatype' | 'value' = 'key';
+    let opened = false;
+
+    while (index < tokens.length) {
+        const token = tokens[index]!;
+        if (token.span.start.offset > beforeOffset) {
+            break;
+        }
+        if (token.type === TokenType.LeftBrace) {
+            depth += 1;
+            landmarks.push({ part: opened ? 'attribute-value' : 'attribute-open', span: token.span });
+            opened = true;
+            index += 1;
+            continue;
+        }
+        if (token.type === TokenType.RightBrace) {
+            if (depth <= 1) {
+                landmarks.push({ part: 'attribute-close', span: token.span });
+                return { landmarks, nextIndex: index + 1 };
+            }
+            depth -= 1;
+            landmarks.push({ part: 'attribute-value', span: token.span });
+            index += 1;
+            continue;
+        }
+        if (depth === 1) {
+            switch (token.type) {
+                case TokenType.Colon:
+                    landmarks.push({ part: 'attribute-datatype-colon', span: token.span });
+                    entryPart = 'datatype';
+                    break;
+                case TokenType.Equals:
+                    landmarks.push({ part: 'attribute-equals', span: token.span });
+                    entryPart = 'value';
+                    break;
+                case TokenType.Comma:
+                    landmarks.push({ part: 'attribute-separator', span: token.span });
+                    entryPart = 'key';
+                    break;
+                default:
+                    if (isSemanticToken(token)) {
+                        landmarks.push({ part: attributeEntryPart(entryPart), span: token.span });
+                    }
+                    break;
+            }
+        } else if (depth > 1 && isSemanticToken(token)) {
+            landmarks.push({ part: 'attribute-value', span: token.span });
+        }
+        index += 1;
+    }
+
+    return { landmarks, nextIndex: index };
+}
+
+function attributeEntryPart(part: 'key' | 'datatype' | 'value'): AnnotationPlacementPart {
+    if (part === 'key') {
+        return 'attribute-key';
+    }
+    if (part === 'datatype') {
+        return 'attribute-datatype';
+    }
+    return 'attribute-value';
+}
+
+function findNodeValueLandmarks(tokens: readonly Token[], valueSpan: Span): readonly PlacementLandmark[] {
+    const valueTokens = tokens.filter((token) =>
+        token.span.start.offset >= valueSpan.start.offset
+        && token.span.end.offset <= valueSpan.end.offset
     );
-    const end = nextHeadPart
-        ? tokens
-            .filter((token) => token.span.end.offset <= nextHeadPart.span.start.offset)
-            .at(-1)?.span.end ?? at.span.end
-        : at.span.end;
-    return {
-        part: 'attributes',
-        span: { start: at.span.start, end },
-    };
+    const landmarks: PlacementLandmark[] = [];
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let state: 'open' | 'tag' | 'datatype' | 'children' | 'done' = 'open';
+
+    for (const token of valueTokens) {
+        if (token.type === TokenType.LeftAngle && angleDepth === 0) {
+            landmarks.push({ part: 'node-open', span: token.span });
+            angleDepth = 1;
+            state = 'tag';
+            continue;
+        }
+        if (token.type === TokenType.RightAngle && angleDepth === 1 && parenDepth === 0) {
+            landmarks.push({ part: 'node-close', span: token.span });
+            state = 'done';
+            continue;
+        }
+        if (state === 'tag' && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-tag', span: token.span });
+            state = 'open';
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 0 && token.type === TokenType.Colon) {
+            landmarks.push({ part: 'node-datatype-colon', span: token.span });
+            state = 'datatype';
+            continue;
+        }
+        if (state === 'datatype' && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-datatype', span: token.span });
+            continue;
+        }
+        if (angleDepth === 1 && token.type === TokenType.LeftParen) {
+            parenDepth += 1;
+            landmarks.push({ part: parenDepth === 1 ? 'node-children-open' : 'value', span: token.span });
+            state = 'children';
+            continue;
+        }
+        if (angleDepth === 1 && token.type === TokenType.RightParen) {
+            if (parenDepth === 1) {
+                landmarks.push({ part: 'node-children-close', span: token.span });
+            }
+            parenDepth = Math.max(0, parenDepth - 1);
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 1 && token.type === TokenType.Comma) {
+            landmarks.push({ part: 'node-child-separator', span: token.span });
+            continue;
+        }
+        if (angleDepth === 1 && parenDepth === 1 && isSemanticToken(token)) {
+            landmarks.push({ part: 'node-child-value', span: token.span });
+        }
+    }
+
+    return landmarks.length > 0 ? landmarks : [{ part: 'value', span: valueSpan }];
 }
 
 function findDatatypeLandmark(
@@ -458,6 +616,24 @@ function findDatatypeLandmark(
 
 function spansOverlapInterior(left: Span, right: Span): boolean {
     return left.start.offset < right.end.offset && right.start.offset < left.end.offset;
+}
+
+function compareLandmarks(left: PlacementLandmark, right: PlacementLandmark): number {
+    const start = left.span.start.offset - right.span.start.offset;
+    if (start !== 0) {
+        return start;
+    }
+    return landmarkSpecificity(left.part) - landmarkSpecificity(right.part);
+}
+
+function landmarkSpecificity(part: AnnotationPlacementPart): number {
+    return part === 'value' || part === 'attributes' ? 1 : 0;
+}
+
+function isSemanticToken(token: Token): boolean {
+    return token.type !== TokenType.Newline
+        && token.type !== TokenType.EOF
+        && !isCommentToken(token);
 }
 
 function buildDescendantIndex(bindables: readonly Bindable[]): ReadonlyMap<string, DescendantIndex> {

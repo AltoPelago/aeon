@@ -541,8 +541,97 @@ def binding_landmarks(
                 Span(positions.position_at(equals_offset), positions.position_at(equals_offset + 1)),
             )
         )
-    landmarks.append(PlacementLandmark("value", value_span))
+    if event_value_type(event) == "NodeLiteral":
+        landmarks.extend(node_value_landmarks(source, value_span, positions))
+    else:
+        landmarks.append(PlacementLandmark("value", value_span))
     return sorted(landmarks, key=lambda landmark: landmark.span.start.offset)
+
+
+def node_value_landmarks(source: str, value_span: Span, positions: PositionLookup) -> list[PlacementLandmark]:
+    tokens = node_value_tokens(source, value_span, positions)
+    landmarks: list[PlacementLandmark] = []
+    angle_depth = 0
+    paren_depth = 0
+    state = "open"
+
+    for kind, span in tokens:
+        if kind == "<" and angle_depth == 0:
+            landmarks.append(PlacementLandmark("node-open", span))
+            angle_depth = 1
+            state = "tag"
+            continue
+        if kind == ">" and angle_depth == 1 and paren_depth == 0:
+            landmarks.append(PlacementLandmark("node-close", span))
+            state = "done"
+            continue
+        if state == "tag" and kind == "semantic":
+            landmarks.append(PlacementLandmark("node-tag", span))
+            state = "open"
+            continue
+        if angle_depth == 1 and paren_depth == 0 and kind == ":":
+            landmarks.append(PlacementLandmark("node-datatype-colon", span))
+            state = "datatype"
+            continue
+        if state == "datatype" and kind == "semantic":
+            landmarks.append(PlacementLandmark("node-datatype", span))
+            continue
+        if angle_depth == 1 and kind == "(":
+            paren_depth += 1
+            landmarks.append(PlacementLandmark("node-children-open" if paren_depth == 1 else "value", span))
+            state = "children"
+            continue
+        if angle_depth == 1 and kind == ")":
+            if paren_depth == 1:
+                landmarks.append(PlacementLandmark("node-children-close", span))
+            paren_depth = max(0, paren_depth - 1)
+            continue
+        if angle_depth == 1 and paren_depth == 1 and kind == ",":
+            landmarks.append(PlacementLandmark("node-child-separator", span))
+            continue
+        if angle_depth == 1 and paren_depth == 1 and kind == "semantic":
+            landmarks.append(PlacementLandmark("node-child-value", span))
+
+    return landmarks or [PlacementLandmark("value", value_span)]
+
+
+def node_value_tokens(
+    source: str,
+    value_span: Span,
+    positions: PositionLookup,
+) -> list[tuple[str, Span]]:
+    tokens: list[tuple[str, Span]] = []
+    offset = value_span.start.offset
+    end = value_span.end.offset
+    while offset < end:
+        char = source[offset]
+        if char in {" ", "\t", "\n", "\r"}:
+            offset += 1
+            continue
+        if starts_comment(source, offset):
+            if starts_line_comment(source, offset):
+                offset = skip_line_comment(source, offset, end)
+            else:
+                offset = skip_block_comment(source, offset, end)
+            continue
+        if char in {'"', "'", "`"}:
+            token_end = skip_string(source, offset, char)
+            tokens.append(("semantic", Span(positions.position_at(offset), positions.position_at(token_end))))
+            offset = token_end
+            continue
+        if char in {"<", ">", "(", ")", ",", ":"}:
+            tokens.append((char, Span(positions.position_at(offset), positions.position_at(offset + 1))))
+            offset += 1
+            continue
+        token_end = offset + 1
+        while token_end < end:
+            next_char = source[token_end]
+            if next_char in {" ", "\t", "\n", "\r", "<", ">", "(", ")", ",", ":"} or starts_comment(source, token_end):
+                break
+            token_end += 1
+        tokens.append(("semantic", Span(positions.position_at(offset), positions.position_at(token_end))))
+        offset = token_end
+    return tokens
 
 
 def event_value_span(event: dict[str, object]) -> Span | None:

@@ -131,11 +131,11 @@ describe('annotation stream', () => {
             },
             {
                 source: 'e @{a:n=2} /?comment?/ :string = "hello"',
-                placement: { after: 'attributes', before: 'datatype-colon' },
+                placement: { after: 'attribute-close', before: 'datatype-colon' },
             },
             {
                 source: 'f /?comment?/ @{a:n=2} :string = "hello"',
-                placement: { after: 'key', before: 'attributes' },
+                placement: { after: 'key', before: 'attribute-marker' },
             },
         ] as const;
 
