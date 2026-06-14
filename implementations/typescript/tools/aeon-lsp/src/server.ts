@@ -12,7 +12,7 @@ import {
     TextDocuments,
     TextDocumentSyncKind,
     createConnection,
-} from 'vscode-languageserver/node.js';
+} from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { fileURLToPath } from 'node:url';
 import { getCodeActions, getCompletionItems, getDiagnostics, getHover } from './language-service.js';

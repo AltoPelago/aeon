@@ -6,7 +6,7 @@ import { finalizeJson } from '@altopelago/aeon-finalize';
 import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@altopelago/aeon-profiles';
 import { inspectHeader } from '@altopelago/aeon-transport';
 import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@altopelago/aeos-core';
-import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node.js';
+import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node';
 
 export interface ValidationConfig {
     readonly enabled?: boolean;

@@ -22,7 +22,7 @@ import {
     type Hover,
     type Position,
     type Range,
-} from 'vscode-languageserver/node.js';
+} from 'vscode-languageserver/node';
 
 const HEADER_FIELDS = ['header', 'mode', 'version', 'profile', 'schema', 'encoding', 'envelope'] as const;
 const ENVELOPE_DATATYPE = 'envelope';
