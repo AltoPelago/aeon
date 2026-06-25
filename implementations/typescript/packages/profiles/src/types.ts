@@ -57,9 +57,19 @@ export interface Processor {
     apply(aes: readonly AssignmentEvent[], ctx: ProcessorCtx): readonly AssignmentEvent[];
 }
 
+export interface CollectionSemantics {
+    readonly ordered: boolean;
+    readonly heterogeneous: boolean;
+    readonly unique: boolean;
+    readonly fixedLength: boolean;
+}
+
 export interface Profile {
     readonly id: string;
     readonly version?: string;
+    readonly modeDefault?: 'strict' | 'loose';
+    readonly datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
+    readonly collections?: Readonly<Record<string, CollectionSemantics>>;
     compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
     readonly processors?: readonly Processor[];
 }

@@ -55,6 +55,17 @@ export type CompileResult = {
 };
 ```
 
+Profile metadata:
+
+```ts
+export interface CollectionSemantics {
+  ordered: boolean;
+  heterogeneous: boolean;
+  unique: boolean;
+  fixedLength: boolean;
+}
+```
+
 Processor contract:
 
 ```ts
@@ -67,6 +78,9 @@ export interface Processor {
 export interface Profile {
   id: string;
   version?: string;
+  modeDefault?: 'strict' | 'loose';
+  datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
+  collections?: Readonly<Record<string, CollectionSemantics>>;
   compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
   processors?: readonly Processor[];
 }
@@ -82,7 +96,7 @@ Built-in processors:
 
 Built-in profiles:
 - `core` — form-only AES output
-- `aeon.gp.profile.v1` — AEON GP profile contract
+- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults and collection semantics for `list` and `tuple`
 - `json` — resolves references for JSON interoperability
 
 ## Tests
