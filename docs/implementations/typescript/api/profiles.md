@@ -45,14 +45,14 @@ interface CompileOptions {
 - `registry` provides profile lookup when `profile` is a string id.
 - `mode`, `datatypePolicy`, and depth controls are forwarded into compilation context.
 - Profiles may define processors, although higher-level runtime flows may intentionally skip them to preserve phase ordering.
-- Profiles may expose contract metadata such as `modeDefault`, `datatypePolicyDefault`, and `collections`.
+- Profiles may expose contract metadata such as `modeDefault`, `datatypePolicyDefault`, `collections`, and `containers`.
 
 ## Built-in exports
 
 - `createRegistry()`
 - `createDefaultRegistry()`
 - `coreProfile`
-- `aeonGpCoreProfile` (`aeon.gp.profile.v1`, with GP collection semantics for `list` and `tuple`)
+- `aeonGpCoreProfile` (`aeon.gp.profile.v1`, with GP collection semantics for `list`/`tuple` and container semantics for `object`/`node`)
 - `jsonProfile`
 
 ## Example

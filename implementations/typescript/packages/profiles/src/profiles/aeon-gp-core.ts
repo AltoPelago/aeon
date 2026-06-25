@@ -20,5 +20,18 @@ export const aeonGpCoreProfile: Profile = {
             fixedLength: true,
         },
     },
+    containers: {
+        object: {
+            ordered: false,
+            heterogeneous: true,
+            uniqueKeys: true,
+        },
+        node: {
+            childOrdered: true,
+            heterogeneous: true,
+            uniqueAttributes: true,
+            mixedContent: true,
+        },
+    },
     compile: (input, ctx: CompileCtx) => compileWithCore(input, ctx),
 };
