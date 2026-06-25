@@ -27,11 +27,15 @@ export const aeonGpCoreProfile: Profile = {
             uniqueKeys: true,
         },
         node: {
-            childOrdered: true,
+            ordered: true,
             heterogeneous: true,
             uniqueAttributes: true,
             mixedContent: true,
         },
+    },
+    capabilities: {
+        references: true,
+        clones: true,
     },
     compile: (input, ctx: CompileCtx) => compileWithCore(input, ctx),
 };

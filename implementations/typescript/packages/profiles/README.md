@@ -72,10 +72,15 @@ export interface ObjectContainerSemantics {
 }
 
 export interface NodeContainerSemantics {
-  childOrdered: boolean;
+  ordered: boolean;
   heterogeneous: boolean;
   uniqueAttributes: boolean;
   mixedContent: boolean;
+}
+
+export interface ProfileCapabilities {
+  references: boolean;
+  clones: boolean;
 }
 ```
 
@@ -95,6 +100,7 @@ export interface Profile {
   datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
   collections?: Readonly<Record<string, CollectionSemantics>>;
   containers?: Readonly<Record<string, ObjectContainerSemantics | NodeContainerSemantics>>;
+  capabilities?: ProfileCapabilities;
   compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
   processors?: readonly Processor[];
 }
@@ -110,7 +116,7 @@ Built-in processors:
 
 Built-in profiles:
 - `core` — form-only AES output
-- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults, collection semantics for `list`/`tuple`, and container semantics for `object`/`node`
+- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults, collection semantics for `list`/`tuple`, container semantics for `object`/`node`, and required processor capabilities
 - `json` — resolves references for JSON interoperability
 
 ## Tests
