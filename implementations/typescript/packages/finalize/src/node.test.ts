@@ -84,9 +84,9 @@ describe('Finalization (Node)', () => {
     });
 
     it('errors on reserved projection keys during node finalization', () => {
-        const events = compileToEvents('"@" = 1\n"$node" = 2\n"$children" = 3');
+        const events = compileToEvents('"@" = 1\n"$node" = 2\n"$children" = 3\n"__proto__" = 4');
         const result = finalizeNode(events, { mode: 'strict' });
-        assert.ok(result.meta?.errors && result.meta.errors.length >= 3);
+        assert.ok(result.meta?.errors && result.meta.errors.length >= 4);
         assert.equal(result.meta?.errors?.[0]?.message, 'Reserved key: @');
         assert.strictEqual(result.document.root.entries.size, 0);
     });

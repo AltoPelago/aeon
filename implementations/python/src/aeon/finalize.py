@@ -6,7 +6,7 @@ from typing import Iterable
 
 from ._compat import dataclass
 MAX_SAFE_INTEGER = 9007199254740991
-RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children"}
+RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children", "__proto__", "constructor", "prototype"}
 
 
 @dataclass(slots=True)
@@ -414,6 +414,9 @@ def annotation_entries_to_json(annotations: object, ctx: JsonContext, path: str)
         entry_path = f"{path}@{format_annotation_key(key)}"
         if not ctx.projection.includes(entry_path):
             continue
+        if key in RESERVED_OBJECT_KEYS:
+            ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
+            continue
         result[key] = value_to_json(entry.get("value"), ctx, entry_path)
     return result or None
 
@@ -433,6 +436,9 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
                 continue
             entry_path = f"{path}@{format_annotation_key(key)}"
             if not ctx.projection.includes(entry_path):
+                continue
+            if key in RESERVED_OBJECT_KEYS:
+                ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
                 continue
             result[key] = value_to_json(entry.get("value"), ctx, entry_path)
     return result or None

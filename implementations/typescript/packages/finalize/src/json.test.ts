@@ -477,6 +477,16 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(({} as any).polluted, undefined);
     });
 
+    it('rejects prototype pollution via prototype member names', () => {
+        const events = compileToEvents('payload = { prototype = { polluted = "yes" } }');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.ok(result.meta?.errors && result.meta.errors.length > 0);
+        assert.equal(result.meta?.errors?.[0]?.message, 'Reserved key: prototype');
+        assert.deepStrictEqual(result.document, { payload: {} });
+        assert.strictEqual(({} as any).polluted, undefined);
+    });
+
     it('does not traverse pointer targets through prototype chains in linked JSON', () => {
         const events = compileToEvents('base = { safe = 1 }\nlink = ~>base.__proto__.polluted');
         const result = finalizeLinkedJson(events, { mode: 'strict' });

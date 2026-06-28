@@ -36,6 +36,13 @@ function toDiagnostic(level: 'error' | 'warning', message: string, path?: string
     };
 }
 
+function reservedKeyDiagnostic(key: string, path?: string, span?: unknown): Diagnostic {
+    return {
+        ...toDiagnostic('error', `Reserved key: ${key}`, path, span),
+        code: 'FINALIZE_RESERVED_KEY',
+    };
+}
+
 type JsonContext = {
     strict: boolean;
     errors: Diagnostic[];
@@ -50,7 +57,7 @@ type JsonContext = {
     activeClonePaths: string[];
 };
 
-const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor']);
+const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor', 'prototype']);
 const PROTOTYPE_POLLUTING_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const IDENTIFIER_PATH_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -155,12 +162,7 @@ function payloadToJson(
         const eventPath = scopedTopLevelPath(scope, 'payload', key);
         if (!shouldIncludeProjectedPath(eventPath, projection)) continue;
         if (isReservedObjectKey(key)) {
-            ctx.errors.push(toDiagnostic(
-                'error',
-                `Reserved key: ${key}`,
-                eventPath,
-                event.span
-            ));
+            ctx.errors.push(reservedKeyDiagnostic(key, eventPath, event.span));
             continue;
         }
         if (Object.prototype.hasOwnProperty.call(document, key)) {
@@ -203,6 +205,10 @@ function headerToJson(
     for (const [key, value] of header.fields) {
         const fieldPath = scopedTopLevelPath(scope, 'header', key);
         if (!shouldIncludeProjectedPath(fieldPath, projection)) continue;
+        if (isReservedObjectKey(key)) {
+            ctx.errors.push(reservedKeyDiagnostic(key, fieldPath, value.span));
+            continue;
+        }
         document[key] = valueToJson(value, ctx, fieldPath, projection);
     }
     return document;
@@ -413,12 +419,7 @@ function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: 
             continue;
         }
         if (isReservedObjectKey(key)) {
-            ctx.errors.push(toDiagnostic(
-                'error',
-                `Reserved key: ${key}`,
-                entryPath,
-                binding.span
-            ));
+            ctx.errors.push(reservedKeyDiagnostic(key, entryPath, binding.span));
             continue;
         }
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
@@ -734,6 +735,10 @@ function attributesToJson(
             if (!shouldIncludeProjectedPath(entryPath, projection)) {
                 continue;
             }
+            if (isReservedObjectKey(key)) {
+                ctx.errors.push(reservedKeyDiagnostic(key, entryPath, entry.value.span));
+                continue;
+            }
             obj[key] = valueToJson(
                 entry.value,
                 ctx,
@@ -851,6 +856,10 @@ function annotationsToJson(
     for (const [key, entry] of annotations.entries() as IterableIterator<[string, AttributeEntry]>) {
         const entryPath = appendAttributePath(path, key);
         if (!shouldIncludeProjectedPath(entryPath, projection)) {
+            continue;
+        }
+        if (isReservedObjectKey(key)) {
+            ctx.errors.push(reservedKeyDiagnostic(key, entryPath, entry.value.span));
             continue;
         }
         obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
