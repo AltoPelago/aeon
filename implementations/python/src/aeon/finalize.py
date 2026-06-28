@@ -194,6 +194,14 @@ def header_to_json(header: dict[str, object] | None, ctx: JsonContext, scope: st
         path = scoped_top_level_path(scope, "header", key)
         if not ctx.projection.includes(path):
             continue
+        if key in RESERVED_OBJECT_KEYS:
+            ctx.emit(
+                "error",
+                "FINALIZE_RESERVED_KEY",
+                f"Reserved key cannot be materialized in JSON output: {key}",
+                path,
+            )
+            continue
         result[key] = value_to_json(value, ctx, path)
     return result
 

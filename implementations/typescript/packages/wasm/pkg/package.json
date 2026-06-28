@@ -2,7 +2,7 @@
   "name": "aeon-wasm",
   "type": "module",
   "description": "Browser-friendly WebAssembly wrapper for the Rust AEON implementation.",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "license": "MIT",
   "repository": {
     "type": "git",
