@@ -76,7 +76,7 @@ a:infinity = -Infinity
 ---
 bits:radix = %+9&.!
 ---
-payload:base64 = $abc-_+/==
+payload:base64 = $abc-_==
 ---
 blue:base64 = $FF_FF_FF_
 ---

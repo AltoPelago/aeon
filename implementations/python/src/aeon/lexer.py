@@ -790,7 +790,7 @@ class Lexer:
     def is_valid_encoding_payload(payload: str) -> bool:
         if not payload:
             return False
-        if not re.fullmatch(r"[A-Za-z0-9+/_-]+={0,2}", payload):
+        if not re.fullmatch(r"[A-Za-z0-9_-]+={0,2}", payload):
             return False
         padding_index = payload.find("=")
         return padding_index == -1 or all(char == "=" for char in payload[padding_index:])

@@ -201,6 +201,44 @@ test('default registry includes aeon.gp.profile.v1 alias', () => {
     assert.equal(registry.has('aeon.gp.profile.v1'), true);
 });
 
+test('aeon.gp.profile.v1 exposes GP collection, container, and capability metadata', () => {
+    const profile = createDefaultRegistry().get('aeon.gp.profile.v1');
+
+    assert.equal(profile?.modeDefault, 'strict');
+    assert.equal(profile?.datatypePolicyDefault, 'reserved_only');
+    assert.deepEqual(profile?.collections, {
+        list: {
+            ordered: false,
+            heterogeneous: true,
+            unique: false,
+            fixedLength: false,
+        },
+        tuple: {
+            ordered: true,
+            heterogeneous: true,
+            unique: false,
+            fixedLength: true,
+        },
+    });
+    assert.deepEqual(profile?.containers, {
+        object: {
+            ordered: false,
+            heterogeneous: true,
+            uniqueKeys: true,
+        },
+        node: {
+            ordered: true,
+            heterogeneous: true,
+            uniqueAttributes: true,
+            mixedContent: true,
+        },
+    });
+    assert.deepEqual(profile?.capabilities, {
+        references: true,
+        clones: true,
+    });
+});
+
 test('default core profile parses introducer node syntax', () => {
     const result = compile('view:node = <panel("hello")>', {
         profile: 'aeon.gp.profile.v1',

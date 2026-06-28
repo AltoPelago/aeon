@@ -120,6 +120,18 @@ class FinalizeJsonTests(unittest.TestCase):
             result["document"],
         )
 
+    def test_rejects_host_dangerous_object_projection_keys(self) -> None:
+        result = finalize_json(
+            compile_events('"__proto__" = { polluted = "yes" }\npayload = { prototype = 1, constructor = 2 }'),
+            FinalizeOptions(mode="strict"),
+        )
+
+        self.assertEqual({"payload": {}}, result["document"])
+        self.assertEqual(
+            ["FINALIZE_RESERVED_KEY", "FINALIZE_RESERVED_KEY", "FINALIZE_RESERVED_KEY"],
+            [error["code"] for error in result.get("meta", {}).get("errors", [])],
+        )
+
     def test_records_reference_diagnostics_and_preserves_tokens(self) -> None:
         events = compile_events("a = 1\nb = ~>a")
         result = finalize_json(events, FinalizeOptions(mode="strict"))

@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Browser-friendly WebAssembly wrapper for the Rust AEON implementation."
 
 [dependencies]
 aeon-annotations.workspace = true

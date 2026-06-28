@@ -796,7 +796,7 @@
     {
       "id": "canonical-strict-0039",
       "kind": "compile",
-      "source": "payload:base64 = $abc-_+/==",
+      "source": "payload:base64 = $abc-_==",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {

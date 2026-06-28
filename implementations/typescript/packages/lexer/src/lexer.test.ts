@@ -244,10 +244,15 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '$QmFzZTY0IQ==');
         });
 
-        it('should tokenize encoding literals in standard and url-safe base64 alphabets', () => {
-            const result = tokenize('$abc-_+/==');
+        it('should tokenize padded base64url encoding literals', () => {
+            const result = tokenize('$abc-_==');
             assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$abc-_+/==');
+            assert.strictEqual(result.tokens[0]!.value, '$abc-_==');
+        });
+
+        it('should reject standard base64 alphabet characters in encoding literals', () => {
+            const result = tokenize('$abc+/==');
+            assert.strictEqual(result.errors.length, 1);
         });
 
         it('should reject dotted encoding literals', () => {

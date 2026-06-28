@@ -57,9 +57,41 @@ export interface Processor {
     apply(aes: readonly AssignmentEvent[], ctx: ProcessorCtx): readonly AssignmentEvent[];
 }
 
+export interface CollectionSemantics {
+    readonly ordered: boolean;
+    readonly heterogeneous: boolean;
+    readonly unique: boolean;
+    readonly fixedLength: boolean;
+}
+
+export interface ObjectContainerSemantics {
+    readonly ordered: boolean;
+    readonly heterogeneous: boolean;
+    readonly uniqueKeys: boolean;
+}
+
+export interface NodeContainerSemantics {
+    readonly ordered: boolean;
+    readonly heterogeneous: boolean;
+    readonly uniqueAttributes: boolean;
+    readonly mixedContent: boolean;
+}
+
+export type ContainerSemantics = ObjectContainerSemantics | NodeContainerSemantics;
+
+export interface ProfileCapabilities {
+    readonly references: boolean;
+    readonly clones: boolean;
+}
+
 export interface Profile {
     readonly id: string;
     readonly version?: string;
+    readonly modeDefault?: 'strict' | 'loose';
+    readonly datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
+    readonly collections?: Readonly<Record<string, CollectionSemantics>>;
+    readonly containers?: Readonly<Record<string, ContainerSemantics>>;
+    readonly capabilities?: ProfileCapabilities;
     compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
     readonly processors?: readonly Processor[];
 }

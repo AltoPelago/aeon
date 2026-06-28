@@ -58,7 +58,7 @@ test('binds block comments between equals and value to the current field', async
   assert.deepEqual(result.annotations[0]?.placement, { after: 'equals', before: 'value' });
 });
 
-test('binds comments inside node values to descendant paths', async () => {
+test('binds comments inside node values to owning and descendant paths deterministically', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);
   const result = runtime.processAeon(
@@ -82,10 +82,10 @@ test('binds comments inside node values to descendant paths', async () => {
 
   assert.equal(result.errors.length, 0);
   assert.equal(result.annotations.length, 36);
-  assert.equal(result.annotations[12]?.target.path, '$.page[0]');
-  assert.deepEqual(result.annotations[12]?.placement, { before: 'key' });
-  assert.equal(result.annotations[30]?.target.path, '$.page[0][0][0]');
-  assert.deepEqual(result.annotations[30]?.placement, { before: 'key' });
+  assert.equal(result.annotations[12]?.target.path, '$.page');
+  assert.deepEqual(result.annotations[12]?.placement, { after: 'key', before: 'datatype-colon' });
+  assert.equal(result.annotations[30]?.target.path, '$.page[0][0]');
+  assert.deepEqual(result.annotations[30]?.placement, { after: 'node-tag', before: 'node-children-open' });
   assert.equal(result.annotations[32]?.target.path, '$.page[0][1][0]');
   assert.deepEqual(result.annotations[32]?.placement, { after: 'value' });
 });

@@ -263,7 +263,7 @@ test008:o = {
 
 test009:o = {
 	encoding:encoding = $QmFzZTY0IQ==
-	base64:base64 = $abc-_+/==
+	base64:base64 = $abc-_==
 	encoding001:base64 = $FF_FF_FF_
 }
 

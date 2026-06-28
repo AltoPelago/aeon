@@ -1065,10 +1065,7 @@ fn normalize_raw(raw: &str) -> String {
 }
 
 fn normalize_encoding(raw: &str) -> String {
-    raw.replace('+', "-")
-        .replace('/', "_")
-        .trim_end_matches('=')
-        .to_owned()
+    raw.to_owned()
 }
 
 fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
@@ -2464,12 +2461,12 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_encoding_literals_to_url_safe_base64() {
-        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = $+///==\n");
+    fn preserves_padded_base64url_encoding_literals() {
+        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = $abc-_==\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $-___\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = $abc-_==\n"
         );
     }
 

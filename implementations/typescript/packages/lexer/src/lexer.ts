@@ -1293,7 +1293,7 @@ function isValidRadixPayload(payload: string): boolean {
 
 function isValidEncodingPayload(payload: string): boolean {
     if (payload.length === 0) return false;
-    if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(payload)) return false;
+    if (!/^[A-Za-z0-9_-]+={0,2}$/.test(payload)) return false;
     const firstPadding = payload.indexOf('=');
     if (firstPadding === -1) return true;
     return payload.slice(firstPadding).split('').every((c) => c === '=');

@@ -1354,7 +1354,7 @@ fn is_identifier(value: &str) -> bool {
 fn is_reserved_key(key: &str) -> bool {
     matches!(
         key,
-        "@" | "$" | "$node" | "$children" | "__proto__" | "constructor"
+        "@" | "$" | "$node" | "$children" | "__proto__" | "constructor" | "prototype"
     )
 }
 
@@ -1415,6 +1415,13 @@ fn attributes_to_json(
     for (key, entry) in attributes {
         let entry_path = format!("{path}@{}", render_attribute_segment(key));
         if !projection.includes(&entry_path) {
+            continue;
+        }
+        if is_reserved_key(key) {
+            errors.push(
+                Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}"))
+                    .at_path(&entry_path),
+            );
             continue;
         }
         let value = attribute_value_to_json(
@@ -1646,6 +1653,13 @@ fn object_attribute_members_to_json(
     for (key, entry) in members {
         let child_path = format!("{path}.{}", render_member_segment(key));
         if !projection.includes(&child_path) {
+            continue;
+        }
+        if is_reserved_key(key) {
+            errors.push(
+                Diagnostic::new("FINALIZE_RESERVED_KEY", format!("Reserved key: {key}"))
+                    .at_path(&child_path),
+            );
             continue;
         }
         object.insert(
@@ -2312,6 +2326,25 @@ mod tests {
         assert_eq!(finalized.document, json!({}));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert_eq!(finalized.meta.errors[0].code, "FINALIZE_RESERVED_KEY");
+    }
+
+    #[test]
+    fn rejects_host_dangerous_projection_keys() {
+        let source = "\"__proto__\" = { polluted = \"yes\" }\npayload = { prototype = 1, constructor = 2 }\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+
+        assert_eq!(finalized.document, json!({ "payload": {} }));
+        assert_eq!(finalized.meta.errors.len(), 3);
+        assert!(
+            finalized
+                .meta
+                .errors
+                .iter()
+                .all(|error| error.code == "FINALIZE_RESERVED_KEY"),
+            "{:?}",
+            finalized.meta.errors
+        );
     }
 
     #[test]

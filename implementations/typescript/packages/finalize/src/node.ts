@@ -37,6 +37,13 @@ function toDiagnostic(level: 'error' | 'warning', message: string, path?: string
     };
 }
 
+function reservedKeyDiagnostic(key: string, path?: string, span?: unknown): Diagnostic {
+    return {
+        ...toDiagnostic('error', `Reserved key: ${key}`, path, span),
+        code: 'FINALIZE_RESERVED_KEY',
+    };
+}
+
 type NodeContext = {
     strict: boolean;
     errors: Diagnostic[];
@@ -49,7 +56,7 @@ type NodeMeta = {
     annotations?: ReadonlyMap<string, AnnotationEntry>;
 };
 
-const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children']);
+const RESERVED_OBJECT_KEYS = new Set(['@', '$', '$node', '$children', '__proto__', 'constructor', 'prototype']);
 
 export function finalizeNode(
     aes: readonly AssignmentEvent[],
@@ -113,12 +120,7 @@ function payloadEntriesToNode(
         const eventPath = scopedTopLevelPath(scope, 'payload', key);
         if (!shouldIncludeProjectedPath(eventPath, projection)) continue;
         if (isReservedObjectKey(key)) {
-            ctx.errors.push(toDiagnostic(
-                'error',
-                `Reserved key: ${key}`,
-                eventPath,
-                event.span
-            ));
+            ctx.errors.push(reservedKeyDiagnostic(key, eventPath, event.span));
             continue;
         }
         if (rootEntries.has(key)) {
@@ -330,12 +332,7 @@ function objectNode(
             continue;
         }
         if (!options.allowReservedKeys && isReservedObjectKey(key)) {
-            ctx.errors.push(toDiagnostic(
-                'error',
-                `Reserved key: ${key}`,
-                entryPath,
-                binding.span
-            ));
+            ctx.errors.push(reservedKeyDiagnostic(key, entryPath, binding.span));
             continue;
         }
         if (entries.has(key)) {

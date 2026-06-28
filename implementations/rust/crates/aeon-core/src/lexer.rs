@@ -739,13 +739,13 @@ fn is_valid_encoding_payload(payload: &str) -> bool {
     }
     if !payload
         .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=' | '-' | '_'))
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '=' | '-' | '_'))
     {
         return false;
     }
     match payload.find('=') {
         None => true,
-        Some(index) => payload[index..].chars().all(|ch| ch == '='),
+        Some(index) => payload.len() - index <= 2 && payload[index..].chars().all(|ch| ch == '='),
     }
 }
 
@@ -1047,15 +1047,21 @@ mod tests {
     }
 
     #[test]
-    fn tokenizes_standard_and_urlsafe_encoding_literals() {
-        let result = tokenize("value = $abc-_+/==", LexerOptions::default());
+    fn tokenizes_padded_base64url_encoding_literals() {
+        let result = tokenize("value = $abc-_==", LexerOptions::default());
         assert!(result.errors.is_empty());
         let token = result
             .tokens
             .iter()
             .find(|token| token.kind == TokenKind::EncodingLiteral)
             .expect("encoding token");
-        assert_eq!(token.text, "$abc-_+/==");
+        assert_eq!(token.text, "$abc-_==");
+    }
+
+    #[test]
+    fn rejects_standard_base64_alphabet_characters_in_encoding_literals() {
+        let result = tokenize("value = $abc+/==", LexerOptions::default());
+        assert_eq!(result.errors.len(), 1);
     }
 
     #[test]

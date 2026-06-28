@@ -586,6 +586,14 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
+        it('should reject standard base64 alphabet characters in encoding literals', () => {
+            const result = compile('payload:base64 = $abc+/==');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
         it('should report unterminated string spans on the correct line and column', () => {
             const result = compile('a = 1\nb = "unterminated');
 

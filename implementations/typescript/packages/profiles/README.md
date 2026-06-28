@@ -55,6 +55,35 @@ export type CompileResult = {
 };
 ```
 
+Profile metadata:
+
+```ts
+export interface CollectionSemantics {
+  ordered: boolean;
+  heterogeneous: boolean;
+  unique: boolean;
+  fixedLength: boolean;
+}
+
+export interface ObjectContainerSemantics {
+  ordered: boolean;
+  heterogeneous: boolean;
+  uniqueKeys: boolean;
+}
+
+export interface NodeContainerSemantics {
+  ordered: boolean;
+  heterogeneous: boolean;
+  uniqueAttributes: boolean;
+  mixedContent: boolean;
+}
+
+export interface ProfileCapabilities {
+  references: boolean;
+  clones: boolean;
+}
+```
+
 Processor contract:
 
 ```ts
@@ -67,6 +96,11 @@ export interface Processor {
 export interface Profile {
   id: string;
   version?: string;
+  modeDefault?: 'strict' | 'loose';
+  datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
+  collections?: Readonly<Record<string, CollectionSemantics>>;
+  containers?: Readonly<Record<string, ObjectContainerSemantics | NodeContainerSemantics>>;
+  capabilities?: ProfileCapabilities;
   compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
   processors?: readonly Processor[];
 }
@@ -82,7 +116,7 @@ Built-in processors:
 
 Built-in profiles:
 - `core` — form-only AES output
-- `aeon.gp.profile.v1` — AEON GP profile contract
+- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults, collection semantics for `list`/`tuple`, container semantics for `object`/`node`, and required processor capabilities
 - `json` — resolves references for JSON interoperability
 
 ## Tests
