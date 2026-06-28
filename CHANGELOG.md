@@ -6,6 +6,27 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.9.6 - 2026-06-29
+
+### Security
+
+- Rejected prototype-polluting reserved keys during implementation processing.
+- Hardened the TypeScript release and publish path by moving the workspace and
+  GitHub Actions `pnpm` runtime to patched `10.34.4`.
+
+### Changed
+
+- Added profile collection semantics and defaults to the TypeScript release
+  surface.
+- Added container semantics to built-in profiles.
+- Added profile capabilities metadata and renamed profile node-ordering
+  semantics for clearer public behavior.
+
+### Fixed
+
+- Restricted encoding literals to base64url and preserved padding behavior
+  across the implementation surface.
+
 ## 0.9.5 - 2026-06-07
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-sdk",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "Public TypeScript SDK facade for AEON document workflows.",
   "license": "MIT",
   "type": "module",
