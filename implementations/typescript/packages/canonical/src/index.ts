@@ -485,7 +485,7 @@ function renderCompactInlineValue(value: Value): string {
 }
 
 function formatEncoding(value: string): string {
-    return value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+    return value;
 }
 
 function renderHeaderFromObject(

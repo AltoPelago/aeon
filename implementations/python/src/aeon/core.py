@@ -1129,7 +1129,7 @@ def has_valid_radix_literal(raw: str) -> bool:
 
 def has_valid_encoding_literal(raw: str) -> bool:
     body = raw[1:] if raw else ""
-    if not body or not re.fullmatch(r"[A-Za-z0-9+/_-]+={0,2}", body):
+    if not body or not re.fullmatch(r"[A-Za-z0-9_-]+={0,2}", body):
         return False
     padding_index = body.find("=")
     return padding_index == -1 or all(char == "=" for char in body[padding_index:])

@@ -1528,13 +1528,13 @@ fn has_valid_encoding_literal(raw: &str) -> bool {
     }
     if !body
         .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=' | '-' | '_'))
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '=' | '-' | '_'))
     {
         return false;
     }
     match body.find('=') {
         None => true,
-        Some(index) => body[index..].chars().all(|ch| ch == '='),
+        Some(index) => body.len() - index <= 2 && body[index..].chars().all(|ch| ch == '='),
     }
 }
 

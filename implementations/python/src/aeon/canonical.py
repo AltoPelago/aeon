@@ -367,7 +367,7 @@ def render_reference_path(path: list[object]) -> str:
 
 
 def format_encoding_literal(value: str) -> str:
-    return value.replace("+", "-").replace("/", "_").rstrip("=")
+    return value
 
 
 def format_binding_key(key: str) -> str:
