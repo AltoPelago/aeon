@@ -1287,8 +1287,8 @@ describe('AEON CLI output contract', () => {
             };
             assert.ok(Array.isArray(parsed.annotations));
             for (let i = 1; i < (parsed.annotations?.length ?? 0); i++) {
-                const prev = parsed.annotations?.[i - 1]?.span.start.offset ?? 0;
-                const next = parsed.annotations?.[i]?.span.start.offset ?? 0;
+                const prev: number = parsed.annotations?.[i - 1]?.span.start.offset ?? 0;
+                const next: number = parsed.annotations?.[i]?.span.start.offset ?? 0;
                 assert.ok(prev <= next);
             }
         });
