@@ -32,7 +32,7 @@
 		"clean": "pnpm -r --filter './packages/**' --filter './tools/**' clean"
 	},
 	"devDependencies": {
-		"typescript": "6.0.3",
+		"typescript": "7.0.2",
 		"@types/node": "26.1.1"
 	},
 	"packageManager": "pnpm@10.34.4",
