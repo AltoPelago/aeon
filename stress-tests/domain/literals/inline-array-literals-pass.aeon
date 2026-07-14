@@ -8,7 +8,7 @@ switches = [on, off, yes, no]
 
 hexes = [#FF00AA, #00FF00]
 radixes = [%1011, %1100]
-encodings = [$QmFzZTY0IQ==, $SGVsbG8=]
+encodings = [&QmFzZTY0IQ==, &SGVsbG8=]
 
 dates = [2025-01-01, 2025-12-31]
 datetimes = [2025-01-01T00:00:00Z, 2025-01-01T09:30:00]

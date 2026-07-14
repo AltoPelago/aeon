@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-profiles",
-  "version": "0.9.6",
+  "version": "0.10.0",
   "description": "Built-in AEON finalization profiles and profile helpers.",
   "license": "MIT",
   "type": "module",

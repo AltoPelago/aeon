@@ -246,7 +246,13 @@ export class Lexer {
                 }
                 break;
             case '@': this.addToken(TokenType.At, c, start); break;
-            case '&': this.addToken(TokenType.Ampersand, c, start); break;
+            case '&':
+                if (isEncodingStartChar(this.peek())) {
+                    this.scanEncodingLiteral(start);
+                } else {
+                    this.addToken(TokenType.Ampersand, c, start);
+                }
+                break;
             case ';': this.addToken(TokenType.Semicolon, c, start); break;
 
             // Tilde (may be ~ or ~>)
@@ -276,15 +282,9 @@ export class Lexer {
                 }
                 break;
 
-            // Encoding literal ($Base64...)
+            // Dollar/root marker
             case '$':
-                if (this.peek() === '.') {
-                    this.addToken(TokenType.Dollar, c, start);
-                } else if (isEncodingStartChar(this.peek())) {
-                    this.scanEncodingLiteral(start);
-                } else {
-                    this.addToken(TokenType.Dollar, c, start);
-                }
+                this.addToken(TokenType.Dollar, c, start);
                 break;
 
             // Radix literal (%1011)
@@ -803,11 +803,10 @@ export class Lexer {
     }
 
     private scanEncodingLiteral(start: Position): void {
-        let value = '$';
+        let value = '&';
 
-        // Keep root-qualified paths (`$.a`) lexically distinct from encoding literals.
         if (!isEncodingStartChar(this.peek())) {
-            this.addToken(TokenType.Dollar, value, start);
+            this.addToken(TokenType.Ampersand, value, start);
             return;
         }
 
@@ -821,7 +820,7 @@ export class Lexer {
         }
 
         if (value.length === 1) {
-            this.errors.push(new UnexpectedCharacterError('$', createSpan(start, this.currentPosition())));
+            this.errors.push(new UnexpectedCharacterError('&', createSpan(start, this.currentPosition())));
             return;
         }
 

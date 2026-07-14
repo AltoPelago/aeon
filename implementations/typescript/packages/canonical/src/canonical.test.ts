@@ -268,10 +268,10 @@ test('indents multiline list items consistently', () => {
 });
 
 test('preserves padded base64url encoding literals in canonical output', () => {
-    const result = canonicalize('aeon:mode = "transport"\npayload:base64 = $abc-_==');
+    const result = canonicalize('aeon:mode = "transport"\npayload:base64 = &abc-_==');
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('payload:base64 = $abc-_=='));
+    assert.ok(result.text.includes('payload:base64 = &abc-_=='));
 });
 
 test('quotes non-identifier attribute keys in canonical output and preserves round-trip parseability', () => {

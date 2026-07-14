@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-tonic",
-  "version": "0.9.6",
+  "version": "0.10.0",
   "description": "AEON Tonic document conversion helpers.",
   "license": "MIT",
   "type": "module",

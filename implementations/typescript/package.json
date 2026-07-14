@@ -8,7 +8,7 @@
 		"typecheck": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"test": "pnpm -r --filter './packages/**' --filter './tools/**' test",
 		"test:unit:ci": "pnpm -r --filter './packages/**' --filter './tools/**' --filter '!@altopelago/aeon-phase-fuzz' test",
-		"test:stress": "bash ../../scripts/stress-smoke.sh && pnpm -C ../../stress-tests/tools/aeon-stress-cli stress-advanced",
+		"test:stress": "cargo build --manifest-path ../rust/Cargo.toml -p aeon-cli && bash ../../scripts/stress-smoke.sh && pnpm -C ../../stress-tests/tools/aeon-stress-cli stress-advanced",
 		"test:fuzz": "pnpm --filter @altopelago/aeon-phase-fuzz test",
 		"test:fuzz:lexer": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:lexer",
 		"test:fuzz:parser": "pnpm --filter @altopelago/aeon-phase-fuzz fuzz:parser",

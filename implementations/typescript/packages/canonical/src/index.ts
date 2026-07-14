@@ -291,7 +291,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'RadixLiteral':
             return [`%${value.value.replace(/_/g, '')}`];
         case 'EncodingLiteral':
-            return [`$${formatEncoding(value.value)}`];
+            return [`&${formatEncoding(value.value)}`];
         case 'SeparatorLiteral':
             return [`^${formatSeparator(value.raw)}`];
         case 'DateLiteral':
@@ -449,7 +449,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'RadixLiteral':
             return `%${value.value.replace(/_/g, '')}`;
         case 'EncodingLiteral':
-            return `$${formatEncoding(value.value)}`;
+            return `&${formatEncoding(value.value)}`;
         case 'SeparatorLiteral':
             return `^${formatSeparator(value.raw)}`;
         case 'DateLiteral':

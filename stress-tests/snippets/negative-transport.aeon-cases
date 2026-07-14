@@ -153,13 +153,13 @@ r:radix8<radix8> = %10101
 ---
 r:radix12<radix12> = %10101
 ---
-e:encoding<encoding> = $fff
+e:encoding<encoding> = &fff
 ---
-b:base64<base64> = $fff
+b:base64<base64> = &fff
 ---
-i:inline<inline> = $inline
+i:inline<inline> = &inline
 ---
-e:embed<embed> = $embed
+e:embed<embed> = &embed
 ---
 d:date<date> = 2007-01-02
 ---
@@ -219,13 +219,13 @@ r:radix8[2] = %10101
 ---
 r:radix12[2]= %10101
 ---
-e:encoding[2] = $fff
+e:encoding[2] = &fff
 ---
-b:base64[2] = $fff
+b:base64[2] = &fff
 ---
-i:inline[2] = $inline
+i:inline[2] = &inline
 ---
-e:embed[2] = $embed
+e:embed[2] = &embed
 ---
 d:date[2] = 2007-01-02
 ---

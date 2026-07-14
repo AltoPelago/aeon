@@ -579,7 +579,7 @@ describe('Core - compile()', () => {
         });
 
         it('should normalize invalid untyped encoding literals to syntax errors', () => {
-            const result = compile('e = $QmF.zZTY0IQ==');
+            const result = compile('e = &QmF.zZTY0IQ==');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
@@ -587,7 +587,7 @@ describe('Core - compile()', () => {
         });
 
         it('should reject standard base64 alphabet characters in encoding literals', () => {
-            const result = compile('payload:base64 = $abc+/==');
+            const result = compile('payload:base64 = &abc+/==');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);

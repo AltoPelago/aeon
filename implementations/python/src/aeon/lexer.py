@@ -128,7 +128,7 @@ class Lexer:
             if char == "$" and self.peek() == ".":
                 self.add_token(singles[char], char, start)
                 return
-            if char == "$" and self.is_encoding_start_char(self.peek()):
+            if char == "&" and self.is_encoding_start_char(self.peek()):
                 self.scan_prefixed_literal(start, char, "ENCODING", self.is_encoding_char, self.is_valid_encoding_payload)
                 return
             if char == "%" and self.is_radix_start_char(self.peek()):

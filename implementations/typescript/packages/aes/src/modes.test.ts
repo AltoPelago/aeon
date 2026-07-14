@@ -204,7 +204,7 @@ describe('Mode Enforcement', () => {
 
         it('should accept embed and inline as reserved encoding aliases in strict mode', () => {
             for (const datatype of ['embed', 'inline']) {
-                const result = enforce(`aeon:mode = "strict"\npayload:${datatype} = $QmFzZTY0IQ==`);
+                const result = enforce(`aeon:mode = "strict"\npayload:${datatype} = &QmFzZTY0IQ==`);
                 assert.strictEqual(result.errors.length, 0, datatype);
             }
         });

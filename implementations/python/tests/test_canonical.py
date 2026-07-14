@@ -81,9 +81,9 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('bottom:null = !"postponed"', result.text)
 
     def test_preserves_padded_base64url_encoding_literals(self) -> None:
-        result = canonicalize('payload:base64 = $abc-_==')
+        result = canonicalize('payload:base64 = &abc-_==')
         self.assertEqual([], result.errors)
-        self.assertIn('payload:base64 = $abc-_==', result.text)
+        self.assertIn('payload:base64 = &abc-_==', result.text)
 
     def test_canonicalizes_radix_datatype_brackets(self) -> None:
         result = canonicalize('aeon:mode = "strict"\nr:radix[2] = %0101')

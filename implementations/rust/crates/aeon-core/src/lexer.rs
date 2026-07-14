@@ -189,7 +189,6 @@ impl<'a> Lexer<'a> {
                 }
             }
             '@' => self.push_token(TokenKind::At, "@", start, None, None),
-            '&' => self.push_token(TokenKind::Ampersand, "&", start, None, None),
             ';' => self.push_token(TokenKind::Semicolon, ";", start, None, None),
             '~' => {
                 if self.match_char('>') {
@@ -207,9 +206,10 @@ impl<'a> Lexer<'a> {
                 }
             }
             '$' => {
-                if self.peek() == '.' || self.peek() == '[' {
-                    self.push_token(TokenKind::Dollar, "$", start, None, None);
-                } else if is_encoding_start_char(self.peek()) {
+                self.push_token(TokenKind::Dollar, "$", start, None, None);
+            }
+            '&' => {
+                if is_encoding_start_char(self.peek()) {
                     self.scan_prefixed_literal(
                         start,
                         TokenKind::EncodingLiteral,
@@ -217,7 +217,7 @@ impl<'a> Lexer<'a> {
                         is_valid_encoding_payload,
                     );
                 } else {
-                    self.push_token(TokenKind::Dollar, "$", start, None, None);
+                    self.push_token(TokenKind::Ampersand, "&", start, None, None);
                 }
             }
             '%' => {
@@ -1048,42 +1048,49 @@ mod tests {
 
     #[test]
     fn tokenizes_padded_base64url_encoding_literals() {
-        let result = tokenize("value = $abc-_==", LexerOptions::default());
+        let result = tokenize("value = &abc-_==", LexerOptions::default());
         assert!(result.errors.is_empty());
         let token = result
             .tokens
             .iter()
             .find(|token| token.kind == TokenKind::EncodingLiteral)
             .expect("encoding token");
-        assert_eq!(token.text, "$abc-_==");
+        assert_eq!(token.text, "&abc-_==");
     }
 
     #[test]
     fn rejects_standard_base64_alphabet_characters_in_encoding_literals() {
-        let result = tokenize("value = $abc+/==", LexerOptions::default());
+        let result = tokenize("value = &abc+/==", LexerOptions::default());
         assert_eq!(result.errors.len(), 1);
     }
 
     #[test]
     fn encoding_literals_terminate_at_non_encoding_boundary_characters() {
-        let result = tokenize("value = $abc.", LexerOptions::default());
+        let result = tokenize("value = &abc.", LexerOptions::default());
         assert!(result.errors.is_empty());
         let token = result
             .tokens
             .iter()
             .find(|token| token.kind == TokenKind::EncodingLiteral)
             .expect("encoding token");
-        assert_eq!(token.text, "$abc");
+        assert_eq!(token.text, "&abc");
     }
 
     #[test]
     fn rejects_invalid_encoding_start_and_padding_placement() {
-        let bad_padding = tokenize("value = $abc=a=", LexerOptions::default());
+        let bad_padding = tokenize("value = &abc=a=", LexerOptions::default());
         assert_eq!(bad_padding.errors.len(), 1);
 
-        let bad_start = tokenize("value = $=abc", LexerOptions::default());
+        let bad_start = tokenize("value = &=abc", LexerOptions::default());
         assert!(bad_start.errors.is_empty());
-        assert_eq!(bad_start.tokens[2].kind, TokenKind::Dollar);
+        assert_eq!(bad_start.tokens[2].kind, TokenKind::Ampersand);
+    }
+
+    #[test]
+    fn dollar_prefixed_text_is_not_encoding_literal() {
+        let result = tokenize("value = $abc", LexerOptions::default());
+        assert!(result.errors.is_empty());
+        assert_eq!(result.tokens[2].kind, TokenKind::Dollar);
     }
 
     #[test]

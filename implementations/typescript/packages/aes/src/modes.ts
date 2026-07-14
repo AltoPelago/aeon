@@ -567,6 +567,7 @@ function hasValidRadixLiteral(raw: string): boolean {
 }
 
 function hasValidEncodingLiteral(raw: string): boolean {
+    if (!raw.startsWith('&')) return false;
     const body = raw.slice(1);
     if (body.length === 0) return false;
     if (!/^[A-Za-z0-9_-]+={0,2}$/.test(body)) return false;

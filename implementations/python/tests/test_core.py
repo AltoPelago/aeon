@@ -410,7 +410,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_strict_mode_accepts_embed_and_inline_as_reserved_encoding_aliases(self) -> None:
         for datatype in ("embed", "inline"):
             with self.subTest(datatype=datatype):
-                result = compile_source(f'aeon:mode = "strict"\npayload:{datatype} = $QmFzZTY0IQ==')
+                result = compile_source(f'aeon:mode = "strict"\npayload:{datatype} = &QmFzZTY0IQ==')
                 self.assertEqual([], result.errors)
 
     def test_transport_mode_allows_custom_inline_node_head_datatype(self) -> None:
@@ -745,11 +745,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_untyped_dotted_encoding_literal_is_rejected(self) -> None:
-        result = compile_source("payload = $QmF.zZTY0IQ==")
+        result = compile_source("payload = &QmF.zZTY0IQ==")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_standard_base64_encoding_literal_is_rejected(self) -> None:
-        result = compile_source("payload:base64 = $abc+/==")
+        result = compile_source("payload:base64 = &abc+/==")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_asterisk_delimited_preprocessor_placeholder_is_rejected(self) -> None:

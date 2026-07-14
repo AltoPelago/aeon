@@ -129,19 +129,19 @@ blue:radix = & AAA
 ---
 blue:radix = %
 ---
-blue:encode = $
+blue:encode = &
 ---
 bits:radix = %1/2
 ---
 bits:radix = %1.
 ---
-payload:base64 = $abc.
+payload:base64 = &abc.
 ---
-payload:base64 = $abc=a=
+payload:base64 = &abc=a=
 ---
 blue:hex = #FF#
 ---
-blue:base64 = $ FFF
+blue:base64 = & FFF
 ---
 blue:node = @
 ---
@@ -352,7 +352,7 @@ a = ()
 ---
 a = #f
 ---
-a = $f
+a = &f
 ---
 a = yes
 ---

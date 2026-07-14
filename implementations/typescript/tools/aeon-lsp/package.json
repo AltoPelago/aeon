@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-lsp",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
