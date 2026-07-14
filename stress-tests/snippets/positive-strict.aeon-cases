@@ -76,13 +76,13 @@ a:infinity = -Infinity
 ---
 bits:radix = %+9&.!
 ---
-payload:base64 = $abc-_==
+payload:base64 = &abc-_==
 ---
-blue:base64 = $FF_FF_FF_
+blue:base64 = &FF_FF_FF_
 ---
-a:base64 = $F__F
+a:base64 = &F__F
 ---
-a:base64 = $_FF
+a:base64 = &_FF
 ---
 z5:zrut = 2025-01-01T00:00:00Z&l
 ---
@@ -279,13 +279,13 @@ r:radix8 = %10101
 ---
 r:radix12 = %10101
 ---
-e:encoding = $fff
+e:encoding = &fff
 ---
-b:base64 = $fff
+b:base64 = &fff
 ---
-i:inline = $inline
+i:inline = &inline
 ---
-e:embed = $embed
+e:embed = &embed
 ---
 d:date = 2007-01-02
 ---

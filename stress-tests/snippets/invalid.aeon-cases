@@ -135,9 +135,9 @@ bits:radix = %1/2
 ---
 bits:radix = %1.
 ---
-payload:base64 = $abc.
+payload:base64 = &abc.
 ---
-payload:base64 = $abc=a=
+payload:base64 = &abc=a=
 ---
 blue:hex = #FF#
 ---

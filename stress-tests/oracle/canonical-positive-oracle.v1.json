@@ -796,7 +796,7 @@
     {
       "id": "canonical-strict-0039",
       "kind": "compile",
-      "source": "payload:base64 = $abc-_==",
+      "source": "payload:base64 = &abc-_==",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -816,7 +816,7 @@
     {
       "id": "canonical-strict-0040",
       "kind": "compile",
-      "source": "blue:base64 = $FF_FF_FF_",
+      "source": "blue:base64 = &FF_FF_FF_",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -836,7 +836,7 @@
     {
       "id": "canonical-strict-0041",
       "kind": "compile",
-      "source": "a:base64 = $F__F",
+      "source": "a:base64 = &F__F",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -856,7 +856,7 @@
     {
       "id": "canonical-strict-0042",
       "kind": "compile",
-      "source": "a:base64 = $_FF",
+      "source": "a:base64 = &_FF",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2258,7 +2258,7 @@
     {
       "id": "canonical-strict-0107",
       "kind": "compile",
-      "source": "e:encoding = $fff",
+      "source": "e:encoding = &fff",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2278,7 +2278,7 @@
     {
       "id": "canonical-strict-0108",
       "kind": "compile",
-      "source": "b:base64 = $fff",
+      "source": "b:base64 = &fff",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2298,7 +2298,7 @@
     {
       "id": "canonical-strict-0109",
       "kind": "compile",
-      "source": "i:inline = $inline",
+      "source": "i:inline = &inline",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2318,7 +2318,7 @@
     {
       "id": "canonical-strict-0110",
       "kind": "compile",
-      "source": "e:embed = $embed",
+      "source": "e:embed = &embed",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -4690,7 +4690,7 @@
     {
       "id": "canonical-transport-0071",
       "kind": "compile",
-      "source": "e = $FFF",
+      "source": "e = &FFF",
       "mode": "transport",
       "source_ref": "positive-transport.aeon-cases",
       "options": {

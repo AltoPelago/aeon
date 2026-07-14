@@ -167,7 +167,7 @@ c = %FFF
 ---
 d = %fff
 ---
-e = $FFF
+e = &FFF
 ---
 f = $fff
 ---

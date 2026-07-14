@@ -1128,6 +1128,8 @@ def has_valid_radix_literal(raw: str) -> bool:
 
 
 def has_valid_encoding_literal(raw: str) -> bool:
+    if not raw.startswith("&"):
+        return False
     body = raw[1:] if raw else ""
     if not body or not re.fullmatch(r"[A-Za-z0-9_-]+={0,2}", body):
         return False

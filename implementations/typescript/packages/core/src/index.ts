@@ -261,7 +261,7 @@ function normalizeLexerErrors(input: string, errors: readonly LexerError[]): rea
     return errors.map((error) => {
         if (error.code === 'INVALID_NUMBER') {
             const raw = input.slice(error.span.start.offset, error.span.end.offset);
-            if (raw.startsWith('#') || raw.startsWith('$')) {
+            if (raw.startsWith('#') || raw.startsWith('$') || raw.startsWith('&')) {
                 return new ParserSyntaxError(
                     `Invalid literal spelling: '${raw}'`,
                     error.span,

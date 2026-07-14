@@ -21,7 +21,7 @@ version:sep = ^2.2.1
 
 color:hex = #FF00AA
 binary:radix2 = %101101
-payload:base64 = $QmFzZTY0IQ==
+payload:base64 = &QmFzZTY0IQ==
 
 start:date = 2025-01-01
 alarm:string = "09:30:00"

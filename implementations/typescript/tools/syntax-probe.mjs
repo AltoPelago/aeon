@@ -306,7 +306,7 @@ test('Radix as value',
     'a = %1010');
 
 test('Encoding as value',
-    'a = $SGVsbG8=');
+    'a = &SGVsbG8=');
 
 test('Separator as value',
     'a = ^comma');

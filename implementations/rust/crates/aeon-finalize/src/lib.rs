@@ -377,7 +377,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         }),
         Value::EncodingLiteral { raw } => json!({
             "type": "EncodingLiteral",
-            "value": raw.trim_start_matches('$'),
+            "value": raw.trim_start_matches('&'),
             "raw": raw,
         }),
         Value::RadixLiteral { raw } => json!({
@@ -725,7 +725,7 @@ fn value_to_json_with_active_key(
         Value::SeparatorLiteral { raw } => {
             JsonValue::String(raw.trim_start_matches('^').to_owned())
         }
-        Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('$').to_owned()),
+        Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('&').to_owned()),
         Value::RadixLiteral { raw } => {
             let normalized = raw.trim_start_matches('%').replace('_', "");
             if let Some(base) = declared_radix_base(datatype)
@@ -2498,7 +2498,7 @@ mod tests {
 
     #[test]
     fn strips_literal_sigils_in_finalized_json_like_typescript() {
-        let source = "hex = #Ff_FF\nrad = %1011\nenc = $QmFzZTY0\n";
+        let source = "hex = #Ff_FF\nrad = %1011\nenc = &QmFzZTY0\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(

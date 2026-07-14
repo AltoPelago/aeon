@@ -186,7 +186,7 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
     if isinstance(value, RadixLiteral):
         return [f"%{value.value.replace('_', '')}"]
     if isinstance(value, EncodingLiteral):
-        return [f"${format_encoding_literal(value.value)}"]
+        return [f"&{format_encoding_literal(value.value)}"]
     if isinstance(value, SeparatorLiteral):
         return [f"^{format_separator(value.raw or value.value)}"]
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
@@ -315,7 +315,7 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, RadixLiteral):
         return f"%{value.value.replace('_', '')}"
     if isinstance(value, EncodingLiteral):
-        return f"${format_encoding_literal(value.value)}"
+        return f"&{format_encoding_literal(value.value)}"
     if isinstance(value, SeparatorLiteral):
         return f"^{format_separator(value.raw or value.value)}"
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):

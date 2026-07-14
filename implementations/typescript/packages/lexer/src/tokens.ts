@@ -52,7 +52,7 @@ export enum TokenType {
     Number = 'Number',
     HexLiteral = 'HexLiteral',         // #FF00AA
     RadixLiteral = 'RadixLiteral',     // %1011
-    EncodingLiteral = 'EncodingLiteral', // $Base64...
+    EncodingLiteral = 'EncodingLiteral', // &Base64...
     SeparatorLiteral = 'SeparatorLiteral', // ^content
 
     // Keywords

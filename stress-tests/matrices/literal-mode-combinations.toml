@@ -202,7 +202,7 @@ type = { strict = ":list", custom = ":scrapheap", transport = "" }
 value = [
   ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
   ["1", "true", "off"],
-  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+  ["2", "^1.1", "#FFF", "&FFF", "2024-12-21", "20:"]
 ]
 string = "|KEY||TYPE| = [|0|,|1|,|2|] // list"
 outcome = "pass"
@@ -214,7 +214,7 @@ type = { strict = ":tuple", custom = ":scrapheap", transport = "" }
 value = [
   ["0.1", "'a'", "<a>", "(2,2)", "{a:n=2}"],
   ["1", "true", "off"],
-  ["2", "^1.1", "#FFF", "$FFF", "2024-12-21", "20:"]
+  ["2", "^1.1", "#FFF", "&FFF", "2024-12-21", "20:"]
 ]
 string = "|KEY||TYPE| = (|0|,|1|,|2|) // tuple"
 outcome = "pass"

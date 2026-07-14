@@ -1088,7 +1088,7 @@ mod tests {
     #[test]
     fn strict_mode_accepts_embed_and_inline_as_reserved_encoding_aliases() {
         for datatype in ["embed", "inline"] {
-            let source = format!("aeon:mode = \"strict\"\npayload:{datatype} = $QmFzZTY0IQ==\n");
+            let source = format!("aeon:mode = \"strict\"\npayload:{datatype} = &QmFzZTY0IQ==\n");
             let result = compile(&source, CompileOptions::default());
             assert!(result.errors.is_empty(), "{datatype}: {:?}", result.errors);
         }

@@ -118,7 +118,7 @@ export const PARSER_DUPLICATE_REGRESSION_CASES: readonly RegressionCase[] = [
     },
     {
         id: 'parser-duplicate-encoding-tail',
-        source: 'a = $FF $FF',
+        source: 'a = &FF &FF',
         note: 'Repeated encoding literal tail should produce diagnostics.',
     },
     {
@@ -211,7 +211,7 @@ export const PARSER_FOCUSED_DUPLICATE_REGRESSION_CASES: readonly RegressionCase[
     },
     {
         id: 'focused-duplicate-encoding-tail',
-        source: 'a = $FF $FF',
+        source: 'a = &FF &FF',
         note: 'Repeated encoding literal tail should produce diagnostics.',
     },
     {

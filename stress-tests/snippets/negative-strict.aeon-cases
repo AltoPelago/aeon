@@ -71,9 +71,9 @@ bits:radix = %1/2
 ---
 bits:radix = %1.
 ---
-payload:base64 = $abc.
+payload:base64 = &abc.
 ---
-payload:base64 = $abc=a=
+payload:base64 = &abc=a=
 ---
 blue:radix = %FF_FF_FF_
 ---
@@ -288,9 +288,9 @@ r:Radix8 = %10101
 ---
 r:Radix12 = %10101
 ---
-e:Encoding = $FFF
+e:Encoding = &FFF
 ---
-b:Base64 = $FFF
+b:Base64 = &FFF
 ---
 i:Inline = $Inline
 ---

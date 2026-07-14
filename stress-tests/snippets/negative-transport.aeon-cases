@@ -157,9 +157,9 @@ e:encoding<encoding> = $fff
 ---
 b:base64<base64> = $fff
 ---
-i:inline<inline> = $inline
+i:inline<inline> = &inline
 ---
-e:embed<embed> = $embed
+e:embed<embed> = &embed
 ---
 d:date<date> = 2007-01-02
 ---
@@ -223,9 +223,9 @@ e:encoding[2] = $fff
 ---
 b:base64[2] = $fff
 ---
-i:inline[2] = $inline
+i:inline[2] = &inline
 ---
-e:embed[2] = $embed
+e:embed[2] = &embed
 ---
 d:date[2] = 2007-01-02
 ---
