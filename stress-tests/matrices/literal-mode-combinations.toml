@@ -156,7 +156,7 @@ value = [
   ["AA", "aa", "_"],
   ["-", "Ad-F_ff", "xX"],
 ]
-string = "|KEY||TYPE| = $|0|1|2|== // hex"
+string = "|KEY||TYPE| = &|0|1|2|== // hex"
 outcome = "pass"
 
 [[stress]]

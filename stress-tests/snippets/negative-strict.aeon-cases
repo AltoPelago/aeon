@@ -292,9 +292,9 @@ e:Encoding = &FFF
 ---
 b:Base64 = &FFF
 ---
-i:Inline = $Inline
+i:Inline = &Inline
 ---
-e:Embed = $Embed
+e:Embed = &Embed
 ---
 d:Date = 2007-01-02
 ---
