@@ -36,7 +36,7 @@ const LEXER_BASELINES = [
     'a = 2026-03-12',
     'a = 2026-03-12T12:30:45Z',
     'a = 12:30:45+10:00',
-    'a = $Base64SGVsbG8=',
+    'a = &Base64SGVsbG8=',
     'a = %101010',
     'a = ^alpha\\,beta',
     'a@{x = 1}:number = 1',
@@ -101,7 +101,7 @@ const DUPLICATE_GRAMMAR_BASELINES = [
     'obj = { a = 1, b = 2 }',
     'flag = true',
     'stamp:date = 2026-03-12',
-    'code = $Base64SGVsbG8=',
+    'code = &Base64SGVsbG8=',
 ];
 
 const FOCUSED_DUPLICATE_BASELINES = buildFocusedDuplicateBaselines();
@@ -189,7 +189,7 @@ function buildFocusedDuplicateBaselines(): string[] {
         'true',
         'false',
         '2026-03-12',
-        '$FF',
+        '&FF',
         '!none',
     ];
 
@@ -324,8 +324,8 @@ function buildFocusedScalarBaselines(): string[] {
         'true',
         'false',
         '!none',
-        '$FF',
-        '$Base64SGVsbG8=',
+        '&FF',
+        '&Base64SGVsbG8=',
         '2026-03-12',
         '2026-03-12T12:30:45Z',
         '12:30:45+10:00',
@@ -747,7 +747,7 @@ function duplicateLiteralFamily(prng: PRNG, source: string): string {
         `${key}@@{a = "hello"} = 1`,
         `${key}:list<n><n> = [2, 2]`,
         `${key} = !none !none`,
-        `${key} = $FF $FF`,
+        `${key} = &FF &FF`,
         `${key}:date = 202 202`,
         `${key}:date = 2024--02-01`,
         `${key} = yes no`,

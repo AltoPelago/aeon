@@ -202,7 +202,7 @@ export interface RadixLiteral extends ASTNode {
 }
 
 /**
- * Encoding literal ($Base64...)
+ * Encoding literal (&Base64...)
  */
 export interface EncodingLiteral extends ASTNode {
     readonly type: 'EncodingLiteral';

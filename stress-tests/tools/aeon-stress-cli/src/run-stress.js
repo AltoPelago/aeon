@@ -39,7 +39,7 @@ const cases = [
   { name: 'toggle-builtin-type', binding: 'feature:toggle = yes', expectPass: true, path: 'feature', datatype: 'toggle' },
   { name: 'hex-custom-type', binding: 'color:myHex = #FF00AA', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'color', datatype: 'myHex' },
   { name: 'radix-custom-type', binding: 'bits:myBits = %1011', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'bits', datatype: 'myBits' },
-  { name: 'encoding-custom-type', binding: 'blob:myEnc = $QmFzZTY0IQ==', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'blob', datatype: 'myEnc' },
+  { name: 'encoding-custom-type', binding: 'blob:myEnc = &QmFzZTY0IQ==', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'blob', datatype: 'myEnc' },
   { name: 'separator-custom-type', binding: 'size:myDim = ^300x250', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'size', datatype: 'myDim' },
   { name: 'date-custom-type', binding: 'birthday:myDate = 2025-01-01', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'birthday', datatype: 'myDate' },
   { name: 'datetime-custom-type', binding: 'created:myDateTime = 2025-01-01T10:00:00Z', compileOptions: { datatypePolicy: 'allow_custom' }, expectPass: true, path: 'created', datatype: 'myDateTime' },

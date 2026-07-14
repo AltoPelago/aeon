@@ -1522,6 +1522,9 @@ fn has_valid_radix_literal(raw: &str) -> bool {
 }
 
 fn has_valid_encoding_literal(raw: &str) -> bool {
+    if !raw.starts_with('&') {
+        return false;
+    }
     let body = &raw[1..];
     if body.is_empty() {
         return false;

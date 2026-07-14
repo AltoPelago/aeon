@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-cli",
-  "version": "0.9.6",
+  "version": "0.10.0",
   "description": "Command-line tools for parsing, finalizing, and inspecting AEON documents.",
   "license": "MIT",
   "type": "module",

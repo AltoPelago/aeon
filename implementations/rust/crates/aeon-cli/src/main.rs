@@ -2728,7 +2728,7 @@ fn render_value_json_string(value: &Value) -> String {
         ),
         Value::EncodingLiteral { raw } => format!(
             "{{\"type\":\"EncodingLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
-            escape_json(raw.trim_start_matches('$')),
+            escape_json(raw.trim_start_matches('&')),
             escape_json(raw)
         ),
         Value::RadixLiteral { raw } => format!(
@@ -3376,7 +3376,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::EncodingLiteral { raw } => EventValue {
             value_type: String::from("EncodingLiteral"),
             raw: Some(raw.clone()),
-            value: Some(JsonValue::String(raw.trim_start_matches('$').to_string())),
+            value: Some(JsonValue::String(raw.trim_start_matches('&').to_string())),
             path: None,
             elements: Vec::new(),
             bindings: Vec::new(),
@@ -4994,7 +4994,7 @@ mod tests {
     #[test]
     fn render_events_emits_richer_json_values() {
         let result = compile(
-            "a:int32 = 1_000_000\nb = [1_2.3_4]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = $QmFzZTY0IQ==\nrad = %+A_!_&z\n",
+            "a:int32 = 1_000_000\nb = [1_2.3_4]\nc = { d = \"x\" }\nsingle = 'alpha'\nraw = `beta`\ntrim:trimtick = >`\n  one\n  two\n`\nenc = &QmFzZTY0IQ==\nrad = %+A_!_&z\n",
             CompileOptions::default(),
         );
         let parsed: JsonValue =
@@ -5024,7 +5024,7 @@ mod tests {
             "\n  one\n  two\n"
         );
         assert_eq!(by_key["enc"]["value"]["type"], "EncodingLiteral");
-        assert_eq!(by_key["enc"]["value"]["raw"], "$QmFzZTY0IQ==");
+        assert_eq!(by_key["enc"]["value"]["raw"], "&QmFzZTY0IQ==");
         assert_eq!(by_key["enc"]["value"]["value"], "QmFzZTY0IQ==");
         assert_eq!(by_key["rad"]["value"]["type"], "RadixLiteral");
         assert_eq!(by_key["rad"]["value"]["raw"], "%+A_!_&z");

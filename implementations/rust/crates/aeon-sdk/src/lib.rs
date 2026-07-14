@@ -585,7 +585,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::EncodingLiteral { raw } => scalar_value(
             "EncodingLiteral",
             raw.clone(),
-            JsonValue::String(raw.trim_start_matches('$').to_string()),
+            JsonValue::String(raw.trim_start_matches('&').to_string()),
         ),
         Value::RadixLiteral { raw } => scalar_value(
             "RadixLiteral",
@@ -731,7 +731,7 @@ mod tests {
     #[test]
     fn surfaced_literal_values_drop_encoding_and_radix_sigils() {
         let loaded = load_str::<BTreeMap<String, JsonValue>>(
-            "encoding = $QmFzZTY0IQ==\nradix = %+A_!_&z\n",
+            "encoding = &QmFzZTY0IQ==\nradix = %+A_!_&z\n",
             LoadOptions::default(),
         )
         .expect("load success");
@@ -742,7 +742,7 @@ mod tests {
             .map(|event| (event.key.as_str(), &event.value))
             .collect::<BTreeMap<_, _>>();
 
-        assert_eq!(by_key["encoding"].raw, Some(String::from("$QmFzZTY0IQ==")));
+        assert_eq!(by_key["encoding"].raw, Some(String::from("&QmFzZTY0IQ==")));
         assert_eq!(
             by_key["encoding"].value,
             Some(JsonValue::String(String::from("QmFzZTY0IQ==")))

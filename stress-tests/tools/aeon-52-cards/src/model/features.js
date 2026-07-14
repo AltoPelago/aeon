@@ -195,7 +195,7 @@ const valueFeatures = [
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('enc');
-      return { text: `${k}:base64 = $QmFzZTY0IQ==`, expectPass: true, isBinding: true, metadata: { valueType: 'EncodingLiteral' } };
+      return { text: `${k}:base64 = &QmFzZTY0IQ==`, expectPass: true, isBinding: true, metadata: { valueType: 'EncodingLiteral' } };
     },
   },
   {

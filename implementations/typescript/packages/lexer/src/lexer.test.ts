@@ -239,41 +239,41 @@ describe('Lexer', () => {
         });
 
         it('should tokenize encoding literals', () => {
-            const result = tokenize('$QmFzZTY0IQ==');
+            const result = tokenize('&QmFzZTY0IQ==');
             assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$QmFzZTY0IQ==');
+            assert.strictEqual(result.tokens[0]!.value, '&QmFzZTY0IQ==');
         });
 
         it('should tokenize padded base64url encoding literals', () => {
-            const result = tokenize('$abc-_==');
+            const result = tokenize('&abc-_==');
             assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$abc-_==');
+            assert.strictEqual(result.tokens[0]!.value, '&abc-_==');
         });
 
         it('should reject standard base64 alphabet characters in encoding literals', () => {
-            const result = tokenize('$abc+/==');
+            const result = tokenize('&abc+/==');
             assert.strictEqual(result.errors.length, 1);
         });
 
         it('should reject dotted encoding literals', () => {
-            const result = tokenize('$QmF.zZTY0IQ==');
+            const result = tokenize('&QmF.zZTY0IQ==');
             assert.strictEqual(result.errors.length, 1);
         });
 
         it('should terminate encoding literals at non-encoding boundary characters', () => {
-            const result = tokenize('$abc,');
+            const result = tokenize('&abc,');
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.EncodingLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$abc');
+            assert.strictEqual(result.tokens[0]!.value, '&abc');
         });
 
         it('should reject invalid encoding start and padding placement', () => {
-            const badPadding = tokenize('$abc=a=');
+            const badPadding = tokenize('&abc=a=');
             assert.strictEqual(badPadding.errors.length, 1);
 
-            const badStart = tokenize('$=abc');
+            const badStart = tokenize('&=abc');
             assert.strictEqual(badStart.errors.length, 0);
-            assert.strictEqual(badStart.tokens[0]!.type, TokenType.Dollar);
+            assert.strictEqual(badStart.tokens[0]!.type, TokenType.Ampersand);
         });
 
         it('should tokenize standalone $ as Dollar', () => {
@@ -281,7 +281,12 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.type, TokenType.Dollar);
         });
 
-        it('should keep root-qualified paths distinct from encoding literals', () => {
+        it('should not treat $-prefixed text as an encoding literal', () => {
+            const result = tokenize('$abc');
+            assert.strictEqual(result.tokens[0]!.type, TokenType.Dollar);
+        });
+
+        it('should tokenize root-qualified paths through Dollar and Dot', () => {
             const result = tokenize('~$.a.b');
             assert.strictEqual(result.tokens[0]!.type, TokenType.Tilde);
             assert.strictEqual(result.tokens[1]!.type, TokenType.Dollar);
