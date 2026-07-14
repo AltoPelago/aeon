@@ -6,6 +6,22 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.10.0 - 2026-07-14
+
+### Breaking
+
+- Changed encoding-family literal syntax from `$payload` to `&payload` across
+  the implementation surface. This applies to `encoding`, `base64`, `embed`,
+  and `inline` literals.
+
+### Changed
+
+- Reserved `$payload` syntax for the forthcoming SANSA address literal work.
+- Updated TypeScript, Rust, Python, and PHP-aligned stress fixtures so
+  canonical and diagnostic parity use the new `&payload` encoding form.
+- Rebuilt the TypeScript stress test path so the Rust smoke binary is refreshed
+  before cross-implementation stress checks run.
+
 ## 0.9.6 - 2026-06-29
 
 ### Security
