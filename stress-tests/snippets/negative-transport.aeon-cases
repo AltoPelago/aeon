@@ -153,9 +153,9 @@ r:radix8<radix8> = %10101
 ---
 r:radix12<radix12> = %10101
 ---
-e:encoding<encoding> = $fff
+e:encoding<encoding> = &fff
 ---
-b:base64<base64> = $fff
+b:base64<base64> = &fff
 ---
 i:inline<inline> = &inline
 ---
@@ -219,9 +219,9 @@ r:radix8[2] = %10101
 ---
 r:radix12[2]= %10101
 ---
-e:encoding[2] = $fff
+e:encoding[2] = &fff
 ---
-b:base64[2] = $fff
+b:base64[2] = &fff
 ---
 i:inline[2] = &inline
 ---

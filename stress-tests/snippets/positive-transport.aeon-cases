@@ -169,6 +169,6 @@ d = %fff
 ---
 e = &FFF
 ---
-f = $fff
+f = &fff
 ---
 a:node = <a:html()>
