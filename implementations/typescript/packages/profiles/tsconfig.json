@@ -4,7 +4,6 @@
         "outDir": "./dist",
         "rootDir": "./src",
         "ignoreDeprecations": "6.0",
-        "baseUrl": ".",
         "paths": {
             "@altopelago/aeon-core": ["../core/dist/index.d.ts"],
             "@altopelago/aeon-aes": ["../aes/dist/index.d.ts"],
