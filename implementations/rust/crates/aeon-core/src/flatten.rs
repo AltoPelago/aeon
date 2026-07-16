@@ -843,6 +843,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::DateLiteral { .. } => Value::DateLiteral { raw: String::new() },
         Value::DateTimeLiteral { .. } => Value::DateTimeLiteral { raw: String::new() },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
+        Value::SansaAddressLiteral { .. } => unwrap_typed_value(value).clone(),
         Value::NodeLiteral { .. } => Value::NodeLiteral {
             raw: String::new(),
             tag: String::new(),

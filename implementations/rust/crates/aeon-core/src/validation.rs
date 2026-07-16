@@ -1142,6 +1142,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "envelope"
             | "o"
             | "node"
+            | "sansa"
             | "null"
     )
 }
@@ -1170,6 +1171,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
         "node" => Some(vec!["NodeLiteral"]),
+        "sansa" => Some(vec!["SansaAddressLiteral"]),
         _ => None,
     }
 }
@@ -1328,6 +1330,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
+        "sansa" => matches!(value, Value::SansaAddressLiteral { .. }),
         "null" => matches!(value, Value::NullLiteral { .. }),
         _ if custom_expected.is_some() => {
             let expected = custom_expected.as_ref().expect("checked is_some");

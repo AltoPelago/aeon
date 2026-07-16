@@ -4,6 +4,7 @@ mod flatten;
 mod header;
 mod lexer;
 mod pathing;
+mod sansa;
 mod temporal;
 mod token_parser;
 mod validation;
@@ -16,6 +17,10 @@ use flatten::{flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
+pub use sansa::{
+    QualifierArgument, QualifierExpression, QualifierTerm, SansaAddress, SansaParseError,
+    SansaRoot, SansaSelector, parse_address as parse_sansa_address,
+};
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
     validate_datatypes_light, validate_duplicate_canonical_paths,
@@ -271,6 +276,11 @@ pub enum Value {
     TimeLiteral {
         raw: String,
     },
+    SansaAddressLiteral {
+        address: SansaAddress,
+        raw: String,
+        canonical: String,
+    },
     NodeLiteral {
         raw: String,
         tag: String,
@@ -367,6 +377,7 @@ impl Value {
             Self::DateLiteral { .. } => "DateLiteral",
             Self::DateTimeLiteral { .. } => "DateTimeLiteral",
             Self::TimeLiteral { .. } => "TimeLiteral",
+            Self::SansaAddressLiteral { .. } => "SansaAddressLiteral",
             Self::NodeLiteral { .. } => "NodeLiteral",
             Self::ListNode { .. } => "ListNode",
             Self::TupleLiteral { .. } => "TupleLiteral",
@@ -879,6 +890,39 @@ mod tests {
         assert_eq!(result.bindings[0].path, "$.a");
         assert_eq!(result.bindings[0].datatype.as_deref(), Some("number"));
         assert_eq!(result.events[0].value.value_kind(), "NumberLiteral");
+    }
+
+    #[test]
+    fn parses_sansa_address_literals() {
+        let result = compile(
+            "absolute:sansa = $.inventory:csv[\",\"]\ncontext:sansa = ?.name\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 2);
+        assert_eq!(
+            result.events[0].value,
+            Value::SansaAddressLiteral {
+                address: parse_sansa_address("$.inventory:csv[\",\"]").expect("parse"),
+                raw: String::from("$.inventory:csv[\",\"]"),
+                canonical: String::from("$.inventory:csv[\",\"]"),
+            }
+        );
+        assert_eq!(result.events[1].value.value_kind(), "SansaAddressLiteral");
+    }
+
+    #[test]
+    fn sansa_datatype_rejects_non_address_literal_values() {
+        let result = compile("address:sansa = \"$.path\"\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+    }
+
+    #[test]
+    fn clone_reference_root_dollar_is_not_scanned_as_sansa_address() {
+        let result = compile("path = 1\ncopy = ~$.path\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[1].value.value_kind(), "CloneReference");
     }
 
     #[test]

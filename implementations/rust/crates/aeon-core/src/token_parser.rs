@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::header::apply_trimticks;
+use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
@@ -422,6 +423,7 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::At
                     | TokenKind::Hash
                     | TokenKind::Dollar
+                    | TokenKind::SansaAddressLiteral
                     | TokenKind::Percent
                     | TokenKind::Ampersand
                     | TokenKind::Caret
@@ -459,6 +461,7 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::At
                     | TokenKind::Hash
                     | TokenKind::Dollar
+                    | TokenKind::SansaAddressLiteral
                     | TokenKind::Percent
                     | TokenKind::Ampersand
                     | TokenKind::Caret
@@ -694,6 +697,23 @@ impl<'a> TokenParser<'a> {
             TokenKind::SeparatorLiteral => Ok(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::SansaAddressLiteral => {
+                let token = self.advance();
+                let raw = token.text.clone();
+                let address = parse_sansa_address(&raw).map_err(|error| Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(token.span),
+                    phase: None,
+                    message: error.message,
+                })?;
+                let canonical = address.canonical.clone();
+                Ok(Value::SansaAddressLiteral {
+                    address,
+                    raw,
+                    canonical,
+                })
+            }
             TokenKind::LeftBracket => self.parse_list(),
             TokenKind::LeftParen => self.parse_tuple(),
             TokenKind::LeftBrace => self.parse_object(),
@@ -1622,6 +1642,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "envelope"
             | "o"
             | "node"
+            | "sansa"
             | "null"
     )
 }

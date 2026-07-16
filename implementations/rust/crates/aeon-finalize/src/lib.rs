@@ -385,6 +385,25 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "value": raw.trim_start_matches('%'),
             "raw": raw,
         }),
+        Value::SansaAddressLiteral {
+            address,
+            raw,
+            canonical,
+        } => json!({
+            "type": "SansaAddressLiteral",
+            "raw": raw,
+            "value": canonical,
+            "canonical": canonical,
+            "address": {
+                "type": "SansaAddress",
+                "root": match address.root {
+                    aeon_core::SansaRoot::Absolute => "absolute",
+                    aeon_core::SansaRoot::Contextual => "contextual",
+                },
+                "canonical": canonical,
+                "isExact": address.is_exact,
+            },
+        }),
         Value::DateLiteral { raw } => json!({
             "type": "DateLiteral",
             "value": raw,
@@ -752,6 +771,7 @@ fn value_to_json_with_active_key(
         Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => JsonValue::String(raw.clone()),
+        Value::SansaAddressLiteral { canonical, .. } => JsonValue::String(canonical.clone()),
         Value::NodeLiteral {
             tag,
             attributes,
@@ -1067,6 +1087,7 @@ fn measure_materialized_weight(
         | Value::DateLiteral { .. }
         | Value::DateTimeLiteral { .. }
         | Value::TimeLiteral { .. }
+        | Value::SansaAddressLiteral { .. }
         | Value::PointerReference { .. } => 1,
         Value::CloneReference { segments, .. } => {
             let target_path = reference_target_path(segments);

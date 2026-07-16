@@ -347,6 +347,16 @@ fn value_json(value: &Value) -> JsonValue {
         Value::SeparatorLiteral { raw } => json!({ "type": "SeparatorLiteral", "raw": raw }),
         Value::EncodingLiteral { raw } => json!({ "type": "EncodingLiteral", "raw": raw }),
         Value::RadixLiteral { raw } => json!({ "type": "RadixLiteral", "raw": raw }),
+        Value::SansaAddressLiteral { raw, canonical, .. } => json!({
+            "type": "SansaAddressLiteral",
+            "value": canonical,
+            "raw": raw,
+            "canonical": canonical,
+            "address": {
+                "type": "SansaAddress",
+                "canonical": canonical,
+            },
+        }),
         Value::DateLiteral { raw } => json!({ "type": "DateLiteral", "raw": raw }),
         Value::DateTimeLiteral { raw } => json!({ "type": "DateTimeLiteral", "raw": raw }),
         Value::TimeLiteral { raw } => json!({ "type": "TimeLiteral", "raw": raw }),

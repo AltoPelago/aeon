@@ -1398,10 +1398,7 @@ fn specs_repo_root() -> PathBuf {
 
 #[cfg(test)]
 fn examples_repo_root() -> PathBuf {
-    repo_root_from_env(
-        "AEON_EXAMPLES_ROOT",
-        &["altopelago", "aeon-examples-private"],
-    )
+    repo_root_from_env("AEON_EXAMPLES_ROOT", &["altopelago", "aeon-examples"])
 }
 
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
@@ -2140,6 +2137,7 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
+        Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
         Value::CloneReference { segments, .. } => {
             format!("\"~{}\"", render_reference_path(segments))
@@ -2736,6 +2734,13 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw.trim_start_matches('%')),
             escape_json(raw)
         ),
+        Value::SansaAddressLiteral { raw, canonical, .. } => format!(
+            "{{\"type\":\"SansaAddressLiteral\",\"value\":\"{}\",\"raw\":\"{}\",\"canonical\":\"{}\",\"address\":{{\"type\":\"SansaAddress\",\"canonical\":\"{}\"}}}}",
+            escape_json(canonical),
+            escape_json(raw),
+            escape_json(canonical),
+            escape_json(canonical)
+        ),
         Value::DateLiteral { raw } => format!(
             "{{\"type\":\"DateLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
             escape_json(raw),
@@ -2875,6 +2880,7 @@ fn render_human_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
+        Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
         Value::PointerReference { segments, .. } => {
             format!("~>{}", render_reference_path(segments))
@@ -3409,6 +3415,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("TimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
+            elements: Vec::new(),
+            bindings: Vec::new(),
+        },
+        Value::SansaAddressLiteral { raw, canonical, .. } => EventValue {
+            value_type: String::from("SansaAddressLiteral"),
+            raw: Some(raw.clone()),
+            value: Some(JsonValue::String(canonical.clone())),
             path: None,
             elements: Vec::new(),
             bindings: Vec::new(),
