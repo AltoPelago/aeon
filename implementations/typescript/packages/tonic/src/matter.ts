@@ -488,6 +488,7 @@ function valueToMatterNode(
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
@@ -707,6 +708,7 @@ function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':

@@ -1,4 +1,5 @@
 import type { Span } from '@altopelago/aeon-lexer';
+import type { SansaAddress } from '@altopelago/sansa';
 import type { TrimtickMetadata } from './trimticks.js';
 
 /**
@@ -96,6 +97,7 @@ export type Value =
     | RadixLiteral
     | EncodingLiteral
     | SeparatorLiteral
+    | SansaAddressLiteral
     | DateLiteral
     | DateTimeLiteral
     | TimeLiteral
@@ -217,6 +219,17 @@ export interface SeparatorLiteral extends ASTNode {
     readonly type: 'SeparatorLiteral';
     readonly value: string;
     readonly raw: string;
+}
+
+/**
+ * SANSA address literal ($.path or $.path:qualifier)
+ */
+export interface SansaAddressLiteral extends ASTNode {
+    readonly type: 'SansaAddressLiteral';
+    readonly address: SansaAddress;
+    readonly value: string;
+    readonly raw: string;
+    readonly canonical: string;
 }
 
 /**

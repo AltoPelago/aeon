@@ -336,6 +336,7 @@ function valueToJson(
         }
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
@@ -574,6 +575,7 @@ function measureMaterializedWeight(
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':

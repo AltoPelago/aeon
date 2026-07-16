@@ -50,6 +50,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@altopelago/aeon-lexer": "workspace:*"
+    "@altopelago/aeon-lexer": "workspace:*",
+    "@altopelago/sansa": "file:../../../../../sansa"
   }
 }

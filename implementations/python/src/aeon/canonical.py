@@ -24,6 +24,7 @@ from .ast import (
     ObjectNode,
     PointerReference,
     RadixLiteral,
+    SansaAddressLiteral,
     SeparatorLiteral,
     StringLiteral,
     ToggleLiteral,
@@ -189,6 +190,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
         return [f"&{format_encoding_literal(value.value)}"]
     if isinstance(value, SeparatorLiteral):
         return [f"^{format_separator(value.raw or value.value)}"]
+    if isinstance(value, SansaAddressLiteral):
+        return [value.canonical or value.value or value.raw]
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
         return [value.value]
     if isinstance(value, CloneReference):
@@ -318,6 +321,8 @@ def render_compact_inline_value(value: Value) -> str:
         return f"&{format_encoding_literal(value.value)}"
     if isinstance(value, SeparatorLiteral):
         return f"^{format_separator(value.raw or value.value)}"
+    if isinstance(value, SansaAddressLiteral):
+        return value.canonical or value.value or value.raw
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
         return value.value
     if isinstance(value, CloneReference):
@@ -466,6 +471,7 @@ def is_simple_value(value: Value) -> bool:
             RadixLiteral,
             EncodingLiteral,
             SeparatorLiteral,
+            SansaAddressLiteral,
             DateLiteral,
             DateTimeLiteral,
             TimeLiteral,

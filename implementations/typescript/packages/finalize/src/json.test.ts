@@ -361,6 +361,22 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(result.document.mask, '1010101');
     });
 
+    it('materializes SANSA address literals as canonical strings', () => {
+        const events = compileToEvents([
+            'test:sansa = $.inventory.items[2].sku',
+            'name:sansa = ?.name',
+            'csv:sansa = $.inventory:csv[","]',
+            'match:sansa = $.items.*#text%stringLiteral.("item_*")',
+        ].join('\n'));
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.test, '$.inventory.items[2].sku');
+        assert.strictEqual(result.document.name, '?.name');
+        assert.strictEqual(result.document.csv, '$.inventory:csv[","]');
+        assert.strictEqual(result.document.match, '$.items.*#text%stringLiteral.("item_*")');
+        assert.deepStrictEqual(result.meta?.errors ?? [], []);
+    });
+
     it('reports radix digits that exceed the declared radix during finalization', () => {
         const events = compileToEvents('mask:radix[10] = %1A');
         const result = finalizeJson(events, { mode: 'strict' });

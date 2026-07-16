@@ -35,6 +35,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     RadixLiteral: ['RadixLiteral'],
     EncodingLiteral: ['EncodingLiteral'],
     SeparatorLiteral: ['SeparatorLiteral'],
+    SansaAddressLiteral: ['SansaAddressLiteral'],
     DateLiteral: ['DateLiteral'],
     TimeLiteral: ['TimeLiteral'],
     DateTimeLiteral: ['DateTimeLiteral'],
@@ -153,6 +154,7 @@ const STRING_LIKE_VALUE_TYPES = new Set([
     'StringLiteral',
     'TrimtickLiteral',
     'SeparatorLiteral',
+    'SansaAddressLiteral',
     'HexLiteral',
     'EncodingLiteral',
     'NullLiteral',
@@ -1569,6 +1571,7 @@ function isStringType(type: string): boolean {
         || type === 'TrimtickLiteral'
         || type === 'TrimtickStringLiteral'
         || type === 'SeparatorLiteral'
+        || type === 'SansaAddressLiteral'
         || type === 'NullLiteral'
         || type === 'EncodingLiteral'
         || type === 'DateLiteral'

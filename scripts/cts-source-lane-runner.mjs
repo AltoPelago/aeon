@@ -102,6 +102,25 @@ function normalizeAesEvents(events) {
     }));
 }
 
+function normalizeSansaBindings(events) {
+  if (!Array.isArray(events)) return [];
+  return events
+    .filter((e) => e && typeof e === 'object')
+    .map((e) => ({
+      path: normalizePath(String(e?.path ?? '')),
+      datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
+      value_type: typeof e?.value?.type === 'string' ? e.value.type : null,
+      canonical:
+        typeof e?.value?.canonical === 'string'
+          ? e.value.canonical
+          : typeof e?.value?.address?.canonical === 'string'
+            ? e.value.address.canonical
+            : typeof e?.value?.value === 'string'
+              ? e.value.value
+              : null,
+    }));
+}
+
 function normalizePath(value) {
   let normalized = value.trim();
   normalized = normalized.replace(/\$\.\[/g, '$[');
@@ -456,9 +475,9 @@ function loadManifest(ctsPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.sut || !args.cts || !args.lane) {
-    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical|finalize-json|finalize-map|inspect-json>');
+    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical|finalize-json|finalize-map|inspect-json|sansa-address>');
   }
-  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json') {
+  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json' && args.lane !== 'sansa-address') {
     fail(`Unsupported lane: ${args.lane}`);
   }
 
@@ -474,7 +493,12 @@ async function main() {
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
       const source = String(test.input?.source ?? '');
-      const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
+      const effectiveMode =
+        typeof test.input?.options?.effective_mode === 'string'
+          ? test.input.options.effective_mode
+          : typeof test.input?.mode === 'string'
+            ? test.input.mode
+            : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
@@ -500,7 +524,7 @@ async function main() {
         result = {
           canonical_text: ok ? normalizeCanonicalText(formatted.stdout) : '',
         };
-      } else if (args.lane === 'finalize-json' || args.lane === 'finalize-map') {
+      } else if (args.lane === 'finalize-json' || args.lane === 'finalize-map' || (args.lane === 'sansa-address' && 'document' in (test.expected?.result ?? {}))) {
         const finalized = await runFinalize({
           sutPath: args.sut,
           source,
@@ -574,6 +598,10 @@ async function main() {
                 parse_ok: ok,
                 bindings: ok ? normalizeCoreBindings(inspect.parse.events) : [],
               }
+            : args.lane === 'sansa-address'
+              ? {
+                  bindings: ok ? normalizeSansaBindings(inspect.parse.events) : [],
+                }
             : {
                 events: ok ? normalizeAesEvents(inspect.parse.events) : [],
               };
@@ -601,7 +629,7 @@ async function main() {
             failures.push(`canonical_text mismatch: expected ${JSON.stringify(normalizedExpected)}, got ${JSON.stringify(result.canonical_text)}`);
           }
         }
-      } else if (args.lane === 'finalize-json') {
+      } else if (args.lane === 'finalize-json' || (args.lane === 'sansa-address' && 'document' in (test.expected?.result ?? {}))) {
         if ('document' in (test.expected?.result ?? {})) {
           const expectedDocument = test.expected.result.document;
           if (stableJson(expectedDocument) !== stableJson(result.document)) {
@@ -614,6 +642,8 @@ async function main() {
         if ('events' in (test.expected?.result ?? {})) {
           failures.push(...compareExpectedSubset(test.expected.result.events, result.events, 'events'));
         }
+      } else if (args.lane === 'sansa-address') {
+        failures.push(...compareExpectedArray(test.expected?.result?.bindings, result.bindings, 'bindings'));
       } else {
         failures.push(...compareExpectedArray(test.expected?.result?.events, result.events, 'events'));
       }

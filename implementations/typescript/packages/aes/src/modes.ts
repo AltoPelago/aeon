@@ -881,6 +881,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'datetime') return ['DateTimeLiteral'];
     if (base === 'zrut') return ['ZRUTDateTimeLiteral'];
     if (SEPARATOR_TYPES.has(base)) return ['SeparatorLiteral'];
+    if (base === 'sansa') return ['SansaAddressLiteral'];
     if (base === 'tuple') return ['TupleLiteral'];
     if (base === 'list') return ['ListNode'];
     if (OBJECT_TYPES.has(base)) return ['ObjectNode'];

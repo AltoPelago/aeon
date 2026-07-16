@@ -135,6 +135,9 @@ importers:
       '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
+      '@altopelago/sansa':
+        specifier: file:../../../../../sansa
+        version: file:../../../sansa
 
   packages/profiles:
     dependencies:
@@ -272,6 +275,10 @@ importers:
         version: 26.1.1
 
 packages:
+
+  '@altopelago/sansa@file:../../../sansa':
+    resolution: {directory: ../../../sansa, type: directory}
+    engines: {node: '>=20.0.0'}
 
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
@@ -422,6 +429,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@altopelago/sansa@file:../../../sansa': {}
 
   '@types/node@26.1.1':
     dependencies:

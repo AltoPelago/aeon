@@ -137,6 +137,36 @@ describe('Core - compile()', () => {
             assert.ok(paths.includes('$.opens'));
         });
 
+        it('should compile SANSA address literals to assignment events', () => {
+            const result = compile('test:sansa = $.inventory.items[2].sku');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.inventory.items[2].sku');
+        });
+
+        it('should compile contextual SANSA address literals to assignment events', () => {
+            const result = compile('a:sansa = ?.name');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '?.name');
+        });
+
+        it('should compile rich SANSA selector literals to assignment events', () => {
+            const result = compile('a:sansa = $.items.*#text%stringLiteral.("item_*")');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item_*")');
+        });
+
         it('should fail closed when maxInputBytes is exceeded', () => {
             const result = compile('a = 12345', { maxInputBytes: 4 });
 
@@ -762,6 +792,12 @@ describe('Core - compile()', () => {
 
         it('should accept typed time literals in strict mode', () => {
             const result = compile('aeon:mode = "strict"\nopens:time = 09:30:00Z');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
+        it('should accept typed SANSA address literals in strict mode', () => {
+            const result = compile('aeon:mode = "strict"\nlink:sansa = ?.name');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

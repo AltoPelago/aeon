@@ -1,4 +1,10 @@
 import { type Token, TokenType, createSpan, type Span } from '@altopelago/aeon-lexer';
+import {
+    parseAddressOrThrow,
+    renderAddress,
+    SansaParseError,
+    type SansaAddress,
+} from '@altopelago/sansa';
 import type {
     Document,
     Header,
@@ -23,6 +29,7 @@ import type {
     DateTimeLiteral,
     TimeLiteral,
     SeparatorLiteral,
+    SansaAddressLiteral,
     CloneReference,
     PointerReference,
     ReferencePathSegment,
@@ -719,6 +726,15 @@ class Parser {
             return this.parsePointerReference();
         }
 
+        // SANSA address literal
+        if (
+            this.check(TokenType.SansaAddressLiteral)
+            || this.check(TokenType.Dollar)
+            || this.check(TokenType.Question)
+        ) {
+            return this.parseSansaAddressLiteral();
+        }
+
         // Literals
         return this.parseLiteral();
     }
@@ -993,6 +1009,104 @@ class Parser {
             path,
             span: createSpan(start, end),
         };
+    }
+
+    private parseSansaAddressLiteral(): SansaAddressLiteral {
+        const start = this.peek().span.start;
+        const { raw, end } = this.check(TokenType.SansaAddressLiteral)
+            ? { raw: this.peek().value, end: this.advance().span.end }
+            : this.collectSansaAddressSource();
+        let address: SansaAddress;
+
+        try {
+            address = parseAddressOrThrow(raw);
+        } catch (error) {
+            if (error instanceof SansaParseError) {
+                throw new SyntaxError(error.message, createSpan(start, end), 'SANSA address literal', raw);
+            }
+            throw error;
+        }
+
+        const canonical = renderAddress(address);
+        return {
+            type: 'SansaAddressLiteral',
+            address,
+            value: canonical,
+            raw,
+            canonical,
+            span: createSpan(start, end),
+        };
+    }
+
+    private collectSansaAddressSource(): { raw: string; end: Span['end'] } {
+        let raw = '';
+        let angleDepth = 0;
+        let bracketDepth = 0;
+        let parenDepth = 0;
+        let end = this.peek().span.end;
+
+        while (!this.isAtEnd()) {
+            const token = this.peek();
+
+            if (
+                angleDepth === 0
+                && bracketDepth === 0
+                && parenDepth === 0
+                && (
+                    token.span.start.line > end.line
+                    || token.type === TokenType.Comma
+                    || token.type === TokenType.RightBrace
+                    || token.type === TokenType.RightBracket
+                    || token.type === TokenType.RightParen
+                    || token.type === TokenType.Newline
+                )
+            ) {
+                break;
+            }
+
+            raw += this.sansaTokenSource(token);
+            end = token.span.end;
+
+            switch (token.type) {
+                case TokenType.LeftAngle:
+                    angleDepth++;
+                    break;
+                case TokenType.RightAngle:
+                    if (angleDepth > 0) angleDepth--;
+                    break;
+                case TokenType.LeftBracket:
+                    bracketDepth++;
+                    break;
+                case TokenType.RightBracket:
+                    if (bracketDepth > 0) bracketDepth--;
+                    break;
+                case TokenType.LeftParen:
+                    parenDepth++;
+                    break;
+                case TokenType.RightParen:
+                    if (parenDepth > 0) parenDepth--;
+                    break;
+            }
+
+            this.advance();
+        }
+
+        return { raw, end };
+    }
+
+    private sansaTokenSource(token: Token): string {
+        if (token.type === TokenType.String) {
+            if (token.quote !== '"') {
+                throw new SyntaxError(
+                    'SANSA address quoted payloads must use double quotes',
+                    token.span,
+                    'double-quoted SANSA payload',
+                    token.value
+                );
+            }
+            return JSON.stringify(token.value);
+        }
+        return token.value;
     }
 
     private parsePath(): ReferencePathSegment[] {
@@ -1805,6 +1919,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'radix2', 'radix6', 'radix8', 'radix12',
     'sep', 'kadot',
+    'sansa',
     'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 

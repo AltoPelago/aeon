@@ -2761,6 +2761,7 @@ function readLiteralString(value: Value): string | null {
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'EncodingLiteral':
+        case 'SansaAddressLiteral':
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'InfinityLiteral':
@@ -3105,6 +3106,7 @@ function renderValue(value: Record<string, unknown>): string {
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
             return String(value.raw ?? value.value ?? '');

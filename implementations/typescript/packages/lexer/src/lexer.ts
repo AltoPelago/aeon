@@ -284,7 +284,16 @@ export class Lexer {
 
             // Dollar/root marker
             case '$':
-                this.addToken(TokenType.Dollar, c, start);
+                if (this.shouldScanSansaAddressRoot()) {
+                    this.scanSansaAddressLiteral(c, start);
+                } else {
+                    this.addToken(TokenType.Dollar, c, start);
+                }
+                break;
+
+            // Contextual SANSA root marker
+            case '?':
+                this.scanSansaAddressLiteral(c, start);
                 break;
 
             // Radix literal (%1011)
@@ -800,6 +809,78 @@ export class Lexer {
         }
 
         this.addToken(TokenType.RadixLiteral, value, start);
+    }
+
+    private shouldScanSansaAddressRoot(): boolean {
+        const previous = this.tokens[this.tokens.length - 1];
+        return previous?.type !== TokenType.Tilde && previous?.type !== TokenType.TildeArrow;
+    }
+
+    private scanSansaAddressLiteral(first: string, start: Position): void {
+        let value = first;
+        let angleDepth = 0;
+        let bracketDepth = 0;
+        let parenDepth = 0;
+        let quote: '"' | null = null;
+        let escaped = false;
+
+        while (!this.isAtEnd()) {
+            const ch = this.peek();
+
+            if (quote) {
+                value += this.advance();
+                if (escaped) {
+                    escaped = false;
+                } else if (ch === '\\') {
+                    escaped = true;
+                } else if (ch === quote) {
+                    quote = null;
+                }
+                continue;
+            }
+
+            if (ch === '"') {
+                quote = '"';
+                value += this.advance();
+                continue;
+            }
+
+            if (
+                angleDepth === 0
+                && bracketDepth === 0
+                && parenDepth === 0
+                && (
+                    ch === ','
+                    || ch === ' '
+                    || ch === '\t'
+                    || ch === '\r'
+                    || ch === '\n'
+                    || ch === '}'
+                    || ch === ']'
+                    || ch === ')'
+                )
+            ) {
+                break;
+            }
+
+            value += this.advance();
+
+            if (ch === '<') {
+                angleDepth++;
+            } else if (ch === '>') {
+                angleDepth = Math.max(0, angleDepth - 1);
+            } else if (ch === '[') {
+                bracketDepth++;
+            } else if (ch === ']') {
+                bracketDepth = Math.max(0, bracketDepth - 1);
+            } else if (ch === '(') {
+                parenDepth++;
+            } else if (ch === ')') {
+                parenDepth = Math.max(0, parenDepth - 1);
+            }
+        }
+
+        this.addToken(TokenType.SansaAddressLiteral, value, start);
     }
 
     private scanEncodingLiteral(start: Position): void {

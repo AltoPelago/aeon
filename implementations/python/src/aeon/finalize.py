@@ -242,6 +242,8 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
             return str(value.get("value", "")).replace("_", "")
         if value_type == "RadixLiteral":
             return radix_to_json(value, ctx, path, datatype)
+        if value_type == "SansaAddressLiteral":
+            return value.get("canonical") or value.get("value")
         if value_type in {"EncodingLiteral", "SeparatorLiteral", "DateLiteral", "DateTimeLiteral", "TimeLiteral"}:
             return value.get("value")
         if value_type == "ObjectNode":

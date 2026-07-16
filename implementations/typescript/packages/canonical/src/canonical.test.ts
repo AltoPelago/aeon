@@ -100,6 +100,22 @@ test('canonicalizes null literals without collapsing reserved and reason forms',
     assert.ok(result.text.includes('bottom:null = !"postponed"'));
 });
 
+test('canonicalizes SANSA address literals', () => {
+    const input = [
+        'address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>',
+        'field:sansa = $.field:sep[.]',
+        'csv:sansa = $.inventory:csv[","]',
+        'external:sansa = $.value:type<type>[arg]',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>'));
+    assert.ok(result.text.includes('field:sansa = $.field:sep[.]'));
+    assert.ok(result.text.includes('csv:sansa = $.inventory:csv[","]'));
+    assert.ok(result.text.includes('external:sansa = $.value:type<type>[arg]'));
+});
+
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',

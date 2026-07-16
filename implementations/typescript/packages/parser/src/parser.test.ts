@@ -814,6 +814,87 @@ describe('Parser', () => {
             assert.strictEqual(result.document!.bindings[0]!.value.type, 'SeparatorLiteral');
         });
 
+        it('should parse SANSA address literals', () => {
+            const tokens = tokenize('address:sansa = $.inventory.items[2].sku').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '$.inventory.items[2].sku');
+            assert.strictEqual(value.address.selectors.length, 4);
+        });
+
+        it('should parse contextual SANSA address literals', () => {
+            const tokens = tokenize('address:sansa = ?.name').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '?.name');
+            assert.strictEqual(value.address.root.kind, 'contextual');
+        });
+
+        it('should parse rich SANSA selector literals as one address', () => {
+            const tokens = tokenize('address:sansa = $.items.*#text%stringLiteral.("item_*")').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '$.items.*#text%stringLiteral.("item_*")');
+            assert.strictEqual(value.address.selectors.length, 5);
+        });
+
+        it('should parse AEON-compatible qualified SANSA address literals', () => {
+            const tokens = tokenize('address:sansa = $.path:tuple<x><y>').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            const expression = value.address.qualifierExpression;
+            assert.ok(expression);
+            assert.strictEqual(expression.terms[0]!.name, 'tuple');
+            assert.strictEqual(expression.terms[0]!.parameterGroups.length, 2);
+        });
+
+        it('should parse AEON separator and radix SANSA qualifiers', () => {
+            const tokens = tokenize('a:sansa = $.field:sep[.]\nb:sansa = $.bits:radix[16]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.value.type, 'SansaAddressLiteral');
+            assert.strictEqual(result.document!.bindings[1]!.value.type, 'SansaAddressLiteral');
+        });
+
+        it('should transport SANSA-qualified address forms outside AEON internal interpretation', () => {
+            const tokens = tokenize('address:sansa = $.inventory:csv[","]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '$.inventory:csv[","]');
+        });
+
+        it('should transport SANSA qualifiers that combine parameters and arguments', () => {
+            const tokens = tokenize('address:sansa = $.value:type<type>[arg]').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '$.value:type<type>[arg]');
+        });
+
         it('should reject bare caret when a separator literal payload is split by newline', () => {
             const tokens = tokenize('a =\n^\n0.0').tokens;
             const result = parse(tokens);

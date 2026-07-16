@@ -127,6 +127,7 @@ RESERVED_KIND_MAP = {
     "radix12": ("RadixLiteral",),
     "sep": ("SeparatorLiteral",),
     "kadot": ("SeparatorLiteral",),
+    "sansa": ("SansaAddressLiteral",),
 }
 
 NUMERIC_TYPES = {

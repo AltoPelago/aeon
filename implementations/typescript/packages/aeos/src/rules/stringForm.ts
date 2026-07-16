@@ -142,6 +142,7 @@ export function checkPatterns(
 function isStringLikeLiteral(type: string): boolean {
     return type === 'StringLiteral'
         || type === 'SeparatorLiteral'
+        || type === 'SansaAddressLiteral'
         || type === 'NullLiteral'
         || type === 'EncodingLiteral'
         || type === 'DateLiteral'
