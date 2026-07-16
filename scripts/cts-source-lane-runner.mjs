@@ -493,12 +493,7 @@ async function main() {
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
       const source = String(test.input?.source ?? '');
-      const effectiveMode =
-        typeof test.input?.options?.effective_mode === 'string'
-          ? test.input.options.effective_mode
-          : typeof test.input?.mode === 'string'
-            ? test.input.mode
-            : undefined;
+      const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
