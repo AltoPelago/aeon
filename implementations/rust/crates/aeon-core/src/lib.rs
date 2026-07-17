@@ -926,6 +926,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_sansa_address_literals_before_comments_and_inside_containers() {
+        let result = compile(
+            "a:sansa = $.name/* block */\n\
+             b:sansa = $.name// line\n\
+             c:list = [$.name]\n\
+             d:node = <tag($.name)>\n\
+             e:tuple = ($.name)\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event.value.value_kind()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.a"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.b"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.c[0]"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.d[0]"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.e[0]"], "SansaAddressLiteral");
+    }
+
+    #[test]
     fn parses_lists_with_indexed_bindings() {
         let result = compile("a = [1]", CompileOptions::default());
         assert!(result.errors.is_empty());

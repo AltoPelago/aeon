@@ -855,6 +855,7 @@ export class Lexer {
                     || ch === '\t'
                     || ch === '\r'
                     || ch === '\n'
+                    || ch === '/'
                     || ch === '}'
                     || ch === ']'
                     || ch === ')'

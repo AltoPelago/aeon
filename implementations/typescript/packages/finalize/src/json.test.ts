@@ -366,14 +366,14 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
             'test:sansa = $.inventory.items[2].sku',
             'name:sansa = ?.name',
             'csv:sansa = $.inventory:csv[","]',
-            'match:sansa = $.items.*#text%stringLiteral.("item_*")',
+            'match:sansa = $.items.*#text%stringLiteral.("item?*")',
         ].join('\n'));
         const result = finalizeJson(events, { mode: 'strict' });
 
         assert.strictEqual(result.document.test, '$.inventory.items[2].sku');
         assert.strictEqual(result.document.name, '?.name');
         assert.strictEqual(result.document.csv, '$.inventory:csv[","]');
-        assert.strictEqual(result.document.match, '$.items.*#text%stringLiteral.("item_*")');
+        assert.strictEqual(result.document.match, '$.items.*#text%stringLiteral.("item?*")');
         assert.deepStrictEqual(result.meta?.errors ?? [], []);
     });
 

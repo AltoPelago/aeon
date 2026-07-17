@@ -839,14 +839,14 @@ describe('Parser', () => {
         });
 
         it('should parse rich SANSA selector literals as one address', () => {
-            const tokens = tokenize('address:sansa = $.items.*#text%stringLiteral.("item_*")').tokens;
+            const tokens = tokenize('address:sansa = $.items.*#text%stringLiteral.("item?*")').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             const value = result.document!.bindings[0]!.value;
             assert.strictEqual(value.type, 'SansaAddressLiteral');
             if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
-            assert.strictEqual(value.canonical, '$.items.*#text%stringLiteral.("item_*")');
+            assert.strictEqual(value.canonical, '$.items.*#text%stringLiteral.("item?*")');
             assert.strictEqual(value.address.selectors.length, 5);
         });
 
@@ -893,6 +893,36 @@ describe('Parser', () => {
             assert.strictEqual(value.type, 'SansaAddressLiteral');
             if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
             assert.strictEqual(value.canonical, '$.value:type<type>[arg]');
+        });
+
+        it('should parse SANSA address literals before comments and inside containers', () => {
+            const tokens = tokenize([
+                'a:sansa = $.name/* block */',
+                'b:sansa = $.name// line',
+                'c:list = [$.name]',
+                'd:node = <tag($.name)>',
+                'e:tuple = ($.name)',
+            ].join('\n')).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.value.type, 'SansaAddressLiteral');
+            assert.strictEqual(result.document!.bindings[1]!.value.type, 'SansaAddressLiteral');
+
+            const list = result.document!.bindings[2]!.value;
+            assert.strictEqual(list.type, 'ListNode');
+            if (list.type !== 'ListNode') assert.fail('Expected ListNode');
+            assert.strictEqual(list.elements[0]!.type, 'SansaAddressLiteral');
+
+            const node = result.document!.bindings[3]!.value;
+            assert.strictEqual(node.type, 'NodeLiteral');
+            if (node.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(node.children[0]!.type, 'SansaAddressLiteral');
+
+            const tuple = result.document!.bindings[4]!.value;
+            assert.strictEqual(tuple.type, 'TupleLiteral');
+            if (tuple.type !== 'TupleLiteral') assert.fail('Expected TupleLiteral');
+            assert.strictEqual(tuple.elements[0]!.type, 'SansaAddressLiteral');
         });
 
         it('should reject bare caret when a separator literal payload is split by newline', () => {

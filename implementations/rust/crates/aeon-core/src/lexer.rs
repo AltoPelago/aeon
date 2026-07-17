@@ -540,7 +540,9 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
-            if stack.is_empty() && matches!(ch, ' ' | '\t' | '\n' | '\r' | ',') {
+            if stack.is_empty()
+                && matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | '/' | '}' | ']' | ')')
+            {
                 break;
             }
 
@@ -1164,6 +1166,45 @@ mod tests {
         let result = tokenize("value = $abc", LexerOptions::default());
         assert!(result.errors.is_empty());
         assert_eq!(result.tokens[2].kind, TokenKind::SansaAddressLiteral);
+    }
+
+    #[test]
+    fn sansa_address_literals_terminate_before_comments_and_container_boundaries() {
+        let line_comment = tokenize(
+            "$.name// hello",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(line_comment.errors.is_empty());
+        assert_eq!(line_comment.tokens[0].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(line_comment.tokens[0].text, "$.name");
+        assert_eq!(line_comment.tokens[1].kind, TokenKind::LineComment);
+
+        let block_comment = tokenize(
+            "$.name/* hello */",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(block_comment.errors.is_empty());
+        assert_eq!(block_comment.tokens[0].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(block_comment.tokens[0].text, "$.name");
+        assert_eq!(block_comment.tokens[1].kind, TokenKind::BlockComment);
+
+        let list = tokenize("[$.name]", LexerOptions::default());
+        assert!(list.errors.is_empty());
+        assert_eq!(list.tokens[1].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(list.tokens[1].text, "$.name");
+        assert_eq!(list.tokens[2].kind, TokenKind::RightBracket);
+
+        let tuple = tokenize("($.name)", LexerOptions::default());
+        assert!(tuple.errors.is_empty());
+        assert_eq!(tuple.tokens[1].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(tuple.tokens[1].text, "$.name");
+        assert_eq!(tuple.tokens[2].kind, TokenKind::RightParen);
     }
 
     #[test]

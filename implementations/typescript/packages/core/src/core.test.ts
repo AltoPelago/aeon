@@ -158,13 +158,13 @@ describe('Core - compile()', () => {
         });
 
         it('should compile rich SANSA selector literals to assignment events', () => {
-            const result = compile('a:sansa = $.items.*#text%stringLiteral.("item_*")');
+            const result = compile('a:sansa = $.items.*#text%stringLiteral.("item?*")');
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
             assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
             if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
-            assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item_*")');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item?*")');
         });
 
         it('should fail closed when maxInputBytes is exceeded', () => {

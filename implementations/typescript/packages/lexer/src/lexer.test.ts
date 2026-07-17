@@ -304,10 +304,10 @@ describe('Lexer', () => {
         });
 
         it('should tokenize rich SANSA address selectors as one literal', () => {
-            const result = tokenize('$.items.*#text%stringLiteral.("item_*")');
+            const result = tokenize('$.items.*#text%stringLiteral.("item?*")');
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.SansaAddressLiteral);
-            assert.strictEqual(result.tokens[0]!.value, '$.items.*#text%stringLiteral.("item_*")');
+            assert.strictEqual(result.tokens[0]!.value, '$.items.*#text%stringLiteral.("item?*")');
         });
 
         it('should terminate SANSA address literals at comma and whitespace outside nested payloads', () => {
@@ -320,6 +320,30 @@ describe('Lexer', () => {
             assert.strictEqual(space.tokens[0]!.type, TokenType.SansaAddressLiteral);
             assert.strictEqual(space.tokens[0]!.value, '?.name');
             assert.strictEqual(space.tokens[1]!.type, TokenType.Identifier);
+        });
+
+        it('should terminate SANSA address literals before comments and container boundaries', () => {
+            const lineComment = tokenize('$.name// hello', { includeComments: true });
+            assert.strictEqual(lineComment.errors.length, 0);
+            assert.strictEqual(lineComment.tokens[0]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(lineComment.tokens[0]!.value, '$.name');
+            assert.strictEqual(lineComment.tokens[1]!.type, TokenType.LineComment);
+
+            const blockComment = tokenize('$.name/* hello */', { includeComments: true });
+            assert.strictEqual(blockComment.errors.length, 0);
+            assert.strictEqual(blockComment.tokens[0]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(blockComment.tokens[0]!.value, '$.name');
+            assert.strictEqual(blockComment.tokens[1]!.type, TokenType.BlockComment);
+
+            const list = tokenize('[$.name]');
+            assert.strictEqual(list.tokens[1]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(list.tokens[1]!.value, '$.name');
+            assert.strictEqual(list.tokens[2]!.type, TokenType.RightBracket);
+
+            const tuple = tokenize('($.name)');
+            assert.strictEqual(tuple.tokens[1]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(tuple.tokens[1]!.value, '$.name');
+            assert.strictEqual(tuple.tokens[2]!.type, TokenType.RightParen);
         });
 
         it('should tokenize separator literals', () => {
