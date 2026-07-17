@@ -16,6 +16,10 @@ importers:
         version: 7.0.2
 
   packages/aeos:
+    dependencies:
+      '@altopelago/sansa':
+        specifier: file:../../../../../sansa
+        version: file:../../../sansa
     devDependencies:
       '@altopelago/aeon-aes':
         specifier: workspace:*

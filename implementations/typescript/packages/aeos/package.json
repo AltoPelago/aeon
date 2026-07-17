@@ -42,6 +42,9 @@
     "schema",
     "typescript"
   ],
+  "dependencies": {
+    "@altopelago/sansa": "file:../../../../../sansa"
+  },
   "publishConfig": {
     "access": "public"
   },

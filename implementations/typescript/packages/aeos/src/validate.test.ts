@@ -536,7 +536,7 @@ describe('validate()', () => {
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_BINDING && e.path === '$.config.port'));
         });
 
-        it('allows indexed list descendants matched by wildcard rules in closed-world mode', () => {
+        it('allows indexed list descendants matched by SANSA selector rules in closed-world mode', () => {
             const aes: AES = [
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'message' }] },
@@ -632,9 +632,9 @@ describe('validate()', () => {
                 rules: [
                     { path: '$.message', constraints: { type: 'ObjectNode' } },
                     { path: '$.message.points', constraints: { type: 'ListNode' } },
-                    { path: '$.message.points[*]', constraints: { type: 'ObjectNode' } },
-                    { path: '$.message.points[*].x', constraints: { type: 'NumberLiteral' } },
-                    { path: '$.message.points[*].y', constraints: { type: 'NumberLiteral' } },
+                    { selector: '$.message.points.*', constraints: { type: 'ObjectNode' } },
+                    { selector: '$.message.points.*.x', constraints: { type: 'NumberLiteral' } },
+                    { selector: '$.message.points.*.y', constraints: { type: 'NumberLiteral' } },
                 ],
             };
 
@@ -643,7 +643,7 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('applies wildcard item rules without requiring the wildcard placeholder path', () => {
+        it('applies SANSA direct-expansion item rules without requiring a placeholder path', () => {
             const aes: AES = [
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }] },
@@ -667,7 +667,7 @@ describe('validate()', () => {
 
             const schema: SchemaV1 = {
                 rules: [
-                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                    { selector: '$.contact.measurements.*', constraints: { required: true, type: 'NumberLiteral' } },
                 ],
             };
 
@@ -676,7 +676,7 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('checks wildcard item rules against each matching indexed path', () => {
+        it('checks SANSA direct-expansion item rules against each matching indexed path', () => {
             const aes: AES = [
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'contact' }, { type: 'member', key: 'measurements' }] },
@@ -694,14 +694,14 @@ describe('validate()', () => {
 
             const schema: SchemaV1 = {
                 rules: [
-                    { path: '$.contact.measurements[*]', constraints: { required: true, type: 'NumberLiteral' } },
+                    { selector: '$.contact.measurements.*', constraints: { required: true, type: 'NumberLiteral' } },
                 ],
             };
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
             assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.contact.measurements[0]'));
-            assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.contact.measurements[*]'));
+            assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.contact.measurements.*'));
         });
 
         it('enforces node<T> child intent with indexed child rules', () => {
@@ -730,7 +730,7 @@ describe('validate()', () => {
 
             const schema: SchemaV1 = {
                 rules: [
-                    { path: '$.title[*]', constraints: { type: 'StringLiteral' } },
+                    { selector: '$.title.*', constraints: { type: 'StringLiteral' } },
                 ],
             };
 
@@ -739,7 +739,7 @@ describe('validate()', () => {
             assert.ok(result.errors.some((error) => error.code === ErrorCodes.TYPE_MISMATCH && error.path === '$.title[0]'));
         });
 
-        it('allows wildcard paths to accept any matching constraint branch', () => {
+        it('allows SANSA selector paths to accept any matching constraint branch', () => {
             const aes: AES = [
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }, { type: 'index', index: 0 }] },
@@ -758,7 +758,7 @@ describe('validate()', () => {
             const schema: SchemaV1 = {
                 rules: [
                     {
-                        path: '$.page[*]',
+                        selector: '$.page.*',
                         constraints: {
                             required: true,
                             any_of: [
@@ -860,6 +860,97 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('expands SANSA selectors with semantic datatype filters', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'items' }, { type: 'index', index: 0 }, { type: 'member', key: 'sku' }] },
+                    key: 'sku',
+                    datatype: 'string',
+                    value: { type: 'StringLiteral', value: 'A1', raw: '"A1"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'items' }, { type: 'index', index: 0 }, { type: 'member', key: 'qty' }] },
+                    key: 'qty',
+                    datatype: 'number',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.inventory.**#number', constraints: { type: 'NumberLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('expands SANSA selectors with representation kind filters', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'items' }, { type: 'index', index: 0 }, { type: 'member', key: 'sku' }] },
+                    key: 'sku',
+                    datatype: 'string',
+                    value: { type: 'StringLiteral', value: 'A1', raw: '"A1"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'items' }, { type: 'index', index: 0 }, { type: 'member', key: 'qty' }] },
+                    key: 'qty',
+                    datatype: 'number',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [3, 4] },
+                    span: [3, 4],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.inventory.items.*.*%stringLiteral', constraints: { type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('expands SANSA name-pattern selectors with question-mark wildcards', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'item_a' }] },
+                    key: 'item_a',
+                    value: { type: 'StringLiteral', value: 'A', raw: '"A"', delimiter: '"', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'item_backup' }] },
+                    key: 'item_backup',
+                    value: { type: 'StringLiteral', value: 'old', raw: '"old"', delimiter: '"', span: [3, 4] },
+                    span: [3, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'status' }] },
+                    key: 'status',
+                    value: { type: 'NumberLiteral', value: '1', raw: '1', span: [5, 6] },
+                    span: [5, 6],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.inventory.("item?*")', constraints: { type: 'StringLiteral' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('reports a required selector when no path matches', () => {
             const aes: AES = [
                 {
@@ -895,6 +986,29 @@ describe('validate()', () => {
                 world: 'closed',
                 rules: [
                     { selector: '$.*.contact', constraints: { type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('uses SANSA selector filters for closed-world allowance', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'inventory' }, { type: 'member', key: 'count' }] },
+                    key: 'count',
+                    datatype: 'number',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                world: 'closed',
+                rules: [
+                    { selector: '$.inventory.**#number', constraints: { type: 'NumberLiteral' } },
                 ],
             };
 

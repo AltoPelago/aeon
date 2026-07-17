@@ -178,6 +178,34 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors.length, 0);
     });
 
+    it('rejects legacy indexed wildcard selectors because selectors are SANSA-only', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                { selector: '$.items[*]', constraints: { type: 'StringLiteral' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_SCHEMA_POLICY);
+    });
+
+    it('rejects legacy indexed wildcard paths because paths are exact only', () => {
+        const schema: SchemaV1 = {
+            rules: [
+                { path: '$.items[*]', constraints: { type: 'StringLiteral' } },
+            ],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_SCHEMA_POLICY);
+    });
+
     it('rejects unknown nested attribute constraint keys', () => {
         const schema = {
             rules: [

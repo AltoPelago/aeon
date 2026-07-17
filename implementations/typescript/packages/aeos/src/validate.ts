@@ -18,6 +18,11 @@ import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
+import {
+    parseAddress,
+    type SansaAddress,
+    type SansaSelector,
+} from '@altopelago/sansa';
 
 const TYPE_ALIASES: Record<string, readonly string[]> = {
     NumberLiteral: ['NumberLiteral'],
@@ -483,19 +488,13 @@ export function validate(
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
     const selectorExpansionBudget = { count: 0 };
-    const expandedRuleIndex = expandWildcardRules(
-        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget),
-        eventsByPath,
-        ctx,
-        resourcePolicy,
-        selectorExpansionBudget,
-    );
+    const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(seen.keys());
     checkPresence(effectiveRuleIndex, boundPaths, ctx);
-    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, ctx);
+    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx);
 
     // Phase 5: Type checks (literal kind)
     checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
@@ -621,6 +620,7 @@ function checkWorldPolicy(
     schema: SchemaV1,
     aes: readonly { key?: string; path?: unknown; span?: unknown }[],
     boundPaths: ReadonlySet<string>,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
@@ -638,7 +638,7 @@ function checkWorldPolicy(
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
         if (allowedRules.some((rule) => rule.kind === 'selector'
-            ? matchesSelectorPath(path, rule.value)
+            ? matchesSansaSelectorPath(path, rule.value, eventsByPath) === true
             : matchesAllowedPath(path, rule.value))) continue;
         emitError(ctx, createDiag(
             path,
@@ -691,7 +691,7 @@ function expandSelectorRules(
         if (typeof rule.path === 'string' && rule.path.length > 0) continue;
         let matched = false;
         for (const actualPath of eventsByPath.keys()) {
-            if (!matchesSelectorPath(actualPath, rule.selector)) continue;
+            if (matchesSansaSelectorPath(actualPath, rule.selector, eventsByPath) !== true) continue;
             matched = true;
             expansionBudget.count += 1;
             if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
@@ -709,31 +709,6 @@ function expandSelectorRules(
                 `Missing required field: ${rule.selector}`,
                 ErrorCodes.MISSING_REQUIRED_FIELD
             ));
-        }
-    }
-    return expanded;
-}
-
-function expandWildcardRules(
-    ruleIndex: RuleIndex,
-    eventsByPath: ReadonlyMap<string, EventInfo>,
-    ctx: ReturnType<typeof createDiagContext>,
-    resourcePolicy: Required<ResourcePolicyV1>,
-    expansionBudget: { count: number },
-): RuleIndex {
-    const expanded = new Map(ruleIndex);
-    for (const [path, rule] of ruleIndex.entries()) {
-        if (!path.includes('[*]')) continue;
-        expanded.delete(path);
-        for (const actualPath of eventsByPath.keys()) {
-            if (matchesAllowedPath(actualPath, path)) {
-                expansionBudget.count += 1;
-                if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
-                    emitResourceError(ctx, path, `Wildcard expansion count exceeds max_selector_expansions ${resourcePolicy.max_selector_expansions}`);
-                    return expanded;
-                }
-                expanded.set(actualPath, { ...rule, path: actualPath });
-            }
         }
     }
     return expanded;
@@ -875,65 +850,46 @@ function formatReferenceLookupPath(
 }
 
 function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
-    if (actualPath === allowedPath) return true;
-
-    // Closed-world schemas may allow list descendants via canonical wildcard paths
-    // such as `$.items[*]` or `$.items[*].x`.
-    if (!allowedPath.includes('[*]')) return false;
-
-    const escaped = allowedPath
-        .split('[*]')
-        .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
-        .join('\\[\\d+\\]');
-    const pattern = `^${escaped}$`;
-    return new RegExp(pattern).test(actualPath);
+    return actualPath === allowedPath;
 }
 
-function tokenizeCanonicalLikePath(path: string): string[] | null {
-    if (!path.startsWith('$')) return null;
-    const segments: string[] = [];
-    let index = 1;
-    while (index < path.length) {
-        const marker = path[index];
-        if (marker === '.') {
-            index += 1;
-            if (path[index] === '[') {
-                const end = findBracketEnd(path, index);
-                if (end < 0) return null;
-                segments.push(path.slice(index, end + 1));
-                index = end + 1;
-                continue;
-            }
-            const start = index;
-            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
-                index += 1;
-            }
-            if (start === index) return null;
-            segments.push(path.slice(start, index));
+type SansaPathSegment = string | number;
+
+function matchesSansaSelectorPath(
+    actualPath: string,
+    selector: string,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): boolean | null {
+    const selectorResult = parseAddress(selector);
+    if (!selectorResult.ok) return null;
+    const actualResult = parseAddress(actualPath);
+    if (!actualResult.ok) return null;
+
+    const selectorAddress = selectorResult.address;
+    const actualAddress = actualResult.address;
+    if (selectorAddress.root.kind !== 'absolute' || actualAddress.root.kind !== 'absolute') return false;
+
+    const actualSegments = exactSansaPathSegments(actualAddress);
+    if (!actualSegments) return false;
+
+    return matchSansaSelectorFrom(
+        selectorAddress.selectors,
+        actualSegments,
+        0,
+        0,
+        eventsByPath,
+    );
+}
+
+function exactSansaPathSegments(address: SansaAddress): readonly SansaPathSegment[] | null {
+    const segments: SansaPathSegment[] = [];
+    for (const selector of address.selectors) {
+        if (selector.type === 'member') {
+            segments.push(selector.name);
             continue;
         }
-        if (marker === '[') {
-            const end = findBracketEnd(path, index);
-            if (end < 0) return null;
-            segments.push(path.slice(index, end + 1));
-            index = end + 1;
-            continue;
-        }
-        if (marker === '@') {
-            index += 1;
-            if (path[index] === '[') {
-                const end = findBracketEnd(path, index);
-                if (end < 0) return null;
-                segments.push(`@${path.slice(index, end + 1)}`);
-                index = end + 1;
-                continue;
-            }
-            const start = index;
-            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
-                index += 1;
-            }
-            if (start === index) return null;
-            segments.push(`@${path.slice(start, index)}`);
+        if (selector.type === 'position') {
+            segments.push(selector.index);
             continue;
         }
         return null;
@@ -941,63 +897,114 @@ function tokenizeCanonicalLikePath(path: string): string[] | null {
     return segments;
 }
 
-function findBracketEnd(path: string, start: number): number {
-    let quote: string | null = null;
-    let escaped = false;
-    for (let index = start + 1; index < path.length; index++) {
-        const ch = path[index]!;
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-        if (quote) {
-            if (ch === '\\') {
-                escaped = true;
-            } else if (ch === quote) {
-                quote = null;
-            }
-            continue;
-        }
-        if (ch === '"' || ch === "'") {
-            quote = ch;
-            continue;
-        }
-        if (ch === ']') return index;
+function matchSansaSelectorFrom(
+    selectors: readonly SansaSelector[],
+    actualSegments: readonly SansaPathSegment[],
+    selectorIndex: number,
+    actualIndex: number,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): boolean {
+    if (selectorIndex === selectors.length) {
+        return actualIndex === actualSegments.length;
     }
-    return -1;
-}
 
-function matchesSelectorPath(actualPath: string, selector: string): boolean {
-    if (actualPath === selector) return true;
-    const actualSegments = tokenizeCanonicalLikePath(actualPath);
-    const selectorSegments = tokenizeCanonicalLikePath(selector);
-    if (!actualSegments || !selectorSegments) return false;
-
-    const matchFrom = (actualIndex: number, selectorIndex: number): boolean => {
-        if (selectorIndex === selectorSegments.length) {
-            return actualIndex === actualSegments.length;
-        }
-        const selectorSegment = selectorSegments[selectorIndex]!;
-        if (selectorSegment === '**') {
-            if (selectorIndex === selectorSegments.length - 1) return true;
-            for (let nextActual = actualIndex; nextActual <= actualSegments.length; nextActual++) {
-                if (matchFrom(nextActual, selectorIndex + 1)) return true;
+    const selector = selectors[selectorIndex]!;
+    switch (selector.type) {
+        case 'member':
+            return actualSegments[actualIndex] === selector.name
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
+        case 'position':
+            return actualSegments[actualIndex] === selector.index
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
+        case 'directExpansion':
+            return actualIndex < actualSegments.length
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
+        case 'descendantExpansion':
+            for (let nextActual = actualIndex + 1; nextActual <= actualSegments.length; nextActual += 1) {
+                if (matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, nextActual, eventsByPath)) {
+                    return true;
+                }
             }
             return false;
+        case 'namePattern':
+            return typeof actualSegments[actualIndex] === 'string'
+                && globPatternToRegExp(selector.pattern).test(actualSegments[actualIndex] as string)
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
+        case 'semanticTypeFilter':
+            return matchesSansaSemanticType(actualSegments.slice(0, actualIndex), selector.name, eventsByPath)
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex, eventsByPath);
+        case 'representationKindFilter':
+            return matchesSansaRepresentationKind(actualSegments.slice(0, actualIndex), selector.name, eventsByPath)
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex, eventsByPath);
+        case 'attributeSpace':
+        case 'localSpace':
+            return false;
+        default: {
+            const exhaustive: never = selector;
+            return exhaustive;
         }
-        if (actualIndex >= actualSegments.length) return false;
-        if (selectorSegment === '*') {
-            return matchFrom(actualIndex + 1, selectorIndex + 1);
-        }
-        if (selectorSegment === '[*]') {
-            return /^\[\d+\]$/.test(actualSegments[actualIndex]!)
-                && matchFrom(actualIndex + 1, selectorIndex + 1);
-        }
-        return selectorSegment === actualSegments[actualIndex]
-            && matchFrom(actualIndex + 1, selectorIndex + 1);
-    };
+    }
+}
 
-    return matchFrom(0, 0);
+function matchesSansaSemanticType(
+    pathSegments: readonly SansaPathSegment[],
+    expected: string,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): boolean {
+    const datatype = eventsByPath.get(formatSansaPathSegments(pathSegments))?.datatype;
+    return datatype === expected || (datatype !== undefined && datatypeBaseName(datatype) === expected);
+}
+
+function matchesSansaRepresentationKind(
+    pathSegments: readonly SansaPathSegment[],
+    expected: string,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): boolean {
+    const type = eventsByPath.get(formatSansaPathSegments(pathSegments))?.type;
+    return type !== undefined && lowerFirst(type) === expected;
+}
+
+function formatSansaPathSegments(segments: readonly SansaPathSegment[]): string {
+    let out = '$';
+    for (const segment of segments) {
+        if (typeof segment === 'number') {
+            out += `[${segment}]`;
+            continue;
+        }
+        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment)
+            ? `.${segment}`
+            : formatQuotedMemberSegment(segment);
+    }
+    return out;
+}
+
+function datatypeBaseName(datatype: string): string {
+    const genericCut = datatype.indexOf('<');
+    const argumentCut = datatype.indexOf('[');
+    const cut = [genericCut, argumentCut].filter((index) => index >= 0).sort((a, b) => a - b)[0];
+    return (cut === undefined ? datatype : datatype.slice(0, cut)).trim();
+}
+
+function lowerFirst(value: string): string {
+    return `${value.charAt(0).toLowerCase()}${value.slice(1)}`;
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+    let source = '^';
+    for (const char of pattern) {
+        if (char === '*') {
+            source += '.*';
+        } else if (char === '?') {
+            source += '.';
+        } else {
+            source += escapeRegExp(char);
+        }
+    }
+    return new RegExp(`${source}$`, 'u');
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
 function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {

@@ -9,6 +9,7 @@ import { hasUnknownConstraintKeys } from '../types/schema.js';
 import type { DiagContext } from '../diag/emit.js';
 import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
+import { parseAddress } from '@altopelago/sansa';
 
 const MAX_SCHEMA_REGEX_LENGTH = 512;
 const PORTABLE_REGEX_ESCAPES = new Set([
@@ -559,6 +560,29 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
                 null,
                 `Rule must use either "path" or "selector", not both: ${ruleKey}`,
                 ErrorCodes.RULE_MISSING_PATH
+            ));
+            continue;
+        }
+
+        if (hasSelector) {
+            const selectorResult = parseAddress(rule.selector!);
+            if (!selectorResult.ok) {
+                emitError(ctx, createDiag(
+                    rule.selector!,
+                    null,
+                    `Invalid SANSA selector: ${selectorResult.errors[0]?.message ?? rule.selector!}`,
+                    ErrorCodes.INVALID_SCHEMA_POLICY
+                ));
+                continue;
+            }
+        }
+
+        if (hasPath && rule.path!.includes('[*]')) {
+            emitError(ctx, createDiag(
+                rule.path!,
+                null,
+                `Legacy indexed wildcard paths are not supported; use a SANSA selector with .* instead: ${rule.path!}`,
+                ErrorCodes.INVALID_SCHEMA_POLICY
             ));
             continue;
         }
