@@ -45,6 +45,37 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIn("$.group.false", by_path)
         self.assertIn("$.group.off", by_path)
 
+    def test_sansa_address_literals_accept_rich_forms(self) -> None:
+        result = compile_source(
+            "absolute:sansa = $.inventory.items[2].sku\n"
+            "contextual:sansa = ?.name\n"
+            'rich:sansa = $.items.*#text%stringLiteral.("item?*")\n'
+            'csv:sansa = $.inventory:csv[","]\n'
+            "external:sansa = $.value:type<type>[arg]\n"
+            "chained:sansa = $.path:tuple<x><y>"
+        )
+        self.assertEqual([], result.errors)
+        for event in result.events:
+            self.assertEqual("SansaAddressLiteral", event["value"]["type"])
+
+    def test_sansa_address_literals_terminate_before_comments_and_containers(self) -> None:
+        result = compile_source(
+            "a:sansa = $.name/* block */\n"
+            "b:sansa = $.name// line\n"
+            "c:list = [$.name]\n"
+            "d:node = <tag($.name)>\n"
+            "e:tuple = ($.name)\n"
+            'f:sansa = $.items.("item_*")'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("SansaAddressLiteral", by_path["$.a"]["value"]["type"])
+        self.assertEqual("SansaAddressLiteral", by_path["$.b"]["value"]["type"])
+        self.assertEqual("ListNode", by_path["$.c"]["value"]["type"])
+        self.assertEqual("NodeLiteral", by_path["$.d"]["value"]["type"])
+        self.assertEqual("TupleLiteral", by_path["$.e"]["value"]["type"])
+        self.assertEqual("SansaAddressLiteral", by_path["$.f"]["value"]["type"])
+
     def test_empty_quoted_key_rejected(self) -> None:
         result = compile_source('"" = ""')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

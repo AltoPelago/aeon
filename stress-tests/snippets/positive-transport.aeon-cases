@@ -117,6 +117,26 @@ z5:zrut = 2025-01-01T00:00:00Z&l
 ---
 z5 = 2025-01-01T00:00:00&l
 ---
+addr:sansa = $.inventory.items[2].sku
+---
+addr:sansa = ?.name
+---
+addr:sansa = $.items.*#text%stringLiteral.("item?*")
+---
+addr:sansa = $.inventory:csv[","]
+---
+addr:sansa = $.path:tuple<x><y>
+---
+addr:sansa = $.name/* comment */
+---
+addr:sansa = $.name// comment
+---
+items:list = [$.name]
+---
+node:node = <tag($.name)>
+---
+tuple:tuple = ($.name)
+---
 sep3 : sep [x] = ^1920x1080
 ---
 sep3  = ^1920x1080

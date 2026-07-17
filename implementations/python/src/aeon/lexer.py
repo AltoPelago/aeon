@@ -217,7 +217,10 @@ class Lexer:
                     quote = None
                 continue
 
-            if not depth_stack and char in {",", " ", "\t", "\n", "\r"}:
+            if not depth_stack and char in {",", " ", "\t", "\n", "\r", "]", ")", "}"}:
+                break
+
+            if not depth_stack and char == "/" and self.peek_next() in {"/", "*"}:
                 break
 
             if char == '"':

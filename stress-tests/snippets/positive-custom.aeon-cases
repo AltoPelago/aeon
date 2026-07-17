@@ -25,6 +25,26 @@ bottom:infinity = -Infinity
 ---
 zone:zrut = 2025-01-01T00:00:00Z&l
 ---
+addr:sansa = $.inventory.items[2].sku
+---
+addr:sansa = ?.name
+---
+addr:sansa = $.items.*#text%stringLiteral.("item?*")
+---
+addr:sansa = $.inventory:csv[","]
+---
+addr:sansa = $.path:tuple<x><y>
+---
+addr:sansa = $.name/* comment */
+---
+addr:sansa = $.name// comment
+---
+items:list = [$.name]
+---
+node:node = <tag($.name)>
+---
+tuple:tuple = ($.name)
+---
 a:dim = ^300x300
 ---
 a:flight = [ 'mel', 'hkg', 'bru' ]
