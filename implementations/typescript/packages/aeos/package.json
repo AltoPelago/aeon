@@ -43,6 +43,8 @@
     "typescript"
   ],
   "dependencies": {
+    "@altopelago/aeon-core": "workspace:*",
+    "@altopelago/aeon-finalize": "workspace:*",
     "@altopelago/sansa": "file:../../../../../sansa"
   },
   "publishConfig": {

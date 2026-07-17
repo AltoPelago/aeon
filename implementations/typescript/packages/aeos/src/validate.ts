@@ -73,6 +73,17 @@ function formatQuotedMemberSegment(key: unknown): string {
     return `.[${JSON.stringify(String(key))}]`;
 }
 
+function formatMemberSelector(key: unknown): string {
+    const value = String(key);
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)
+        ? `.${value}`
+        : formatQuotedMemberSegment(value);
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return `${basePath}.@${formatMemberSelector(key)}`;
+}
+
 /**
  * Validation options
  */
@@ -186,7 +197,7 @@ function enforceStringLengthResourceBudget(
         emitResourceError(ctx, path, `String-like payload length ${payloadLength} exceeds max_string_length_default ${policy.max_string_length_default}`, info.span);
     }
     for (const [key, attribute] of info.attributes ?? []) {
-        enforceStringLengthResourceBudget(attribute, `${path}@${key}`, policy, ctx);
+        enforceStringLengthResourceBudget(attribute, appendAttributePath(path, key), policy, ctx);
     }
 }
 
@@ -232,7 +243,7 @@ function inspectConstraintResourceShape(
     }
     if (constraints.attributes !== undefined) {
         for (const [key, child] of Object.entries(constraints.attributes)) {
-            inspectConstraintResourceShape(child, `${path}@${key}`, depth + 1, policy, ctx);
+            inspectConstraintResourceShape(child, appendAttributePath(path, key), depth + 1, policy, ctx);
         }
     }
 }
@@ -366,6 +377,7 @@ export function validate(
                 ...(attributes ? { attributes } : {}),
             };
             eventsByPath.set(elementPath, info);
+            addAttributeEvents(elementPath, attributes);
         }
     }
 
@@ -391,6 +403,22 @@ export function validate(
             mapped.set(String(key), info);
         }
         return mapped;
+    }
+
+    function addAttributeEvents(basePath: string, attributes: ReadonlyMap<string, AttributeInfo> | undefined): void {
+        if (!attributes) return;
+        for (const [key, attribute] of attributes.entries()) {
+            const attributePath = appendAttributePath(basePath, key);
+            eventsByPath.set(attributePath, {
+                type: attribute.type,
+                raw: attribute.raw,
+                value: attribute.value,
+                ...(attribute.datatype !== undefined ? { datatype: attribute.datatype } : {}),
+                span: attribute.span,
+                ...(attribute.attributes ? { attributes: attribute.attributes } : {}),
+            });
+            addAttributeEvents(attributePath, attribute.attributes);
+        }
     }
 
     for (let i = 0; i < aes.length; i++) {
@@ -432,6 +460,7 @@ export function validate(
                     ...(attributes ? { attributes } : {}),
                 };
                 eventsByPath.set(pathStr, info);
+                addAttributeEvents(pathStr, attributes);
                 if ((event.value.type === 'TupleLiteral' || event.value.type === 'ListLiteral' || event.value.type === 'ListNode')
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
@@ -492,7 +521,7 @@ export function validate(
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
-    const boundPaths = new Set(seen.keys());
+    const boundPaths = new Set(eventsByPath.keys());
     checkPresence(effectiveRuleIndex, boundPaths, ctx);
     checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx);
 
@@ -842,9 +871,7 @@ function formatReferenceLookupPath(
                 : formatQuotedMemberSegment(segment);
             continue;
         }
-        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-            ? `@${segment.key}`
-            : `@[${JSON.stringify(segment.key)}]`;
+        out = appendAttributePath(out, segment.key);
     }
     return out;
 }
@@ -853,7 +880,7 @@ function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
     return actualPath === allowedPath;
 }
 
-type SansaPathSegment = string | number;
+type SansaPathSegment = string | number | { readonly type: 'attributeSpace' };
 
 function matchesSansaSelectorPath(
     actualPath: string,
@@ -890,6 +917,10 @@ function exactSansaPathSegments(address: SansaAddress): readonly SansaPathSegmen
         }
         if (selector.type === 'position') {
             segments.push(selector.index);
+            continue;
+        }
+        if (selector.type === 'attributeSpace') {
+            segments.push({ type: 'attributeSpace' });
             continue;
         }
         return null;
@@ -936,7 +967,12 @@ function matchSansaSelectorFrom(
         case 'representationKindFilter':
             return matchesSansaRepresentationKind(actualSegments.slice(0, actualIndex), selector.name, eventsByPath)
                 && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex, eventsByPath);
-        case 'attributeSpace':
+        case 'attributeSpace': {
+            const actualSegment = actualSegments[actualIndex];
+            return typeof actualSegment === 'object'
+                && actualSegment.type === 'attributeSpace'
+                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
+        }
         case 'localSpace':
             return false;
         default: {
@@ -971,9 +1007,11 @@ function formatSansaPathSegments(segments: readonly SansaPathSegment[]): string 
             out += `[${segment}]`;
             continue;
         }
-        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment)
-            ? `.${segment}`
-            : formatQuotedMemberSegment(segment);
+        if (typeof segment === 'string') {
+            out += formatMemberSelector(segment);
+            continue;
+        }
+        out += '.@';
     }
     return out;
 }
@@ -1010,13 +1048,13 @@ function escapeRegExp(value: string): string {
 function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {
     const allowed: string[] = [];
     function visit(basePath: string, constraints: ConstraintsV1): void {
-        if (basePath.includes('@')) {
+        if (basePath.includes('.@.')) {
             allowed.push(basePath);
         }
         const attributes = constraints.attributes;
         if (!attributes) return;
         for (const [key, childConstraints] of Object.entries(attributes)) {
-            visit(`${basePath}@${key}`, childConstraints);
+            visit(appendAttributePath(basePath, key), childConstraints);
         }
     }
     for (const [path, rule] of ruleIndex) {
@@ -1032,7 +1070,7 @@ function collectAttributeEntries(
     function visit(basePath: string, attributes: ReadonlyMap<string, AttributeInfo> | undefined): void {
         if (!attributes) return;
         for (const [key, entry] of attributes.entries()) {
-            const path = `${basePath}@${key}`;
+            const path = appendAttributePath(basePath, key);
             entries.push({ path, span: entry.span });
             visit(path, entry.attributes);
         }
@@ -1215,7 +1253,7 @@ function validateAttributeMap(
 ): void {
     const requiredAttributes = constraints.attributes ?? {};
     for (const [key, childConstraints] of Object.entries(requiredAttributes)) {
-        const childPath = `${basePath}@${key}`;
+        const childPath = appendAttributePath(basePath, key);
         const entry = attributes?.get(key);
         if (childConstraints.required === true && !entry) {
             emitError(ctx, createDiag(
@@ -1234,7 +1272,7 @@ function validateAttributeMap(
         const allowed = new Set(Object.keys(requiredAttributes));
         for (const key of attributes.keys()) {
             if (allowed.has(key)) continue;
-            const childPath = `${basePath}@${key}`;
+            const childPath = appendAttributePath(basePath, key);
             emitError(ctx, createDiag(
                 childPath,
                 attributes.get(key)?.span ?? null,

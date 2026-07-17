@@ -17,6 +17,12 @@ importers:
 
   packages/aeos:
     dependencies:
+      '@altopelago/aeon-core':
+        specifier: workspace:*
+        version: link:../core
+      '@altopelago/aeon-finalize':
+        specifier: workspace:*
+        version: link:../finalize
       '@altopelago/sansa':
         specifier: file:../../../../../sansa
         version: file:../../../sansa

@@ -17,6 +17,21 @@ const PORTABLE_REGEX_ESCAPES = new Set([
     '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
 ]);
 
+function formatQuotedMemberSegment(key: unknown): string {
+    return `.[${JSON.stringify(String(key))}]`;
+}
+
+function formatMemberSelector(key: unknown): string {
+    const value = String(key);
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)
+        ? `.${value}`
+        : formatQuotedMemberSegment(value);
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return `${basePath}.@${formatMemberSelector(key)}`;
+}
+
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
 }
@@ -481,16 +496,17 @@ function validateConstraintTree(
     }
 
     for (const [key, childConstraints] of Object.entries(nestedAttributes)) {
+        const childPath = appendAttributePath(rulePath, key);
         if (childConstraints === null || typeof childConstraints !== 'object' || Array.isArray(childConstraints)) {
             emitError(ctx, createDiag(
-                `${rulePath}@${key}`,
+                childPath,
                 null,
-                `Invalid attribute constraint for path ${rulePath}@${key}`,
+                `Invalid attribute constraint for path ${childPath}`,
                 ErrorCodes.UNKNOWN_CONSTRAINT_KEY
             ));
             return false;
         }
-        if (!validateConstraintTree(schema, `${rulePath}@${key}`, childConstraints as Record<string, unknown>, ctx)) {
+        if (!validateConstraintTree(schema, childPath, childConstraints as Record<string, unknown>, ctx)) {
             return false;
         }
     }

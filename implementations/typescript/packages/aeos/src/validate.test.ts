@@ -1111,6 +1111,58 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('validates direct SANSA attribute-space paths', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { path: '$.value.@.unit', constraints: { type: 'NumberLiteral', required: true } },
+                ],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value.@.unit'));
+        });
+
+        it('expands SANSA selectors through attribute-space segments', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['unit', {
+                            value: { type: 'StringLiteral', value: 'cm', raw: '"cm"', delimiter: '"', span: [2, 3] },
+                            datatype: 'string',
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [
+                    { selector: '$.*.@.unit', constraints: { type: 'NumberLiteral', required: true } },
+                ],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value.@.unit'));
+        });
+
         it('requires attribute entries when declared in schema', () => {
             const aes: AES = [
                 {
@@ -1137,7 +1189,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.MISSING_REQUIRED_FIELD && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.MISSING_REQUIRED_FIELD && e.path === '$.value.@.unit'));
         });
 
         it('checks attribute entry type and datatype', () => {
@@ -1171,7 +1223,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value.@.unit'));
         });
 
         it('rejects unexpected attribute entries when closed_attributes is true', () => {
@@ -1210,7 +1262,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value.@.extra'));
         });
 
         it('lets attributes inherit closed-world schema rules', () => {
@@ -1251,8 +1303,8 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(!result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+            assert.ok(!result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value.@.unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value.@.extra'));
         });
 
         it('uses inherit_world as the default attribute policy in closed-world schemas', () => {
@@ -1285,7 +1337,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@extra'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value.@.extra'));
         });
 
         it('forbids all attributes when schema attribute_policy is forbid', () => {
@@ -1321,7 +1373,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_ATTRIBUTE_ENTRY && e.path === '$.value.@.unit'));
         });
 
         it('recurses into nested attribute entries', () => {
@@ -1364,7 +1416,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value@meta@label'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.TYPE_MISMATCH && e.path === '$.value.@.meta.@.label'));
         });
 
         it('applies datatype_rules to attribute entries automatically', () => {
@@ -1401,7 +1453,7 @@ describe('validate()', () => {
 
             const result = validate(aes, schema);
             assert.strictEqual(result.ok, false);
-            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.value@unit'));
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.value.@.unit'));
         });
     });
 
@@ -1622,7 +1674,7 @@ describe('validate()', () => {
                     {
                         path: '$.postcode',
                         constraints: {
-                            reference_target_pattern: '^\\$\\.\\["safe keys"\\]@ns$',
+                            reference_target_pattern: '^\\$\\.\\["safe keys"\\]\\.@\\.ns$',
                         },
                     },
                 ],

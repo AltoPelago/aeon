@@ -227,7 +227,7 @@ describe('buildRuleIndex()', () => {
 
         assert.strictEqual(index.size, 0);
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
-        assert.strictEqual(ctx.errors[0]?.path, '$.value@unit');
+        assert.strictEqual(ctx.errors[0]?.path, '$.value.@.unit');
     });
 
     it('accepts valid reference_target_pattern and resolve_reference_form constraints', () => {

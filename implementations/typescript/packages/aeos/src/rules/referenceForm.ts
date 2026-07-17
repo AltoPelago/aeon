@@ -21,6 +21,16 @@ function formatQuotedMemberSegment(key: string): string {
     return `.[${JSON.stringify(key)}]`;
 }
 
+function formatMemberSelector(key: string): string {
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+        ? `.${key}`
+        : formatQuotedMemberSegment(key);
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return `${basePath}.@${formatMemberSelector(key)}`;
+}
+
 function formatReferenceTargetPath(segments: readonly (string | number | { readonly type: 'attr'; readonly key: string })[]): string {
     if (segments.length === 0) return '$';
     let out = '$';
@@ -35,9 +45,7 @@ function formatReferenceTargetPath(segments: readonly (string | number | { reado
                 : formatQuotedMemberSegment(segment);
             continue;
         }
-        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-            ? `@${segment.key}`
-            : `@[${JSON.stringify(segment.key)}]`;
+        out = appendAttributePath(out, segment.key);
     }
     return out;
 }
