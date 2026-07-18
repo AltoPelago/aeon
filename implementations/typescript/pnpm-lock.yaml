@@ -287,6 +287,16 @@ importers:
         specifier: ^26.1.1
         version: 26.1.1
 
+  tools/sansa-resolve-cts-runner:
+    dependencies:
+      '@altopelago/sansa':
+        specifier: file:../../../../../sansa
+        version: file:../../../sansa
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+
 packages:
 
   '@altopelago/sansa@file:../../../sansa':
