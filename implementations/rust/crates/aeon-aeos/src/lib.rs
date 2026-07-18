@@ -4,6 +4,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use aeon_core::{
+    SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions, SansaSelector,
+    parse_sansa_address, resolve_sansa_address,
+};
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ValidationEnvelope {
     pub aes: Vec<AesEvent>,
@@ -945,7 +950,7 @@ fn validate_inner(
         &schema.datatype_rules,
         &mut ctx,
     );
-    check_world_policy(schema, aes, &bound_paths, &rule_index, &mut ctx);
+    check_world_policy(schema, aes, &bound_paths, &events_by_path, &mut ctx);
 
     finalize_result(ctx, &bound_paths, &events_by_path)
 }
@@ -2505,7 +2510,7 @@ fn check_world_policy(
     schema: &Schema,
     aes: &[AesEvent],
     bound_paths: &BTreeSet<String>,
-    _rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
 ) {
     if schema.world != "closed" {
@@ -2528,6 +2533,15 @@ fn check_world_policy(
                 })
         })
         .collect::<Vec<_>>();
+    let mut selector_matches = BTreeMap::<String, Option<BTreeSet<String>>>::new();
+    for (kind, selector) in &allowed_rules {
+        if *kind == "selector" && !selector_matches.contains_key(*selector) {
+            selector_matches.insert(
+                (*selector).to_string(),
+                resolve_sansa_selector_path_set(selector, events_by_path, ctx),
+            );
+        }
+    }
     for event in aes {
         if event.key.starts_with("aeon:") {
             continue;
@@ -2536,7 +2550,10 @@ fn check_world_policy(
         if !bound_paths.contains(&path)
             || allowed_rules.iter().any(|(kind, allowed_path)| {
                 if *kind == "selector" {
-                    matches_selector_path(&path, allowed_path)
+                    selector_matches
+                        .get(*allowed_path)
+                        .and_then(Option::as_ref)
+                        .is_some_and(|paths| paths.contains(&path))
                 } else {
                     matches_allowed_path(&path, allowed_path)
                 }
@@ -2705,11 +2722,12 @@ fn expand_selector_rules(
         if rule.path.as_ref().is_some_and(|path| !path.is_empty()) {
             continue;
         }
+        let Some(resolved_paths) = resolve_sansa_selector_path_set(selector, events_by_path, ctx)
+        else {
+            continue;
+        };
         let mut matched = false;
-        for actual_path in events_by_path.keys() {
-            if !matches_selector_path(actual_path, selector) {
-                continue;
-            }
+        for actual_path in resolved_paths {
             matched = true;
             *expansion_budget += 1;
             if *expansion_budget > resource_policy.max_selector_expansions {
@@ -2725,7 +2743,7 @@ fn expand_selector_rules(
                 return expanded;
             }
             expanded
-                .entry(actual_path.clone())
+                .entry(actual_path)
                 .or_insert_with(|| rule.constraints.clone());
         }
         if !matched
@@ -2906,145 +2924,150 @@ fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
     actual_path == allowed_path
 }
 
-fn tokenize_canonical_like_path(path: &str) -> Option<Vec<String>> {
-    if !path.starts_with('$') {
+fn resolve_sansa_selector_path_set(
+    selector: &str,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) -> Option<BTreeSet<String>> {
+    let namespace = create_aeos_sansa_resolve_namespace(events_by_path);
+    let result = resolve_sansa_address(selector, &namespace, &SansaResolveOptions::default());
+    if !result.ok {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(selector.to_string()),
+                code: String::from("invalid_schema_policy"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
         return None;
     }
-    let mut segments = Vec::new();
-    let mut cursor = 1;
-    while cursor < path.len() {
-        let marker = path[cursor..].chars().next()?;
-        if marker == '.' {
-            cursor += marker.len_utf8();
-            if cursor < path.len() && path[cursor..].starts_with('@') {
-                cursor += '@'.len_utf8();
-                segments.push(String::from("@"));
-                continue;
-            }
-            if cursor < path.len() && path[cursor..].starts_with('[') {
-                let end = find_bracket_end(path, cursor)?;
-                segments.push(path[cursor..=end].to_string());
-                cursor = end + 1;
-                continue;
-            }
-            let start = cursor;
-            while cursor < path.len() {
-                let ch = path[cursor..].chars().next()?;
-                if matches!(ch, '.' | '[' | '@') {
-                    break;
-                }
-                cursor += ch.len_utf8();
-            }
-            if start == cursor {
-                return None;
-            }
-            segments.push(path[start..cursor].to_string());
-            continue;
-        }
-        if marker == '[' {
-            let end = find_bracket_end(path, cursor)?;
-            segments.push(path[cursor..=end].to_string());
-            cursor = end + 1;
-            continue;
-        }
-        if marker == '@' {
-            cursor += marker.len_utf8();
-            if cursor < path.len() && path[cursor..].starts_with('[') {
-                let end = find_bracket_end(path, cursor)?;
-                segments.push(format!("@{}", &path[cursor..=end]));
-                cursor = end + 1;
-                continue;
-            }
-            let start = cursor;
-            while cursor < path.len() {
-                let ch = path[cursor..].chars().next()?;
-                if matches!(ch, '.' | '[' | '@') {
-                    break;
-                }
-                cursor += ch.len_utf8();
-            }
-            if start == cursor {
-                return None;
-            }
-            segments.push(format!("@{}", &path[start..cursor]));
-            continue;
-        }
-        return None;
-    }
-    Some(segments)
+    Some(
+        result
+            .bindings
+            .into_iter()
+            .filter_map(|binding| binding.address)
+            .filter(|path| events_by_path.contains_key(path))
+            .collect(),
+    )
 }
 
-fn find_bracket_end(path: &str, start: usize) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (offset, ch) in path[start + 1..].char_indices() {
-        let index = start + 1 + offset;
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if let Some(active_quote) = quote {
-            if ch == '\\' {
-                escaped = true;
-            } else if ch == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-        if ch == '"' || ch == '\'' {
-            quote = Some(ch);
-            continue;
-        }
-        if ch == ']' {
-            return Some(index);
-        }
-    }
-    None
+fn create_aeos_sansa_resolve_namespace(
+    events_by_path: &BTreeMap<String, EventInfo>,
+) -> SansaResolveNamespace {
+    let mut namespace = SansaResolveNamespace::new(build_aeos_sansa_resolve_tree(events_by_path));
+    namespace.supports_attribute_space = true;
+    namespace.supports_local_space = false;
+    namespace
 }
 
-fn matches_selector_path(actual_path: &str, selector: &str) -> bool {
-    if actual_path == selector {
-        return true;
-    }
-    let Some(actual_segments) = tokenize_canonical_like_path(actual_path) else {
-        return false;
+fn build_aeos_sansa_resolve_tree(
+    events_by_path: &BTreeMap<String, EventInfo>,
+) -> SansaResolveBinding {
+    let mut root = SansaResolveBinding {
+        address: Some(String::from("$")),
+        children: Vec::new(),
+        ..SansaResolveBinding::default()
     };
-    let Some(selector_segments) = tokenize_canonical_like_path(selector) else {
-        return false;
-    };
-
-    fn match_from(
-        actual: &[String],
-        selector: &[String],
-        actual_index: usize,
-        selector_index: usize,
-    ) -> bool {
-        if selector_index == selector.len() {
-            return actual_index == actual.len();
-        }
-        let selector_segment = selector[selector_index].as_str();
-        if selector_segment == "**" {
-            if selector_index == selector.len() - 1 {
-                return true;
-            }
-            for next_actual in actual_index..=actual.len() {
-                if match_from(actual, selector, next_actual, selector_index + 1) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        if actual_index >= actual.len() {
-            return false;
-        }
-        if selector_segment == "*" {
-            return match_from(actual, selector, actual_index + 1, selector_index + 1);
-        }
-        selector_segment == actual[actual_index]
-            && match_from(actual, selector, actual_index + 1, selector_index + 1)
+    let mut entries = events_by_path.iter().collect::<Vec<_>>();
+    entries.sort_by_key(|(path, _)| path.len());
+    for (path, info) in entries {
+        insert_aeos_sansa_resolve_path(&mut root, path, info);
     }
+    root
+}
 
-    match_from(&actual_segments, &selector_segments, 0, 0)
+fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, info: &EventInfo) {
+    let Ok(address) = parse_sansa_address(path) else {
+        return;
+    };
+    let mut current = root;
+    let mut current_path = String::from("$");
+    for selector in address.selectors {
+        match selector {
+            SansaSelector::Member { name, .. } => {
+                current_path.push_str(&format_member_selector(&name));
+                current = get_or_create_sansa_child_binding(
+                    current,
+                    current_path.clone(),
+                    Some(name),
+                    None,
+                );
+            }
+            SansaSelector::Position { index } => {
+                current_path.push('[');
+                current_path.push_str(&index.to_string());
+                current_path.push(']');
+                current = get_or_create_sansa_child_binding(
+                    current,
+                    current_path.clone(),
+                    None,
+                    Some(index),
+                );
+            }
+            SansaSelector::AttributeSpace => {
+                current_path.push_str(".@");
+                current = get_or_create_sansa_attribute_space(current, current_path.clone());
+            }
+            _ => return,
+        }
+    }
+    current.semantic_type = info.datatype.clone();
+    current.datatype = info.datatype.clone();
+    current.representation_kind = Some(info.value_type.clone());
+    current.kind = Some(info.value_type.clone());
+    current.value_type = Some(info.value_type.clone());
+}
+
+fn get_or_create_sansa_child_binding(
+    parent: &mut SansaResolveBinding,
+    path: String,
+    name: Option<String>,
+    index: Option<usize>,
+) -> &mut SansaResolveBinding {
+    if let Some(existing_index) = parent.children.iter().position(|child| {
+        if let Some(name) = name.as_deref() {
+            child.name.as_deref() == Some(name)
+        } else {
+            child.index == index
+        }
+    }) {
+        return &mut parent.children[existing_index];
+    }
+    parent.children.push(SansaResolveBinding {
+        address: Some(path),
+        name,
+        index,
+        children: Vec::new(),
+        ..SansaResolveBinding::default()
+    });
+    parent.children.last_mut().expect("inserted child")
+}
+
+fn get_or_create_sansa_attribute_space(
+    parent: &mut SansaResolveBinding,
+    path: String,
+) -> &mut SansaResolveBinding {
+    if parent.attribute_space.is_none() {
+        parent.attribute_space = Some(Box::new(SansaResolveBinding {
+            address: Some(path),
+            children: Vec::new(),
+            ..SansaResolveBinding::default()
+        }));
+    }
+    parent
+        .attribute_space
+        .as_deref_mut()
+        .expect("attribute space exists")
+}
+
+fn format_member_selector(name: &str) -> String {
+    if is_identifier(name) {
+        format!(".{name}")
+    } else {
+        format!(".[\"{}\"]", escape_quoted_key(name))
+    }
 }
 
 fn resolve_terminal_reference_event(
@@ -3691,10 +3714,12 @@ mod tests {
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert!(!envelope.ok);
-        assert!(envelope
-            .errors
-            .iter()
-            .any(|error| error.code == "invalid_schema_policy"));
+        assert!(
+            envelope
+                .errors
+                .iter()
+                .any(|error| error.code == "invalid_schema_policy")
+        );
     }
 
     #[test]

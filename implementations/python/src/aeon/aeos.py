@@ -4,6 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
+from .sansa import parse_address as parse_sansa_address, resolve_address as resolve_sansa_address
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -341,7 +342,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     check_string_form(selected_rule_index, effective_events_by_path, ctx)
     check_patterns(selected_rule_index, effective_events_by_path, ctx)
     check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
-    check_world_policy(schema, aes, bound_paths, ctx)
+    check_world_policy(schema, aes, bound_paths, events_by_path, ctx)
 
     if ctx.errors:
         return {
@@ -1025,7 +1026,13 @@ def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rule
     return merged
 
 
-def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
+def check_world_policy(
+    schema: dict[str, object],
+    aes: list[dict[str, object]],
+    bound_paths: set[str],
+    events_by_path: dict[str, dict[str, object]],
+    ctx: DiagContext,
+) -> None:
     if str(schema.get("world", "open")) != "closed":
         return
 
@@ -1050,13 +1057,20 @@ def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], 
         }
     )
 
+    selector_matches: dict[str, set[str] | None] = {}
+    for kind, allowed_path in allowed_rules:
+        if kind == "selector" and allowed_path not in selector_matches:
+            selector_matches[allowed_path] = resolve_sansa_selector_path_set(allowed_path, events_by_path, ctx)
+
     for event in aes:
         key = event.get("key")
         if isinstance(key, str) and key.startswith("aeon:"):
             continue
         path = format_canonical_path(event.get("path"))
-        if path not in bound_paths or any(
-            matches_selector_path(path, allowed_path) if kind == "selector" else matches_allowed_path(path, allowed_path)
+        if path not in bound_paths:
+            continue
+        if any(
+            path in (selector_matches.get(allowed_path) or set()) if kind == "selector" else matches_allowed_path(path, allowed_path)
             for kind, allowed_path in allowed_rules
         ):
             continue
@@ -1148,10 +1162,11 @@ def expand_selector_rules(
             continue
         if isinstance(path, str) and path:
             continue
+        resolved_paths = resolve_sansa_selector_path_set(selector, events, ctx)
+        if resolved_paths is None:
+            continue
         matched = False
-        for actual_path in events:
-            if not matches_selector_path(actual_path, selector):
-                continue
+        for actual_path in resolved_paths:
             matched = True
             expansion_budget["count"] = expansion_budget.get("count", 0) + 1
             if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
@@ -1162,6 +1177,120 @@ def expand_selector_rules(
         if not matched and isinstance(constraints, dict) and constraints.get("required") is True:
             emit_error(ctx, create_diag(selector, None, f"Missing required field: {selector}", ERROR_CODES["missing_required_field"]))
     return expanded
+
+
+def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext) -> set[str] | None:
+    result = resolve_sansa_address(selector, create_aeos_sansa_resolve_namespace(events))
+    if not result.get("ok"):
+        errors = result.get("errors")
+        first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
+        message = first.get("message") if isinstance(first, dict) else None
+        detail = f"Invalid or unsupported SANSA selector: {message}" if isinstance(message, str) else f"Invalid or unsupported SANSA selector: {selector}"
+        emit_error(ctx, create_diag(selector, None, detail, ERROR_CODES["invalid_schema_policy"]))
+        return None
+    bindings = result.get("bindings")
+    if not isinstance(bindings, list):
+        return set()
+    return {
+        path
+        for binding in bindings
+        if isinstance(binding, dict)
+        for path in [binding.get("path") or binding.get("address")]
+        if isinstance(path, str) and path in events
+    }
+
+
+def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]]) -> dict[str, object]:
+    return {
+        "root": build_aeos_sansa_resolve_tree(events),
+        "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
+        "member": lambda binding, name: next(
+            (
+                child
+                for child in (binding.get("children", []) if isinstance(binding, dict) else [])
+                if isinstance(child, dict) and child.get("name") == name
+            ),
+            None,
+        ),
+        "position": lambda binding, index: next(
+            (
+                child
+                for child in (binding.get("children", []) if isinstance(binding, dict) else [])
+                if isinstance(child, dict) and child.get("index") == index
+            ),
+            None,
+        ),
+        "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
+        "name": lambda binding: binding.get("name") if isinstance(binding, dict) else None,
+        "index": lambda binding: binding.get("index") if isinstance(binding, dict) else None,
+        "semanticType": lambda binding: (binding.get("info") or {}).get("datatype") if isinstance(binding, dict) else None,
+        "representationKind": lambda binding: (binding.get("info") or {}).get("type") if isinstance(binding, dict) else None,
+    }
+
+
+def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]]) -> dict[str, object]:
+    root: dict[str, object] = {"path": "$", "children": []}
+    for path, info in sorted(events.items(), key=lambda item: len(item[0])):
+        insert_aeos_sansa_resolve_path(root, path, info)
+    return root
+
+
+def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object]) -> None:
+    parsed = parse_sansa_address(path)
+    if not parsed.get("ok"):
+        return
+    address = parsed.get("address")
+    if not isinstance(address, dict) or not isinstance(address.get("root"), dict) or address["root"].get("kind") != "absolute":
+        return
+
+    current = root
+    current_path = "$"
+    selectors = address.get("selectors")
+    if not isinstance(selectors, list):
+        selectors = []
+    for selector in selectors:
+        if not isinstance(selector, dict):
+            return
+        selector_type = selector.get("type")
+        if selector_type == "member":
+            name = str(selector.get("name", ""))
+            current_path += format_sansa_member_selector(name)
+            current = get_or_create_sansa_child_binding(current, current_path, {"name": name})
+        elif selector_type == "position":
+            index = int(selector.get("index", 0))
+            current_path += f"[{index}]"
+            current = get_or_create_sansa_child_binding(current, current_path, {"index": index})
+        elif selector_type == "attributeSpace":
+            current_path += ".@"
+            attribute_space = current.get("attributeSpace")
+            if not isinstance(attribute_space, dict):
+                attribute_space = {"path": current_path, "children": []}
+                current["attributeSpace"] = attribute_space
+            current = attribute_space
+        else:
+            return
+    current["info"] = info
+
+
+def get_or_create_sansa_child_binding(parent: dict[str, object], path: str, identity: dict[str, object]) -> dict[str, object]:
+    children = parent.get("children")
+    if not isinstance(children, list):
+        children = []
+        parent["children"] = children
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        if "name" in identity and child.get("name") == identity["name"]:
+            return child
+        if "index" in identity and child.get("index") == identity["index"]:
+            return child
+    child = {"path": path, "children": [], **identity}
+    children.append(child)
+    return child
+
+
+def format_sansa_member_selector(name: str) -> str:
+    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name)}]"
 
 def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
     selected = dict(rule_index)
@@ -1236,107 +1365,6 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
 
 def matches_allowed_path(actual_path: str, allowed_path: str) -> bool:
     return actual_path == allowed_path
-
-
-def tokenize_canonical_like_path(path: str) -> list[str] | None:
-    if not path.startswith("$"):
-        return None
-    segments: list[str] = []
-    index = 1
-    while index < len(path):
-        marker = path[index]
-        if marker == ".":
-            index += 1
-            if index < len(path) and path[index] == "@":
-                index += 1
-                segments.append("@")
-                continue
-            if index < len(path) and path[index] == "[":
-                end = find_bracket_end(path, index)
-                if end < 0:
-                    return None
-                segments.append(path[index : end + 1])
-                index = end + 1
-                continue
-            start = index
-            while index < len(path) and path[index] not in {".", "[", "@"}:
-                index += 1
-            if start == index:
-                return None
-            segments.append(path[start:index])
-            continue
-        if marker == "[":
-            end = find_bracket_end(path, index)
-            if end < 0:
-                return None
-            segments.append(path[index : end + 1])
-            index = end + 1
-            continue
-        if marker == "@":
-            index += 1
-            if index < len(path) and path[index] == "[":
-                end = find_bracket_end(path, index)
-                if end < 0:
-                    return None
-                segments.append(f"@{path[index : end + 1]}")
-                index = end + 1
-                continue
-            start = index
-            while index < len(path) and path[index] not in {".", "[", "@"}:
-                index += 1
-            if start == index:
-                return None
-            segments.append(f"@{path[start:index]}")
-            continue
-        return None
-    return segments
-
-
-def find_bracket_end(path: str, start: int) -> int:
-    quote: str | None = None
-    escaped = False
-    for index in range(start + 1, len(path)):
-        ch = path[index]
-        if escaped:
-            escaped = False
-            continue
-        if quote is not None:
-            if ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {'"', "'"}:
-            quote = ch
-            continue
-        if ch == "]":
-            return index
-    return -1
-
-
-def matches_selector_path(actual_path: str, selector: str) -> bool:
-    if actual_path == selector:
-        return True
-    actual_segments = tokenize_canonical_like_path(actual_path)
-    selector_segments = tokenize_canonical_like_path(selector)
-    if actual_segments is None or selector_segments is None:
-        return False
-
-    def match_from(actual_index: int, selector_index: int) -> bool:
-        if selector_index == len(selector_segments):
-            return actual_index == len(actual_segments)
-        selector_segment = selector_segments[selector_index]
-        if selector_segment == "**":
-            if selector_index == len(selector_segments) - 1:
-                return True
-            return any(match_from(next_actual, selector_index + 1) for next_actual in range(actual_index, len(actual_segments) + 1))
-        if actual_index >= len(actual_segments):
-            return False
-        if selector_segment == "*":
-            return match_from(actual_index + 1, selector_index + 1)
-        return selector_segment == actual_segments[actual_index] and match_from(actual_index + 1, selector_index + 1)
-
-    return match_from(0, 0)
 
 
 def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str], remaining_steps: int, state: dict[str, bool]) -> dict[str, object] | None:
