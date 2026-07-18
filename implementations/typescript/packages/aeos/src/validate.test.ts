@@ -1057,6 +1057,32 @@ describe('validate()', () => {
             assert.ok(result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD && error.path === '$.*.contact'));
         });
 
+        it('reports unsupported SANSA local-space selectors as schema policy errors', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'profile' }] },
+                    key: 'profile',
+                    value: { type: 'ObjectNode', bindings: [], attributes: [], span: [1, 2] },
+                    span: [1, 2],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { selector: '$.profile.<"external">', constraints: { required: true, type: 'ObjectNode' } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) =>
+                error.code === ErrorCodes.INVALID_SCHEMA_POLICY
+                && error.path === '$.profile.<"external">'
+                && error.message.includes('local address space')
+            ));
+            assert.ok(!result.errors.some((error) => error.code === ErrorCodes.MISSING_REQUIRED_FIELD));
+        });
+
         it('uses selector rules for closed-world allowance', () => {
             const aes: AES = [
                 {

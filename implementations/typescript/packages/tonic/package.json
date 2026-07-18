@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@altopelago/aeon-aes": "workspace:*",
-    "@altopelago/aeon-annotation-stream": "workspace:*"
+    "@altopelago/aeon-annotation-stream": "workspace:*",
+    "@altopelago/sansa": "file:../../../../../sansa"
   }
 }

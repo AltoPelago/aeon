@@ -208,6 +208,9 @@ importers:
       '@altopelago/aeon-annotation-stream':
         specifier: workspace:*
         version: link:../annotation-stream
+      '@altopelago/sansa':
+        specifier: file:../../../../../sansa
+        version: file:../../../sansa
 
   packages/transport: {}
 

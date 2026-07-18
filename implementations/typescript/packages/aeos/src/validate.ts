@@ -20,8 +20,8 @@ import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 import {
     parseAddress,
-    type SansaAddress,
-    type SansaSelector,
+    resolveAddress,
+    type SansaResolveNamespace,
 } from '@altopelago/sansa';
 
 const TYPE_ALIASES: Record<string, readonly string[]> = {
@@ -67,6 +67,15 @@ type EventInfo = {
     span: [number, number] | null;
     attributes?: ReadonlyMap<string, AttributeInfo>;
     referencePath?: readonly (string | number | { readonly type: 'attr'; readonly key: string })[];
+};
+
+type AeosSansaResolveBinding = {
+    path: string;
+    name?: string;
+    index?: number;
+    info?: EventInfo;
+    children: AeosSansaResolveBinding[];
+    attributeSpace?: AeosSansaResolveBinding;
 };
 
 function formatQuotedMemberSegment(key: unknown): string {
@@ -661,13 +670,18 @@ function checkWorldPolicy(
                 ? { kind: 'selector' as const, value: rule.selector }
                 : null)
         .filter((rule): rule is { kind: 'path' | 'selector'; value: string } => rule !== null);
+    const selectorMatches = new Map<string, ReadonlySet<string> | null>();
+    for (const rule of allowedRules) {
+        if (rule.kind !== 'selector' || selectorMatches.has(rule.value)) continue;
+        selectorMatches.set(rule.value, resolveSansaSelectorPathSet(rule.value, eventsByPath, ctx));
+    }
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
         if (key.startsWith('aeon:')) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
         if (allowedRules.some((rule) => rule.kind === 'selector'
-            ? matchesSansaSelectorPath(path, rule.value, eventsByPath) === true
+            ? selectorMatches.get(rule.value)?.has(path) === true
             : matchesAllowedPath(path, rule.value))) continue;
         emitError(ctx, createDiag(
             path,
@@ -718,9 +732,10 @@ function expandSelectorRules(
     for (const rule of schema.rules) {
         if (typeof rule.selector !== 'string' || rule.selector.length === 0) continue;
         if (typeof rule.path === 'string' && rule.path.length > 0) continue;
+        const resolvedPaths = resolveSansaSelectorPathSet(rule.selector, eventsByPath, ctx);
+        if (resolvedPaths === null) continue;
         let matched = false;
-        for (const actualPath of eventsByPath.keys()) {
-            if (matchesSansaSelectorPath(actualPath, rule.selector, eventsByPath) !== true) continue;
+        for (const actualPath of resolvedPaths) {
             matched = true;
             expansionBudget.count += 1;
             if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
@@ -880,169 +895,94 @@ function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
     return actualPath === allowedPath;
 }
 
-type SansaPathSegment = string | number | { readonly type: 'attributeSpace' };
-
-function matchesSansaSelectorPath(
-    actualPath: string,
+function resolveSansaSelectorPathSet(
     selector: string,
     eventsByPath: ReadonlyMap<string, EventInfo>,
-): boolean | null {
-    const selectorResult = parseAddress(selector);
-    if (!selectorResult.ok) return null;
-    const actualResult = parseAddress(actualPath);
-    if (!actualResult.ok) return null;
-
-    const selectorAddress = selectorResult.address;
-    const actualAddress = actualResult.address;
-    if (selectorAddress.root.kind !== 'absolute' || actualAddress.root.kind !== 'absolute') return false;
-
-    const actualSegments = exactSansaPathSegments(actualAddress);
-    if (!actualSegments) return false;
-
-    return matchSansaSelectorFrom(
-        selectorAddress.selectors,
-        actualSegments,
-        0,
-        0,
-        eventsByPath,
-    );
-}
-
-function exactSansaPathSegments(address: SansaAddress): readonly SansaPathSegment[] | null {
-    const segments: SansaPathSegment[] = [];
-    for (const selector of address.selectors) {
-        if (selector.type === 'member') {
-            segments.push(selector.name);
-            continue;
-        }
-        if (selector.type === 'position') {
-            segments.push(selector.index);
-            continue;
-        }
-        if (selector.type === 'attributeSpace') {
-            segments.push({ type: 'attributeSpace' });
-            continue;
-        }
+    ctx: ReturnType<typeof createDiagContext>,
+): ReadonlySet<string> | null {
+    const result = resolveAddress(selector, createAeosSansaResolveNamespace(eventsByPath));
+    if (!result.ok) {
+        const first = result.errors[0];
+        emitError(ctx, createDiag(
+            selector,
+            null,
+            first ? `Invalid or unsupported SANSA selector: ${first.message}` : `Invalid or unsupported SANSA selector: ${selector}`,
+            ErrorCodes.INVALID_SCHEMA_POLICY,
+        ));
         return null;
     }
-    return segments;
+
+    return new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
 }
 
-function matchSansaSelectorFrom(
-    selectors: readonly SansaSelector[],
-    actualSegments: readonly SansaPathSegment[],
-    selectorIndex: number,
-    actualIndex: number,
+function createAeosSansaResolveNamespace(
     eventsByPath: ReadonlyMap<string, EventInfo>,
-): boolean {
-    if (selectorIndex === selectors.length) {
-        return actualIndex === actualSegments.length;
+): SansaResolveNamespace<AeosSansaResolveBinding> {
+    const root = buildAeosSansaResolveTree(eventsByPath);
+    return {
+        root,
+        children: (binding) => binding.children,
+        member: (binding, name) => binding.children.find((child) => child.name === name),
+        position: (binding, index) => binding.children.find((child) => child.index === index),
+        attributeSpace: (binding) => binding.attributeSpace,
+        name: (binding) => binding.name,
+        index: (binding) => binding.index,
+        semanticType: (binding) => binding.info?.datatype,
+        representationKind: (binding) => binding.info?.type,
+    };
+}
+
+function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>): AeosSansaResolveBinding {
+    const root: AeosSansaResolveBinding = { path: '$', children: [] };
+    for (const [path, info] of [...eventsByPath.entries()].sort((a, b) => a[0].length - b[0].length)) {
+        insertAeosSansaResolvePath(root, path, info);
     }
-
-    const selector = selectors[selectorIndex]!;
-    switch (selector.type) {
-        case 'member':
-            return actualSegments[actualIndex] === selector.name
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
-        case 'position':
-            return actualSegments[actualIndex] === selector.index
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
-        case 'directExpansion':
-            return actualIndex < actualSegments.length
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
-        case 'descendantExpansion':
-            for (let nextActual = actualIndex + 1; nextActual <= actualSegments.length; nextActual += 1) {
-                if (matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, nextActual, eventsByPath)) {
-                    return true;
-                }
-            }
-            return false;
-        case 'namePattern':
-            return typeof actualSegments[actualIndex] === 'string'
-                && globPatternToRegExp(selector.pattern).test(actualSegments[actualIndex] as string)
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
-        case 'semanticTypeFilter':
-            return matchesSansaSemanticType(actualSegments.slice(0, actualIndex), selector.name, eventsByPath)
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex, eventsByPath);
-        case 'representationKindFilter':
-            return matchesSansaRepresentationKind(actualSegments.slice(0, actualIndex), selector.name, eventsByPath)
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex, eventsByPath);
-        case 'attributeSpace': {
-            const actualSegment = actualSegments[actualIndex];
-            return typeof actualSegment === 'object'
-                && actualSegment.type === 'attributeSpace'
-                && matchSansaSelectorFrom(selectors, actualSegments, selectorIndex + 1, actualIndex + 1, eventsByPath);
-        }
-        case 'localSpace':
-            return false;
-        default: {
-            const exhaustive: never = selector;
-            return exhaustive;
-        }
-    }
+    return root;
 }
 
-function matchesSansaSemanticType(
-    pathSegments: readonly SansaPathSegment[],
-    expected: string,
-    eventsByPath: ReadonlyMap<string, EventInfo>,
-): boolean {
-    const datatype = eventsByPath.get(formatSansaPathSegments(pathSegments))?.datatype;
-    return datatype === expected || (datatype !== undefined && datatypeBaseName(datatype) === expected);
-}
+function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string, info: EventInfo): void {
+    const parsed = parseAddress(path);
+    if (!parsed.ok) return;
+    if (parsed.address.root.kind !== 'absolute') return;
 
-function matchesSansaRepresentationKind(
-    pathSegments: readonly SansaPathSegment[],
-    expected: string,
-    eventsByPath: ReadonlyMap<string, EventInfo>,
-): boolean {
-    const type = eventsByPath.get(formatSansaPathSegments(pathSegments))?.type;
-    return type !== undefined && lowerFirst(type) === expected;
-}
-
-function formatSansaPathSegments(segments: readonly SansaPathSegment[]): string {
-    let out = '$';
-    for (const segment of segments) {
-        if (typeof segment === 'number') {
-            out += `[${segment}]`;
-            continue;
-        }
-        if (typeof segment === 'string') {
-            out += formatMemberSelector(segment);
-            continue;
-        }
-        out += '.@';
-    }
-    return out;
-}
-
-function datatypeBaseName(datatype: string): string {
-    const genericCut = datatype.indexOf('<');
-    const argumentCut = datatype.indexOf('[');
-    const cut = [genericCut, argumentCut].filter((index) => index >= 0).sort((a, b) => a - b)[0];
-    return (cut === undefined ? datatype : datatype.slice(0, cut)).trim();
-}
-
-function lowerFirst(value: string): string {
-    return `${value.charAt(0).toLowerCase()}${value.slice(1)}`;
-}
-
-function globPatternToRegExp(pattern: string): RegExp {
-    let source = '^';
-    for (const char of pattern) {
-        if (char === '*') {
-            source += '.*';
-        } else if (char === '?') {
-            source += '.';
-        } else {
-            source += escapeRegExp(char);
+    let current = root;
+    let currentPath = '$';
+    for (const selector of parsed.address.selectors) {
+        switch (selector.type) {
+            case 'member':
+                currentPath += formatMemberSelector(selector.name);
+                current = getOrCreateChildBinding(current, currentPath, { name: selector.name });
+                break;
+            case 'position':
+                currentPath += `[${selector.index}]`;
+                current = getOrCreateChildBinding(current, currentPath, { index: selector.index });
+                break;
+            case 'attributeSpace':
+                currentPath += '.@';
+                current.attributeSpace ??= { path: currentPath, children: [] };
+                current = current.attributeSpace;
+                break;
+            default:
+                return;
         }
     }
-    return new RegExp(`${source}$`, 'u');
+    current.info = info;
 }
 
-function escapeRegExp(value: string): string {
-    return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+function getOrCreateChildBinding(
+    parent: AeosSansaResolveBinding,
+    path: string,
+    identity: { readonly name?: string; readonly index?: number },
+): AeosSansaResolveBinding {
+    const existing = parent.children.find((child) =>
+        identity.name !== undefined
+            ? child.name === identity.name
+            : child.index === identity.index
+    );
+    if (existing) return existing;
+    const child: AeosSansaResolveBinding = { path, children: [], ...identity };
+    parent.children.push(child);
+    return child;
 }
 
 function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {
