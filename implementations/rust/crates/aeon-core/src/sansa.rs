@@ -62,6 +62,64 @@ impl SansaParseError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SansaResolveBinding {
+    pub address: Option<String>,
+    pub name: Option<String>,
+    pub key: Option<String>,
+    pub index: Option<usize>,
+    pub semantic_type: Option<String>,
+    pub datatype: Option<String>,
+    pub representation_kind: Option<String>,
+    pub kind: Option<String>,
+    pub value_type: Option<String>,
+    pub children: Vec<SansaResolveBinding>,
+    pub attribute_space: Option<Box<SansaResolveBinding>>,
+    pub attributes: Option<Box<SansaResolveBinding>>,
+    pub local_spaces: Vec<(String, SansaResolveBinding)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SansaResolveNamespace {
+    pub root: SansaResolveBinding,
+    pub contextual_root: Option<SansaResolveBinding>,
+    pub supports_attribute_space: bool,
+    pub supports_local_space: bool,
+}
+
+impl SansaResolveNamespace {
+    #[must_use]
+    pub fn new(root: SansaResolveBinding) -> Self {
+        Self {
+            root,
+            contextual_root: None,
+            supports_attribute_space: true,
+            supports_local_space: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SansaResolveOptions {
+    pub contextual_root: Option<SansaResolveBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SansaResolveDiagnostic {
+    pub code: String,
+    pub message: String,
+    pub index: Option<usize>,
+    pub selector_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SansaResolveOutput {
+    pub ok: bool,
+    pub bindings: Vec<SansaResolveBinding>,
+    pub errors: Vec<SansaResolveDiagnostic>,
+    pub diagnostics: Vec<SansaResolveDiagnostic>,
+}
+
 #[must_use]
 pub fn render_address(address: &SansaAddress) -> String {
     let mut output = match address.root {
@@ -159,6 +217,298 @@ pub fn render_qualifier_argument(argument: &QualifierArgument) -> String {
 
 pub fn parse_address(input: &str) -> Result<SansaAddress, SansaParseError> {
     AddressParser::new(input).parse()
+}
+
+#[must_use]
+pub fn resolve_address(
+    input: &str,
+    namespace: &SansaResolveNamespace,
+    options: &SansaResolveOptions,
+) -> SansaResolveOutput {
+    match parse_address(input) {
+        Ok(address) => resolve_parsed_address(&address, namespace, options),
+        Err(error) => SansaResolveOutput {
+            ok: false,
+            bindings: Vec::new(),
+            errors: vec![SansaResolveDiagnostic {
+                code: error.code,
+                message: error.message,
+                index: Some(error.index),
+                selector_index: None,
+            }],
+            diagnostics: Vec::new(),
+        },
+    }
+}
+
+#[must_use]
+pub fn resolve_parsed_address(
+    address: &SansaAddress,
+    namespace: &SansaResolveNamespace,
+    options: &SansaResolveOptions,
+) -> SansaResolveOutput {
+    let Some(root) = resolve_root(&address.root, namespace, options) else {
+        return SansaResolveOutput {
+            ok: false,
+            bindings: Vec::new(),
+            errors: vec![resolve_error(
+                "SANSA_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT",
+                "Contextual root requires a contextualRoot binding",
+                None,
+            )],
+            diagnostics: Vec::new(),
+        };
+    };
+
+    let mut current = vec![root];
+    for (selector_index, selector) in address.selectors.iter().enumerate() {
+        match apply_resolve_selector(selector, &current, namespace, selector_index) {
+            Ok(selected) => {
+                current = selected;
+                if current.is_empty() {
+                    break;
+                }
+            }
+            Err(error) => {
+                return SansaResolveOutput {
+                    ok: false,
+                    bindings: Vec::new(),
+                    errors: vec![error],
+                    diagnostics: Vec::new(),
+                };
+            }
+        }
+    }
+
+    SansaResolveOutput {
+        ok: true,
+        bindings: current,
+        errors: Vec::new(),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn resolve_root(
+    root: &SansaRoot,
+    namespace: &SansaResolveNamespace,
+    options: &SansaResolveOptions,
+) -> Option<SansaResolveBinding> {
+    match root {
+        SansaRoot::Absolute => Some(namespace.root.clone()),
+        SansaRoot::Contextual => options
+            .contextual_root
+            .clone()
+            .or_else(|| namespace.contextual_root.clone()),
+    }
+}
+
+fn apply_resolve_selector(
+    selector: &SansaSelector,
+    bindings: &[SansaResolveBinding],
+    namespace: &SansaResolveNamespace,
+    selector_index: usize,
+) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
+    match selector {
+        SansaSelector::Member { name, .. } => Ok(bindings
+            .iter()
+            .flat_map(|binding| select_member(binding, name))
+            .collect()),
+        SansaSelector::Position { index } => Ok(bindings
+            .iter()
+            .flat_map(|binding| select_position(binding, *index))
+            .collect()),
+        SansaSelector::DirectExpansion => Ok(bindings
+            .iter()
+            .flat_map(|binding| binding.children.clone())
+            .collect()),
+        SansaSelector::DescendantExpansion => {
+            Ok(bindings.iter().flat_map(get_descendants).collect())
+        }
+        SansaSelector::NamePattern { pattern } => Ok(bindings
+            .iter()
+            .flat_map(|binding| {
+                binding
+                    .children
+                    .iter()
+                    .filter(|child| {
+                        child
+                            .name
+                            .as_deref()
+                            .or(child.key.as_deref())
+                            .is_some_and(|name| glob_matches(pattern, name))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect()),
+        SansaSelector::SemanticTypeFilter { name } => Ok(bindings
+            .iter()
+            .filter(|binding| matches_semantic_type(binding, name))
+            .cloned()
+            .collect()),
+        SansaSelector::RepresentationKindFilter { name } => Ok(bindings
+            .iter()
+            .filter(|binding| matches_representation_kind(binding, name))
+            .cloned()
+            .collect()),
+        SansaSelector::AttributeSpace => {
+            select_attribute_spaces(bindings, namespace, selector_index)
+        }
+        SansaSelector::LocalSpace { name } => {
+            select_local_spaces(bindings, namespace, name, selector_index)
+        }
+    }
+}
+
+fn select_member(binding: &SansaResolveBinding, name: &str) -> Vec<SansaResolveBinding> {
+    binding
+        .children
+        .iter()
+        .filter(|child| child.name.as_deref().or(child.key.as_deref()) == Some(name))
+        .cloned()
+        .collect()
+}
+
+fn select_position(binding: &SansaResolveBinding, index: usize) -> Vec<SansaResolveBinding> {
+    if let Some(indexed) = binding
+        .children
+        .iter()
+        .find(|child| child.index == Some(index))
+        .cloned()
+    {
+        return vec![indexed];
+    }
+    binding.children.get(index).cloned().into_iter().collect()
+}
+
+fn get_descendants(binding: &SansaResolveBinding) -> Vec<SansaResolveBinding> {
+    let mut output = Vec::new();
+    for child in &binding.children {
+        output.push(child.clone());
+        output.extend(get_descendants(child));
+    }
+    output
+}
+
+fn select_attribute_spaces(
+    bindings: &[SansaResolveBinding],
+    namespace: &SansaResolveNamespace,
+    selector_index: usize,
+) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
+    if !namespace.supports_attribute_space && !bindings.is_empty() {
+        return Err(resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE",
+            "The namespace does not expose attribute address-space traversal",
+            Some(selector_index),
+        ));
+    }
+    Ok(bindings
+        .iter()
+        .filter_map(|binding| {
+            binding
+                .attribute_space
+                .as_deref()
+                .or(binding.attributes.as_deref())
+                .cloned()
+        })
+        .collect())
+}
+
+fn select_local_spaces(
+    bindings: &[SansaResolveBinding],
+    namespace: &SansaResolveNamespace,
+    name: &str,
+    selector_index: usize,
+) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
+    if !namespace.supports_local_space {
+        return Err(resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_LOCAL_SPACE",
+            format!("The namespace does not expose local address space '{name}'"),
+            Some(selector_index),
+        ));
+    }
+    Ok(bindings
+        .iter()
+        .filter_map(|binding| {
+            binding
+                .local_spaces
+                .iter()
+                .find(|(local_name, _)| local_name == name)
+                .map(|(_, local_space)| local_space.clone())
+        })
+        .collect())
+}
+
+fn matches_semantic_type(binding: &SansaResolveBinding, expected: &str) -> bool {
+    let actual = binding
+        .semantic_type
+        .as_deref()
+        .or(binding.datatype.as_deref());
+    actual.is_some_and(|actual| actual == expected || datatype_base_name(actual) == expected)
+}
+
+fn matches_representation_kind(binding: &SansaResolveBinding, expected: &str) -> bool {
+    let actual = binding
+        .representation_kind
+        .as_deref()
+        .or(binding.kind.as_deref())
+        .or(binding.value_type.as_deref());
+    actual.is_some_and(|actual| lower_first(actual) == expected)
+}
+
+fn resolve_error(
+    code: impl Into<String>,
+    message: impl Into<String>,
+    selector_index: Option<usize>,
+) -> SansaResolveDiagnostic {
+    SansaResolveDiagnostic {
+        code: code.into(),
+        message: message.into(),
+        index: None,
+        selector_index,
+    }
+}
+
+fn datatype_base_name(datatype: &str) -> &str {
+    let cut = [datatype.find('<'), datatype.find('[')]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(datatype.len());
+    datatype[..cut].trim()
+}
+
+fn lower_first(value: &str) -> String {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    first.to_lowercase().chain(chars).collect()
+}
+
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    let pattern_chars: Vec<char> = pattern.chars().collect();
+    let name_chars: Vec<char> = name.chars().collect();
+    let mut dp = vec![vec![false; name_chars.len() + 1]; pattern_chars.len() + 1];
+    dp[0][0] = true;
+
+    for p in 1..=pattern_chars.len() {
+        if pattern_chars[p - 1] == '*' {
+            dp[p][0] = dp[p - 1][0];
+        }
+    }
+
+    for p in 1..=pattern_chars.len() {
+        for n in 1..=name_chars.len() {
+            dp[p][n] = match pattern_chars[p - 1] {
+                '*' => dp[p - 1][n] || dp[p][n - 1],
+                '?' => dp[p - 1][n - 1],
+                char => dp[p - 1][n - 1] && char == name_chars[n - 1],
+            };
+        }
+    }
+
+    dp[pattern_chars.len()][name_chars.len()]
 }
 
 struct AddressParser<'a> {
@@ -663,7 +1013,10 @@ fn quote_payload(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_address;
+    use super::{
+        SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions, parse_address,
+        resolve_address,
+    };
 
     #[test]
     fn parses_absolute_and_contextual_addresses() {
@@ -699,5 +1052,343 @@ mod tests {
                 .canonical,
             "$.path:tuple<x><y>"
         );
+    }
+
+    #[test]
+    fn resolves_exact_paths_and_no_match_cases() {
+        let namespace = fixture_namespace();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[1].sku",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[1].sku"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[2].sku",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn resolves_expansions_name_patterns_and_filters() {
+        let namespace = fixture_namespace();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items.*",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0]", "$.inventory.items[1]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.**.sku",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0].sku", "$.inventory.items[1].sku"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.(\"item??\")",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.itemA1", "$.inventory.itemB2"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.reading#measurement",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.reading"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items.*.sku%string",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0].sku", "$.inventory.items[1].sku"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items.*.qty#string",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn resolves_attribute_space_and_contextual_roots() {
+        let namespace = fixture_namespace();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.contact.status.@.role",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.contact.status.@.role"]
+        );
+
+        let item0 = namespace.root.children[0].children[0].children[0].clone();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "?.sku",
+                &namespace,
+                &SansaResolveOptions {
+                    contextual_root: Some(item0)
+                }
+            )),
+            vec!["$.inventory.items[0].sku"]
+        );
+    }
+
+    #[test]
+    fn reports_contextual_local_and_parse_errors() {
+        let namespace = fixture_namespace();
+        let missing_context = resolve_address("?.sku", &namespace, &SansaResolveOptions::default());
+        assert!(!missing_context.ok);
+        assert_eq!(
+            missing_context.errors[0].code,
+            "SANSA_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT"
+        );
+
+        let local = resolve_address(
+            "$.inventory.<\"catalog\">",
+            &namespace,
+            &SansaResolveOptions::default(),
+        );
+        assert!(!local.ok);
+        assert_eq!(
+            local.errors[0].code,
+            "SANSA_RESOLVE_UNSUPPORTED_LOCAL_SPACE"
+        );
+        assert_eq!(local.errors[0].selector_index, Some(1));
+
+        let parse = resolve_address(
+            "$.inventory.items[01]",
+            &namespace,
+            &SansaResolveOptions::default(),
+        );
+        assert!(!parse.ok);
+        assert_eq!(parse.errors[0].code, "SANSA_LEADING_ZERO_INDEX");
+    }
+
+    fn resolved_addresses(output: &super::SansaResolveOutput) -> Vec<String> {
+        assert!(output.ok, "{:?}", output.errors);
+        output
+            .bindings
+            .iter()
+            .filter_map(|binding| binding.address.clone())
+            .collect()
+    }
+
+    fn fixture_namespace() -> SansaResolveNamespace {
+        SansaResolveNamespace::new(binding(
+            "$",
+            None,
+            None,
+            None,
+            Some("object"),
+            vec![
+                binding(
+                    "$.inventory",
+                    Some("inventory"),
+                    None,
+                    None,
+                    Some("object"),
+                    vec![
+                        binding(
+                            "$.inventory.items",
+                            Some("items"),
+                            None,
+                            None,
+                            Some("list"),
+                            vec![
+                                binding(
+                                    "$.inventory.items[0]",
+                                    None,
+                                    Some(0),
+                                    None,
+                                    Some("object"),
+                                    vec![
+                                        binding(
+                                            "$.inventory.items[0].sku",
+                                            Some("sku"),
+                                            None,
+                                            Some("string"),
+                                            Some("string"),
+                                            vec![],
+                                        ),
+                                        binding(
+                                            "$.inventory.items[0].qty",
+                                            Some("qty"),
+                                            None,
+                                            Some("number"),
+                                            Some("number"),
+                                            vec![],
+                                        ),
+                                    ],
+                                ),
+                                binding(
+                                    "$.inventory.items[1]",
+                                    None,
+                                    Some(1),
+                                    None,
+                                    Some("object"),
+                                    vec![
+                                        binding(
+                                            "$.inventory.items[1].sku",
+                                            Some("sku"),
+                                            None,
+                                            Some("string"),
+                                            Some("string"),
+                                            vec![],
+                                        ),
+                                        binding(
+                                            "$.inventory.items[1].qty",
+                                            Some("qty"),
+                                            None,
+                                            Some("number"),
+                                            Some("number"),
+                                            vec![],
+                                        ),
+                                        binding(
+                                            "$.inventory.items[1].status",
+                                            Some("status"),
+                                            None,
+                                            Some("boolean"),
+                                            Some("boolean"),
+                                            vec![],
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        binding(
+                            "$.inventory.itemA1",
+                            Some("itemA1"),
+                            None,
+                            Some("string"),
+                            Some("string"),
+                            vec![],
+                        ),
+                        binding(
+                            "$.inventory.itemB2",
+                            Some("itemB2"),
+                            None,
+                            Some("string"),
+                            Some("string"),
+                            vec![],
+                        ),
+                        binding(
+                            "$.inventory.archive",
+                            Some("archive"),
+                            None,
+                            None,
+                            Some("object"),
+                            vec![],
+                        ),
+                    ],
+                ),
+                with_attribute_space(
+                    binding(
+                        "$.contact",
+                        Some("contact"),
+                        None,
+                        None,
+                        Some("object"),
+                        vec![with_attribute_space(
+                            binding(
+                                "$.contact.status",
+                                Some("status"),
+                                None,
+                                Some("boolean"),
+                                Some("boolean"),
+                                vec![],
+                            ),
+                            binding(
+                                "$.contact.status.@",
+                                None,
+                                None,
+                                None,
+                                Some("object"),
+                                vec![binding(
+                                    "$.contact.status.@.role",
+                                    Some("role"),
+                                    None,
+                                    Some("string"),
+                                    Some("string"),
+                                    vec![],
+                                )],
+                            ),
+                        )],
+                    ),
+                    binding("$.contact.@", None, None, None, Some("object"), vec![]),
+                ),
+                with_attribute_space(
+                    binding(
+                        "$.reading",
+                        Some("reading"),
+                        None,
+                        Some("measurement<number>"),
+                        Some("number"),
+                        vec![],
+                    ),
+                    binding(
+                        "$.reading.@",
+                        None,
+                        None,
+                        None,
+                        Some("object"),
+                        vec![binding(
+                            "$.reading.@.unit",
+                            Some("unit"),
+                            None,
+                            Some("string"),
+                            Some("string"),
+                            vec![],
+                        )],
+                    ),
+                ),
+            ],
+        ))
+    }
+
+    fn binding(
+        address: &str,
+        name: Option<&str>,
+        index: Option<usize>,
+        semantic_type: Option<&str>,
+        representation_kind: Option<&str>,
+        children: Vec<SansaResolveBinding>,
+    ) -> SansaResolveBinding {
+        SansaResolveBinding {
+            address: Some(address.to_owned()),
+            name: name.map(str::to_owned),
+            index,
+            semantic_type: semantic_type.map(str::to_owned),
+            representation_kind: representation_kind.map(str::to_owned),
+            children,
+            ..SansaResolveBinding::default()
+        }
+    }
+
+    fn with_attribute_space(
+        mut binding: SansaResolveBinding,
+        attribute_space: SansaResolveBinding,
+    ) -> SansaResolveBinding {
+        binding.attribute_space = Some(Box::new(attribute_space));
+        binding
     }
 }

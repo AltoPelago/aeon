@@ -19,7 +19,10 @@ use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SansaAddress, SansaParseError,
-    SansaRoot, SansaSelector, parse_address as parse_sansa_address,
+    SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace, SansaResolveOptions,
+    SansaResolveOutput, SansaRoot, SansaSelector, parse_address as parse_sansa_address,
+    resolve_address as resolve_sansa_address,
+    resolve_parsed_address as resolve_parsed_sansa_address,
 };
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,

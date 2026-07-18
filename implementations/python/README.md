@@ -173,6 +173,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ```bash
 node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/core/v1/core-cts.v1.json" --lane core
 node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.json" --lane aes
+python3.12 tools/run_sansa_resolve_cts.py --cts "$AEONITE_CTS_ROOT/sansa/v1/sansa-resolve-cts.v1.json"
 node ../typescript/tools/annotation-cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/annotations/v1/annotation-stream-cts.v1.json"
 node ../typescript/tools/cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aeos/v1/aeos-validator-cts.v1.json"
 ```
@@ -197,7 +198,7 @@ Run a subset:
 
 ```bash
 cd implementations/python
-python3 tools/run_cts.py core aes
+python3 tools/run_cts.py core aes sansa-resolve
 ```
 
 ## Cross-Implementation Diff

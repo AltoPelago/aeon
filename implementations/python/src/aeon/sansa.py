@@ -40,6 +40,51 @@ def parse_address_or_throw(input: str, options: dict[str, object] | None = None)
     raise SansaParseError(str(first["message"]), int(first["index"]), str(first["code"]))
 
 
+def resolve_address(
+    input: str | dict[str, object],
+    namespace: dict[str, object],
+    options: dict[str, object] | None = None,
+) -> dict[str, object]:
+    opts = options or {}
+    parsed = parse_address(input, opts.get("parse") if isinstance(input, str) else None) if isinstance(input, str) else {"ok": True, "address": input}
+    if not parsed["ok"]:
+        return {"ok": False, "bindings": [], "errors": parsed["errors"]}
+
+    address = parsed["address"]
+    if not isinstance(address, dict):
+        return {
+            "ok": False,
+            "bindings": [],
+            "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Expected parsed SANSA address")],
+        }
+
+    root_result = resolve_root(address.get("root"), namespace, opts)
+    if not root_result["ok"]:
+        return {"ok": False, "bindings": [], "errors": [root_result["error"]]}
+
+    current = [root_result["binding"]]
+    selectors = address.get("selectors", [])
+    if not isinstance(selectors, list):
+        selectors = []
+
+    for index, selector in enumerate(selectors):
+        if not isinstance(selector, dict):
+            return {
+                "ok": False,
+                "bindings": [],
+                "errors": [resolve_error("SANSA_RESOLVE_UNSUPPORTED_SELECTOR", "Unsupported SANSA selector", index)],
+            }
+        selected = apply_resolve_selector(selector, current, namespace, index)
+        if not selected["ok"]:
+            return {"ok": False, "bindings": [], "errors": [selected["error"]]}
+        selected_bindings = selected.get("bindings", [])
+        current = selected_bindings if isinstance(selected_bindings, list) else []
+        if len(current) == 0:
+            break
+
+    return {"ok": True, "bindings": current, "diagnostics": []}
+
+
 def render_address(address: dict[str, object]) -> str:
     root = address["root"]
     output = "$" if isinstance(root, dict) and root.get("kind") == "absolute" else "?"
@@ -75,6 +120,205 @@ def render_address(address: dict[str, object]) -> str:
         output += f":{render_qualifier_expression(qualifier)}"
 
     return output
+
+
+def resolve_root(root: object, namespace: dict[str, object], options: dict[str, object]) -> dict[str, object]:
+    if not isinstance(namespace, dict):
+        return {"ok": False, "error": resolve_error("SANSA_RESOLVE_EXPECTED_NAMESPACE", "Expected SANSA resolve namespace")}
+
+    root_kind = root.get("kind") if isinstance(root, dict) else None
+    if root_kind == "contextual":
+        contextual_root = options.get("contextualRoot", namespace.get("contextualRoot"))
+        binding = contextual_root() if callable(contextual_root) else contextual_root
+        if binding:
+            return {"ok": True, "binding": binding}
+        return {
+            "ok": False,
+            "error": resolve_error(
+                "SANSA_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT",
+                "Contextual root requires a contextualRoot binding",
+            ),
+        }
+
+    root_binding = namespace.get("root")
+    binding = root_binding() if callable(root_binding) else root_binding
+    if binding:
+        return {"ok": True, "binding": binding}
+    return {
+        "ok": False,
+        "error": resolve_error("SANSA_RESOLVE_MISSING_ROOT", "SANSA resolve namespace does not expose a root binding"),
+    }
+
+
+def apply_resolve_selector(
+    selector: dict[str, object],
+    bindings: list[object],
+    namespace: dict[str, object],
+    selector_index: int,
+) -> dict[str, object]:
+    selector_type = selector.get("type")
+
+    if selector_type == "member":
+        return {"ok": True, "bindings": [child for binding in bindings for child in select_member(namespace, binding, str(selector.get("name", "")))]}
+    if selector_type == "position":
+        return {"ok": True, "bindings": [child for binding in bindings for child in select_position(namespace, binding, int(selector.get("index", 0)))]}
+    if selector_type == "directExpansion":
+        return {"ok": True, "bindings": [child for binding in bindings for child in get_children(namespace, binding)]}
+    if selector_type == "descendantExpansion":
+        return {"ok": True, "bindings": [child for binding in bindings for child in get_descendants(namespace, binding)]}
+    if selector_type == "namePattern":
+        pattern = glob_pattern_to_regex(str(selector.get("pattern", "")))
+        return {
+            "ok": True,
+            "bindings": [
+                child
+                for binding in bindings
+                for child in get_children(namespace, binding)
+                if isinstance(get_binding_name(namespace, child), str) and pattern.fullmatch(str(get_binding_name(namespace, child)))
+            ],
+        }
+    if selector_type == "semanticTypeFilter":
+        return {"ok": True, "bindings": [binding for binding in bindings if matches_semantic_type(namespace, binding, str(selector.get("name", "")))]}
+    if selector_type == "representationKindFilter":
+        return {"ok": True, "bindings": [binding for binding in bindings if matches_representation_kind(namespace, binding, str(selector.get("name", "")))]}
+    if selector_type == "attributeSpace":
+        return select_attribute_spaces(namespace, bindings, selector_index)
+    if selector_type == "localSpace":
+        return select_local_spaces(namespace, bindings, str(selector.get("name", "")), selector_index)
+
+    return {
+        "ok": False,
+        "error": resolve_error("SANSA_RESOLVE_UNSUPPORTED_SELECTOR", f"Unsupported SANSA selector type: {selector_type}", selector_index),
+    }
+
+
+def select_member(namespace: dict[str, object], binding: object, name: str) -> list[object]:
+    member = namespace.get("member")
+    if callable(member):
+        selected = member(binding, name)
+        return [selected] if selected else []
+    return [child for child in get_children(namespace, binding) if get_binding_name(namespace, child) == name]
+
+
+def select_position(namespace: dict[str, object], binding: object, index: int) -> list[object]:
+    position = namespace.get("position")
+    if callable(position):
+        selected = position(binding, index)
+        return [selected] if selected else []
+    children = get_children(namespace, binding)
+    for child in children:
+        if get_binding_index(namespace, child) == index:
+            return [child]
+    return [children[index]] if 0 <= index < len(children) else []
+
+
+def select_attribute_spaces(namespace: dict[str, object], bindings: list[object], selector_index: int) -> dict[str, object]:
+    attribute_space = namespace.get("attributeSpace")
+    if callable(attribute_space):
+        return {"ok": True, "bindings": [selected for binding in bindings if (selected := attribute_space(binding))]}
+
+    selected = [
+        space
+        for binding in bindings
+        if isinstance(binding, dict)
+        for space in [binding.get("attributeSpace") or binding.get("attributes")]
+        if space
+    ]
+    if selected or len(bindings) == 0:
+        return {"ok": True, "bindings": selected}
+    return {
+        "ok": False,
+        "error": resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE",
+            "The namespace does not expose attribute address-space traversal",
+            selector_index,
+        ),
+    }
+
+
+def select_local_spaces(namespace: dict[str, object], bindings: list[object], name: str, selector_index: int) -> dict[str, object]:
+    local_space = namespace.get("localSpace")
+    if not callable(local_space):
+        return {
+            "ok": False,
+            "error": resolve_error(
+                "SANSA_RESOLVE_UNSUPPORTED_LOCAL_SPACE",
+                f"The namespace does not expose local address space '{name}'",
+                selector_index,
+            ),
+        }
+    return {"ok": True, "bindings": [selected for binding in bindings if (selected := local_space(binding, name))]}
+
+
+def get_children(namespace: dict[str, object], binding: object) -> list[object]:
+    children = namespace.get("children")
+    if callable(children):
+        result = children(binding)
+        return list(result) if result is not None else []
+    if isinstance(binding, dict) and isinstance(binding.get("children"), list):
+        return binding["children"]  # type: ignore[return-value]
+    return []
+
+
+def get_descendants(namespace: dict[str, object], binding: object) -> list[object]:
+    output: list[object] = []
+    for child in get_children(namespace, binding):
+        output.append(child)
+        output.extend(get_descendants(namespace, child))
+    return output
+
+
+def get_binding_name(namespace: dict[str, object], binding: object) -> str | None:
+    name = namespace.get("name")
+    if callable(name):
+        value = name(binding)
+        return value if isinstance(value, str) else None
+    if isinstance(binding, dict):
+        value = binding.get("name", binding.get("key"))
+        return value if isinstance(value, str) else None
+    return None
+
+
+def get_binding_index(namespace: dict[str, object], binding: object) -> int | None:
+    index = namespace.get("index")
+    if callable(index):
+        value = index(binding)
+        return value if isinstance(value, int) else None
+    if isinstance(binding, dict):
+        value = binding.get("index")
+        return value if isinstance(value, int) else None
+    return None
+
+
+def matches_semantic_type(namespace: dict[str, object], binding: object, expected: str) -> bool:
+    matcher = namespace.get("semanticTypeMatches")
+    if callable(matcher):
+        return matcher(binding, expected) is True
+    semantic_type = namespace.get("semanticType")
+    actual = semantic_type(binding) if callable(semantic_type) else None
+    if actual is None and isinstance(binding, dict):
+        actual = binding.get("semanticType", binding.get("datatype"))
+    if actual == expected:
+        return True
+    return isinstance(actual, str) and datatype_base_name(actual) == expected
+
+
+def matches_representation_kind(namespace: dict[str, object], binding: object, expected: str) -> bool:
+    matcher = namespace.get("representationKindMatches")
+    if callable(matcher):
+        return matcher(binding, expected) is True
+    representation_kind = namespace.get("representationKind")
+    actual = representation_kind(binding) if callable(representation_kind) else None
+    if actual is None and isinstance(binding, dict):
+        actual = binding.get("representationKind", binding.get("kind", binding.get("type")))
+    return isinstance(actual, str) and lower_first(actual) == expected
+
+
+def resolve_error(code: str, message: str, selector_index: int | None = None) -> dict[str, object]:
+    error: dict[str, object] = {"code": code, "message": message}
+    if selector_index is not None:
+        error["selectorIndex"] = selector_index
+    return error
 
 
 def render_qualifier_expression(expression: object) -> str:
@@ -387,6 +631,31 @@ def is_layout(char: str) -> bool:
 
 def is_qualifier_argument_char(char: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", char or ""))
+
+
+def datatype_base_name(datatype: str) -> str:
+    cuts = [index for index in (datatype.find("<"), datatype.find("[")) if index >= 0]
+    cut = min(cuts) if cuts else len(datatype)
+    return datatype[:cut].strip()
+
+
+def lower_first(value: str) -> str:
+    if not value:
+        return value
+    return value[0].lower() + value[1:]
+
+
+def glob_pattern_to_regex(pattern: str) -> re.Pattern[str]:
+    source = "^"
+    for char in pattern:
+        if char == "*":
+            source += ".*"
+        elif char == "?":
+            source += "."
+        else:
+            source += re.escape(char)
+    source += "$"
+    return re.compile(source)
 
 
 def code_point_to_string(code_point: int, index: int) -> str:
