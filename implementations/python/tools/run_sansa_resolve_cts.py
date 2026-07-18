@@ -129,13 +129,16 @@ def build_namespaces(entries: object) -> dict[str, dict[str, object]]:
         by_address: dict[str, object] = {}
         index_binding_tree(entry["root"], by_address)
         root = entry["root"]
+        namespace = {
+            "root": root,
+            "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
+            "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
+        }
+        if entry.get("supportsLocalSpaces") is True:
+            namespace["localSpace"] = lambda binding, name: binding.get("localSpaces", {}).get(name) if isinstance(binding, dict) else None
         output[entry["id"]] = {
             "by_address": by_address,
-            "namespace": {
-                "root": root,
-                "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
-                "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
-            },
+            "namespace": namespace,
         }
 
     return output

@@ -1096,6 +1096,34 @@ mod tests {
         );
         assert_eq!(
             resolved_addresses(&resolve_address(
+                "$.inventory.**",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec![
+                "$.inventory.items",
+                "$.inventory.items[0]",
+                "$.inventory.items[0].sku",
+                "$.inventory.items[0].qty",
+                "$.inventory.items[1]",
+                "$.inventory.items[1].sku",
+                "$.inventory.items[1].qty",
+                "$.inventory.items[1].status",
+                "$.inventory.itemA1",
+                "$.inventory.itemB2",
+                "$.inventory.archive"
+            ]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.**.unit",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
                 "$.inventory.(\"item??\")",
                 &namespace,
                 &SansaResolveOptions::default()
@@ -1139,6 +1167,14 @@ mod tests {
             )),
             vec!["$.contact.status.@.role"]
         );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.reading.@.*",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.reading.@.unit"]
+        );
 
         let item0 = namespace.root.children[0].children[0].children[0].clone();
         assert_eq!(
@@ -1150,6 +1186,22 @@ mod tests {
                 }
             )),
             vec!["$.inventory.items[0].sku"]
+        );
+
+        let item1 = namespace.root.children[0].children[0].children[1].clone();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "?.*",
+                &namespace,
+                &SansaResolveOptions {
+                    contextual_root: Some(item1)
+                }
+            )),
+            vec![
+                "$.inventory.items[1].sku",
+                "$.inventory.items[1].qty",
+                "$.inventory.items[1].status"
+            ]
         );
     }
 
@@ -1182,6 +1234,27 @@ mod tests {
         );
         assert!(!parse.ok);
         assert_eq!(parse.errors[0].code, "SANSA_LEADING_ZERO_INDEX");
+    }
+
+    #[test]
+    fn resolves_supported_local_spaces() {
+        let namespace = local_fixture_namespace();
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.<\"catalog\">.skuIndex",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.<\"catalog\">.skuIndex"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.<\"missing\">",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
     }
 
     fn resolved_addresses(output: &super::SansaResolveOutput) -> Vec<String> {
@@ -1365,6 +1438,44 @@ mod tests {
         ))
     }
 
+    fn local_fixture_namespace() -> SansaResolveNamespace {
+        let mut namespace = SansaResolveNamespace::new(binding(
+            "$",
+            None,
+            None,
+            None,
+            Some("object"),
+            vec![with_local_space(
+                binding(
+                    "$.inventory",
+                    Some("inventory"),
+                    None,
+                    None,
+                    Some("object"),
+                    vec![],
+                ),
+                "catalog",
+                binding(
+                    "$.inventory.<\"catalog\">",
+                    None,
+                    None,
+                    None,
+                    Some("object"),
+                    vec![binding(
+                        "$.inventory.<\"catalog\">.skuIndex",
+                        Some("skuIndex"),
+                        None,
+                        Some("index"),
+                        Some("object"),
+                        vec![],
+                    )],
+                ),
+            )],
+        ));
+        namespace.supports_local_space = true;
+        namespace
+    }
+
     fn binding(
         address: &str,
         name: Option<&str>,
@@ -1389,6 +1500,17 @@ mod tests {
         attribute_space: SansaResolveBinding,
     ) -> SansaResolveBinding {
         binding.attribute_space = Some(Box::new(attribute_space));
+        binding
+    }
+
+    fn with_local_space(
+        mut binding: SansaResolveBinding,
+        name: &str,
+        local_space: SansaResolveBinding,
+    ) -> SansaResolveBinding {
+        binding
+            .local_spaces
+            .push((name.to_owned(), local_space));
         binding
     }
 }

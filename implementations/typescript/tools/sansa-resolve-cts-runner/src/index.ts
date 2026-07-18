@@ -23,6 +23,7 @@ interface ResolveSuite {
 
 interface NamespaceFixture {
     readonly id: string;
+    readonly supportsLocalSpaces?: boolean;
     readonly root: ResolveBinding;
 }
 
@@ -160,6 +161,9 @@ function buildNamespaces(entries: readonly NamespaceFixture[]): ReadonlyMap<stri
                 root: entry.root,
                 children: (binding) => binding.children ?? [],
                 attributeSpace: (binding) => binding.attributeSpace,
+                ...(entry.supportsLocalSpaces === true
+                    ? { localSpace: (binding: ResolveBinding, name: string) => binding.localSpaces?.[name] }
+                    : {}),
             },
         });
     }
