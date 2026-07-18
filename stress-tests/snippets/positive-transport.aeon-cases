@@ -15,6 +15,10 @@ widget:node = <tag:pair("x", "y")>
 ---
 glyphTyped:node = <glyph:node>
 ---
+nodeTyped:node = <tag:node<node>>
+---
+nodeChildren:node = <tag:node<node>(<item>, <item>)>
+---
 target:number = 1
 a = ~target
 ---
