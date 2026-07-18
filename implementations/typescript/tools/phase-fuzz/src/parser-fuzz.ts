@@ -204,6 +204,8 @@ function normalizeValue(value: Value): object {
         case 'BooleanLiteral':
         case 'ToggleLiteral':
             return { ...base, value: value.value, raw: value.raw };
+        case 'SansaAddressLiteral':
+            return { ...base, value: value.value, raw: value.raw, canonical: value.canonical };
         case 'CloneReference':
         case 'PointerReference':
             return { ...base, path: value.path };
