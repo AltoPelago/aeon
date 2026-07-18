@@ -591,7 +591,7 @@ function validateAnnotationEntries(
 
     const errors: ModeEnforcementError[] = [];
     for (const [key, entry] of annotations) {
-        const attrPath = `${ownerPath}@${key}`;
+        const attrPath = `${ownerPath}.@.${key}`;
         if (!entry.datatype && (mode === 'strict' || mode === 'custom')) {
             const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
             const actualKind = resolvedValueKind(resolved);

@@ -50,7 +50,7 @@ repositories.
 - Preserved parameterized `null<T>`, `nan<T>`, and `infinity<T>` datatype
   claims across the TypeScript, Rust, and Python implementation surfaces.
 - Added attribute-addressed annotation targeting so structured comments inside
-  attribute blocks bind to paths such as `$.a@b` instead of the owning value.
+  attribute blocks bind to paths such as `$.a.@.b` instead of the owning value.
 - Added placement landmarks for node heads and attribute entries, improving
   annotation placement around node tags, parameters, attribute keys, datatypes,
   separators, equals signs, and values.

@@ -273,9 +273,9 @@ fn validate_value_reference(
                 );
                 return;
             }
-            let requires_exact_attr_visibility = target.contains('@')
+            let requires_exact_attr_visibility = target.contains(".@")
                 && !(current_path == format_reference_base(segments)
-                    && target.starts_with(&format!("{current_path}@")));
+                    && target.starts_with(&format!("{current_path}.@")));
             let is_visible = if requires_exact_attr_visibility {
                 seen_base.contains(&target)
             } else {
@@ -342,7 +342,7 @@ fn validate_value_reference(
 
 fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bool {
     current_path
-        .split_once('@')
+        .split_once(".@")
         .is_some_and(|(binding_path, _)| target == binding_path)
 }
 
@@ -1657,7 +1657,7 @@ fn validate_attribute_datatype_map(
         let Some(entry) = attributes.get(key) else {
             continue;
         };
-        let attr_path = format!("{}@{}", format_path(owner_path), key);
+        let attr_path = format!("{}.@.{}", format_path(owner_path), key);
         if entry.datatype.is_none()
             && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
             && let Some(value) = &entry.value

@@ -13,13 +13,13 @@ test('formats canonical reference indexed paths', () => {
 test('formats quoted member and attribute segments', () => {
     assert.equal(
         formatReferencePath(['a.b', { type: 'attr', key: 'x.y' }, 'z w']),
-        '["a.b"]@["x.y"].["z w"]'
+        '["a.b"].@.["x.y"].["z w"]'
     );
 });
 
 test('escapes backslashes inside quoted path segments', () => {
     assert.equal(
         formatReferencePath(['slash\\key', { type: 'attr', key: 'x\\y' }]),
-        '["slash\\\\key"]@["x\\\\y"]'
+        '["slash\\\\key"].@.["x\\\\y"]'
     );
 });

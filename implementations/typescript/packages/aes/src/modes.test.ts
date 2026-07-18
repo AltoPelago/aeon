@@ -74,7 +74,7 @@ describe('Mode Enforcement', () => {
             const result = enforce('aeon:mode = "strict"\na @{label = "public"}:int32 = 1');
 
             assert.ok(result.errors.some((error) => error.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
-            assert.ok(result.errors.some((error) => error.path === '$.a@label'));
+            assert.ok(result.errors.some((error) => error.path === '$.a.@.label'));
         });
 
         it('should pass typed attribute entries in strict mode', () => {

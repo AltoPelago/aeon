@@ -88,7 +88,7 @@ class AeosTests(unittest.TestCase):
         compiled = compile_source('value@{unit:symbol = "cm"}:number = 3')
         self.assertEqual([], compiled.errors)
         result = validate_events(compiled.events, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {"type": "NumberLiteral", "datatype": "string"}}}}]})
-        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value@unit" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value.@.unit" for error in result["errors"]))
 
     def test_rejects_unexpected_attribute_entries_when_closed_attributes_is_true(self) -> None:
         aes = [{
@@ -103,7 +103,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {"type": "StringLiteral"}}, "closed_attributes": True}}]})
-        self.assertTrue(any(error["code"] == "unexpected_attribute_entry" and error["path"] == "$.value@extra" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "unexpected_attribute_entry" and error["path"] == "$.value.@.extra" for error in result["errors"]))
 
     def test_recurses_into_nested_attribute_entries(self) -> None:
         aes = [{
@@ -122,7 +122,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"meta": {"attributes": {"label": {"type": "StringLiteral"}}}}}}]})
-        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value@meta@label" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value.@.meta.@.label" for error in result["errors"]))
 
     def test_applies_datatype_rules_to_attribute_entries_automatically(self) -> None:
         aes = [{
@@ -136,7 +136,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {}}}}], "datatype_rules": {"uint": {"type": "NumberLiteral", "sign": "unsigned"}}})
-        self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.value@unit" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.value.@.unit" for error in result["errors"]))
 
     def test_literal_widening_and_cardinality_constraints(self) -> None:
         aes = [

@@ -782,7 +782,7 @@ fn value_to_json_with_active_key(
             output.insert(String::from("$node"), JsonValue::String(tag.clone()));
             let attr_json = node_attributes_to_json(
                 attributes,
-                &format!("{path}@"),
+                &format!("{path}.@"),
                 projection,
                 path_values,
                 mode,
@@ -1178,7 +1178,7 @@ fn measure_attribute_weight(
     attributes
         .iter()
         .map(|(key, entry)| {
-            let entry_path = format!("{path}@{}", render_attribute_segment(key));
+            let entry_path = format!("{path}.@.{}", render_attribute_segment(key));
             measure_attribute_value_weight(entry, &entry_path, path_values, tracker, stack)
         })
         .sum()
@@ -1229,7 +1229,10 @@ fn render_reference_segments(segments: &[ReferenceSegment]) -> String {
                 }
             }
             ReferenceSegment::Index(index) => out.push_str(&format!("[{index}]")),
-            ReferenceSegment::Attr(key) => out.push_str(&format!("@{key}")),
+            ReferenceSegment::Attr(key) => {
+                out.push_str(".@");
+                out.push_str(&render_member_segment(key));
+            }
         }
     }
     out
@@ -1293,7 +1296,10 @@ fn reference_target_path(segments: &[ReferenceSegment]) -> String {
                 }
             }
             ReferenceSegment::Index(index) => output.push_str(&format!("[{index}]")),
-            ReferenceSegment::Attr(key) => output.push_str(&format!("@{key}")),
+            ReferenceSegment::Attr(key) => {
+                output.push_str(".@");
+                output.push_str(&render_member_segment(key));
+            }
         }
     }
     output
@@ -1434,7 +1440,7 @@ fn attributes_to_json(
     let mut object = Map::new();
     let mut nested = Map::new();
     for (key, entry) in attributes {
-        let entry_path = format!("{path}@{}", render_attribute_segment(key));
+        let entry_path = format!("{path}.@.{}", render_attribute_segment(key));
         if !projection.includes(&entry_path) {
             continue;
         }
@@ -1932,7 +1938,7 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.title@lang")],
+                include_paths: vec![String::from("$.title.@.lang")],
                 ..FinalizeOptions::default()
             },
         );
@@ -1958,7 +1964,7 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.card.title@meta.keep")],
+                include_paths: vec![String::from("$.card.title.@.meta.keep")],
                 ..FinalizeOptions::default()
             },
         );
@@ -1987,7 +1993,7 @@ mod tests {
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.badge@@[\"id\"]")],
+                include_paths: vec![String::from("$.badge.@.@.[\"id\"]")],
                 ..FinalizeOptions::default()
             },
         );
@@ -2015,8 +2021,8 @@ mod tests {
             FinalizeOptions {
                 materialization: Materialization::Projected,
                 include_paths: vec![
-                    String::from("$.title@lang"),
-                    String::from("$.title@meta.keep"),
+                    String::from("$.title.@.lang"),
+                    String::from("$.title.@.meta.keep"),
                 ],
                 ..FinalizeOptions::default()
             },
@@ -2036,8 +2042,8 @@ mod tests {
             FinalizeOptions {
                 materialization: Materialization::Projected,
                 include_paths: vec![
-                    String::from("$.card.label@meta.keep"),
-                    String::from("$.card.label@meta.[\"x.y\"]"),
+                    String::from("$.card.label.@.meta.keep"),
+                    String::from("$.card.label.@.meta.[\"x.y\"]"),
                 ],
                 ..FinalizeOptions::default()
             },
@@ -2057,8 +2063,8 @@ mod tests {
             FinalizeOptions {
                 materialization: Materialization::Projected,
                 include_paths: vec![
-                    String::from("$.rich@@id"),
-                    String::from("$.rich@@meta.keep"),
+                    String::from("$.rich.@.@.id"),
+                    String::from("$.rich.@.@.meta.keep"),
                 ],
                 ..FinalizeOptions::default()
             },

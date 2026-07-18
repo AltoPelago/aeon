@@ -1026,9 +1026,9 @@ mod tests {
     #[test]
     fn payload_can_reference_own_attached_attributes() {
         for source in [
-            "a@{x = 2} = ~a@x\n",
-            "a@{\"x.y\" = 2} = ~a@[\"x.y\"]\n",
-            "a@{x = { z = 2 }} = ~a@x.z\n",
+            "a@{x = 2} = ~a.@.x\n",
+            "a@{\"x.y\" = 2} = ~a.@.[\"x.y\"]\n",
+            "a@{x = { z = 2 }} = ~a.@.x.z\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1052,23 +1052,23 @@ mod tests {
 
     #[test]
     fn attribute_payload_self_and_missing_targets_fail_closed() {
-        let self_ref = compile("a@{x = ~a@x} = 1\n", CompileOptions::default());
+        let self_ref = compile("a@{x = ~a.@.x} = 1\n", CompileOptions::default());
         assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
 
-        let nested_self = compile("a@{x = { z = ~a@x.z }} = 1\n", CompileOptions::default());
+        let nested_self = compile("a@{x = { z = ~a.@.x.z }} = 1\n", CompileOptions::default());
         assert_eq!(nested_self.errors[0].code, "SELF_REFERENCE");
 
-        let missing = compile("a@{x = ~a@missing} = 1\n", CompileOptions::default());
+        let missing = compile("a@{x = ~a.@.missing} = 1\n", CompileOptions::default());
         assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
     }
 
     #[test]
     fn attribute_payload_sibling_order_is_source_ordered() {
-        let backward = compile("a@{y = 1, x = ~a@y} = 1\n", CompileOptions::default());
+        let backward = compile("a@{y = 1, x = ~a.@.y} = 1\n", CompileOptions::default());
         assert!(backward.errors.is_empty(), "{:?}", backward.errors);
 
         let quoted_backward = compile(
-            "a@{\"z.y\" = 1, \"x.y\" = ~a@[\"z.y\"]} = 1\n",
+            "a@{\"z.y\" = 1, \"x.y\" = ~a.@.[\"z.y\"]} = 1\n",
             CompileOptions::default(),
         );
         assert!(
@@ -1077,11 +1077,11 @@ mod tests {
             quoted_backward.errors
         );
 
-        let forward = compile("a@{x = ~a@y, y = 1} = 1\n", CompileOptions::default());
+        let forward = compile("a@{x = ~a.@.y, y = 1} = 1\n", CompileOptions::default());
         assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
 
         let quoted_forward = compile(
-            "a@{\"x.y\" = ~a@[\"z.y\"], \"z.y\" = 1} = 1\n",
+            "a@{\"x.y\" = ~a.@.[\"z.y\"], \"z.y\" = 1} = 1\n",
             CompileOptions::default(),
         );
         assert_eq!(quoted_forward.errors[0].code, "FORWARD_REFERENCE");
@@ -1393,7 +1393,7 @@ mod tests {
     #[test]
     fn reports_missing_reference_target_with_path_and_span_details() {
         let result = compile(
-            "a@{ ns = \"alto.v1\" } = 1\nb = ~a@missing\n",
+            "a@{ ns = \"alto.v1\" } = 1\nb = ~a.@.missing\n",
             CompileOptions::default(),
         );
         assert!(result.events.is_empty());
@@ -1401,7 +1401,7 @@ mod tests {
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
         assert_eq!(
             result.errors[0].message,
-            "Missing reference target: '$.a@missing'"
+            "Missing reference target: '$.a.@.missing'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$"));
         let span = result.errors[0].span.as_ref().expect("span");
@@ -1409,19 +1409,19 @@ mod tests {
         assert_eq!(span.start.column, 5);
         assert_eq!(span.start.offset, 29);
         assert_eq!(span.end.line, 2);
-        assert_eq!(span.end.column, 15);
-        assert_eq!(span.end.offset, 39);
+        assert_eq!(span.end.column, 17);
+        assert_eq!(span.end.offset, 41);
     }
 
     #[test]
     fn classifies_missing_attribute_target_on_missing_binding_as_missing_reference_target() {
-        let result = compile("b = ~a@missing\n", CompileOptions::default());
+        let result = compile("b = ~a.@.missing\n", CompileOptions::default());
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
         assert_eq!(
             result.errors[0].message,
-            "Missing reference target: '$.a@missing'"
+            "Missing reference target: '$.a.@.missing'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$"));
     }
@@ -2003,9 +2003,9 @@ mod tests {
         assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
         assert_eq!(
             result.errors[0].message,
-            "Datatype/literal mismatch at '$.b@n': datatype ':string' expects StringLiteral, got NumberLiteral"
+            "Datatype/literal mismatch at '$.b.@.n': datatype ':string' expects StringLiteral, got NumberLiteral"
         );
-        assert_eq!(result.errors[0].path.as_deref(), Some("$.b@n"));
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.b.@.n"));
     }
 
     #[test]
@@ -2019,7 +2019,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.b@n")),
+                    && error.path.as_deref() == Some("$.b.@.n")),
             "{:?}",
             result.errors
         );
@@ -2036,7 +2036,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.content@id")),
+                    && error.path.as_deref() == Some("$.content.@.id")),
             "{:?}",
             result.errors
         );
@@ -2045,7 +2045,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.content@class")),
+                    && error.path.as_deref() == Some("$.content.@.class")),
             "{:?}",
             result.errors
         );

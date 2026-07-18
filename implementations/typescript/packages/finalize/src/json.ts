@@ -69,8 +69,8 @@ function appendMemberPath(basePath: string, key: string): string {
 
 function appendAttributePath(basePath: string, key: string): string {
     return IDENTIFIER_PATH_SEGMENT.test(key)
-        ? `${basePath}@${key}`
-        : `${basePath}@[${JSON.stringify(key)}]`;
+        ? `${basePath}.@.${key}`
+        : `${basePath}.@.[${JSON.stringify(key)}]`;
 }
 
 function hasSafeOwnProperty(container: JsonObject, key: string): boolean {
@@ -358,7 +358,7 @@ function valueToJson(
                     : [];
             });
         case 'NodeLiteral': {
-            const nodeAttrs = attributesToJson(value.attributes, ctx, `${path}@`, projection);
+            const nodeAttrs = attributesToJson(value.attributes, ctx, `${path}.@`, projection);
             return {
                 $node: value.tag,
                 ...(nodeAttrs ? { '@': nodeAttrs } : {}),
@@ -804,9 +804,9 @@ function datatypeForPath(path: string, ctx: JsonContext): string | undefined {
 function canonicalFinalizePath(path: string): string {
     if (path === '$.payload' || path === '$.header') return '$';
     if (path.startsWith('$.payload.')) return `$.${path.slice('$.payload.'.length)}`;
-    if (path.startsWith('$.payload@')) return `$.${path.slice('$.payload'.length)}`;
+    if (path.startsWith('$.payload.@')) return `$.${path.slice('$.payload'.length)}`;
     if (path.startsWith('$.header.')) return `$.${path.slice('$.header.'.length)}`;
-    if (path.startsWith('$.header@')) return `$.${path.slice('$.header'.length)}`;
+    if (path.startsWith('$.header.@')) return `$.${path.slice('$.header'.length)}`;
     return path;
 }
 

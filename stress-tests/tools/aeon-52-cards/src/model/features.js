@@ -786,7 +786,7 @@ const referenceFeatures = [
       const srcKey = uniqueKey('rsrc');
       const refKey = uniqueKey('ref');
       return {
-        text: `${srcKey}@{meta="val"} = 1\n${refKey} = ~${srcKey}@meta`,
+        text: `${srcKey}@{meta="val"} = 1\n${refKey} = ~${srcKey}.@.meta`,
         expectPass: true,
         isBinding: true,
         metadata: { refType: 'clone', attrSelector: true },
@@ -803,7 +803,7 @@ const referenceFeatures = [
       const srcKey = uniqueKey('rsrc');
       const refKey = uniqueKey('ref');
       return {
-        text: `${srcKey}@{"x.y" = 1} = 2\n${refKey} = ~${srcKey}@["x.y"]`,
+        text: `${srcKey}@{"x.y" = 1} = 2\n${refKey} = ~${srcKey}.@.["x.y"]`,
         expectPass: true,
         isBinding: true,
         metadata: { refType: 'clone', quotedAttrSelector: true },

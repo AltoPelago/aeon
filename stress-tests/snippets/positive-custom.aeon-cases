@@ -58,7 +58,7 @@ a:object = { "b.c":number = 1 }
 v:lookup = ~a.["b.c"]
 ---
 a@{ "x.y":number = 1 }:number = 3
-v:lookup = ~a@["x.y"]
+v:lookup = ~a.@.["x.y"]
 ---
 a:number = 1
 v:pointer = ~>$.a

@@ -270,7 +270,7 @@ describe('Core - compile()', () => {
                 assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
             }
             for (const annotation of annotations.slice(4, 9)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a@b' }, annotation.raw);
+                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a.@.b' }, annotation.raw);
             }
             for (const annotation of annotations.slice(9, 16)) {
                 assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
@@ -467,13 +467,13 @@ describe('Core - compile()', () => {
         });
 
         it('should enforce max_attribute_depth policy', () => {
-            const result = compile('a = 1\nv = ~a@x@y');
+            const result = compile('a = 1\nv = ~a.@.x.@.y');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'ATTRIBUTE_DEPTH_EXCEEDED'));
         });
 
         it('should allow deeper attribute refs when max_attribute_depth is raised', () => {
-            const result = compile('a = 1\nv = ~a@x@y', { maxAttributeDepth: 8 });
+            const result = compile('a = 1\nv = ~a.@.x.@.y', { maxAttributeDepth: 8 });
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'MISSING_REFERENCE_TARGET'));
         });

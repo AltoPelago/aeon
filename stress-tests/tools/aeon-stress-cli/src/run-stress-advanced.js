@@ -59,7 +59,7 @@ function runMissingReference() {
 }
 
 function runAttributeDepthPolicy() {
-  const source = 'a = 1\nv = ~a@x@y';
+  const source = 'a = 1\nv = ~a.@.x.@.y';
   const defaultResult = compile(source);
   const codes = defaultResult.errors.map((error) => error.code);
   if (!codes.includes('ATTRIBUTE_DEPTH_EXCEEDED')) {

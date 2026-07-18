@@ -39,11 +39,8 @@ export function formatReferenceTargetPath(segments: readonly ReferencePathSegmen
         }
 
         const key = segment.key;
-        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-            out += `@${key}`;
-        } else {
-            out += `@[${JSON.stringify(key)}]`;
-        }
+        const canonical = formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] });
+        out += `.@${canonical.slice(1)}`;
     }
 
     return emittedRoot ? out : '$';

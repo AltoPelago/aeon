@@ -357,9 +357,9 @@ def render_reference_path(path: list[object]) -> str:
             continue
         if isinstance(segment, AttributePathSegment):
             if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", segment.key):
-                result += f"@{segment.key}"
+                result += f".@.{segment.key}"
             else:
-                result += f"@[{format_string(segment.key)}]"
+                result += f".@.[{format_string(segment.key)}]"
             continue
         member = str(segment)
         if index > 0:

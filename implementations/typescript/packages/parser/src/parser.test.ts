@@ -691,7 +691,7 @@ describe('Parser', () => {
         });
 
         it('should parse attribute segments in reference path', () => {
-            const tokens = tokenize('a = 1\nv = ~a@meta@["x.y"]').tokens;
+            const tokens = tokenize('a = 1\nv = ~a.@.meta.@.["x.y"]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -712,7 +712,7 @@ describe('Parser', () => {
         });
 
         it('should reject empty quoted attribute segment in reference path', () => {
-            const tokens = tokenize('a@{meta = 1} = 0\nv = ~a@[""]').tokens;
+            const tokens = tokenize('a@{meta = 1} = 0\nv = ~a.@.[""]').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -741,7 +741,7 @@ describe('Parser', () => {
         });
 
         it('should parse quoted bracket member segment after attribute selector in reference path', () => {
-            const tokens = tokenize('a@{meta = { "x.y" = 1 }} = 0\nv = ~a@meta.["x.y"]').tokens;
+            const tokens = tokenize('a@{meta = { "x.y" = 1 }} = 0\nv = ~a.@.meta.["x.y"]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);

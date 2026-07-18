@@ -1128,7 +1128,11 @@ class Parser {
         while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket) || this.check(TokenType.At)) {
             if (this.check(TokenType.Dot)) {
                 this.advance(); // consume .
-                if (this.check(TokenType.LeftBracket)) {
+                if (this.check(TokenType.At)) {
+                    this.advance(); // consume @
+                    this.consume(TokenType.Dot, "Expected '.' after attribute address-space marker");
+                    path.push(this.parseAttributePathSegment());
+                } else if (this.check(TokenType.LeftBracket)) {
                     path.push(this.parseQuotedBracketMemberSegment());
                 } else {
                     path.push(this.parseMemberSegment("Expected member path segment after '.'"));

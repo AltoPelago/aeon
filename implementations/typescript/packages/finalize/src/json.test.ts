@@ -422,7 +422,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         const result = finalizeJson(events, {
             mode: 'strict',
             materialization: 'projected',
-            includePaths: ['$.title@["x.y"]'],
+            includePaths: ['$.title.@.["x.y"]'],
         });
 
         assert.deepStrictEqual(result.document, {

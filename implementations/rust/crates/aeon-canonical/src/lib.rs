@@ -1060,7 +1060,7 @@ fn normalize_raw(raw: &str) -> String {
         value.make_ascii_lowercase();
     }
     value = normalize_quoted_reference_segments(&value, ".[\"", ".");
-    value = normalize_quoted_reference_segments(&value, "@[\"", "@");
+    value = normalize_quoted_reference_segments(&value, ".@.[\"", ".@.");
     value
 }
 
@@ -2567,12 +2567,12 @@ mod tests {
              a = { \"b.c\" = 1 }\n\
              v = ~$.a.[\"b.c\"]\n\
              p = ~>$.a\n\
-             q = ~a@[\"meta\"].deep\n",
+             q = ~a.@.[\"meta\"].deep\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a@meta.deep\nv = ~a.[\"b.c\"]\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a.@.meta.deep\nv = ~a.[\"b.c\"]\n"
         );
     }
 
@@ -2701,12 +2701,12 @@ mod tests {
     #[test]
     fn canonicalizes_root_prefixed_quoted_attribute_traversal() {
         let result = canonicalize(
-            "aeon:mode = \"transport\"\na@{ meta = { deep = 1 } } = 3\nv = ~$.a@[\"meta\"].[\"deep\"]\n",
+            "aeon:mode = \"transport\"\na@{ meta = { deep = 1 } } = 3\nv = ~$.a.@.[\"meta\"].[\"deep\"]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\nv = ~a@meta.deep\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\nv = ~a.@.meta.deep\n"
         );
     }
 

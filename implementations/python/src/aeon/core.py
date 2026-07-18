@@ -670,7 +670,7 @@ def validate_annotation_entries(
         return []
     errors: list[AeonError] = []
     for key, entry in annotations.items():
-        attr_path = f"{owner_path}@{key}"
+        attr_path = f"{owner_path}.@.{key}"
         datatype = entry.get("datatype")
         value = entry.get("value")
         if not isinstance(datatype, str) and mode in {"strict", "custom"} and value is not None and hasattr(value, "type"):
@@ -1195,10 +1195,10 @@ def format_reference_target_path(path: list[object]) -> str:
     for segment in path:
         if isinstance(segment, AttributePathSegment):
             if is_identifier_safe(segment.key):
-                result += f"@{segment.key}"
+                result += f".@.{segment.key}"
             else:
                 escaped = segment.key.replace('"', '\\"')
-                result += f'@["{escaped}"]'
+                result += f'.@.["{escaped}"]'
         elif isinstance(segment, int):
             result += f"[{segment}]"
         else:

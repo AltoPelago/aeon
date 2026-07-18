@@ -400,7 +400,7 @@ def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> 
 
 def node_to_json(node: dict[str, object], ctx: JsonContext, path: str) -> dict[str, object]:
     result = {"$node": node.get("tag")}
-    attr_json = attributes_to_json(node.get("attributes"), ctx, path + "@")
+    attr_json = attributes_to_json(node.get("attributes"), ctx, path + ".@")
     if attr_json:
         result["@"] = attr_json
     children = node.get("children")
@@ -421,7 +421,7 @@ def annotation_entries_to_json(annotations: object, ctx: JsonContext, path: str)
     for key, entry in annotations.items():
         if not isinstance(key, str) or not isinstance(entry, dict):
             continue
-        entry_path = f"{path}@{format_annotation_key(key)}"
+        entry_path = f"{path}.@.{format_annotation_key(key)}"
         if not ctx.projection.includes(entry_path):
             continue
         if key in RESERVED_OBJECT_KEYS:
@@ -444,7 +444,7 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
         for key, entry in entries.items():
             if not isinstance(key, str) or not isinstance(entry, dict):
                 continue
-            entry_path = f"{path}@{format_annotation_key(key)}"
+            entry_path = f"{path}.@.{format_annotation_key(key)}"
             if not ctx.projection.includes(entry_path):
                 continue
             if key in RESERVED_OBJECT_KEYS:
@@ -607,7 +607,7 @@ def measure_attributes_weight(attributes: object, ctx: JsonContext, path: str, s
         for key, entry in entries.items():
             if not isinstance(key, str) or not isinstance(entry, dict):
                 continue
-            entry_path = f"{path}@{format_annotation_key(key)}"
+            entry_path = f"{path}.@.{format_annotation_key(key)}"
             value = entry.get("value")
             if isinstance(value, dict):
                 total += measure_materialized_weight(value, ctx, entry_path, stack)
@@ -632,7 +632,7 @@ def format_reference_path(path: object) -> str:
         if isinstance(segment, dict) and segment.get("type") == "attr":
             key = segment.get("key")
             if isinstance(key, str):
-                result += f"@{key}" if is_identifier_safe(key) else f'@["{escape_string(key)}"]'
+                result += f".@.{key}" if is_identifier_safe(key) else f'.@.["{escape_string(key)}"]'
     return result
 
 

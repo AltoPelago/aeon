@@ -953,7 +953,32 @@ impl<'a> TokenParser<'a> {
                 continue;
             }
             if self.match_kind(TokenKind::Dot) {
-                if self.match_kind(TokenKind::LeftBracket) {
+                if self.match_kind(TokenKind::At) {
+                    self.consume(
+                        TokenKind::Dot,
+                        "Expected `.` after attribute address-space marker",
+                    )?;
+                    if self.match_kind(TokenKind::LeftBracket) {
+                        let key_token =
+                            self.consume(TokenKind::String, "Expected quoted attribute key")?;
+                        let key = decode_quoted_token(key_token)?;
+                        if key.is_empty() {
+                            return Err(Diagnostic::new(
+                                "SYNTAX_ERROR",
+                                "Empty quoted path segments are not valid",
+                            )
+                            .at_path("$")
+                            .with_span(key_token.span));
+                        }
+                        self.consume(
+                            TokenKind::RightBracket,
+                            "Expected `]` after quoted attribute key",
+                        )?;
+                        segments.push(ReferenceSegment::Attr(key));
+                    } else {
+                        segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
+                    }
+                } else if self.match_kind(TokenKind::LeftBracket) {
                     let key_token =
                         self.consume(TokenKind::String, "Expected quoted member key")?;
                     let key = decode_quoted_token(key_token)?;
@@ -2305,7 +2330,7 @@ group:object = {
         assert_eq!(object_key_error.code, "SYNTAX_ERROR");
         assert_eq!(object_key_error.message, "Keys must not be empty");
 
-        for source in ["a = 1\nv = ~a@[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
+        for source in ["a = 1\nv = ~a.@.[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
             let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR");
             assert!(

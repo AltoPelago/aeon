@@ -522,11 +522,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("^aaa", result.events[0]["value"]["raw"])
 
     def test_missing_attribute_reference(self) -> None:
-        result = compile_source("a = 1\nv = ~a@ns")
+        result = compile_source("a = 1\nv = ~a.@.ns")
         self.assertEqual(["MISSING_REFERENCE_TARGET"], [error.code for error in result.errors])
 
     def test_nested_attribute_reference_allows_raised_depth(self) -> None:
-        result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a@b@c", CompileOptions(max_attribute_depth=8))
+        result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a.@.b.@.c", CompileOptions(max_attribute_depth=8))
         self.assertEqual([], result.errors)
 
     def test_nested_attribute_heads_fail_at_default_depth(self) -> None:
@@ -534,7 +534,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["ATTRIBUTE_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
     def test_forward_reference(self) -> None:
-        result = compile_source('v = ~a@ns\na@{ns="alto.v1"} = 1')
+        result = compile_source('v = ~a.@.ns\na@{ns="alto.v1"} = 1')
         self.assertEqual(["FORWARD_REFERENCE"], [error.code for error in result.errors])
 
     def test_late_structured_header_is_rejected(self) -> None:
@@ -611,7 +611,7 @@ class CoreCompileTests(unittest.TestCase):
         )
 
     def test_nested_binding_attribute_reference(self) -> None:
-        result = compile_source("a = [{x@{b=0}=1}]\nv = ~a[0].x@b")
+        result = compile_source("a = [{x@{b=0}=1}]\nv = ~a[0].x.@.b")
         self.assertEqual([], result.errors)
         self.assertEqual(["$.a", "$.a[0]", "$.a[0].x", "$.v"], [event["path"] for event in result.events])
 
@@ -663,7 +663,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("list<n>", result.events[1]["datatype"])
 
     def test_reference_path_is_preserved_structurally(self) -> None:
-        result = compile_source('a@{meta = { "x.y" = 1 }} = 0\nv = ~a@meta.["x.y"]')
+        result = compile_source('a@{meta = { "x.y" = 1 }} = 0\nv = ~a.@.meta.["x.y"]')
         self.assertEqual([], result.errors)
         reference_value = result.events[1]["value"]
         self.assertEqual(
@@ -704,7 +704,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
         self.assertIn("UNTYPED_VALUE_IN_STRICT_MODE", [error.code for error in result.errors])
-        self.assertIn("$.b@n", [error.path for error in result.errors])
+        self.assertIn("$.b.@.n", [error.path for error in result.errors])
 
     def test_strict_mode_accepts_typed_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n:number=3}:n = 3')

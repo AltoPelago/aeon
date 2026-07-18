@@ -236,9 +236,9 @@ The initial implementation should reuse existing value diagnostics wherever poss
 
 Recommended path format for attribute diagnostics:
 
-- `$.values[0]@unit`
-- `$.page[0]@unit`
-- `$.value@meta@label`
+- `$.values[0].@.unit`
+- `$.page[0].@.unit`
+- `$.value.@.meta.@.label`
 
 Recommended initial behavior:
 

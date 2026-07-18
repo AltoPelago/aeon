@@ -397,7 +397,7 @@ def enforce_string_length_resource_budget(info: dict[str, object], path: str, po
     if isinstance(attributes, dict):
         for key, attribute in attributes.items():
             if isinstance(attribute, dict):
-                enforce_string_length_resource_budget(attribute, f"{path}@{key}", policy, ctx)
+                enforce_string_length_resource_budget(attribute, f"{path}.@.{key}", policy, ctx)
 
 
 def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> dict[str, int]:
@@ -461,7 +461,7 @@ def inspect_constraint_resource_shape(constraints: dict[str, object], path: str,
     if isinstance(attributes, dict):
         for key, child in attributes.items():
             if isinstance(child, dict):
-                inspect_constraint_resource_shape(child, f"{path}@{key}", depth + 1, policy, ctx)
+                inspect_constraint_resource_shape(child, f"{path}.@.{key}", depth + 1, policy, ctx)
 
 
 def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, dict[str, object]]:
@@ -569,7 +569,7 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         emit_error(ctx, create_diag(path, None, f"Invalid attributes constraint for path: {path}", ERROR_CODES["unknown_constraint_key"]))
         return False
     for key, child in nested.items():
-        child_path = f"{path}@{key}"
+        child_path = f"{path}.@.{key}"
         if not isinstance(child, dict):
             emit_error(ctx, create_diag(child_path, None, f"Invalid attribute constraint for path: {child_path}", ERROR_CODES["unknown_constraint_key"]))
             return False
@@ -864,7 +864,7 @@ def validate_attribute_map(base_path: str, attributes: object, constraints: dict
     nested_rules = constraints.get("attributes")
     if isinstance(nested_rules, dict):
         for key, child_constraints in nested_rules.items():
-            child_path = f"{base_path}@{key}"
+            child_path = f"{base_path}.@.{key}"
             if not isinstance(child_constraints, dict):
                 continue
             entry = attribute_map.get(key) if isinstance(attribute_map, dict) else None
@@ -881,7 +881,8 @@ def validate_attribute_map(base_path: str, attributes: object, constraints: dict
             if key in allowed:
                 continue
             span = entry.get("span") if isinstance(entry, dict) else None
-            emit_error(ctx, create_diag(f"{base_path}@{key}", span, f"Unexpected attribute entry: {base_path}@{key}", ERROR_CODES["unexpected_attribute_entry"]))
+            child_path = f"{base_path}.@.{key}"
+            emit_error(ctx, create_diag(child_path, span, f"Unexpected attribute entry: {child_path}", ERROR_CODES["unexpected_attribute_entry"]))
 
 
 def validate_attribute_entry(path: str, entry: dict[str, object], constraints: dict[str, object], datatype_rules: object, ctx: DiagContext) -> None:
@@ -1269,6 +1270,10 @@ def tokenize_canonical_like_path(path: str) -> list[str] | None:
         marker = path[index]
         if marker == ".":
             index += 1
+            if index < len(path) and path[index] == "@":
+                index += 1
+                segments.append("@")
+                continue
             if index < len(path) and path[index] == "[":
                 end = find_bracket_end(path, index)
                 if end < 0:
@@ -1439,10 +1444,10 @@ def format_reference_target_path(segments: list[object]) -> str:
         elif isinstance(segment, dict) and segment.get("type") == "attr":
             key = str(segment.get("key", ""))
             if is_identifier_safe(key):
-                out += f"@{key}"
+                out += f".@.{key}"
             else:
                 escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
-                out += f'@["{escaped_key}"]'
+                out += f'.@.["{escaped_key}"]'
     return out
 
 

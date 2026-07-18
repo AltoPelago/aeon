@@ -257,9 +257,10 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
         if let Some(nearest) = resolve_nearest_by_offset(comment_span, &descendants) {
             if container.kind == BindableKind::Binding
                 && nearest.kind == BindableKind::Attribute
-                && !descendants
-                    .iter()
-                    .any(|candidate| candidate.kind == BindableKind::Attribute && span_contains(candidate.span, comment_span))
+                && !descendants.iter().any(|candidate| {
+                    candidate.kind == BindableKind::Attribute
+                        && span_contains(candidate.span, comment_span)
+                })
             {
                 continue;
             }
@@ -647,7 +648,8 @@ fn node_head_attribute_bindables(
         match source_char(source, offset) {
             Some('(' | '>') | None => break,
             Some('@') => {
-                let (entries, next) = scan_attribute_bindables_at(source, offset, end, owner_path, order, positions);
+                let (entries, next) =
+                    scan_attribute_bindables_at(source, offset, end, owner_path, order, positions);
                 out.extend(entries);
                 offset = next.max(offset + 1);
             }
@@ -669,7 +671,8 @@ fn attribute_bindables_in_range(
     let mut offset = start;
     while offset < end {
         if let Some(at) = find_top_level_source_char(source, '@', offset, end) {
-            let (entries, next) = scan_attribute_bindables_at(source, at, end, owner_path, order, positions);
+            let (entries, next) =
+                scan_attribute_bindables_at(source, at, end, owner_path, order, positions);
             out.extend(entries);
             offset = next.max(at + 1);
         } else {
@@ -797,7 +800,9 @@ fn scan_attribute_landmarks_at(
             continue;
         }
         let entry_end = scan_attribute_entry_end(source, key_end, end);
-        landmarks.extend(attribute_entry_landmarks(source, key_start, entry_end, positions));
+        landmarks.extend(attribute_entry_landmarks(
+            source, key_start, entry_end, positions,
+        ));
         offset = skip_source_trivia(source, entry_end, end);
         if source_char(source, offset) == Some(',') {
             landmarks.push(PlacementLandmark {
@@ -864,7 +869,9 @@ fn attribute_entry_landmarks(
                         end: positions.position_at(offset + 1),
                     },
                 });
-                if let Some(value_span) = attribute_entry_value_span(source, offset + 1, end, positions) {
+                if let Some(value_span) =
+                    attribute_entry_value_span(source, offset + 1, end, positions)
+                {
                     landmarks.push(PlacementLandmark {
                         part: AnnotationPlacementPart::AttributeValue,
                         span: value_span,
@@ -957,7 +964,10 @@ fn scan_source_key_end(source: &str, start: usize, end: usize) -> usize {
                     break;
                 }
                 match source_char(source, offset) {
-                    Some(':' | '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']' | '(' | '>') | None => break,
+                    Some(
+                        ':' | '@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}' | ']' | '(' | '>',
+                    )
+                    | None => break,
                     Some(ch) => offset += ch.len_utf8(),
                 }
             }
@@ -980,7 +990,11 @@ fn scan_source_datatype_end(source: &str, start: usize, end: usize) -> usize {
             Some(']') => brackets = brackets.saturating_sub(1),
             Some('<') => angles += 1,
             Some('>') => angles = angles.saturating_sub(1),
-            Some('@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}') if brackets == 0 && angles == 0 => break,
+            Some('@' | '=' | ' ' | '\t' | '\n' | '\r' | ',' | '}')
+                if brackets == 0 && angles == 0 =>
+            {
+                break;
+            }
             Some(_) => {}
             None => break,
         }
@@ -989,7 +1003,12 @@ fn scan_source_datatype_end(source: &str, start: usize, end: usize) -> usize {
     offset
 }
 
-fn find_top_level_source_char(source: &str, needle: char, start: usize, end: usize) -> Option<usize> {
+fn find_top_level_source_char(
+    source: &str,
+    needle: char,
+    start: usize,
+    end: usize,
+) -> Option<usize> {
     let mut offset = start;
     let mut depth = 0usize;
     while offset < end {
@@ -1017,7 +1036,8 @@ fn find_top_level_source_char(source: &str, needle: char, start: usize, end: usi
 
 fn skip_source_trivia(source: &str, mut offset: usize, end: usize) -> usize {
     loop {
-        while offset < end && matches!(source_char(source, offset), Some(' ' | '\t' | '\n' | '\r')) {
+        while offset < end && matches!(source_char(source, offset), Some(' ' | '\t' | '\n' | '\r'))
+        {
             offset += source_char(source, offset).map_or(1, char::len_utf8);
         }
         if starts_source_comment(source, offset) {
@@ -1051,7 +1071,8 @@ fn skip_source_comment(source: &str, offset: usize, end: usize) -> usize {
     let closing = structured_block_closer(marker);
     let mut next = offset + 2;
     while next + 1 < end {
-        if source_char(source, next) == Some(closing) && source_char(source, next + 1) == Some('/') {
+        if source_char(source, next) == Some(closing) && source_char(source, next + 1) == Some('/')
+        {
             return next + 2;
         }
         next += source_char(source, next).map_or(1, char::len_utf8);
@@ -1089,9 +1110,9 @@ fn source_key(source: &str, start: usize, end: usize) -> String {
 
 fn format_attribute_path(owner_path: &str, key: &str) -> String {
     if is_identifier(key) {
-        format!("{owner_path}@{key}")
+        format!("{owner_path}.@.{key}")
     } else {
-        format!("{owner_path}@[\"{}\"]", escape_key(key))
+        format!("{owner_path}.@.[\"{}\"]", escape_key(key))
     }
 }
 
@@ -1242,7 +1263,10 @@ impl<'a> AnnotationParser<'a> {
                 self.capture_sequence('(', ')', &path, &mut bindables),
                 BindableValueKind::Other,
             ),
-            '<' => (self.capture_node(&path, &mut bindables), BindableValueKind::Node),
+            '<' => (
+                self.capture_node(&path, &mut bindables),
+                BindableValueKind::Node,
+            ),
             _ => (self.capture_scalar(), BindableValueKind::Other),
         };
         if value_kind == BindableValueKind::Node {
@@ -1438,12 +1462,12 @@ impl<'a> AnnotationParser<'a> {
                 BindableValueKind::Node,
                 self.capture_node(item_path, bindables),
             ),
-            Some(_) => (
+            Some(_) => (value_start, BindableValueKind::Other, self.capture_scalar()),
+            None => (
                 value_start,
                 BindableValueKind::Other,
-                self.capture_scalar(),
+                self.scanner.position(),
             ),
-            None => (value_start, BindableValueKind::Other, self.scanner.position()),
         }
     }
 
@@ -1643,7 +1667,8 @@ impl<'a> AnnotationParser<'a> {
                     }
                 }
                 Some('/') if scanner.peek_n(1).is_some_and(is_structured_marker) => {
-                    let closing = structured_block_closer(scanner.peek_n(1).expect("marker exists"));
+                    let closing =
+                        structured_block_closer(scanner.peek_n(1).expect("marker exists"));
                     scanner.bump();
                     scanner.bump();
                     while !scanner.is_eof() && scanner.position().offset < end.offset {

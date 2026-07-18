@@ -2972,7 +2972,7 @@ fn render_reference_path(segments: &[ReferenceSegment]) -> String {
                 rendered.push(']');
             }
             ReferenceSegment::Attr(key) => {
-                rendered.push('@');
+                rendered.push_str(".@.");
                 rendered.push_str(key);
             }
         }

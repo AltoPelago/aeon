@@ -669,7 +669,11 @@ class Parser:
         while self.check("DOT") or self.check("LBRACKET") or self.check("AT"):
             if self.check("DOT"):
                 self.advance()
-                if self.check("LBRACKET"):
+                if self.check("AT"):
+                    self.advance()
+                    self.consume("DOT", "Expected '.' after attribute address-space marker")
+                    path.append(self.parse_attribute_path_segment())
+                elif self.check("LBRACKET"):
                     path.append(self.parse_quoted_bracket_member_segment())
                 else:
                     path.append(self.parse_member_segment("Expected member path segment after '.'"))

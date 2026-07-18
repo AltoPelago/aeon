@@ -393,7 +393,7 @@ fn enforce_string_length_resource_budget_inner(
     for (key, attribute) in attributes {
         enforce_attribute_string_length_resource_budget(
             attribute,
-            &format!("{path}@{key}"),
+            &format_attribute_path(path, key),
             policy,
             ctx,
         );
@@ -486,7 +486,7 @@ fn inspect_constraint_resource_shape(
         for (key, child) in attributes {
             inspect_constraint_resource_shape(
                 child,
-                &format!("{path}@{key}"),
+                &format_attribute_path(path, key),
                 depth + 1,
                 policy,
                 ctx,
@@ -1312,7 +1312,7 @@ fn validate_constraint_tree(
             emit_error(
                 ctx,
                 ValidationDiagnostic {
-                    path: Some(format!("{path}@{key}")),
+                    path: Some(format_attribute_path(path, key)),
                     code: String::from("unknown_constraint_key"),
                     phase: String::from("schema_validation"),
                     span: None,
@@ -1320,7 +1320,12 @@ fn validate_constraint_tree(
             );
             return false;
         };
-        if !validate_constraint_tree(schema, &format!("{path}@{key}"), child_constraints, ctx) {
+        if !validate_constraint_tree(
+            schema,
+            &format_attribute_path(path, key),
+            child_constraints,
+            ctx,
+        ) {
             return false;
         }
     }
@@ -2077,7 +2082,7 @@ fn validate_attribute_map(
 
     if let Some(attribute_rules) = attribute_rules {
         for (key, child_constraints_value) in attribute_rules {
-            let child_path = format!("{base_path}@{key}");
+            let child_path = format_attribute_path(base_path, key);
             let required = child_constraints_value
                 .get("required")
                 .and_then(JsonValue::as_bool)
@@ -2123,7 +2128,7 @@ fn validate_attribute_map(
             emit_error(
                 ctx,
                 ValidationDiagnostic {
-                    path: Some(format!("{base_path}@{key}")),
+                    path: Some(format_attribute_path(base_path, key)),
                     code: String::from("unexpected_attribute_entry"),
                     phase: String::from("schema_validation"),
                     span: entry.span,
@@ -2942,6 +2947,11 @@ fn tokenize_canonical_like_path(path: &str) -> Option<Vec<String>> {
         let marker = path[cursor..].chars().next()?;
         if marker == '.' {
             cursor += marker.len_utf8();
+            if cursor < path.len() && path[cursor..].starts_with('@') {
+                cursor += '@'.len_utf8();
+                segments.push(String::from("@"));
+                continue;
+            }
             if cursor < path.len() && path[cursor..].starts_with('[') {
                 let end = find_bracket_end(path, cursor)?;
                 segments.push(path[cursor..=end].to_string());
@@ -3460,10 +3470,10 @@ fn format_reference_target_path(segments: &[ReferencePathSegment]) -> String {
             }
             ReferencePathSegment::Attribute { segment_type, key } if segment_type == "attr" => {
                 if is_identifier(key) {
-                    rendered.push('@');
+                    rendered.push_str(".@.");
                     rendered.push_str(key);
                 } else {
-                    rendered.push_str("@[\"");
+                    rendered.push_str(".@.[\"");
                     rendered.push_str(&escape_quoted_key(key));
                     rendered.push_str("\"]");
                 }
@@ -3472,6 +3482,14 @@ fn format_reference_target_path(segments: &[ReferencePathSegment]) -> String {
         }
     }
     rendered
+}
+
+fn format_attribute_path(owner_path: &str, key: &str) -> String {
+    if is_identifier(key) {
+        format!("{owner_path}.@.{key}")
+    } else {
+        format!("{owner_path}.@.[\"{}\"]", escape_quoted_key(key))
+    }
 }
 
 fn is_identifier(key: &str) -> bool {
@@ -4248,7 +4266,7 @@ mod tests {
         let result = validate(&envelope);
         assert!(!result.ok);
         assert_eq!(result.errors[0].code, "missing_required_field");
-        assert_eq!(result.errors[0].path, Some(String::from("$.value@unit")));
+        assert_eq!(result.errors[0].path, Some(String::from("$.value.@.unit")));
     }
 
     #[test]
@@ -4341,7 +4359,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "unexpected_attribute_entry"
-                    && error.path.as_deref() == Some("$.value@extra"))
+                    && error.path.as_deref() == Some("$.value.@.extra"))
         );
     }
 
@@ -4425,7 +4443,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "numeric_form_violation"
-                    && error.path.as_deref() == Some("$.value@unit"))
+                    && error.path.as_deref() == Some("$.value.@.unit"))
         );
     }
 

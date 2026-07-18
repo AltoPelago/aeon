@@ -18,7 +18,7 @@ rootNested = ~$.obj.["b\u0041"]
 host@{
   "xA":int32 = 3
 } = 4
-rootAttr = ~$.host@["x\u0041"]
+rootAttr = ~$.host.@.["x\u0041"]
 
 chain1 = ~["a\u0041"]
 chain2 = ~chain1

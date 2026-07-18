@@ -879,10 +879,11 @@ fn collect_attribute_targets(
         let Some(value) = attributes.get(key) else {
             continue;
         };
+        let attr_segment = format!(".@{}", render_member_segment(key));
         let next_prefix = if prefix.is_empty() {
-            format!("@{key}")
+            attr_segment
         } else {
-            format!("{prefix}@{key}")
+            format!("{prefix}{attr_segment}")
         };
         let _ = targets.insert(format!("{base}{next_prefix}"));
         collect_attribute_targets(
@@ -946,10 +947,11 @@ fn collect_attribute_reference_steps(
         let Some(value) = attributes.get(key) else {
             continue;
         };
+        let attr_segment = format!(".@{}", render_member_segment(key));
         let next_prefix = if prefix.is_empty() {
-            format!("@{key}")
+            attr_segment
         } else {
-            format!("{prefix}@{key}")
+            format!("{prefix}{attr_segment}")
         };
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {

@@ -18,14 +18,14 @@ describe('Reference path formatting', () => {
     it('formats quoted members and attr segments', () => {
         assert.strictEqual(
             formatReferencePath(['a.b', { type: 'attr', key: 'x.y' }, 'z w']),
-            '["a.b"]@["x.y"].["z w"]'
+            '["a.b"].@.["x.y"].["z w"]'
         );
     });
 
     it('escapes backslashes in quoted members and attrs', () => {
         assert.strictEqual(
             formatReferencePath(['a\\b', { type: 'attr', key: 'x\\y' }, 'z\\w']),
-            '["a\\\\b"]@["x\\\\y"].["z\\\\w"]'
+            '["a\\\\b"].@.["x\\\\y"].["z\\\\w"]'
         );
     });
 });
