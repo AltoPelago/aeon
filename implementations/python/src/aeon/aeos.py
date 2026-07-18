@@ -264,7 +264,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
             bound_paths.add(path_str)
             value = event.get("value")
             if isinstance(value, dict) and isinstance(value.get("type"), str):
-                events_by_path[path_str] = {
+                info = {
                     "type": value.get("type"),
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
@@ -273,6 +273,8 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     "reference_path": value.get("path") if isinstance(value.get("path"), list) else None,
                     "attributes": build_attribute_info_map(event.get("annotations")),
                 }
+                events_by_path[path_str] = info
+                hydrate_attribute_info_events(path_str, info.get("attributes"), events_by_path)
                 if value.get("type") in {"TupleLiteral", "ListLiteral", "ListNode"} and isinstance(value.get("elements"), list):
                     elements = value.get("elements")
                     assert isinstance(elements, list)
@@ -290,6 +292,8 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     container_arity[path_str] = len(children)
                     if len(children) > resource_policy["max_container_children_default"]:
                         emit_resource_error(ctx, path_str, f"Container child count {len(children)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
+
+    bound_paths.update(events_by_path.keys())
 
     for path_str, info in events_by_path.items():
         enforce_string_length_resource_budget(info, path_str, resource_policy, ctx)
@@ -1454,6 +1458,13 @@ def format_reference_target_path(segments: list[object]) -> str:
     return out
 
 
+def format_attribute_path(owner_path: str, key: str) -> str:
+    if is_identifier_safe(key):
+        return f"{owner_path}.@.{key}"
+    escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{owner_path}.@.["{escaped_key}"]'
+
+
 def is_reference_type(value_type: object) -> bool:
     return value_type in {"CloneReference", "PointerReference"}
 
@@ -1539,6 +1550,18 @@ def hydrate_indexed_fallback(base_path: str, value: dict[str, object], fallback_
             "reference_path": element.get("path") if isinstance(element.get("path"), list) else None,
             "attributes": build_attribute_info_map(element.get("attributes")),
         }
+        hydrate_attribute_info_events(element_path, events_by_path[element_path].get("attributes"), events_by_path)
+
+
+def hydrate_attribute_info_events(base_path: str, attributes: object, events_by_path: dict[str, dict[str, object]]) -> None:
+    if not isinstance(attributes, dict):
+        return
+    for key, info in attributes.items():
+        if not isinstance(info, dict):
+            continue
+        attribute_path = format_attribute_path(base_path, str(key))
+        events_by_path[attribute_path] = info
+        hydrate_attribute_info_events(attribute_path, info.get("attributes"), events_by_path)
 
 
 def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]] | None:

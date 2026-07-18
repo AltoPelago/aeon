@@ -791,18 +791,17 @@ fn validate_inner(
         }
 
         bound_paths.insert(path.clone());
-        events_by_path.insert(
-            path.clone(),
-            EventInfo {
-                value_type: event.value.value_type.clone(),
-                datatype: event.datatype.clone(),
-                raw: event.value.raw.clone().unwrap_or_default(),
-                value: event.value.value.clone(),
-                span: event.span_pair(),
-                attributes: build_attribute_info_map(&event.annotations),
-                reference_path: event.value.path.clone(),
-            },
-        );
+        let info = EventInfo {
+            value_type: event.value.value_type.clone(),
+            datatype: event.datatype.clone(),
+            raw: event.value.raw.clone().unwrap_or_default(),
+            value: event.value.value.clone(),
+            span: event.span_pair(),
+            attributes: build_attribute_info_map(&event.annotations),
+            reference_path: event.value.path.clone(),
+        };
+        events_by_path.insert(path.clone(), info.clone());
+        hydrate_attribute_info_events(&path, &info.attributes, &mut events_by_path);
 
         if matches!(
             event.value.value_type.as_str(),
@@ -863,6 +862,7 @@ fn validate_inner(
             );
         }
     }
+    bound_paths.extend(events_by_path.keys().cloned());
     for (path, info) in &events_by_path {
         enforce_string_length_resource_budget(info, path, &resource_policy, &mut ctx);
     }
@@ -2650,6 +2650,29 @@ fn build_attribute_info_map(
         );
     }
     mapped
+}
+
+fn hydrate_attribute_info_events(
+    base_path: &str,
+    attributes: &BTreeMap<String, AttributeInfo>,
+    events_by_path: &mut BTreeMap<String, EventInfo>,
+) {
+    for (key, entry) in attributes {
+        let attribute_path = format_attribute_path(base_path, key);
+        events_by_path.insert(
+            attribute_path.clone(),
+            EventInfo {
+                value_type: entry.value_type.clone(),
+                datatype: entry.datatype.clone(),
+                raw: entry.raw.clone(),
+                value: entry.value.clone(),
+                span: entry.span,
+                attributes: entry.attributes.clone(),
+                reference_path: None,
+            },
+        );
+        hydrate_attribute_info_events(&attribute_path, &entry.attributes, events_by_path);
+    }
 }
 
 fn resolve_reference_form_events(
