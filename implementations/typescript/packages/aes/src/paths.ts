@@ -68,26 +68,26 @@ export function formatPath(path: CanonicalPath): string {
 }
 
 /**
- * Format a canonical path as a normalized wildcard path
- * (e.g., "$.contacts[3].email" -> "contacts[*].email").
+ * Format a canonical path as a normalized SANSA selector path
+ * (e.g., "$.contacts[3].email" -> "$.contacts.*.email").
  */
 export function formatNormalizedPath(path: CanonicalPath): string {
     let result = '';
     for (const segment of path.segments) {
         switch (segment.type) {
             case 'root':
-                // Normalized paths omit root marker.
+                result = '$';
                 break;
             case 'member':
                 if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
-                    result += result === '' ? segment.key : `.${segment.key}`;
+                    result += `.${segment.key}`;
                 } else {
                     const quoted = `[${JSON.stringify(segment.key)}]`;
-                    result += result === '' ? quoted : `.${quoted}`;
+                    result += `.${quoted}`;
                 }
                 break;
             case 'index':
-                result += '[*]';
+                result += '.*';
                 break;
         }
     }

@@ -905,16 +905,9 @@ fn validate_inner(
 
     let rule_index = build_rule_index(schema, &mut ctx);
     let mut expansion_budget = 0usize;
-    let selector_rule_index = expand_selector_rules(
+    let expanded_rule_index = expand_selector_rules(
         &rule_index,
         schema,
-        &events_by_path,
-        &mut ctx,
-        &resource_policy,
-        &mut expansion_budget,
-    );
-    let expanded_rule_index = expand_wildcard_rules(
-        &selector_rule_index,
         &events_by_path,
         &mut ctx,
         &resource_policy,
@@ -1021,6 +1014,34 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
                 ValidationDiagnostic {
                     path: None,
                     code: String::from("rule_missing_path"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        }
+        if let Some(path) = path
+            && path.contains("[*]")
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("invalid_schema_policy"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        }
+        if let Some(selector) = selector
+            && selector.contains("[*]")
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.clone()),
+                    code: String::from("invalid_schema_policy"),
                     phase: String::from("schema_validation"),
                     span: None,
                 },
@@ -1552,7 +1573,6 @@ fn check_presence(
             .get("required")
             .and_then(JsonValue::as_bool)
             .unwrap_or(false)
-            && !path.contains("[*]")
             && !bound_paths.contains(path)
         {
             emit_error(
@@ -2729,41 +2749,6 @@ fn expand_selector_rules(
     expanded
 }
 
-fn expand_wildcard_rules(
-    rule_index: &BTreeMap<String, JsonValue>,
-    events_by_path: &BTreeMap<String, EventInfo>,
-    ctx: &mut DiagContext,
-    resource_policy: &ResourcePolicy,
-    expansion_budget: &mut usize,
-) -> BTreeMap<String, JsonValue> {
-    let mut expanded = rule_index.clone();
-    for (path, constraints) in rule_index {
-        if !path.contains("[*]") {
-            continue;
-        }
-        expanded.remove(path);
-        for actual_path in events_by_path.keys() {
-            if matches_allowed_path(actual_path, path) {
-                *expansion_budget += 1;
-                if *expansion_budget > resource_policy.max_selector_expansions {
-                    emit_resource_error(
-                        ctx,
-                        path,
-                        format!(
-                            "Wildcard expansion count exceeds max_selector_expansions {}",
-                            resource_policy.max_selector_expansions
-                        ),
-                        None,
-                    );
-                    return expanded;
-                }
-                expanded.insert(actual_path.clone(), constraints.clone());
-            }
-        }
-    }
-    expanded
-}
-
 fn select_any_of_rules(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
@@ -2918,23 +2903,7 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
 }
 
 fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
-    if actual_path == allowed_path {
-        return true;
-    }
-    if !allowed_path.contains("[*]") {
-        return false;
-    }
-    let pattern = format!(
-        "^{}$",
-        allowed_path
-            .split("[*]")
-            .map(regex::escape)
-            .collect::<Vec<_>>()
-            .join(r"\[\d+\]")
-    );
-    Regex::new(&pattern)
-        .map(|regex| regex.is_match(actual_path))
-        .unwrap_or(false)
+    actual_path == allowed_path
 }
 
 fn tokenize_canonical_like_path(path: &str) -> Option<Vec<String>> {
@@ -3070,12 +3039,6 @@ fn matches_selector_path(actual_path: &str, selector: &str) -> bool {
         }
         if selector_segment == "*" {
             return match_from(actual, selector, actual_index + 1, selector_index + 1);
-        }
-        if selector_segment == "[*]" {
-            return Regex::new(r"^\[\d+\]$")
-                .map(|regex| regex.is_match(&actual[actual_index]))
-                .unwrap_or(false)
-                && match_from(actual, selector, actual_index + 1, selector_index + 1);
         }
         selector_segment == actual[actual_index]
             && match_from(actual, selector, actual_index + 1, selector_index + 1)
@@ -3655,7 +3618,7 @@ mod tests {
     }
 
     #[test]
-    fn wildcard_rules_apply_to_indexed_children_without_requiring_placeholder() {
+    fn sansa_selector_rules_apply_to_indexed_children_without_requiring_placeholder() {
         let payload = r#"{
           "aes": [
             {
@@ -3674,7 +3637,7 @@ mod tests {
           "schema": {
             "rules": [
               {
-                "path": "$.contact.measurements[*]",
+                "selector": "$.contact.measurements.*",
                 "constraints": { "required": true, "type": "NumberLiteral" }
               }
             ]
@@ -3700,8 +3663,130 @@ mod tests {
         }));
         assert!(!failing.errors.iter().any(|error| {
             error.code == "missing_required_field"
-                && error.path.as_deref() == Some("$.contact.measurements[*]")
+                && error.path.as_deref() == Some("$.contact.measurements.*")
         }));
+    }
+
+    #[test]
+    fn legacy_bracket_wildcard_is_rejected_as_rule_address() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "contact" }, { "type": "member", "key": "measurements" } ] },
+              "key": "measurements",
+              "value": { "type": "ListNode", "elements": [] },
+              "span": [1, 8]
+            }
+          ],
+          "schema": {
+            "rules": [
+              {
+                "path": "$.contact.measurements[*]",
+                "constraints": { "required": true, "type": "NumberLiteral" }
+              }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(envelope
+            .errors
+            .iter()
+            .any(|error| error.code == "invalid_schema_policy"));
+    }
+
+    #[test]
+    fn schema_expresses_generic_container_content_claims() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "numbers" } ] },
+              "key": "numbers",
+              "datatype": "list<number>",
+              "value": { "type": "ListNode", "elements": [] },
+              "span": [1, 2]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "numbers" }, { "type": "index", "index": 0 } ] },
+              "key": "0",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [2, 3]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "point" } ] },
+              "key": "point",
+              "datatype": "tuple<number>",
+              "value": { "type": "TupleLiteral", "elements": [] },
+              "span": [4, 5]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "point" }, { "type": "index", "index": 1 } ] },
+              "key": "1",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [5, 6]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "scores" } ] },
+              "key": "scores",
+              "datatype": "object<number>",
+              "value": { "type": "ObjectNode", "bindings": [] },
+              "span": [7, 8]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "scores" }, { "type": "member", "key": "bob" } ] },
+              "key": "bob",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [8, 9]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "group" } ] },
+              "key": "group",
+              "datatype": "node",
+              "value": { "type": "NodeLiteral", "tag": "group", "datatype": "node<node>", "children": [] },
+              "span": [10, 11]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "group" }, { "type": "index", "index": 1 } ] },
+              "key": "1",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [11, 12]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.numbers", "constraints": { "type": "ListNode", "datatype": "list<number>" } },
+              { "selector": "$.numbers.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.point", "constraints": { "type": "TupleLiteral", "datatype": "tuple<number>" } },
+              { "selector": "$.point.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.scores", "constraints": { "type": "ObjectNode", "datatype": "object<number>" } },
+              { "selector": "$.scores.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.group", "constraints": { "type": "NodeLiteral" } },
+              { "selector": "$.group.*", "constraints": { "type": "NodeLiteral" } }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        for (path, codes) in [
+            ("$.numbers[0]", ["type_mismatch", "type_mismatch"]),
+            (
+                "$.point[1]",
+                ["type_mismatch", "TUPLE_ELEMENT_TYPE_MISMATCH"],
+            ),
+            ("$.scores.bob", ["type_mismatch", "type_mismatch"]),
+            ("$.group[1]", ["type_mismatch", "type_mismatch"]),
+        ] {
+            assert!(envelope.errors.iter().any(|error| {
+                codes.contains(&error.code.as_str()) && error.path.as_deref() == Some(path)
+            }));
+        }
     }
 
     #[test]

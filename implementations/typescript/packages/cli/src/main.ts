@@ -2154,15 +2154,11 @@ function projectConstraints(
 }
 
 function referenceTargetPathToPattern(selector: string): string {
-    if (selector.replaceAll('[*]', '').includes('*')) {
+    if (selector.includes('*')) {
         console.error(`Error: Unsupported reference_target_path selector: ${selector}`);
         process.exit(2);
     }
-    const placeholder = '__AEOS_WILDCARD_INDEX__';
-    return `^${escapeRegex(selector.replaceAll('[*]', placeholder)).replace(
-        escapeRegex(placeholder),
-        String.raw`\[\d+\]`,
-    )}$`;
+    return `^${escapeRegex(selector)}$`;
 }
 
 function escapeRegex(value: string): string {

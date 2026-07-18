@@ -259,7 +259,7 @@ Ordinary path matching remains unchanged:
 
 ```json
 {
-  "path": "$.items[*]",
+  "selector": "$.items.*",
   "constraints": {
     "annotations": {
       "unit": { "type": "StringLiteral" }

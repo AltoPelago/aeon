@@ -315,8 +315,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
 
     rule_index = build_rule_index(schema, ctx)
     expansion_budget = {"count": 0}
-    selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
-    expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path, ctx, resource_policy, expansion_budget)
+    expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
     check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
@@ -488,6 +487,12 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if has_path and has_selector:
             emit_error(ctx, create_diag("<unknown>", None, 'Rule must provide either "path" or "selector", not both', ERROR_CODES["rule_missing_path"]))
             continue
+        if has_path and "[*]" in path:
+            emit_error(ctx, create_diag(path, None, f"Legacy indexed wildcard paths are not supported; use a SANSA selector with .* instead: {path}", ERROR_CODES["invalid_schema_policy"]))
+            continue
+        if has_selector and "[*]" in selector:
+            emit_error(ctx, create_diag(selector, None, f"Legacy indexed wildcard selectors are not supported; use SANSA .* instead: {selector}", ERROR_CODES["invalid_schema_policy"]))
+            continue
         if path in index:
             emit_error(ctx, create_diag(path, None, f"Duplicate rule for path: {path}", ERROR_CODES["duplicate_rule_path"]))
             continue
@@ -645,7 +650,7 @@ def validate_reference_constraints(
 def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
-        if isinstance(constraints, dict) and constraints.get("required") is True and "[*]" not in path and path not in bound_paths:
+        if isinstance(constraints, dict) and constraints.get("required") is True and path not in bound_paths:
             emit_error(ctx, create_diag(path, None, f"Missing required field: {path}", ERROR_CODES["missing_required_field"]))
 
 
@@ -1158,29 +1163,6 @@ def expand_selector_rules(
             emit_error(ctx, create_diag(selector, None, f"Missing required field: {selector}", ERROR_CODES["missing_required_field"]))
     return expanded
 
-
-def expand_wildcard_rules(
-    rule_index: dict[str, dict[str, object]],
-    events: dict[str, dict[str, object]],
-    ctx: DiagContext,
-    resource_policy: dict[str, int],
-    expansion_budget: dict[str, int],
-) -> dict[str, dict[str, object]]:
-    expanded = dict(rule_index)
-    for path, rule in rule_index.items():
-        if "[*]" not in path:
-            continue
-        expanded.pop(path, None)
-        for actual_path in events:
-            if matches_allowed_path(actual_path, path):
-                expansion_budget["count"] = expansion_budget.get("count", 0) + 1
-                if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
-                    emit_resource_error(ctx, path, f"Wildcard expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
-                    return expanded
-                expanded[actual_path] = rule
-    return expanded
-
-
 def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
     selected = dict(rule_index)
     for path, rule in rule_index.items():
@@ -1253,12 +1235,7 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
 
 
 def matches_allowed_path(actual_path: str, allowed_path: str) -> bool:
-    if actual_path == allowed_path:
-        return True
-    if "[*]" not in allowed_path:
-        return False
-    pattern = "^" + r"\[\d+\]".join(re.escape(part) for part in allowed_path.split("[*]")) + "$"
-    return re.match(pattern, actual_path) is not None
+    return actual_path == allowed_path
 
 
 def tokenize_canonical_like_path(path: str) -> list[str] | None:
@@ -1357,8 +1334,6 @@ def matches_selector_path(actual_path: str, selector: str) -> bool:
             return False
         if selector_segment == "*":
             return match_from(actual_index + 1, selector_index + 1)
-        if selector_segment == "[*]":
-            return re.match(r"^\[\d+\]$", actual_segments[actual_index]) is not None and match_from(actual_index + 1, selector_index + 1)
         return selector_segment == actual_segments[actual_index] and match_from(actual_index + 1, selector_index + 1)
 
     return match_from(0, 0)

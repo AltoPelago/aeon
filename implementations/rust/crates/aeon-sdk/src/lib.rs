@@ -399,21 +399,31 @@ fn materialize_rules(
                 let path = object
                     .get("path")
                     .and_then(JsonValue::as_str)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        format!(
-                            "Schema contract rule at index {index} missing string 'path': {file}"
-                        )
-                    })?;
+                    .filter(|value| !value.is_empty());
+                let selector = object
+                    .get("selector")
+                    .and_then(JsonValue::as_str)
+                    .filter(|value| !value.is_empty());
+                if path.is_none() && selector.is_none() {
+                    return Err(format!(
+                        "Schema contract rule at index {index} missing string 'path' or 'selector': {file}"
+                    ));
+                }
+                if path.is_some() && selector.is_some() {
+                    return Err(format!(
+                        "Schema contract rule at index {index} must use either 'path' or 'selector': {file}"
+                    ));
+                }
                 let constraints = object.get("constraints").ok_or_else(|| {
                     format!(
                         "Schema contract rule at index {index} missing object 'constraints': {file}"
                     )
                 })?;
+                let owner = path.or(selector).expect("target checked above");
                 Ok(aeon_aeos::SchemaRule {
-                    path: Some(path.to_string()),
-                    selector: None,
-                    constraints: project_constraints(constraints, path, file)?,
+                    path: path.map(ToOwned::to_owned),
+                    selector: selector.map(ToOwned::to_owned),
+                    constraints: project_constraints(constraints, owner, file)?,
                 })
             })
             .collect(),
@@ -465,17 +475,12 @@ fn project_constraints(
 }
 
 fn reference_target_path_to_pattern(selector: &str) -> Result<String, String> {
-    if selector.replace("[*]", "").contains('*') {
+    if selector.contains('*') {
         return Err(format!(
             "Unsupported reference_target_path selector: {selector}"
         ));
     }
-    let placeholder = "__AEOS_WILDCARD_INDEX__";
-    Ok(format!(
-        "^{}$",
-        escape_regex(&selector.replace("[*]", placeholder))
-            .replace(&escape_regex(placeholder), r"\[\d+\]",)
-    ))
+    Ok(format!("^{}$", escape_regex(selector)))
 }
 
 fn escape_regex(value: &str) -> String {
@@ -603,6 +608,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
         Value::TimeLiteral { raw } => {
             scalar_value("TimeLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
+        Value::SansaAddressLiteral { raw, canonical, .. } => scalar_value(
+            "SansaAddressLiteral",
+            raw.clone(),
+            JsonValue::String(canonical.clone()),
+        ),
         Value::NodeLiteral { raw, .. } => {
             scalar_value("NodeLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
@@ -839,11 +849,11 @@ mod tests {
     #[test]
     fn loads_schema_from_aeos_document() {
         let schema = load_schema_str(
-            "aeos:schema = {\n  id = \"com.example.person\"\n  version = \"1\"\n  world = \"closed\"\n  rules = {\n    \"$.ages[*]\" = {\n      type = \"IntegerLiteral\"\n      reference_target_path = \"$.people[*].age\"\n    }\n  }\n}\n",
+            "aeos:schema = {\n  id = \"com.example.person\"\n  version = \"1\"\n  world = \"closed\"\n  rules:list<object> = [\n    {\n      selector:sansa = $.ages.*\n      constraints:object = {\n        type:string = \"IntegerLiteral\"\n        reference_target_pattern:string = \"^\\\\$\\\\.people\\\\[\\\\d+\\\\]\\\\.age$\"\n      }\n    }\n  ]\n}\n",
         )
         .expect("schema load success");
         assert_eq!(schema.world, "closed");
-        assert_eq!(schema.rules[0].path.as_deref(), Some("$.ages[*]"));
+        assert_eq!(schema.rules[0].selector.as_deref(), Some("$.ages.*"));
         assert_eq!(
             schema.rules[0]
                 .constraints

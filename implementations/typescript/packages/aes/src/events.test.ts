@@ -52,7 +52,7 @@ describe('Assignment Event Emission', () => {
 
         it('should include derived normalized path metadata', () => {
             const result = emit('a = 1');
-            assert.strictEqual(result.events[0]!.normalizedPath, 'a');
+            assert.strictEqual(result.events[0]!.normalizedPath, '$.a');
         });
     });
 
@@ -115,11 +115,11 @@ describe('Assignment Event Emission', () => {
             assert.ok(paths.includes('$.a[0].b'));
         });
 
-        it('should normalize indexed element paths to wildcard form in core v1', () => {
+        it('should normalize indexed element paths to SANSA expansion form in core v1', () => {
             const result = emit('contacts = [ { email = "x" }, { email = "y" } ]', true);
             const event = result.events.find((e) => formatPath(e.path) === '$.contacts[0].email');
             assert.ok(event);
-            assert.strictEqual(event.normalizedPath, 'contacts[*].email');
+            assert.strictEqual(event.normalizedPath, '$.contacts.*.email');
         });
 
         it('should emit events for node children and nested object bindings', () => {
