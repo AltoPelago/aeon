@@ -929,29 +929,6 @@ impl<'a> TokenParser<'a> {
         }
 
         loop {
-            if self.match_kind(TokenKind::At) {
-                if self.match_kind(TokenKind::LeftBracket) {
-                    let key_token =
-                        self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                    let key = decode_quoted_token(key_token)?;
-                    if key.is_empty() {
-                        return Err(Diagnostic::new(
-                            "SYNTAX_ERROR",
-                            "Empty quoted path segments are not valid",
-                        )
-                        .at_path("$")
-                        .with_span(key_token.span));
-                    }
-                    self.consume(
-                        TokenKind::RightBracket,
-                        "Expected `]` after quoted attribute key",
-                    )?;
-                    segments.push(ReferenceSegment::Attr(key));
-                } else {
-                    segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
-                }
-                continue;
-            }
             if self.match_kind(TokenKind::Dot) {
                 if self.match_kind(TokenKind::At) {
                     self.consume(

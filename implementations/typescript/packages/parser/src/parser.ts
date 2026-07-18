@@ -1125,7 +1125,7 @@ class Parser {
 
         this.parsePathInitialSegment(path, sawRootDot, sawExplicitRoot);
 
-        while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket) || this.check(TokenType.At)) {
+        while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket)) {
             if (this.check(TokenType.Dot)) {
                 this.advance(); // consume .
                 if (this.check(TokenType.At)) {
@@ -1137,12 +1137,6 @@ class Parser {
                 } else {
                     path.push(this.parseMemberSegment("Expected member path segment after '.'"));
                 }
-                continue;
-            }
-
-            if (this.check(TokenType.At)) {
-                this.advance(); // consume @
-                path.push(this.parseAttributePathSegment());
                 continue;
             }
 

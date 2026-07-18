@@ -666,7 +666,7 @@ class Parser:
             saw_root_dot=saw_root_dot,
             saw_explicit_root=saw_explicit_root,
         )
-        while self.check("DOT") or self.check("LBRACKET") or self.check("AT"):
+        while self.check("DOT") or self.check("LBRACKET"):
             if self.check("DOT"):
                 self.advance()
                 if self.check("AT"):
@@ -677,10 +677,6 @@ class Parser:
                     path.append(self.parse_quoted_bracket_member_segment())
                 else:
                     path.append(self.parse_member_segment("Expected member path segment after '.'"))
-                continue
-            if self.check("AT"):
-                self.advance()
-                path.append(self.parse_attribute_path_segment())
                 continue
             path.append(self.parse_bracket_path_segment())
         return path
