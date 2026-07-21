@@ -5,7 +5,7 @@ import re
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 QUALIFIER_ARG_RE = re.compile(r"^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]+$")
-MAX_POSITION_INDEX = 1_000_000
+MAX_POSITION_INDEX = 999_999
 
 
 class SansaParseError(Exception):

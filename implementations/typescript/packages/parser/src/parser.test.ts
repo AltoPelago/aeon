@@ -857,7 +857,7 @@ describe('Parser', () => {
                     'bounded:sansa = $.items[0..1]',
                     'openEnd:sansa = $.items[1..]',
                     'openStart:sansa = $.items[..1]',
-                    'max:sansa = $.items[1000000]',
+                    'max:sansa = $.items[999999]',
                 ].join('\n')
             ).tokens;
             const result = parse(tokens);
@@ -870,17 +870,17 @@ describe('Parser', () => {
             );
             assert.deepStrictEqual(
                 values.map((value) => value.type === 'SansaAddressLiteral' ? value.canonical : ''),
-                ['$.items[1].^.sku', '$.items[0..1]', '$.items[1..]', '$.items[..1]', '$.items[1000000]']
+                ['$.items[1].^.sku', '$.items[0..1]', '$.items[1..]', '$.items[..1]', '$.items[999999]']
             );
         });
 
         it('should reject SANSA position indexes above the local configured limit', () => {
-            const tokens = tokenize('tooHigh:sansa = $.items[1000001]').tokens;
+            const tokens = tokenize('tooHigh:sansa = $.items[1000000]').tokens;
             const result = parse(tokens);
 
             assert.deepStrictEqual(result.document?.bindings ?? [], []);
             assert.strictEqual(result.errors.length, 1);
-            assert.match(result.errors[0]!.message, /less than or equal to 1000000/);
+            assert.match(result.errors[0]!.message, /less than or equal to 999999/);
         });
 
         it('should parse AEON-compatible qualified SANSA address literals', () => {

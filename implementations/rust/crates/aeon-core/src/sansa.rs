@@ -1,4 +1,4 @@
-pub const SANSA_MAX_POSITION_INDEX: usize = 1_000_000;
+pub const SANSA_MAX_POSITION_INDEX: usize = 999_999;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SansaAddress {
@@ -1186,17 +1186,17 @@ mod tests {
     #[test]
     fn rejects_position_indexes_above_local_configured_limit() {
         assert_eq!(
-            parse_address("$.items[1000000]").expect("parse").canonical,
-            "$.items[1000000]"
+            parse_address("$.items[999999]").expect("parse").canonical,
+            "$.items[999999]"
         );
         assert_eq!(
-            parse_address("$.items[0..1000000]")
+            parse_address("$.items[0..999999]")
                 .expect("parse")
                 .canonical,
-            "$.items[0..1000000]"
+            "$.items[0..999999]"
         );
 
-        let too_high = parse_address("$.items[1000001]").expect_err("limit");
+        let too_high = parse_address("$.items[1000000]").expect_err("limit");
         assert_eq!(too_high.code, "SANSA_POSITION_INDEX_LIMIT_EXCEEDED");
 
         let huge = parse_address("$.items[999999999999999999999999999999999999999]")
