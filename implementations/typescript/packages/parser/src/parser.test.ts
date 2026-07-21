@@ -850,6 +850,29 @@ describe('Parser', () => {
             assert.strictEqual(value.address.selectors.length, 5);
         });
 
+        it('should parse SANSA parent and position range selector literals', () => {
+            const tokens = tokenize(
+                [
+                    'parent:sansa = $.items[1].^.sku',
+                    'bounded:sansa = $.items[0..1]',
+                    'openEnd:sansa = $.items[1..]',
+                    'openStart:sansa = $.items[..1]',
+                ].join('\n')
+            ).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const values = result.document!.bindings.map((binding) => binding.value);
+            assert.deepStrictEqual(
+                values.map((value) => value.type),
+                ['SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral']
+            );
+            assert.deepStrictEqual(
+                values.map((value) => value.type === 'SansaAddressLiteral' ? value.canonical : ''),
+                ['$.items[1].^.sku', '$.items[0..1]', '$.items[1..]', '$.items[..1]']
+            );
+        });
+
         it('should parse AEON-compatible qualified SANSA address literals', () => {
             const tokens = tokenize('address:sansa = $.path:tuple<x><y>').tokens;
             const result = parse(tokens);

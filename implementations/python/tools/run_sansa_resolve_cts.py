@@ -126,14 +126,18 @@ def build_namespaces(entries: object) -> dict[str, dict[str, object]]:
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not isinstance(entry.get("root"), dict):
             continue
-        by_address: dict[str, object] = {}
-        index_binding_tree(entry["root"], by_address)
         root = entry["root"]
+        if entry.get("supportsParentTraversal") is True:
+            attach_parent_links(root)
+        by_address: dict[str, object] = {}
+        index_binding_tree(root, by_address)
         namespace = {
             "root": root,
             "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
             "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
         }
+        if entry.get("supportsParentTraversal") is True:
+            namespace["parent"] = lambda binding: binding.get("parent") if isinstance(binding, dict) else None
         if entry.get("supportsLocalSpaces") is True:
             namespace["localSpace"] = lambda binding, name: binding.get("localSpaces", {}).get(name) if isinstance(binding, dict) else None
         output[entry["id"]] = {
@@ -142,6 +146,25 @@ def build_namespaces(entries: object) -> dict[str, dict[str, object]]:
         }
 
     return output
+
+
+def attach_parent_links(binding: object, parent: object | None = None) -> None:
+    if not isinstance(binding, dict):
+        return
+    if parent is not None:
+        binding["parent"] = parent
+    children = binding.get("children")
+    if isinstance(children, list):
+        for child in children:
+            attach_parent_links(child, binding)
+    for space_name in ("attributeSpace", "attributes"):
+        space = binding.get(space_name)
+        if isinstance(space, dict):
+            attach_parent_links(space, binding)
+    local_spaces = binding.get("localSpaces")
+    if isinstance(local_spaces, dict):
+        for local_space in local_spaces.values():
+            attach_parent_links(local_space, binding)
 
 
 def index_binding_tree(binding: object, output: dict[str, object]) -> None:

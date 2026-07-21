@@ -167,6 +167,23 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item?*")');
         });
 
+        it('should compile SANSA parent and position range selector literals', () => {
+            const result = compile(
+                [
+                    'parent:sansa = $.items[1].^.sku',
+                    'bounded:sansa = $.items[0..1]',
+                    'openEnd:sansa = $.items[1..]',
+                    'openStart:sansa = $.items[..1]',
+                ].join('\n')
+            );
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(
+                result.events.map((event) => event.value.type),
+                ['SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral']
+            );
+        });
+
         it('should fail closed when maxInputBytes is exceeded', () => {
             const result = compile('a = 12345', { maxInputBytes: 4 });
 

@@ -17,6 +17,11 @@ pub enum SansaRoot {
 pub enum SansaSelector {
     Member { name: String, quoted: bool },
     Position { index: usize },
+    PositionRange {
+        start: Option<usize>,
+        end: Option<usize>,
+    },
+    Parent,
     AttributeSpace,
     LocalSpace { name: String },
     DirectExpansion,
@@ -74,6 +79,7 @@ pub struct SansaResolveBinding {
     pub kind: Option<String>,
     pub value_type: Option<String>,
     pub children: Vec<SansaResolveBinding>,
+    pub parent: Option<Box<SansaResolveBinding>>,
     pub attribute_space: Option<Box<SansaResolveBinding>>,
     pub attributes: Option<Box<SansaResolveBinding>>,
     pub local_spaces: Vec<(String, SansaResolveBinding)>,
@@ -84,6 +90,7 @@ pub struct SansaResolveNamespace {
     pub root: SansaResolveBinding,
     pub contextual_root: Option<SansaResolveBinding>,
     pub supports_attribute_space: bool,
+    pub supports_parent_traversal: bool,
     pub supports_local_space: bool,
 }
 
@@ -94,6 +101,7 @@ impl SansaResolveNamespace {
             root,
             contextual_root: None,
             supports_attribute_space: true,
+            supports_parent_traversal: false,
             supports_local_space: false,
         }
     }
@@ -143,6 +151,18 @@ pub fn render_address(address: &SansaAddress) -> String {
                 output.push_str(&index.to_string());
                 output.push(']');
             }
+            SansaSelector::PositionRange { start, end } => {
+                output.push('[');
+                if let Some(start) = start {
+                    output.push_str(&start.to_string());
+                }
+                output.push_str("..");
+                if let Some(end) = end {
+                    output.push_str(&end.to_string());
+                }
+                output.push(']');
+            }
+            SansaSelector::Parent => output.push_str(".^"),
             SansaSelector::AttributeSpace => output.push_str(".@"),
             SansaSelector::LocalSpace { name } => {
                 output.push_str(".<");
@@ -317,6 +337,11 @@ fn apply_resolve_selector(
             .iter()
             .flat_map(|binding| select_position(binding, *index))
             .collect()),
+        SansaSelector::PositionRange { start, end } => Ok(bindings
+            .iter()
+            .flat_map(|binding| select_position_range(binding, *start, *end))
+            .collect()),
+        SansaSelector::Parent => select_parents(bindings, namespace, selector_index),
         SansaSelector::DirectExpansion => Ok(bindings
             .iter()
             .flat_map(|binding| binding.children.clone())
@@ -379,6 +404,48 @@ fn select_position(binding: &SansaResolveBinding, index: usize) -> Vec<SansaReso
         return vec![indexed];
     }
     binding.children.get(index).cloned().into_iter().collect()
+}
+
+fn select_position_range(
+    binding: &SansaResolveBinding,
+    start: Option<usize>,
+    end: Option<usize>,
+) -> Vec<SansaResolveBinding> {
+    let lower = start.unwrap_or(0);
+    if matches!(end, Some(upper) if lower > upper) {
+        return Vec::new();
+    }
+    binding
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(ordinal, child)| {
+            let position = child.index.unwrap_or(*ordinal);
+            position >= lower && match end {
+                Some(upper) => position <= upper,
+                None => true,
+            }
+        })
+        .map(|(_, child)| child.clone())
+        .collect()
+}
+
+fn select_parents(
+    bindings: &[SansaResolveBinding],
+    namespace: &SansaResolveNamespace,
+    selector_index: usize,
+) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
+    if !namespace.supports_parent_traversal && !bindings.is_empty() {
+        return Err(resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_PARENT",
+            "The namespace does not expose parent traversal",
+            Some(selector_index),
+        ));
+    }
+    Ok(bindings
+        .iter()
+        .filter_map(|binding| binding.parent.as_deref().cloned())
+        .collect())
 }
 
 fn get_descendants(binding: &SansaResolveBinding) -> Vec<SansaResolveBinding> {
@@ -600,6 +667,9 @@ impl<'a> AddressParser<'a> {
         if self.match_char('@') {
             return Ok(SansaSelector::AttributeSpace);
         }
+        if self.match_char('^') {
+            return Ok(SansaSelector::Parent);
+        }
         if self.match_char('*') {
             if self.match_char('*') {
                 return Ok(SansaSelector::DescendantExpansion);
@@ -641,12 +711,36 @@ impl<'a> AddressParser<'a> {
 
     fn parse_position_selector(&mut self) -> Result<SansaSelector, SansaParseError> {
         self.consume('[')?;
+        let selector_start = self.index;
+        let start = self.parse_optional_position_index()?;
+        if self.input[self.index..].starts_with("..") {
+            self.index += 2;
+            let end = self.parse_optional_position_index()?;
+            if start.is_none() && end.is_none() {
+                return Err(SansaParseError::new(
+                    "Position ranges must include a start or end index",
+                    selector_start,
+                    "SANSA_EMPTY_POSITION_RANGE",
+                ));
+            }
+            self.consume(']')?;
+            return Ok(SansaSelector::PositionRange { start, end });
+        }
+        let index = match start {
+            Some(index) => index,
+            None => return self.fail("Expected positional index", "SANSA_EXPECTED_INDEX"),
+        };
+        self.consume(']')?;
+        Ok(SansaSelector::Position { index })
+    }
+
+    fn parse_optional_position_index(&mut self) -> Result<Option<usize>, SansaParseError> {
         let start = self.index;
         while self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
             self.advance();
         }
         if self.index == start {
-            self.fail("Expected positional index", "SANSA_EXPECTED_INDEX")?;
+            return Ok(None);
         }
         let raw = &self.input[start..self.index];
         if raw.len() > 1 && raw.starts_with('0') {
@@ -656,10 +750,7 @@ impl<'a> AddressParser<'a> {
                 "SANSA_LEADING_ZERO_INDEX",
             ));
         }
-        self.consume(']')?;
-        Ok(SansaSelector::Position {
-            index: raw.parse::<usize>().unwrap_or(0),
-        })
+        Ok(Some(raw.parse::<usize>().unwrap_or(0)))
     }
 
     fn parse_qualifier_expression(
@@ -1055,6 +1146,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_parent_and_position_range_selectors() {
+        assert_eq!(
+            parse_address("$.items[1].^.sku")
+                .expect("parse")
+                .canonical,
+            "$.items[1].^.sku"
+        );
+        assert_eq!(
+            parse_address("$.items[0..1]").expect("parse").canonical,
+            "$.items[0..1]"
+        );
+        assert_eq!(
+            parse_address("$.items[1..]").expect("parse").canonical,
+            "$.items[1..]"
+        );
+        assert_eq!(
+            parse_address("$.items[..1]").expect("parse").canonical,
+            "$.items[..1]"
+        );
+    }
+
+    #[test]
     fn resolves_exact_paths_and_no_match_cases() {
         let namespace = fixture_namespace();
         assert_eq!(
@@ -1085,6 +1198,38 @@ mod tests {
                 &SansaResolveOptions::default()
             )),
             vec!["$.inventory.items[0]", "$.inventory.items[1]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[0..1]",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0]", "$.inventory.items[1]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[1..]",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[1]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[..0]",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[2..1]",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
         );
         assert_eq!(
             resolved_addresses(&resolve_address(
@@ -1250,6 +1395,71 @@ mod tests {
         assert_eq!(
             resolved_addresses(&resolve_address(
                 "$.inventory.<\"missing\">",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn resolves_parent_traversal_when_namespace_exposes_parents() {
+        let sku = binding(
+            "$.inventory.items[0].sku",
+            Some("sku"),
+            None,
+            Some("string"),
+            Some("string"),
+            vec![],
+        );
+        let mut item = binding(
+            "$.inventory.items[0]",
+            None,
+            Some(0),
+            None,
+            Some("object"),
+            vec![sku.clone()],
+        );
+        item.children[0].parent = Some(Box::new(item.clone()));
+        let mut items = binding(
+            "$.inventory.items",
+            Some("items"),
+            None,
+            None,
+            Some("list"),
+            vec![item],
+        );
+        items.children[0].parent = Some(Box::new(items.clone()));
+        let mut inventory = binding(
+            "$.inventory",
+            Some("inventory"),
+            None,
+            None,
+            Some("object"),
+            vec![items],
+        );
+        inventory.children[0].parent = Some(Box::new(inventory.clone()));
+        let mut namespace = SansaResolveNamespace::new(binding(
+            "$",
+            None,
+            None,
+            None,
+            Some("object"),
+            vec![inventory],
+        ));
+        namespace.supports_parent_traversal = true;
+
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.items[0].sku.^",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.items[0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.^",
                 &namespace,
                 &SansaResolveOptions::default()
             )),

@@ -50,6 +50,10 @@ class CoreCompileTests(unittest.TestCase):
             "absolute:sansa = $.inventory.items[2].sku\n"
             "contextual:sansa = ?.name\n"
             'rich:sansa = $.items.*#text%stringLiteral.("item?*")\n'
+            "parent:sansa = $.items[1].^.sku\n"
+            "range:sansa = $.items[0..1]\n"
+            "openEnd:sansa = $.items[1..]\n"
+            "openStart:sansa = $.items[..1]\n"
             'csv:sansa = $.inventory:csv[","]\n'
             "external:sansa = $.value:type<type>[arg]\n"
             "chained:sansa = $.path:tuple<x><y>"

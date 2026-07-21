@@ -310,6 +310,18 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '$.items.*#text%stringLiteral.("item?*")');
         });
 
+        it('should tokenize SANSA parent and position range selectors as one literal', () => {
+            const parent = tokenize('$.items[1].^.sku');
+            assert.strictEqual(parent.errors.length, 0);
+            assert.strictEqual(parent.tokens[0]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(parent.tokens[0]!.value, '$.items[1].^.sku');
+
+            const range = tokenize('$.items[0..1]');
+            assert.strictEqual(range.errors.length, 0);
+            assert.strictEqual(range.tokens[0]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(range.tokens[0]!.value, '$.items[0..1]');
+        });
+
         it('should terminate SANSA address literals at comma and whitespace outside nested payloads', () => {
             const comma = tokenize('$.inventory:csv[","], next');
             assert.strictEqual(comma.tokens[0]!.type, TokenType.SansaAddressLiteral);

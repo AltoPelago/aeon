@@ -98,6 +98,12 @@ def render_address(address: dict[str, object]) -> str:
             output += f".{name}" if IDENTIFIER_RE.fullmatch(name) else f".[{quote_payload(name)}]"
         elif selector_type == "position":
             output += f"[{selector.get('index')}]"
+        elif selector_type == "positionRange":
+            start = selector.get("start")
+            end = selector.get("end")
+            output += f"[{'' if start is None else start}..{'' if end is None else end}]"
+        elif selector_type == "parent":
+            output += ".^"
         elif selector_type == "attributeSpace":
             output += ".@"
         elif selector_type == "localSpace":
@@ -162,6 +168,24 @@ def apply_resolve_selector(
         return {"ok": True, "bindings": [child for binding in bindings for child in select_member(namespace, binding, str(selector.get("name", "")))]}
     if selector_type == "position":
         return {"ok": True, "bindings": [child for binding in bindings for child in select_position(namespace, binding, int(selector.get("index", 0)))]}
+    if selector_type == "positionRange":
+        start = selector.get("start")
+        end = selector.get("end")
+        return {
+            "ok": True,
+            "bindings": [
+                child
+                for binding in bindings
+                for child in select_position_range(
+                    namespace,
+                    binding,
+                    start if isinstance(start, int) else None,
+                    end if isinstance(end, int) else None,
+                )
+            ],
+        }
+    if selector_type == "parent":
+        return select_parents(namespace, bindings, selector_index)
     if selector_type == "directExpansion":
         return {"ok": True, "bindings": [child for binding in bindings for child in get_children(namespace, binding)]}
     if selector_type == "descendantExpansion":
@@ -210,6 +234,44 @@ def select_position(namespace: dict[str, object], binding: object, index: int) -
         if get_binding_index(namespace, child) == index:
             return [child]
     return [children[index]] if 0 <= index < len(children) else []
+
+
+def select_position_range(namespace: dict[str, object], binding: object, start: int | None, end: int | None) -> list[object]:
+    lower = 0 if start is None else start
+    if end is not None and lower > end:
+        return []
+    output = []
+    for ordinal, child in enumerate(get_children(namespace, binding)):
+        explicit_index = get_binding_index(namespace, child)
+        position = explicit_index if isinstance(explicit_index, int) else ordinal
+        if position >= lower and (end is None or position <= end):
+            output.append(child)
+    return output
+
+
+def select_parents(namespace: dict[str, object], bindings: list[object], selector_index: int) -> dict[str, object]:
+    parent = namespace.get("parent")
+    if callable(parent):
+        return {"ok": True, "bindings": [selected for binding in bindings if (selected := parent(binding))]}
+    if any(isinstance(binding, dict) and "parent" in binding for binding in bindings):
+        return {
+            "ok": True,
+            "bindings": [
+                binding.get("parent")
+                for binding in bindings
+                if isinstance(binding, dict) and binding.get("parent") is not None
+            ],
+        }
+    if len(bindings) == 0:
+        return {"ok": True, "bindings": []}
+    return {
+        "ok": False,
+        "error": resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_PARENT",
+            "The namespace does not expose parent traversal",
+            selector_index,
+        ),
+    }
 
 
 def select_attribute_spaces(namespace: dict[str, object], bindings: list[object], selector_index: int) -> dict[str, object]:
@@ -412,6 +474,8 @@ class AddressParser:
         self.consume(".")
         if self.match("@"):
             return {"type": "attributeSpace"}
+        if self.match("^"):
+            return {"type": "parent"}
         if self.match("*"):
             if self.match("*"):
                 return {"type": "descendantExpansion"}
@@ -436,16 +500,30 @@ class AddressParser:
 
     def parse_position_selector(self) -> dict[str, object]:
         self.consume("[")
+        selector_start = self.index
+        start = self.parse_optional_position_index()
+        if self.input.startswith("..", self.index):
+            self.index += 2
+            end = self.parse_optional_position_index()
+            if start is None and end is None:
+                self.fail("Position ranges must include a start or end index", "SANSA_EMPTY_POSITION_RANGE", selector_start)
+            self.consume("]")
+            return {"type": "positionRange", "start": start, "end": end}
+        if start is None:
+            self.fail("Expected positional index", "SANSA_EXPECTED_INDEX")
+        self.consume("]")
+        return {"type": "position", "index": start}
+
+    def parse_optional_position_index(self) -> int | None:
         start = self.index
         while is_digit(self.peek()):
             self.index += 1
         if self.index == start:
-            self.fail("Expected positional index", "SANSA_EXPECTED_INDEX")
+            return None
         raw = self.input[start:self.index]
         if len(raw) > 1 and raw.startswith("0"):
             self.fail("Positional indexes must not contain leading zeroes", "SANSA_LEADING_ZERO_INDEX", start)
-        self.consume("]")
-        return {"type": "position", "index": int(raw)}
+        return int(raw)
 
     def parse_qualifier_expression(self, stop_char: str = "") -> dict[str, object]:
         terms = [self.parse_qualifier_term(stop_char)]

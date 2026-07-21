@@ -23,6 +23,7 @@ interface ResolveSuite {
 
 interface NamespaceFixture {
     readonly id: string;
+    readonly supportsParentTraversal?: boolean;
     readonly supportsLocalSpaces?: boolean;
     readonly root: ResolveBinding;
 }
@@ -154,13 +155,23 @@ function buildNamespaces(entries: readonly NamespaceFixture[]): ReadonlyMap<stri
 
     for (const entry of entries) {
         const byAddress = new Map<string, ResolveBinding>();
-        indexBindingTree(entry.root, byAddress);
+        const parentByAddress = new Map<string, string>();
+        indexBindingTree(entry.root, byAddress, parentByAddress);
         output.set(entry.id, {
             byAddress,
             namespace: {
                 root: entry.root,
                 children: (binding) => binding.children ?? [],
                 attributeSpace: (binding) => binding.attributeSpace,
+                ...(entry.supportsParentTraversal === true
+                    ? {
+                        parent: (binding: ResolveBinding) => {
+                            const address = binding.address;
+                            const parentAddress = typeof address === 'string' ? parentByAddress.get(address) : undefined;
+                            return parentAddress ? byAddress.get(parentAddress) : undefined;
+                        },
+                    }
+                    : {}),
                 ...(entry.supportsLocalSpaces === true
                     ? { localSpace: (binding: ResolveBinding, name: string) => binding.localSpaces?.[name] }
                     : {}),
@@ -171,12 +182,23 @@ function buildNamespaces(entries: readonly NamespaceFixture[]): ReadonlyMap<stri
     return output;
 }
 
-function indexBindingTree(binding: ResolveBinding, output: Map<string, ResolveBinding>): void {
-    if (typeof binding.address === 'string') output.set(binding.address, binding);
-    for (const child of binding.children ?? []) indexBindingTree(child, output);
-    if (binding.attributeSpace) indexBindingTree(binding.attributeSpace, output);
-    if (binding.attributes) indexBindingTree(binding.attributes, output);
-    for (const localSpace of Object.values(binding.localSpaces ?? {})) indexBindingTree(localSpace, output);
+function indexBindingTree(
+    binding: ResolveBinding,
+    output: Map<string, ResolveBinding>,
+    parentByAddress: Map<string, string>,
+    parentAddress?: string,
+): void {
+    if (typeof binding.address === 'string') {
+        output.set(binding.address, binding);
+        if (parentAddress) parentByAddress.set(binding.address, parentAddress);
+    }
+    const nextParent = typeof binding.address === 'string' ? binding.address : parentAddress;
+    for (const child of binding.children ?? []) indexBindingTree(child, output, parentByAddress, nextParent);
+    if (binding.attributeSpace) indexBindingTree(binding.attributeSpace, output, parentByAddress, nextParent);
+    if (binding.attributes) indexBindingTree(binding.attributes, output, parentByAddress, nextParent);
+    for (const localSpace of Object.values(binding.localSpaces ?? {})) {
+        indexBindingTree(localSpace, output, parentByAddress, nextParent);
+    }
 }
 
 function compareArray(
