@@ -54,6 +54,7 @@ class CoreCompileTests(unittest.TestCase):
             "range:sansa = $.items[0..1]\n"
             "openEnd:sansa = $.items[1..]\n"
             "openStart:sansa = $.items[..1]\n"
+            "maxIndex:sansa = $.items[1000000]\n"
             'csv:sansa = $.inventory:csv[","]\n'
             "external:sansa = $.value:type<type>[arg]\n"
             "chained:sansa = $.path:tuple<x><y>"
@@ -61,6 +62,10 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         for event in result.events:
             self.assertEqual("SansaAddressLiteral", event["value"]["type"])
+
+    def test_sansa_address_literals_reject_indexes_above_local_configured_limit(self) -> None:
+        result = compile_source("tooHigh:sansa = $.items[1000001]")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_sansa_address_literals_terminate_before_comments_and_containers(self) -> None:
         result = compile_source(

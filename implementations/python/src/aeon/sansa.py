@@ -5,6 +5,7 @@ import re
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 QUALIFIER_ARG_RE = re.compile(r"^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]+$")
+MAX_POSITION_INDEX = 1_000_000
 
 
 class SansaParseError(Exception):
@@ -523,7 +524,14 @@ class AddressParser:
         raw = self.input[start:self.index]
         if len(raw) > 1 and raw.startswith("0"):
             self.fail("Positional indexes must not contain leading zeroes", "SANSA_LEADING_ZERO_INDEX", start)
-        return int(raw)
+        value = int(raw)
+        if value > MAX_POSITION_INDEX:
+            self.fail(
+                f"Position indexes must be less than or equal to {MAX_POSITION_INDEX}",
+                "SANSA_POSITION_INDEX_LIMIT_EXCEEDED",
+                start,
+            )
+        return value
 
     def parse_qualifier_expression(self, stop_char: str = "") -> dict[str, object]:
         terms = [self.parse_qualifier_term(stop_char)]

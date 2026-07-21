@@ -1,3 +1,5 @@
+pub const SANSA_MAX_POSITION_INDEX: usize = 1_000_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SansaAddress {
     pub root: SansaRoot,
@@ -750,6 +752,15 @@ impl<'a> AddressParser<'a> {
                 "SANSA_LEADING_ZERO_INDEX",
             ));
         }
+        if position_index_exceeds_limit(raw) {
+            return Err(SansaParseError::new(
+                format!(
+                    "Position indexes must be less than or equal to {SANSA_MAX_POSITION_INDEX}"
+                ),
+                start,
+                "SANSA_POSITION_INDEX_LIMIT_EXCEEDED",
+            ));
+        }
         Ok(Some(raw.parse::<usize>().unwrap_or(0)))
     }
 
@@ -1028,6 +1039,11 @@ fn is_exact_selector(selector: &SansaSelector) -> bool {
     )
 }
 
+fn position_index_exceeds_limit(raw: &str) -> bool {
+    let max = SANSA_MAX_POSITION_INDEX.to_string();
+    raw.len() > max.len() || (raw.len() == max.len() && raw > max.as_str())
+}
+
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
@@ -1165,6 +1181,27 @@ mod tests {
             parse_address("$.items[..1]").expect("parse").canonical,
             "$.items[..1]"
         );
+    }
+
+    #[test]
+    fn rejects_position_indexes_above_local_configured_limit() {
+        assert_eq!(
+            parse_address("$.items[1000000]").expect("parse").canonical,
+            "$.items[1000000]"
+        );
+        assert_eq!(
+            parse_address("$.items[0..1000000]")
+                .expect("parse")
+                .canonical,
+            "$.items[0..1000000]"
+        );
+
+        let too_high = parse_address("$.items[1000001]").expect_err("limit");
+        assert_eq!(too_high.code, "SANSA_POSITION_INDEX_LIMIT_EXCEEDED");
+
+        let huge = parse_address("$.items[999999999999999999999999999999999999999]")
+            .expect_err("limit");
+        assert_eq!(huge.code, "SANSA_POSITION_INDEX_LIMIT_EXCEEDED");
     }
 
     #[test]

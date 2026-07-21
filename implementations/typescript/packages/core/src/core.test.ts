@@ -174,14 +174,23 @@ describe('Core - compile()', () => {
                     'bounded:sansa = $.items[0..1]',
                     'openEnd:sansa = $.items[1..]',
                     'openStart:sansa = $.items[..1]',
+                    'max:sansa = $.items[1000000]',
                 ].join('\n')
             );
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(
                 result.events.map((event) => event.value.type),
-                ['SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral']
+                ['SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral']
             );
+        });
+
+        it('should reject SANSA position indexes above the local configured limit', () => {
+            const result = compile('tooHigh:sansa = $.items[1000001]');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.match(result.errors[0]!.message, /less than or equal to 1000000/);
         });
 
         it('should fail closed when maxInputBytes is exceeded', () => {
