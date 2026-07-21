@@ -137,7 +137,7 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
             "finalized": null,
             "annotations": annotations,
             "events": events,
-            "warnings": [],
+            "warnings": diagnostics_json(&compile_result.warnings),
             "errors": diagnostics_json(&compile_result.errors),
         });
     }
@@ -146,13 +146,19 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         &compile_result.events,
         finalize_options(options, compile_result.header),
     );
+    let warnings = compile_result
+        .warnings
+        .iter()
+        .chain(finalized.meta.warnings.iter())
+        .cloned()
+        .collect::<Vec<_>>();
 
     json!({
         "canonical": canonical.text,
         "finalized": finalized.document,
         "annotations": annotations,
         "events": events,
-        "warnings": diagnostics_json(&finalized.meta.warnings),
+        "warnings": diagnostics_json(&warnings),
         "errors": diagnostics_json(&finalized.meta.errors),
     })
 }

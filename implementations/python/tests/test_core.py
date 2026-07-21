@@ -16,6 +16,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_simple_strict_parse(self) -> None:
         result = compile_source("a:number = 1")
         self.assertEqual([], result.errors)
+        self.assertEqual([], result.warnings)
         self.assertEqual("$.a", result.events[0]["path"])
         self.assertEqual("number", result.events[0]["datatype"])
 
@@ -689,6 +690,30 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a = 1\nb = 2", CompileOptions(max_events=1))
         self.assertEqual(["EVENT_COUNT_EXCEEDED"], [error.code for error in result.errors])
         self.assertEqual([], result.events)
+
+    def test_portability_warnings_for_elevated_policy_floors(self) -> None:
+        result = compile_source(
+            "a = 1",
+            CompileOptions(
+                max_attribute_depth=9,
+                max_separator_depth=9,
+                max_generic_depth=9,
+                max_nesting_depth=65,
+                max_events=100_001,
+            ),
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            [
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                "AEON_NON_PORTABLE_EVENT_BUDGET",
+            ],
+            [warning["code"] for warning in result.warnings],
+        )
+        self.assertEqual([8, 8, 8, 64, 100_000], [warning["portableFloor"] for warning in result.warnings])
 
     def test_exponent_underscore_is_accepted(self) -> None:
         result = compile_source("value:number = 3e3_3")

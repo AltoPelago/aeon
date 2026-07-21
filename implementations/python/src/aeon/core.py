@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from dataclasses import field, fields, is_dataclass
 import re
 
 from ._compat import dataclass
@@ -70,6 +70,7 @@ class CompileResult:
     errors: list[AeonError]
     internal_events: list[dict[str, object]] | None = None
     header: dict[str, object] | None = None
+    warnings: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(slots=True, frozen=True)
@@ -151,16 +152,17 @@ NUMERIC_TYPES = {
 
 def compile_source(source: str, options: CompileOptions | None = None) -> CompileResult:
     opts = options or CompileOptions()
+    warnings = compile_portability_warnings(opts) if options is not None else []
     if opts.max_input_bytes is not None:
         actual_bytes = len(source.encode("utf-8"))
         if actual_bytes > opts.max_input_bytes:
             zero = Position(line=1, column=1, offset=0)
             error = InputSizeExceededError(actual_bytes, opts.max_input_bytes, Span(start=zero, end=zero))
-            return CompileResult(events=[], errors=[error])
+            return CompileResult(events=[], errors=[error], warnings=warnings)
     source = strip_leading_bom(source)
     lex_result = tokenize(source)
     if lex_result.errors and not opts.recovery:
-        return CompileResult(events=[], errors=lex_result.errors)
+        return CompileResult(events=[], errors=lex_result.errors, warnings=warnings)
 
     parse_result = parse_tokens(
         source,
@@ -172,28 +174,29 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     )
     parse_errors = [coerce_error(error) for error in parse_result.errors]
     if parse_errors and not opts.recovery:
-        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors])
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors], warnings=warnings)
     if parse_result.document is None:
-        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors])
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors], warnings=warnings)
 
     resolved_bindings, path_errors = resolve_paths(parse_result.document)
     if path_errors and not opts.recovery:
-        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors])
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors], warnings=warnings)
 
     mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode)
     if mode_errors and not opts.recovery:
-        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors])
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors], warnings=warnings)
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
     all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors]
     if reference_errors and not opts.recovery:
-        return CompileResult(events=[], errors=all_errors)
+        return CompileResult(events=[], errors=all_errors, warnings=warnings)
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
     if opts.max_events is not None and len(internal_events) > opts.max_events:
         return CompileResult(
             events=[],
             errors=[*all_errors, EventCountExceededError(len(internal_events), opts.max_events)],
+            warnings=warnings,
         )
     events = [
         event
@@ -205,6 +208,76 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         errors=all_errors,
         internal_events=internal_events,
         header=header_to_result(parse_result.document),
+        warnings=warnings,
+    )
+
+
+def compile_portability_warnings(options: CompileOptions) -> list[dict[str, object]]:
+    defaults = CompileOptions()
+    warnings: list[dict[str, object]] = []
+    warn_if_above(
+        warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_attribute_depth",
+        options.max_attribute_depth,
+        8,
+        defaults.max_attribute_depth,
+    )
+    warn_if_above(
+        warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_separator_depth",
+        options.max_separator_depth,
+        8,
+        defaults.max_separator_depth,
+    )
+    warn_if_above(
+        warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_generic_depth",
+        options.max_generic_depth,
+        8,
+        defaults.max_generic_depth,
+    )
+    warn_if_above(
+        warnings,
+        "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+        "max_nesting_depth",
+        options.max_nesting_depth,
+        64,
+        defaults.max_nesting_depth,
+    )
+    if options.max_events is not None:
+        warn_if_above(
+            warnings,
+            "AEON_NON_PORTABLE_EVENT_BUDGET",
+            "max_events",
+            options.max_events,
+            100_000,
+            defaults.max_events,
+        )
+    return warnings
+
+
+def warn_if_above(
+    warnings: list[dict[str, object]],
+    code: str,
+    policy: str,
+    observed: int,
+    portable_floor: int,
+    default_value: int | None,
+) -> None:
+    if observed == default_value or observed <= portable_floor:
+        return
+    warnings.append(
+        {
+            "code": code,
+            "path": "$",
+            "policy": policy,
+            "observed": observed,
+            "portableFloor": portable_floor,
+            "message": f"{policy} {observed} exceeds the AEON v1 portable floor {portable_floor}",
+        }
     )
 
 

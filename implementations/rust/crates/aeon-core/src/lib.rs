@@ -18,11 +18,10 @@ pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
 pub use sansa::{
-    QualifierArgument, QualifierExpression, QualifierTerm, SansaAddress, SansaParseError,
-    SANSA_MAX_POSITION_INDEX,
-    SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace, SansaResolveOptions,
-    SansaResolveOutput, SansaRoot, SansaSelector, parse_address as parse_sansa_address,
-    resolve_address as resolve_sansa_address,
+    QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
+    SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
+    SansaResolveOptions, SansaResolveOutput, SansaRoot, SansaSelector,
+    parse_address as parse_sansa_address, resolve_address as resolve_sansa_address,
     resolve_parsed_address as resolve_parsed_sansa_address,
 };
 use validation::{
@@ -502,6 +501,7 @@ pub struct CompileResult {
     pub source: String,
     pub events: Vec<AssignmentEvent>,
     pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     pub bindings: Vec<BindingProjection>,
     pub header: Option<HeaderFields>,
 }
@@ -521,6 +521,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile("compile:start");
     let source = strip_leading_bom(input);
     let source = strip_preamble(&source);
+    let warnings = compile_portability_warnings(&options);
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     if let Some(max_bytes) = options.max_input_bytes {
@@ -538,6 +539,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
                         "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
                     ),
                 }],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -556,6 +558,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
             source,
             events: Vec::new(),
             errors: parsed.errors,
+            warnings,
             bindings: Vec::new(),
             header: None,
         };
@@ -663,6 +666,7 @@ fn finalize_compile(
     bindings: Vec<Binding>,
     options: CompileOptions,
 ) -> CompileResult {
+    let warnings = compile_portability_warnings(&options);
     trace_compile("compile:finalize:start");
     let bindings = match lower_header(bindings) {
         Ok(bindings) => bindings,
@@ -672,6 +676,7 @@ fn finalize_compile(
                 source,
                 events: Vec::new(),
                 errors: vec![error],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -687,7 +692,7 @@ fn finalize_compile(
         && !options.recovery;
     if validation_only {
         trace_compile("compile:validation_only");
-        return validate_only_compile(source, bindings, options, &root);
+        return validate_only_compile(source, bindings, options, &root, warnings);
     }
     trace_compile("compile:flatten_document");
     let mut flattened = flatten_document(
@@ -706,6 +711,7 @@ fn finalize_compile(
                     flattened.events.len(),
                     max_events,
                 )],
+                warnings,
                 bindings: Vec::new(),
                 header: options
                     .include_header
@@ -747,6 +753,7 @@ fn finalize_compile(
             source,
             events: Vec::new(),
             errors,
+            warnings,
             bindings: Vec::new(),
             header,
         };
@@ -756,6 +763,7 @@ fn finalize_compile(
         source,
         events: flattened.events,
         errors,
+        warnings,
         bindings: flattened.bindings,
         header,
     }
@@ -766,6 +774,7 @@ fn validate_only_compile(
     bindings: Vec<Binding>,
     options: CompileOptions,
     root: &CanonicalPath,
+    warnings: Vec<Diagnostic>,
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
     let mut errors = Vec::new();
@@ -780,6 +789,7 @@ fn validate_only_compile(
                     flattened.events.len(),
                     max_events,
                 )],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -821,9 +831,78 @@ fn validate_only_compile(
         source,
         events: Vec::new(),
         errors,
+        warnings,
         bindings: Vec::new(),
         header: None,
     }
+}
+
+fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
+    let defaults = CompileOptions::default();
+    let mut warnings = Vec::new();
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_attribute_depth",
+        options.max_attribute_depth,
+        8,
+        defaults.max_attribute_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_separator_depth",
+        options.max_separator_depth,
+        8,
+        defaults.max_separator_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_generic_depth",
+        options.max_generic_depth,
+        8,
+        defaults.max_generic_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+        "max_nesting_depth",
+        options.max_nesting_depth,
+        64,
+        defaults.max_nesting_depth,
+    );
+    if let Some(max_events) = options.max_events {
+        warn_if_above(
+            &mut warnings,
+            "AEON_NON_PORTABLE_EVENT_BUDGET",
+            "max_events",
+            max_events,
+            100_000,
+            defaults.max_events.unwrap_or(0),
+        );
+    }
+    warnings
+}
+
+fn warn_if_above(
+    warnings: &mut Vec<Diagnostic>,
+    code: &str,
+    policy: &str,
+    observed: usize,
+    portable_floor: usize,
+    default_value: usize,
+) {
+    if observed == default_value || observed <= portable_floor {
+        return;
+    }
+    warnings.push(Diagnostic {
+        code: String::from(code),
+        path: Some(String::from("$")),
+        span: None,
+        phase: None,
+        message: format!("{policy} {observed} exceeds the AEON v1 portable floor {portable_floor}"),
+    });
 }
 
 fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagnostic {
@@ -845,6 +924,7 @@ mod tests {
         let result = compile("\u{feff}hello = 1", CompileOptions::default());
         assert_eq!(result.source, "hello = 1");
         assert!(result.errors.is_empty());
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -875,6 +955,41 @@ mod tests {
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "EVENT_COUNT_EXCEEDED");
+    }
+
+    #[test]
+    fn warns_when_policy_ceilings_exceed_portable_floors() {
+        let result = compile(
+            "a = 1",
+            CompileOptions {
+                max_attribute_depth: 9,
+                max_separator_depth: 9,
+                max_generic_depth: 9,
+                max_nesting_depth: 65,
+                max_events: Some(100_001),
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty());
+        let codes = result
+            .warnings
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            vec![
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                "AEON_NON_PORTABLE_EVENT_BUDGET",
+            ]
+        );
+        assert!(result.warnings[0].message.contains("portable floor 8"));
+        assert!(result.warnings[3].message.contains("portable floor 64"));
+        assert!(result.warnings[4].message.contains("portable floor 100000"));
     }
 
     #[test]

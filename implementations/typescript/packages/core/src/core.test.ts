@@ -30,6 +30,8 @@ describe('API Surface', () => {
         const result: CompileResult = compile('a = 1');
         assert.ok(Array.isArray(result.events));
         assert.ok(Array.isArray(result.errors));
+        assert.ok(Array.isArray(result.warnings));
+        assert.strictEqual(result.warnings.length, 0);
     });
 
     it('should accept CompileOptions', () => {
@@ -55,6 +57,26 @@ describe('API Surface', () => {
         const options: CompileOptions = { maxNestingDepth: 64 };
         const result = compile('a = 1', options);
         assert.ok(result);
+    });
+
+    it('should warn when explicit policy ceilings exceed portable floors', () => {
+        const result = compile('a = 1', {
+            maxAttributeDepth: 9,
+            maxSeparatorDepth: 9,
+            maxGenericDepth: 9,
+            maxNestingDepth: 65,
+            maxEvents: 100_001,
+        });
+
+        assert.strictEqual(result.errors.length, 0);
+        assert.deepStrictEqual(result.warnings.map((warning) => warning.code), [
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH',
+            'AEON_NON_PORTABLE_EVENT_BUDGET',
+        ]);
+        assert.deepStrictEqual(result.warnings.map((warning) => warning.portableFloor), [8, 8, 8, 64, 100_000]);
     });
 
     it('should inspect file preamble without parsing the full document', () => {

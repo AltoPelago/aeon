@@ -294,7 +294,8 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             );
             println!("{{");
             println!("  \"events\": {},", render_events(&result.events));
-            println!("  \"errors\": {}", render_errors(&result.errors));
+            println!("  \"errors\": {},", render_errors(&result.errors));
+            println!("  \"warnings\": {}", render_errors(&result.warnings));
             if let Some(contracts) = declared_contracts {
                 println!(",");
                 println!(
@@ -554,11 +555,13 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
                 ),
             )])),
         );
-        let meta = merged_meta_json(
-            &result.errors,
-            &finalized.meta.errors,
-            &finalized.meta.warnings,
-        );
+        let warnings = result
+            .warnings
+            .iter()
+            .chain(finalized.meta.warnings.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &warnings);
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -568,11 +571,13 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         has_finalize_errors = !finalized.meta.errors.is_empty();
         let mut top = Map::new();
         top.insert(String::from("document"), finalized.document);
-        let meta = merged_meta_json(
-            &result.errors,
-            &finalized.meta.errors,
-            &finalized.meta.warnings,
-        );
+        let warnings = result
+            .warnings
+            .iter()
+            .chain(finalized.meta.warnings.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &warnings);
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -2497,6 +2502,7 @@ fn render_inspect_markdown(
         lines.push(format!("- Annotations: {}", annotations.len()));
     }
     lines.push(format!("- Errors: {}", result.errors.len()));
+    lines.push(format!("- Warnings: {}", result.warnings.len()));
     if options.profile.is_some() || options.schema.is_some() || !options.schema_contexts.is_empty()
     {
         lines.push(String::new());
@@ -2517,6 +2523,14 @@ fn render_inspect_markdown(
         lines.push(String::from("## Errors"));
         for error in &result.errors {
             lines.push(format!("- {}", format_error_line(error)));
+        }
+    }
+
+    if !result.warnings.is_empty() {
+        lines.push(String::new());
+        lines.push(String::from("## Warnings"));
+        for warning in &result.warnings {
+            lines.push(format!("- {}", format_error_line(warning)));
         }
     }
 
@@ -4544,7 +4558,7 @@ mod tests {
                 schema_contexts: BTreeMap::new(),
             },
         );
-        let expected = "# AEON Inspect\n\n## Summary\n- File: valid.aeon\n- Version: —\n- Mode: transport\n- Profile: —\n- Schema: —\n- Recovery: false\n- Events: 2\n- Errors: 0\n\n## Assignment Events\n- $.a :int32 = 1\n- $.b = ~a\n\n## References\n- $.b = ~a\n";
+        let expected = "# AEON Inspect\n\n## Summary\n- File: valid.aeon\n- Version: —\n- Mode: transport\n- Profile: —\n- Schema: —\n- Recovery: false\n- Events: 2\n- Errors: 0\n- Warnings: 0\n\n## Assignment Events\n- $.a :int32 = 1\n- $.b = ~a\n\n## References\n- $.b = ~a\n";
         assert_eq!(normalize(&rendered), normalize(expected));
     }
 

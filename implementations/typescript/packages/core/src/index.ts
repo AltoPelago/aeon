@@ -51,6 +51,15 @@ export type AEONError =
     | InputSizeExceededError
     | EventCountExceededError;
 
+export interface AEONWarning {
+    readonly code: string;
+    readonly message: string;
+    readonly path?: string;
+    readonly observed?: number;
+    readonly portableFloor?: number;
+    readonly policy?: string;
+}
+
 export class InputSizeExceededError extends Error {
     readonly code = 'INPUT_SIZE_EXCEEDED';
     readonly actualBytes: number;
@@ -85,6 +94,8 @@ export interface CompileResult {
     readonly events: readonly AssignmentEvent[];
     /** All errors from all phases */
     readonly errors: readonly AEONError[];
+    /** Non-fatal portability and policy warnings */
+    readonly warnings: readonly AEONWarning[];
     /** Parsed header metadata for downstream projection/finalization. */
     readonly header?: {
         readonly fields: ReadonlyMap<string, Value>;
@@ -166,12 +177,13 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const datatypePolicy = options.datatypePolicy;
     const maxInputBytes = options.maxInputBytes;
     const maxEvents = options.maxEvents;
+    const warnings = compilePortabilityWarnings(options);
 
     if (maxInputBytes !== undefined) {
         const actualBytes = Buffer.byteLength(input, 'utf8');
         if (actualBytes > maxInputBytes) {
             allErrors.push(new InputSizeExceededError(actualBytes, maxInputBytes));
-            return { events: [], errors: allErrors };
+            return { events: [], errors: allErrors, warnings };
         }
     }
 
@@ -181,24 +193,24 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const lexResult = tokenize(input, { includeComments: false });
     allErrors.push(...normalizeLexerErrors(input, lexResult.errors));
     if (lexResult.errors.length > 0 && !recovery) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     // Phase 2: Parsing
     const parseResult = parse(lexResult.tokens, { maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxNestingDepth });
     allErrors.push(...parseResult.errors);
     if (parseResult.errors.length > 0 && !recovery) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
     if (!parseResult.document) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     // Phase 3: Path Resolution
     const resolveResult = resolvePaths(parseResult.document, { indexedPaths: true });
     allErrors.push(...resolveResult.errors);
     if (resolveResult.errors.length > 0 && !recovery) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     // Phase 4: Event Emission
@@ -209,18 +221,18 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
         }
     }
     if (emitResult.errors.length > 0 && !recovery && emitResult.events.length === 0) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
     if (maxEvents !== undefined && emitResult.events.length > maxEvents) {
         allErrors.push(new EventCountExceededError(emitResult.events.length, maxEvents));
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     // Phase 5: Reference Validation
     const refResult = validateReferences(emitResult.events, { recovery, maxAttributeDepth });
     allErrors.push(...refResult.errors);
     if (refResult.errors.length > 0 && !recovery) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     // Phase 6: Mode Enforcement
@@ -231,12 +243,13 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     });
     allErrors.push(...modeResult.errors);
     if (modeResult.errors.length > 0 && !recovery) {
-        return { events: [], errors: allErrors };
+        return { events: [], errors: allErrors, warnings };
     }
 
     const result: CompileResult = {
         events: modeResult.events,
         errors: allErrors,
+        warnings,
         ...(parseResult.document.header
             ? {
                 header: {
@@ -255,6 +268,50 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     }
 
     return result;
+}
+
+function compilePortabilityWarnings(options: {
+    readonly maxAttributeDepth?: number;
+    readonly maxSeparatorDepth?: number;
+    readonly maxGenericDepth?: number;
+    readonly maxNestingDepth?: number;
+    readonly maxEvents?: number;
+}): AEONWarning[] {
+    const warnings: AEONWarning[] = [];
+    if (options.maxAttributeDepth !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxAttributeDepth', options.maxAttributeDepth, 8);
+    }
+    if (options.maxSeparatorDepth !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxSeparatorDepth', options.maxSeparatorDepth, 8);
+    }
+    if (options.maxGenericDepth !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxGenericDepth', options.maxGenericDepth, 8);
+    }
+    if (options.maxNestingDepth !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH', 'maxNestingDepth', options.maxNestingDepth, 64);
+    }
+    if (options.maxEvents !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_EVENT_BUDGET', 'maxEvents', options.maxEvents, 100_000);
+    }
+    return warnings;
+}
+
+function warnIfAbove(
+    warnings: AEONWarning[],
+    code: string,
+    policy: string,
+    observed: number,
+    portableFloor: number,
+): void {
+    if (observed <= portableFloor) return;
+    warnings.push({
+        code,
+        path: '$',
+        policy,
+        observed,
+        portableFloor,
+        message: `${policy} ${observed} exceeds the AEON v1 portable floor ${portableFloor}`,
+    });
 }
 
 function normalizeLexerErrors(input: string, errors: readonly LexerError[]): readonly AEONError[] {
