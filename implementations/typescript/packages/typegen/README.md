@@ -2,8 +2,8 @@
 
 TypeScript type generation from AEOS schemas.
 
-This package converts schema rules (`path` + `constraints`) into a deterministic
-TypeScript interface definition.
+This package converts exact AEOS schema rules (`path` + `constraints`) into a
+deterministic TypeScript interface definition.
 
 ## Quick Start
 
@@ -36,10 +36,16 @@ export interface AppConfig {
 
 ## What This Package Does
 
-- reads AEOS schema rules by canonical path
+- reads AEOS schema rules by exact canonical SANSA path
 - builds a nested TypeScript object shape
 - marks fields required when the schema requires them
 - emits diagnostics for invalid or conflicting schema shapes
+
+AEOS selector rules are accepted in `SchemaV1`, but they do not identify one
+concrete property path. Typegen therefore reports selector rules with
+`UNSUPPORTED_SCHEMA_SELECTOR` and leaves them out of the generated static
+interface. Use exact `path` rules for fields that should appear in generated
+TypeScript types.
 
 ## Common Patterns
 
@@ -80,6 +86,7 @@ for (const diag of result.diagnostics) {
 Common diagnostic cases include:
 
 - invalid schema paths
+- selector rules that cannot be converted to concrete TypeScript properties
 - invalid generated identifier names
 - scalar/object path conflicts
 - unknown constraint types falling back to `unknown`
@@ -113,6 +120,6 @@ export function generateTypes(schema: SchemaV1, options?: TypegenOptions): Typeg
 ## Notes
 
 - Required fields are derived from `required: true` and required descendants.
-- Unsupported/unknown schema paths are reported in diagnostics.
+- Unsupported/unknown schema paths and selector-only rules are reported in diagnostics.
 - Unknown constraint types fall back to `unknown` with warnings.
 - Datatype labels can be mapped to custom TypeScript types via `datatypeMap`.

@@ -67,6 +67,42 @@ The usual pipeline is:
 - `warnings`
 - `guarantees`
 
+### Native schema source
+
+The package also exposes a schema codec for `.aeos` source:
+
+```ts
+import { parseSchemaSource, schemaToAeon } from '@altopelago/aeos-core';
+
+const schema = parseSchemaSource(`
+aeos:schema = {
+  id:string = "example.schema"
+  version:string = "1"
+  rules:list<object> = [
+    {
+      path:sansa = $.contact.name
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+      }
+    }
+    {
+      selector:sansa = $.inventory.items.*.sku
+      constraints:object = {
+        type:string = "StringLiteral"
+      }
+    }
+  ]
+}
+`);
+
+const source = schemaToAeon(schema);
+```
+
+Native `.aeos` source uses `path:sansa` for exact targets and
+`selector:sansa` for expansion targets. The in-memory `SchemaV1` object still
+uses string `path` / `selector` fields.
+
 ### Indexed child paths
 
 AEOS validates AES paths, including synthetic indexed child events emitted by Core.

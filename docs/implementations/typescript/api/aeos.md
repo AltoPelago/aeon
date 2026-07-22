@@ -15,6 +15,39 @@ validate(aes, schema, options?)
 
 AEOS validates AES against schema constraints. It validates representation and structure. It does not resolve references, coerce values, or change input data.
 
+`SchemaV1` rules target AES bindings with exactly one of:
+
+- `path`: an exact SANSA path string
+- `selector`: a SANSA selector string
+
+Native `.aeos` schema source should encode those targets as SANSA literals:
+
+```aeon
+aeos:schema = {
+  id:string = "example.schema"
+  version:string = "1"
+  rules:list<object> = [
+    {
+      path:sansa = $.contact.name
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+      }
+    }
+    {
+      selector:sansa = $.inventory.items.*.sku
+      constraints:object = {
+        type:string = "StringLiteral"
+      }
+    }
+  ]
+}
+```
+
+The package exports `parseSchemaSource(...)`, `normalizeSchemaObject(...)`, and
+`schemaToAeon(...)` for projecting between native `.aeos` source and the
+programmatic `SchemaV1` object consumed by `validate(...)`.
+
 ## Options
 
 ```ts
@@ -46,6 +79,8 @@ The envelope intentionally excludes the original AES payload.
 
 - AEOS is a validation boundary, not a semantic evaluation engine.
 - Closed-world schema behavior is part of the current validation surface.
+- Exact `path` and non-exact `selector` rule targets use SANSA syntax for structural binding discovery.
+- SANSA literals inside data documents are ordinary values unless the schema loader assigns them rule-target meaning.
 - Indexed child AES paths are part of the current validation surface. Core emits bracket-addressed child events such as `$.page[0]`, `$.values[0]`, and `$.tuple[1]`, and AEOS rules can target those paths directly.
 - Attribute payload constraints are part of the current validation surface through `constraints.attributes` and `closed_attributes`.
 - This applies to ordinary binding attributes and anonymous child attributes alike.
