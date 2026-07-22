@@ -72,7 +72,7 @@ import { tokenize } from '@altopelago/aeon-lexer';
 import { parse, type Binding, type Value } from '@altopelago/aeon-parser';
 import { inspectHeader } from '@altopelago/aeon-transport';
 import { runTypedRuntime } from './runtime-bind.js';
-import type { SchemaV1 } from '@altopelago/aeos-core';
+import type { SchemaRule, SchemaV1 } from '@altopelago/aeos-core';
 
 const GP_SECURITY_CONVENTIONS = [
     'aeon.gp.security.v1',
@@ -1954,25 +1954,7 @@ function normalizeLegacySchemaContractDoc(
         }
     }
 
-    const rules = rulesRaw.map((rule, index) => {
-        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-            console.error(`Error: Schema contract rule at index ${index} is not an object: ${file}`);
-            process.exit(2);
-        }
-        const ruleObj = rule as Record<string, unknown>;
-        if (typeof ruleObj.path !== 'string' || !ruleObj.path) {
-            console.error(`Error: Schema contract rule at index ${index} missing string 'path': ${file}`);
-            process.exit(2);
-        }
-        if (!ruleObj.constraints || typeof ruleObj.constraints !== 'object' || Array.isArray(ruleObj.constraints)) {
-            console.error(`Error: Schema contract rule at index ${index} missing object 'constraints': ${file}`);
-            process.exit(2);
-        }
-        return {
-            path: ruleObj.path,
-            constraints: projectConstraints(ruleObj.constraints as Record<string, unknown>, String(ruleObj.path), file),
-        };
-    });
+    const rules = normalizeSchemaRules(rulesRaw, file, 'Schema contract');
 
     const schema = {
         rules,
@@ -2088,7 +2070,7 @@ function normalizeAeosSchemaDoc(
         }
     }
 
-    const rules = normalizeAeosRules(rulesRaw as Record<string, unknown>, file);
+    const rules = normalizeSchemaRules(rulesRaw, file, 'Schema document');
     const schema = {
         rules,
         ...(world !== undefined ? { world: world as 'open' | 'closed' } : {}),
@@ -2103,17 +2085,47 @@ function normalizeAeosSchemaDoc(
     return { schema, schemaId };
 }
 
-function normalizeAeosRules(rulesRaw: Record<string, unknown>, file: string): Array<{ path: string; constraints: Record<string, unknown> }> {
-    return Object.entries(rulesRaw).map(([rulePath, constraints]) => {
-        if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) {
-            console.error(`Error: Schema rule '${rulePath}' must be an object of constraints: ${file}`);
-            process.exit(2);
-        }
-        return {
-            path: rulePath,
-            constraints: projectConstraints(constraints as Record<string, unknown>, rulePath, file),
-        };
-    });
+function normalizeSchemaRules(rulesRaw: unknown, file: string, label: string): SchemaRule[] {
+    if (Array.isArray(rulesRaw)) {
+        return rulesRaw.map((rule, index) => normalizeSchemaRuleObject(rule, `${label} rule at index ${index}`, file));
+    }
+    if (rulesRaw && typeof rulesRaw === 'object') {
+        return Object.entries(rulesRaw as Record<string, unknown>).map(([rulePath, constraints]) => {
+            if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) {
+                console.error(`Error: Schema rule '${rulePath}' must be an object of constraints: ${file}`);
+                process.exit(2);
+            }
+            return {
+                path: rulePath,
+                constraints: projectConstraints(constraints as Record<string, unknown>, rulePath, file),
+            };
+        });
+    }
+    console.error(`Error: ${label} field 'rules' must be a list of rule objects: ${file}`);
+    process.exit(2);
+}
+
+function normalizeSchemaRuleObject(rule: unknown, label: string, file: string): SchemaRule {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+        console.error(`Error: ${label} is not an object: ${file}`);
+        process.exit(2);
+    }
+    const ruleObj = rule as Record<string, unknown>;
+    const pathTarget = typeof ruleObj.path === 'string' && ruleObj.path.length > 0 ? ruleObj.path : undefined;
+    const selectorTarget = typeof ruleObj.selector === 'string' && ruleObj.selector.length > 0 ? ruleObj.selector : undefined;
+    if ((pathTarget === undefined) === (selectorTarget === undefined)) {
+        console.error(`Error: ${label} must define exactly one of 'path' or 'selector': ${file}`);
+        process.exit(2);
+    }
+    if (!ruleObj.constraints || typeof ruleObj.constraints !== 'object' || Array.isArray(ruleObj.constraints)) {
+        console.error(`Error: ${label} missing object 'constraints': ${file}`);
+        process.exit(2);
+    }
+    const target = pathTarget ?? selectorTarget!;
+    const constraints = projectConstraints(ruleObj.constraints as Record<string, unknown>, target, file);
+    return pathTarget !== undefined
+        ? { path: pathTarget, constraints }
+        : { selector: selectorTarget!, constraints };
 }
 
 function projectDatatypeRules(

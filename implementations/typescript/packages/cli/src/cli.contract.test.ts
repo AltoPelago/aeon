@@ -997,10 +997,22 @@ describe('AEON CLI output contract', () => {
                 'aeos:schema = {',
                 '  id = "aeon.test.schema.v1"',
                 '  version = "1"',
-                '  rules = {',
-                '    "$.app.name" = { required = true, type = "StringLiteral" }',
-                '    "$.app.port" = { required = true, type = "IntegerLiteral" }',
-                '  }',
+                '  rules:list<object> = [',
+                '    {',
+                '      path:sansa = $.app.name',
+                '      constraints:object = {',
+                '        required:boolean = true',
+                '        type:string = "StringLiteral"',
+                '      }',
+                '    }',
+                '    {',
+                '      selector:sansa = $.app.port',
+                '      constraints:object = {',
+                '        required:boolean = true',
+                '        type:string = "IntegerLiteral"',
+                '      }',
+                '    }',
+                '  ]',
                 '}',
                 '',
             ].join('\n');
@@ -1008,7 +1020,7 @@ describe('AEON CLI output contract', () => {
             const schema: SchemaV1 = {
                 rules: [
                     { path: '$.app.name', constraints: { required: true, type: 'StringLiteral' } },
-                    { path: '$.app.port', constraints: { required: true, type: 'IntegerLiteral' } },
+                    { selector: '$.app.port', constraints: { required: true, type: 'IntegerLiteral' } },
                 ],
             };
             const expected = runTypedRuntime<unknown>(input, { schema, mode: 'strict' });
