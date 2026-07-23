@@ -6,6 +6,39 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.11.0 - 2026-07-24
+
+### Added
+
+- Added TypeScript support for embedded SANSA address literals as the reserved
+  `sansa` value type.
+- Added SANSA address literal coverage for contextual roots, parent traversal,
+  position ranges, qualifier forms, name patterns, semantic filters,
+  representation filters, comment boundaries, and container boundaries.
+- Added AEOS schema source support for native `path:sansa` and
+  `selector:sansa` rule targets.
+- Added SANSA selector expansion in AEOS validation, including direct expansion,
+  recursive expansion, semantic datatype filters, representation kind filters,
+  name patterns, and explicit attribute-space traversal.
+- Added the TypeScript SANSA Resolve CTS runner.
+- Added Tonic materialization support for SANSA-addressable matter graphs.
+
+### Changed
+
+- TypeScript packages that consume SANSA now depend on the published
+  `@altopelago/sansa@0.9.0` package instead of a local repository path.
+- AEOS schema printing now emits native `path:sansa` and `selector:sansa`
+  fields for rule targets.
+- Rust and Python implementation/package lines now track this cycle as
+  `0.11.0`.
+
+### Fixed
+
+- Rejected legacy `[*]` wildcard selectors in AEOS schema surfaces in favor of
+  SANSA expansion selectors such as `.*`.
+- Preserved SANSA address literals as canonical string values during JSON
+  finalization.
+
 ## 0.10.0 - 2026-07-14
 
 ### Breaking
