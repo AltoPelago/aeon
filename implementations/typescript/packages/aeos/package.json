@@ -45,7 +45,7 @@
   "dependencies": {
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
-    "@altopelago/sansa": "file:../../../../../sansa"
+    "@altopelago/sansa": "0.9.0"
   },
   "publishConfig": {
     "access": "public"
