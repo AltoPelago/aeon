@@ -2101,7 +2101,7 @@ function normalizeSchemaRules(rulesRaw: unknown, file: string, label: string): S
             };
         });
     }
-    console.error(`Error: ${label} field 'rules' must be a list of rule objects: ${file}`);
+    console.error(`Error: ${label} field 'rules' must be a list of rule objects or an object mapping paths to constraints: ${file}`);
     process.exit(2);
 }
 
