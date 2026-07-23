@@ -40,6 +40,8 @@ interface ResolveTest {
     readonly input?: {
         readonly namespace?: string;
         readonly contextualRoot?: string;
+        readonly parentTraversal?: 'allow' | 'forbid';
+        readonly failOnParentFromEffectiveRoot?: boolean;
         readonly source?: string;
     };
     readonly expected?: {
@@ -110,7 +112,11 @@ function runTest(test: ResolveTest, namespaces: ReadonlyMap<string, BuiltNamespa
         return failures;
     }
 
-    const options: { contextualRoot?: ResolveBinding } = {};
+    const options: {
+        contextualRoot?: ResolveBinding;
+        parentTraversal?: 'allow' | 'forbid';
+        failOnParentFromEffectiveRoot?: boolean;
+    } = {};
     if (typeof input.contextualRoot === 'string') {
         const contextualRoot = fixture.byAddress.get(input.contextualRoot);
         if (!contextualRoot) {
@@ -119,6 +125,8 @@ function runTest(test: ResolveTest, namespaces: ReadonlyMap<string, BuiltNamespa
         }
         options.contextualRoot = contextualRoot;
     }
+    if (input.parentTraversal === 'forbid') options.parentTraversal = 'forbid';
+    if (input.failOnParentFromEffectiveRoot === true) options.failOnParentFromEffectiveRoot = true;
 
     const result = resolveAddress(input.source, fixture.namespace, options);
     const expectedOk = expected.ok === true;
