@@ -189,6 +189,16 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item?*")');
         });
 
+        it('should compile escaped SANSA name-pattern wildcard literals', () => {
+            const result = compile('a:sansa = $.items.("item\\\\?")');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.items.("item\\\\?")');
+        });
+
         it('should compile SANSA parent and position range selector literals', () => {
             const result = compile(
                 [

@@ -850,6 +850,17 @@ describe('Parser', () => {
             assert.strictEqual(value.address.selectors.length, 5);
         });
 
+        it('should parse escaped SANSA name-pattern wildcard literals', () => {
+            const tokens = tokenize('address:sansa = $.items.("item\\\\*")').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'SansaAddressLiteral');
+            if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(value.canonical, '$.items.("item\\\\*")');
+        });
+
         it('should parse SANSA parent and position range selector literals', () => {
             const tokens = tokenize(
                 [

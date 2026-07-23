@@ -19,3 +19,5 @@ node:node = <tag($.name, $.items.*#text%stringLiteral.("item?*"))>
 tuple:tuple = ($.name, $.inventory:csv[","])
 
 literalUnderscorePattern:sansa = $.items.("item_*")
+literalStarPattern:sansa = $.items.("item\\*")
+literalQuestionPattern:sansa = $.items.("item\\?")

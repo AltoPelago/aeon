@@ -58,7 +58,9 @@ class CoreCompileTests(unittest.TestCase):
             "maxIndex:sansa = $.items[999999]\n"
             'csv:sansa = $.inventory:csv[","]\n'
             "external:sansa = $.value:type<type>[arg]\n"
-            "chained:sansa = $.path:tuple<x><y>"
+            "chained:sansa = $.path:tuple<x><y>\n"
+            'literalStar:sansa = $.items.("item\\\\*")\n'
+            'literalQuestion:sansa = $.items.("item\\\\?")'
         )
         self.assertEqual([], result.errors)
         for event in result.events:

@@ -556,28 +556,54 @@ fn lower_first(value: &str) -> String {
 }
 
 fn glob_matches(pattern: &str, name: &str) -> bool {
+    #[derive(Clone, Copy)]
+    enum PatternToken {
+        AnyMany,
+        AnyOne,
+        Literal(char),
+    }
+
     let pattern_chars: Vec<char> = pattern.chars().collect();
+    let mut pattern_tokens = Vec::new();
+    let mut index = 0;
+    while index < pattern_chars.len() {
+        if pattern_chars[index] == '\\'
+            && index + 1 < pattern_chars.len()
+            && matches!(pattern_chars[index + 1], '*' | '?' | '\\')
+        {
+            pattern_tokens.push(PatternToken::Literal(pattern_chars[index + 1]));
+            index += 2;
+            continue;
+        }
+        pattern_tokens.push(match pattern_chars[index] {
+            '*' => PatternToken::AnyMany,
+            '?' => PatternToken::AnyOne,
+            char => PatternToken::Literal(char),
+        });
+        index += 1;
+    }
+
     let name_chars: Vec<char> = name.chars().collect();
-    let mut dp = vec![vec![false; name_chars.len() + 1]; pattern_chars.len() + 1];
+    let mut dp = vec![vec![false; name_chars.len() + 1]; pattern_tokens.len() + 1];
     dp[0][0] = true;
 
-    for p in 1..=pattern_chars.len() {
-        if pattern_chars[p - 1] == '*' {
+    for p in 1..=pattern_tokens.len() {
+        if matches!(pattern_tokens[p - 1], PatternToken::AnyMany) {
             dp[p][0] = dp[p - 1][0];
         }
     }
 
-    for p in 1..=pattern_chars.len() {
+    for p in 1..=pattern_tokens.len() {
         for n in 1..=name_chars.len() {
-            dp[p][n] = match pattern_chars[p - 1] {
-                '*' => dp[p - 1][n] || dp[p][n - 1],
-                '?' => dp[p - 1][n - 1],
-                char => dp[p - 1][n - 1] && char == name_chars[n - 1],
+            dp[p][n] = match pattern_tokens[p - 1] {
+                PatternToken::AnyMany => dp[p - 1][n] || dp[p][n - 1],
+                PatternToken::AnyOne => dp[p - 1][n - 1],
+                PatternToken::Literal(char) => dp[p - 1][n - 1] && char == name_chars[n - 1],
             };
         }
     }
 
-    dp[pattern_chars.len()][name_chars.len()]
+    dp[pattern_tokens.len()][name_chars.len()]
 }
 
 struct AddressParser<'a> {
@@ -1293,6 +1319,8 @@ mod tests {
                 "$.inventory.items[1].status",
                 "$.inventory.itemA1",
                 "$.inventory.itemB2",
+                "$.inventory.[\"item*\"]",
+                "$.inventory.[\"item?\"]",
                 "$.inventory.archive"
             ]
         );
@@ -1311,6 +1339,22 @@ mod tests {
                 &SansaResolveOptions::default()
             )),
             vec!["$.inventory.itemA1", "$.inventory.itemB2"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.(\"item\\\\*\")",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.[\"item*\"]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.inventory.(\"item\\\\?\")",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.inventory.[\"item?\"]"]
         );
         assert_eq!(
             resolved_addresses(&resolve_address(
@@ -1606,6 +1650,22 @@ mod tests {
                         binding(
                             "$.inventory.itemB2",
                             Some("itemB2"),
+                            None,
+                            Some("string"),
+                            Some("string"),
+                            vec![],
+                        ),
+                        binding(
+                            "$.inventory.[\"item*\"]",
+                            Some("item*"),
+                            None,
+                            Some("string"),
+                            Some("string"),
+                            vec![],
+                        ),
+                        binding(
+                            "$.inventory.[\"item?\"]",
+                            Some("item?"),
                             None,
                             Some("string"),
                             Some("string"),

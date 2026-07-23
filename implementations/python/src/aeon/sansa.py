@@ -75,13 +75,35 @@ def resolve_address(
                 "bindings": [],
                 "errors": [resolve_error("SANSA_RESOLVE_UNSUPPORTED_SELECTOR", "Unsupported SANSA selector", index)],
             }
-        selected = apply_resolve_selector(selector, current, namespace, index)
+        selected = apply_resolve_selector(
+            selector,
+            current,
+            namespace,
+            index,
+            {
+                "effectiveRoot": None if opts.get("allowParentFromEffectiveRoot") is True else root_result["binding"],
+                "parentTraversal": opts.get("parentTraversal"),
+                "failOnParentFromEffectiveRoot": opts.get("failOnParentFromEffectiveRoot") is True,
+            },
+        )
         if not selected["ok"]:
             return {"ok": False, "bindings": [], "errors": [selected["error"]]}
         selected_bindings = selected.get("bindings", [])
         current = selected_bindings if isinstance(selected_bindings, list) else []
         if len(current) == 0:
             break
+
+    if address.get("isExact") is True and len(current) > 1:
+        return {
+            "ok": False,
+            "bindings": [],
+            "errors": [
+                resolve_error(
+                    "SANSA_RESOLVE_EXACT_MULTIPLICITY_VIOLATION",
+                    "Exact SANSA resolution produced more than one binding",
+                )
+            ],
+        }
 
     return {"ok": True, "bindings": current, "diagnostics": []}
 
@@ -162,7 +184,9 @@ def apply_resolve_selector(
     bindings: list[object],
     namespace: dict[str, object],
     selector_index: int,
+    policy: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    policy = policy or {}
     selector_type = selector.get("type")
 
     if selector_type == "member":
@@ -186,7 +210,7 @@ def apply_resolve_selector(
             ],
         }
     if selector_type == "parent":
-        return select_parents(namespace, bindings, selector_index)
+        return select_parents(namespace, bindings, selector_index, policy)
     if selector_type == "directExpansion":
         return {"ok": True, "bindings": [child for binding in bindings for child in get_children(namespace, binding)]}
     if selector_type == "descendantExpansion":
@@ -250,21 +274,45 @@ def select_position_range(namespace: dict[str, object], binding: object, start: 
     return output
 
 
-def select_parents(namespace: dict[str, object], bindings: list[object], selector_index: int) -> dict[str, object]:
+def select_parents(namespace: dict[str, object], bindings: list[object], selector_index: int, policy: dict[str, object]) -> dict[str, object]:
+    if policy.get("parentTraversal") == "forbid":
+        return {
+            "ok": False,
+            "error": resolve_error(
+                "SANSA_RESOLVE_PARENT_TRAVERSAL_FORBIDDEN",
+                "Parent traversal is forbidden by resolver policy",
+                selector_index,
+            ),
+        }
+
+    effective_root = policy.get("effectiveRoot")
+    root_bindings = [binding for binding in bindings if binding is effective_root]
+    if root_bindings and policy.get("failOnParentFromEffectiveRoot") is True:
+        return {
+            "ok": False,
+            "error": resolve_error(
+                "SANSA_RESOLVE_BOUNDARY_ESCAPE_FORBIDDEN",
+                "Parent traversal would escape the effective resolution root",
+                selector_index,
+            ),
+        }
+
+    traversable = [binding for binding in bindings if binding is not effective_root]
+    if len(traversable) == 0:
+        return {"ok": True, "bindings": []}
+
     parent = namespace.get("parent")
     if callable(parent):
-        return {"ok": True, "bindings": [selected for binding in bindings if (selected := parent(binding))]}
-    if any(isinstance(binding, dict) and "parent" in binding for binding in bindings):
+        return {"ok": True, "bindings": [selected for binding in traversable if (selected := parent(binding))]}
+    if any(isinstance(binding, dict) and "parent" in binding for binding in traversable):
         return {
             "ok": True,
             "bindings": [
                 binding.get("parent")
-                for binding in bindings
+                for binding in traversable
                 if isinstance(binding, dict) and binding.get("parent") is not None
             ],
         }
-    if len(bindings) == 0:
-        return {"ok": True, "bindings": []}
     return {
         "ok": False,
         "error": resolve_error(
@@ -733,13 +781,20 @@ def lower_first(value: str) -> str:
 
 def glob_pattern_to_regex(pattern: str) -> re.Pattern[str]:
     source = "^"
-    for char in pattern:
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\" and index + 1 < len(pattern) and pattern[index + 1] in {"*", "?", "\\"}:
+            source += re.escape(pattern[index + 1])
+            index += 2
+            continue
         if char == "*":
             source += ".*"
         elif char == "?":
             source += "."
         else:
             source += re.escape(char)
+        index += 1
     source += "$"
     return re.compile(source)
 

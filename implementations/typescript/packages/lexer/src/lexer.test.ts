@@ -308,6 +308,11 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.SansaAddressLiteral);
             assert.strictEqual(result.tokens[0]!.value, '$.items.*#text%stringLiteral.("item?*")');
+
+            const escaped = tokenize('$.items.("item\\\\*")');
+            assert.strictEqual(escaped.errors.length, 0);
+            assert.strictEqual(escaped.tokens[0]!.type, TokenType.SansaAddressLiteral);
+            assert.strictEqual(escaped.tokens[0]!.value, '$.items.("item\\\\*")');
         });
 
         it('should tokenize SANSA parent and position range selectors as one literal', () => {

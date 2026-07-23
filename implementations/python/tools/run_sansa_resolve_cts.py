@@ -81,6 +81,10 @@ def run_test(test: dict[str, object], namespaces: dict[str, dict[str, object]]) 
         if not isinstance(by_address, dict) or contextual_root_address not in by_address:
             return [f"unknown contextualRoot binding: {contextual_root_address}"]
         options["contextualRoot"] = by_address[contextual_root_address]
+    if input_data.get("parentTraversal") == "forbid":
+        options["parentTraversal"] = "forbid"
+    if input_data.get("failOnParentFromEffectiveRoot") is True:
+        options["failOnParentFromEffectiveRoot"] = True
 
     namespace = fixture["namespace"]
     if not isinstance(namespace, dict):
