@@ -18,6 +18,6 @@ refNested = ~obj.["b\u0041"]
 host@{
   "xA":int32 = 3
 } = 4
-refAttr = ~host@["x\u0041"]
+refAttr = ~host.@.["x\u0041"]
 
 n = <"a\u0041">

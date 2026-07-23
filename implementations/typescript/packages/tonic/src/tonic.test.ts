@@ -94,6 +94,21 @@ test('materializeMatter builds addressable object and list nodes', () => {
   assert.equal(result.document?.at('$.items[0]')?.inspect(), 'scalar $.items[0] = "first"');
   assert.equal(result.document?.at('$.items[1]')?.annotations()[0]?.raw, '//? if item');
   assert.equal(result.document?.serialize(), 'title = "Hello"\nitems = ["first", { done = true }]');
+
+  assert.deepEqual(result.document?.resolve('$.items.*').nodes.map((node) => node.address), [
+    '$.items[0]',
+    '$.items[1]',
+  ]);
+  assert.deepEqual(result.document?.resolve('$.items.*.("done")').nodes.map((node) => node.address), [
+    '$.items[1].done',
+  ]);
+  assert.deepEqual(result.document?.resolve('$.items.*#string%string').nodes.map((node) => node.address), [
+    '$.items[0]',
+  ]);
+
+  const unsupported = result.document?.resolve('$.items.<"catalog">');
+  assert.equal(unsupported?.ok, false);
+  assert.equal(unsupported?.errors[0]?.code, 'SANSA_RESOLVE_UNSUPPORTED_LOCAL_SPACE');
 });
 
 test('materializeMatter supports list and object mutation with reindexed addresses', () => {
@@ -198,6 +213,8 @@ test('materializeMatter supports node literals for structural templates', () => 
   assert.equal(page.tag(), 'main');
   assert.equal(page.attributes().get('class'), 'shell');
   assert.equal(page.children()[0]?.kind, 'node');
+  assert.equal(result.document?.at('$.page[0]')?.kind, 'node');
+  assert.deepEqual(result.document?.resolve('$.page.*').nodes.map((node) => node.address), ['$.page[0]']);
   assert.match(result.document?.serialize() ?? '', /page = <main@\{class = "shell"\}/);
 });
 

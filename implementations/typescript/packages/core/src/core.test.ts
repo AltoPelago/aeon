@@ -30,6 +30,8 @@ describe('API Surface', () => {
         const result: CompileResult = compile('a = 1');
         assert.ok(Array.isArray(result.events));
         assert.ok(Array.isArray(result.errors));
+        assert.ok(Array.isArray(result.warnings));
+        assert.strictEqual(result.warnings.length, 0);
     });
 
     it('should accept CompileOptions', () => {
@@ -55,6 +57,26 @@ describe('API Surface', () => {
         const options: CompileOptions = { maxNestingDepth: 64 };
         const result = compile('a = 1', options);
         assert.ok(result);
+    });
+
+    it('should warn when explicit policy ceilings exceed portable floors', () => {
+        const result = compile('a = 1', {
+            maxAttributeDepth: 9,
+            maxSeparatorDepth: 9,
+            maxGenericDepth: 9,
+            maxNestingDepth: 65,
+            maxEvents: 100_001,
+        });
+
+        assert.strictEqual(result.errors.length, 0);
+        assert.deepStrictEqual(result.warnings.map((warning) => warning.code), [
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH',
+            'AEON_NON_PORTABLE_EVENT_BUDGET',
+        ]);
+        assert.deepStrictEqual(result.warnings.map((warning) => warning.portableFloor), [8, 8, 8, 64, 100_000]);
     });
 
     it('should inspect file preamble without parsing the full document', () => {
@@ -135,6 +157,72 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
             assert.ok(paths.includes('$.opens'));
+        });
+
+        it('should compile SANSA address literals to assignment events', () => {
+            const result = compile('test:sansa = $.inventory.items[2].sku');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.inventory.items[2].sku');
+        });
+
+        it('should compile contextual SANSA address literals to assignment events', () => {
+            const result = compile('a:sansa = ?.name');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '?.name');
+        });
+
+        it('should compile rich SANSA selector literals to assignment events', () => {
+            const result = compile('a:sansa = $.items.*#text%stringLiteral.("item?*")');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.items.*#text%stringLiteral.("item?*")');
+        });
+
+        it('should compile escaped SANSA name-pattern wildcard literals', () => {
+            const result = compile('a:sansa = $.items.("item\\\\?")');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events.length, 1);
+            assert.strictEqual(result.events[0]!.value.type, 'SansaAddressLiteral');
+            if (result.events[0]!.value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
+            assert.strictEqual(result.events[0]!.value.canonical, '$.items.("item\\\\?")');
+        });
+
+        it('should compile SANSA parent and position range selector literals', () => {
+            const result = compile(
+                [
+                    'parent:sansa = $.items[1].^.sku',
+                    'bounded:sansa = $.items[0..1]',
+                    'openEnd:sansa = $.items[1..]',
+                    'openStart:sansa = $.items[..1]',
+                    'max:sansa = $.items[999999]',
+                ].join('\n')
+            );
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(
+                result.events.map((event) => event.value.type),
+                ['SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral', 'SansaAddressLiteral']
+            );
+        });
+
+        it('should reject SANSA position indexes above the local configured limit', () => {
+            const result = compile('tooHigh:sansa = $.items[1000000]');
+
+            assert.strictEqual(result.events.length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.match(result.errors[0]!.message, /less than or equal to 999999/);
         });
 
         it('should fail closed when maxInputBytes is exceeded', () => {
@@ -240,7 +328,7 @@ describe('Core - compile()', () => {
                 assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
             }
             for (const annotation of annotations.slice(4, 9)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a@b' }, annotation.raw);
+                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a.@.b' }, annotation.raw);
             }
             for (const annotation of annotations.slice(9, 16)) {
                 assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
@@ -437,13 +525,13 @@ describe('Core - compile()', () => {
         });
 
         it('should enforce max_attribute_depth policy', () => {
-            const result = compile('a = 1\nv = ~a@x@y');
+            const result = compile('a = 1\nv = ~a.@.x.@.y');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'ATTRIBUTE_DEPTH_EXCEEDED'));
         });
 
         it('should allow deeper attribute refs when max_attribute_depth is raised', () => {
-            const result = compile('a = 1\nv = ~a@x@y', { maxAttributeDepth: 8 });
+            const result = compile('a = 1\nv = ~a.@.x.@.y', { maxAttributeDepth: 8 });
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'MISSING_REFERENCE_TARGET'));
         });
@@ -762,6 +850,12 @@ describe('Core - compile()', () => {
 
         it('should accept typed time literals in strict mode', () => {
             const result = compile('aeon:mode = "strict"\nopens:time = 09:30:00Z');
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
+        });
+
+        it('should accept typed SANSA address literals in strict mode', () => {
+            const result = compile('aeon:mode = "strict"\nlink:sansa = ?.name');
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.length > 0);
         });

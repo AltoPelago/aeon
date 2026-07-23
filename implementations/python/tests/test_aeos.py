@@ -58,25 +58,63 @@ class AeosTests(unittest.TestCase):
         result = validate_events(compiled.events, {"rules": [{"path": "$.page[0]", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
-    def test_wildcard_rules_apply_to_indexed_children_without_requiring_placeholder(self) -> None:
+    def test_sansa_selector_rules_apply_to_indexed_children_without_requiring_placeholder(self) -> None:
         compiled = compile_source("contact:object = { measurements:list<number> = [3, 4, 5] }")
         self.assertEqual([], compiled.errors)
-        result = validate_events(compiled.events, {"rules": [{"path": "$.contact.measurements[*]", "constraints": {"required": True, "type": "NumberLiteral"}}]})
+        result = validate_events(compiled.events, {"rules": [{"selector": "$.contact.measurements.*", "constraints": {"required": True, "type": "NumberLiteral"}}]})
         self.assertTrue(result["ok"])
         self.assertEqual([], result["errors"])
 
-        failing = validate_events(compiled.events, {"rules": [{"path": "$.contact.measurements[*]", "constraints": {"required": True, "type": "StringLiteral"}}]})
+        failing = validate_events(compiled.events, {"rules": [{"selector": "$.contact.measurements.*", "constraints": {"required": True, "type": "StringLiteral"}}]})
         self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.contact.measurements[0]" for error in failing["errors"]))
-        self.assertFalse(any(error["code"] == "missing_required_field" and error["path"] == "$.contact.measurements[*]" for error in failing["errors"]))
+        self.assertFalse(any(error["code"] == "missing_required_field" and error["path"] == "$.contact.measurements.*" for error in failing["errors"]))
 
-    def test_wildcard_rules_accept_any_matching_constraint_branch(self) -> None:
+    def test_legacy_bracket_wildcard_rule_address_is_rejected(self) -> None:
+        compiled = compile_source("contact:object = { measurements:list<number> = [3] }")
+        self.assertEqual([], compiled.errors)
+        result = validate_events(compiled.events, {"rules": [{"path": "$.contact.measurements[*]", "constraints": {"required": True, "type": "NumberLiteral"}}]})
+        self.assertFalse(result["ok"])
+        self.assertEqual(["invalid_schema_policy"], [error["code"] for error in result["errors"]])
+
+    def test_sansa_selector_rules_accept_any_matching_constraint_branch(self) -> None:
         aes = [
             {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "page"}, {"type": "index", "index": 0}]}, "key": "0", "value": {"type": "StringLiteral", "raw": '"Intro"', "value": "Intro"}, "span": [1, 2]},
             {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "page"}, {"type": "index", "index": 1}]}, "key": "1", "value": {"type": "NodeLiteral", "tag": "section", "children": []}, "span": [3, 4]},
         ]
-        result = validate(aes, {"rules": [{"path": "$.page[*]", "constraints": {"required": True, "any_of": [{"type": "StringLiteral"}, {"type": "NodeLiteral"}]}}]})
+        result = validate(aes, {"rules": [{"selector": "$.page.*", "constraints": {"required": True, "any_of": [{"type": "StringLiteral"}, {"type": "NodeLiteral"}]}}]})
         self.assertTrue(result["ok"])
         self.assertEqual([], result["errors"])
+
+    def test_schema_expresses_generic_container_content_claims(self) -> None:
+        aes = [
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "numbers"}]}, "key": "numbers", "datatype": "list<number>", "value": {"type": "ListNode", "elements": []}, "span": [1, 2]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "numbers"}, {"type": "index", "index": 0}]}, "key": "0", "datatype": "string", "value": {"type": "StringLiteral", "raw": '"bad"', "value": "bad"}, "span": [2, 3]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "point"}]}, "key": "point", "datatype": "tuple<number>", "value": {"type": "TupleLiteral", "elements": []}, "span": [4, 5]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "point"}, {"type": "index", "index": 1}]}, "key": "1", "datatype": "string", "value": {"type": "StringLiteral", "raw": '"bad"', "value": "bad"}, "span": [5, 6]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "scores"}]}, "key": "scores", "datatype": "object<number>", "value": {"type": "ObjectNode", "bindings": []}, "span": [7, 8]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "scores"}, {"type": "member", "key": "bob"}]}, "key": "bob", "datatype": "string", "value": {"type": "StringLiteral", "raw": '"bad"', "value": "bad"}, "span": [8, 9]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "group"}]}, "key": "group", "datatype": "node", "value": {"type": "NodeLiteral", "tag": "group", "datatype": "node<node>", "children": []}, "span": [10, 11]},
+            {"path": {"segments": [{"type": "root"}, {"type": "member", "key": "group"}, {"type": "index", "index": 1}]}, "key": "1", "value": {"type": "StringLiteral", "raw": '"bad"', "value": "bad"}, "span": [11, 12]},
+        ]
+        result = validate(aes, {"rules": [
+            {"path": "$.numbers", "constraints": {"type": "ListNode", "datatype": "list<number>"}},
+            {"selector": "$.numbers.*", "constraints": {"type": "NumberLiteral"}},
+            {"path": "$.point", "constraints": {"type": "TupleLiteral", "datatype": "tuple<number>"}},
+            {"selector": "$.point.*", "constraints": {"type": "NumberLiteral"}},
+            {"path": "$.scores", "constraints": {"type": "ObjectNode", "datatype": "object<number>"}},
+            {"selector": "$.scores.*", "constraints": {"type": "NumberLiteral"}},
+            {"path": "$.group", "constraints": {"type": "NodeLiteral"}},
+            {"selector": "$.group.*", "constraints": {"type": "NodeLiteral"}},
+        ]})
+        self.assertFalse(result["ok"])
+        expected = {
+            "$.numbers[0]": {"type_mismatch"},
+            "$.point[1]": {"type_mismatch", "tuple_element_type_mismatch", "TUPLE_ELEMENT_TYPE_MISMATCH"},
+            "$.scores.bob": {"type_mismatch"},
+            "$.group[1]": {"type_mismatch"},
+        }
+        for path, codes in expected.items():
+            self.assertTrue(any(error["code"] in codes and error["path"] == path for error in result["errors"]))
 
     def test_requires_attribute_entries_when_declared_in_schema(self) -> None:
         compiled = compile_source("value:number = 3")
@@ -88,7 +126,7 @@ class AeosTests(unittest.TestCase):
         compiled = compile_source('value@{unit:symbol = "cm"}:number = 3')
         self.assertEqual([], compiled.errors)
         result = validate_events(compiled.events, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {"type": "NumberLiteral", "datatype": "string"}}}}]})
-        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value@unit" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value.@.unit" for error in result["errors"]))
 
     def test_rejects_unexpected_attribute_entries_when_closed_attributes_is_true(self) -> None:
         aes = [{
@@ -103,7 +141,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {"type": "StringLiteral"}}, "closed_attributes": True}}]})
-        self.assertTrue(any(error["code"] == "unexpected_attribute_entry" and error["path"] == "$.value@extra" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "unexpected_attribute_entry" and error["path"] == "$.value.@.extra" for error in result["errors"]))
 
     def test_recurses_into_nested_attribute_entries(self) -> None:
         aes = [{
@@ -122,7 +160,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"meta": {"attributes": {"label": {"type": "StringLiteral"}}}}}}]})
-        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value@meta@label" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value.@.meta.@.label" for error in result["errors"]))
 
     def test_applies_datatype_rules_to_attribute_entries_automatically(self) -> None:
         aes = [{
@@ -136,7 +174,7 @@ class AeosTests(unittest.TestCase):
             "span": [0, 1],
         }]
         result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {}}}}], "datatype_rules": {"uint": {"type": "NumberLiteral", "sign": "unsigned"}}})
-        self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.value@unit" for error in result["errors"]))
+        self.assertTrue(any(error["code"] == "numeric_form_violation" and error["path"] == "$.value.@.unit" for error in result["errors"]))
 
     def test_literal_widening_and_cardinality_constraints(self) -> None:
         aes = [

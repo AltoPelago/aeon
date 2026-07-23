@@ -14,10 +14,11 @@ export function formatReferencePath(path: readonly ReferencePathPart[]): string 
             continue;
         }
         if (typeof segment === 'object' && segment.type === 'attr') {
+            result += '.@';
             if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
-                result += `@${segment.key}`;
+                result += `.${segment.key}`;
             } else {
-                result += `@["${escapeQuotedPathSegment(segment.key)}"]`;
+                result += `.["${escapeQuotedPathSegment(segment.key)}"]`;
             }
             continue;
         }

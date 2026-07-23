@@ -18,7 +18,7 @@ describe('Reference target formatting', () => {
     it('formats attribute reference segments', () => {
         assert.strictEqual(
             formatReferenceTargetPath(['a', { type: 'attr', key: 'meta' }, { type: 'attr', key: 'x.y' }]),
-            '$.a@meta@["x.y"]'
+            '$.a.@.meta.@.["x.y"]'
         );
     });
 });

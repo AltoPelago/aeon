@@ -57,7 +57,7 @@ class AnnotationStreamTests(unittest.TestCase):
         self.assertEqual({"after": "key", "before": "datatype-colon"}, annotations[0]["placement"])
 
     def test_non_ascii_attribute_key_uses_quoted_path_segment(self) -> None:
-        self.assertEqual('$.a@["é"]', format_attribute_path("$.a", "é"))
+        self.assertEqual('$.a.@.["é"]', format_attribute_path("$.a", "é"))
 
     def test_binding_and_node_head_comments_stay_on_container_path(self) -> None:
         annotations = self.annotations_for(
@@ -68,7 +68,7 @@ class AnnotationStreamTests(unittest.TestCase):
         for annotation in annotations[1:4]:
             self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
         for annotation in annotations[4:9]:
-            self.assertEqual({"kind": "path", "path": "$.a@b"}, annotation["target"], annotation["raw"])
+            self.assertEqual({"kind": "path", "path": "$.a.@.b"}, annotation["target"], annotation["raw"])
         for annotation in annotations[9:16]:
             self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
         self.assertEqual({"kind": "path", "path": "$.a[0]"}, annotations[16]["target"])

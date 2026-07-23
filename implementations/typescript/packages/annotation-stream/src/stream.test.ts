@@ -202,10 +202,10 @@ describe('annotation stream', () => {
         assert.deepStrictEqual(
             byRaw.filter((record) => record.raw === '/#b#/' || record.raw === '/#:#/' || record.raw === '/#@=#/' || record.raw === '/#3#/').slice(0, 4),
             [
-                { raw: '/#b#/', path: '$.a@b', placement: { after: 'attribute-key', before: 'attribute-datatype-colon' } },
-                { raw: '/#:#/', path: '$.a@b', placement: { after: 'attribute-datatype-colon', before: 'attribute-datatype' } },
-                { raw: '/#@=#/', path: '$.a@b', placement: { after: 'attribute-equals', before: 'attribute-value' } },
-                { raw: '/#3#/', path: '$.a@b', placement: { after: 'attribute-value' } },
+                { raw: '/#b#/', path: '$.a.@.b', placement: { after: 'attribute-key', before: 'attribute-datatype-colon' } },
+                { raw: '/#:#/', path: '$.a.@.b', placement: { after: 'attribute-datatype-colon', before: 'attribute-datatype' } },
+                { raw: '/#@=#/', path: '$.a.@.b', placement: { after: 'attribute-equals', before: 'attribute-value' } },
+                { raw: '/#3#/', path: '$.a.@.b', placement: { after: 'attribute-value' } },
             ],
         );
         assert.deepStrictEqual(byRaw.find((record) => record.raw === '/#@,#/'), {
@@ -215,7 +215,7 @@ describe('annotation stream', () => {
         });
         assert.deepStrictEqual(byRaw.find((record) => record.raw === '/#c#/'), {
             raw: '/#c#/',
-            path: '$.a@c',
+            path: '$.a.@.c',
             placement: { after: 'attribute-key', before: 'attribute-equals' },
         });
     });

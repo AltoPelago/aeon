@@ -4,6 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
+from .sansa import parse_address as parse_sansa_address, resolve_address as resolve_sansa_address
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -263,7 +264,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
             bound_paths.add(path_str)
             value = event.get("value")
             if isinstance(value, dict) and isinstance(value.get("type"), str):
-                events_by_path[path_str] = {
+                info = {
                     "type": value.get("type"),
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
@@ -272,6 +273,8 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     "reference_path": value.get("path") if isinstance(value.get("path"), list) else None,
                     "attributes": build_attribute_info_map(event.get("annotations")),
                 }
+                events_by_path[path_str] = info
+                hydrate_attribute_info_events(path_str, info.get("attributes"), events_by_path)
                 if value.get("type") in {"TupleLiteral", "ListLiteral", "ListNode"} and isinstance(value.get("elements"), list):
                     elements = value.get("elements")
                     assert isinstance(elements, list)
@@ -289,6 +292,8 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     container_arity[path_str] = len(children)
                     if len(children) > resource_policy["max_container_children_default"]:
                         emit_resource_error(ctx, path_str, f"Container child count {len(children)} exceeds max_container_children_default {resource_policy['max_container_children_default']}", to_span_tuple(event.get("span")))
+
+    bound_paths.update(events_by_path.keys())
 
     for path_str, info in events_by_path.items():
         enforce_string_length_resource_budget(info, path_str, resource_policy, ctx)
@@ -315,8 +320,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
 
     rule_index = build_rule_index(schema, ctx)
     expansion_budget = {"count": 0}
-    selector_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
-    expanded_rule_index = expand_wildcard_rules(selector_rule_index, events_by_path, ctx, resource_policy, expansion_budget)
+    expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
     check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
@@ -342,7 +346,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     check_string_form(selected_rule_index, effective_events_by_path, ctx)
     check_patterns(selected_rule_index, effective_events_by_path, ctx)
     check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
-    check_world_policy(schema, aes, bound_paths, ctx)
+    check_world_policy(schema, aes, bound_paths, events_by_path, ctx)
 
     if ctx.errors:
         return {
@@ -397,7 +401,7 @@ def enforce_string_length_resource_budget(info: dict[str, object], path: str, po
     if isinstance(attributes, dict):
         for key, attribute in attributes.items():
             if isinstance(attribute, dict):
-                enforce_string_length_resource_budget(attribute, f"{path}@{key}", policy, ctx)
+                enforce_string_length_resource_budget(attribute, f"{path}.@.{key}", policy, ctx)
 
 
 def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> dict[str, int]:
@@ -461,7 +465,7 @@ def inspect_constraint_resource_shape(constraints: dict[str, object], path: str,
     if isinstance(attributes, dict):
         for key, child in attributes.items():
             if isinstance(child, dict):
-                inspect_constraint_resource_shape(child, f"{path}@{key}", depth + 1, policy, ctx)
+                inspect_constraint_resource_shape(child, f"{path}.@.{key}", depth + 1, policy, ctx)
 
 
 def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, dict[str, object]]:
@@ -487,6 +491,12 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
             continue
         if has_path and has_selector:
             emit_error(ctx, create_diag("<unknown>", None, 'Rule must provide either "path" or "selector", not both', ERROR_CODES["rule_missing_path"]))
+            continue
+        if has_path and "[*]" in path:
+            emit_error(ctx, create_diag(path, None, f"Legacy indexed wildcard paths are not supported; use a SANSA selector with .* instead: {path}", ERROR_CODES["invalid_schema_policy"]))
+            continue
+        if has_selector and "[*]" in selector:
+            emit_error(ctx, create_diag(selector, None, f"Legacy indexed wildcard selectors are not supported; use SANSA .* instead: {selector}", ERROR_CODES["invalid_schema_policy"]))
             continue
         if path in index:
             emit_error(ctx, create_diag(path, None, f"Duplicate rule for path: {path}", ERROR_CODES["duplicate_rule_path"]))
@@ -569,7 +579,7 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         emit_error(ctx, create_diag(path, None, f"Invalid attributes constraint for path: {path}", ERROR_CODES["unknown_constraint_key"]))
         return False
     for key, child in nested.items():
-        child_path = f"{path}@{key}"
+        child_path = f"{path}.@.{key}"
         if not isinstance(child, dict):
             emit_error(ctx, create_diag(child_path, None, f"Invalid attribute constraint for path: {child_path}", ERROR_CODES["unknown_constraint_key"]))
             return False
@@ -645,7 +655,7 @@ def validate_reference_constraints(
 def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
-        if isinstance(constraints, dict) and constraints.get("required") is True and "[*]" not in path and path not in bound_paths:
+        if isinstance(constraints, dict) and constraints.get("required") is True and path not in bound_paths:
             emit_error(ctx, create_diag(path, None, f"Missing required field: {path}", ERROR_CODES["missing_required_field"]))
 
 
@@ -864,7 +874,7 @@ def validate_attribute_map(base_path: str, attributes: object, constraints: dict
     nested_rules = constraints.get("attributes")
     if isinstance(nested_rules, dict):
         for key, child_constraints in nested_rules.items():
-            child_path = f"{base_path}@{key}"
+            child_path = f"{base_path}.@.{key}"
             if not isinstance(child_constraints, dict):
                 continue
             entry = attribute_map.get(key) if isinstance(attribute_map, dict) else None
@@ -881,7 +891,8 @@ def validate_attribute_map(base_path: str, attributes: object, constraints: dict
             if key in allowed:
                 continue
             span = entry.get("span") if isinstance(entry, dict) else None
-            emit_error(ctx, create_diag(f"{base_path}@{key}", span, f"Unexpected attribute entry: {base_path}@{key}", ERROR_CODES["unexpected_attribute_entry"]))
+            child_path = f"{base_path}.@.{key}"
+            emit_error(ctx, create_diag(child_path, span, f"Unexpected attribute entry: {child_path}", ERROR_CODES["unexpected_attribute_entry"]))
 
 
 def validate_attribute_entry(path: str, entry: dict[str, object], constraints: dict[str, object], datatype_rules: object, ctx: DiagContext) -> None:
@@ -1019,7 +1030,13 @@ def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rule
     return merged
 
 
-def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], bound_paths: set[str], ctx: DiagContext) -> None:
+def check_world_policy(
+    schema: dict[str, object],
+    aes: list[dict[str, object]],
+    bound_paths: set[str],
+    events_by_path: dict[str, dict[str, object]],
+    ctx: DiagContext,
+) -> None:
     if str(schema.get("world", "open")) != "closed":
         return
 
@@ -1044,13 +1061,20 @@ def check_world_policy(schema: dict[str, object], aes: list[dict[str, object]], 
         }
     )
 
+    selector_matches: dict[str, set[str] | None] = {}
+    for kind, allowed_path in allowed_rules:
+        if kind == "selector" and allowed_path not in selector_matches:
+            selector_matches[allowed_path] = resolve_sansa_selector_path_set(allowed_path, events_by_path, ctx)
+
     for event in aes:
         key = event.get("key")
         if isinstance(key, str) and key.startswith("aeon:"):
             continue
         path = format_canonical_path(event.get("path"))
-        if path not in bound_paths or any(
-            matches_selector_path(path, allowed_path) if kind == "selector" else matches_allowed_path(path, allowed_path)
+        if path not in bound_paths:
+            continue
+        if any(
+            path in (selector_matches.get(allowed_path) or set()) if kind == "selector" else matches_allowed_path(path, allowed_path)
             for kind, allowed_path in allowed_rules
         ):
             continue
@@ -1142,10 +1166,11 @@ def expand_selector_rules(
             continue
         if isinstance(path, str) and path:
             continue
+        resolved_paths = resolve_sansa_selector_path_set(selector, events, ctx)
+        if resolved_paths is None:
+            continue
         matched = False
-        for actual_path in events:
-            if not matches_selector_path(actual_path, selector):
-                continue
+        for actual_path in resolved_paths:
             matched = True
             expansion_budget["count"] = expansion_budget.get("count", 0) + 1
             if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
@@ -1158,27 +1183,118 @@ def expand_selector_rules(
     return expanded
 
 
-def expand_wildcard_rules(
-    rule_index: dict[str, dict[str, object]],
-    events: dict[str, dict[str, object]],
-    ctx: DiagContext,
-    resource_policy: dict[str, int],
-    expansion_budget: dict[str, int],
-) -> dict[str, dict[str, object]]:
-    expanded = dict(rule_index)
-    for path, rule in rule_index.items():
-        if "[*]" not in path:
-            continue
-        expanded.pop(path, None)
-        for actual_path in events:
-            if matches_allowed_path(actual_path, path):
-                expansion_budget["count"] = expansion_budget.get("count", 0) + 1
-                if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
-                    emit_resource_error(ctx, path, f"Wildcard expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
-                    return expanded
-                expanded[actual_path] = rule
-    return expanded
+def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext) -> set[str] | None:
+    result = resolve_sansa_address(selector, create_aeos_sansa_resolve_namespace(events))
+    if not result.get("ok"):
+        errors = result.get("errors")
+        first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
+        message = first.get("message") if isinstance(first, dict) else None
+        detail = f"Invalid or unsupported SANSA selector: {message}" if isinstance(message, str) else f"Invalid or unsupported SANSA selector: {selector}"
+        emit_error(ctx, create_diag(selector, None, detail, ERROR_CODES["invalid_schema_policy"]))
+        return None
+    bindings = result.get("bindings")
+    if not isinstance(bindings, list):
+        return set()
+    return {
+        path
+        for binding in bindings
+        if isinstance(binding, dict)
+        for path in [binding.get("path") or binding.get("address")]
+        if isinstance(path, str) and path in events
+    }
 
+
+def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]]) -> dict[str, object]:
+    return {
+        "root": build_aeos_sansa_resolve_tree(events),
+        "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
+        "member": lambda binding, name: next(
+            (
+                child
+                for child in (binding.get("children", []) if isinstance(binding, dict) else [])
+                if isinstance(child, dict) and child.get("name") == name
+            ),
+            None,
+        ),
+        "position": lambda binding, index: next(
+            (
+                child
+                for child in (binding.get("children", []) if isinstance(binding, dict) else [])
+                if isinstance(child, dict) and child.get("index") == index
+            ),
+            None,
+        ),
+        "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
+        "name": lambda binding: binding.get("name") if isinstance(binding, dict) else None,
+        "index": lambda binding: binding.get("index") if isinstance(binding, dict) else None,
+        "semanticType": lambda binding: (binding.get("info") or {}).get("datatype") if isinstance(binding, dict) else None,
+        "representationKind": lambda binding: (binding.get("info") or {}).get("type") if isinstance(binding, dict) else None,
+    }
+
+
+def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]]) -> dict[str, object]:
+    root: dict[str, object] = {"path": "$", "children": []}
+    for path, info in sorted(events.items(), key=lambda item: len(item[0])):
+        insert_aeos_sansa_resolve_path(root, path, info)
+    return root
+
+
+def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object]) -> None:
+    parsed = parse_sansa_address(path)
+    if not parsed.get("ok"):
+        return
+    address = parsed.get("address")
+    if not isinstance(address, dict) or not isinstance(address.get("root"), dict) or address["root"].get("kind") != "absolute":
+        return
+
+    current = root
+    current_path = "$"
+    selectors = address.get("selectors")
+    if not isinstance(selectors, list):
+        selectors = []
+    for selector in selectors:
+        if not isinstance(selector, dict):
+            return
+        selector_type = selector.get("type")
+        if selector_type == "member":
+            name = str(selector.get("name", ""))
+            current_path += format_sansa_member_selector(name)
+            current = get_or_create_sansa_child_binding(current, current_path, {"name": name})
+        elif selector_type == "position":
+            index = int(selector.get("index", 0))
+            current_path += f"[{index}]"
+            current = get_or_create_sansa_child_binding(current, current_path, {"index": index})
+        elif selector_type == "attributeSpace":
+            current_path += ".@"
+            attribute_space = current.get("attributeSpace")
+            if not isinstance(attribute_space, dict):
+                attribute_space = {"path": current_path, "children": []}
+                current["attributeSpace"] = attribute_space
+            current = attribute_space
+        else:
+            return
+    current["info"] = info
+
+
+def get_or_create_sansa_child_binding(parent: dict[str, object], path: str, identity: dict[str, object]) -> dict[str, object]:
+    children = parent.get("children")
+    if not isinstance(children, list):
+        children = []
+        parent["children"] = children
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        if "name" in identity and child.get("name") == identity["name"]:
+            return child
+        if "index" in identity and child.get("index") == identity["index"]:
+            return child
+    child = {"path": path, "children": [], **identity}
+    children.append(child)
+    return child
+
+
+def format_sansa_member_selector(name: str) -> str:
+    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name)}]"
 
 def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
     selected = dict(rule_index)
@@ -1252,111 +1368,7 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
 
 
 def matches_allowed_path(actual_path: str, allowed_path: str) -> bool:
-    if actual_path == allowed_path:
-        return True
-    if "[*]" not in allowed_path:
-        return False
-    pattern = "^" + r"\[\d+\]".join(re.escape(part) for part in allowed_path.split("[*]")) + "$"
-    return re.match(pattern, actual_path) is not None
-
-
-def tokenize_canonical_like_path(path: str) -> list[str] | None:
-    if not path.startswith("$"):
-        return None
-    segments: list[str] = []
-    index = 1
-    while index < len(path):
-        marker = path[index]
-        if marker == ".":
-            index += 1
-            if index < len(path) and path[index] == "[":
-                end = find_bracket_end(path, index)
-                if end < 0:
-                    return None
-                segments.append(path[index : end + 1])
-                index = end + 1
-                continue
-            start = index
-            while index < len(path) and path[index] not in {".", "[", "@"}:
-                index += 1
-            if start == index:
-                return None
-            segments.append(path[start:index])
-            continue
-        if marker == "[":
-            end = find_bracket_end(path, index)
-            if end < 0:
-                return None
-            segments.append(path[index : end + 1])
-            index = end + 1
-            continue
-        if marker == "@":
-            index += 1
-            if index < len(path) and path[index] == "[":
-                end = find_bracket_end(path, index)
-                if end < 0:
-                    return None
-                segments.append(f"@{path[index : end + 1]}")
-                index = end + 1
-                continue
-            start = index
-            while index < len(path) and path[index] not in {".", "[", "@"}:
-                index += 1
-            if start == index:
-                return None
-            segments.append(f"@{path[start:index]}")
-            continue
-        return None
-    return segments
-
-
-def find_bracket_end(path: str, start: int) -> int:
-    quote: str | None = None
-    escaped = False
-    for index in range(start + 1, len(path)):
-        ch = path[index]
-        if escaped:
-            escaped = False
-            continue
-        if quote is not None:
-            if ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {'"', "'"}:
-            quote = ch
-            continue
-        if ch == "]":
-            return index
-    return -1
-
-
-def matches_selector_path(actual_path: str, selector: str) -> bool:
-    if actual_path == selector:
-        return True
-    actual_segments = tokenize_canonical_like_path(actual_path)
-    selector_segments = tokenize_canonical_like_path(selector)
-    if actual_segments is None or selector_segments is None:
-        return False
-
-    def match_from(actual_index: int, selector_index: int) -> bool:
-        if selector_index == len(selector_segments):
-            return actual_index == len(actual_segments)
-        selector_segment = selector_segments[selector_index]
-        if selector_segment == "**":
-            if selector_index == len(selector_segments) - 1:
-                return True
-            return any(match_from(next_actual, selector_index + 1) for next_actual in range(actual_index, len(actual_segments) + 1))
-        if actual_index >= len(actual_segments):
-            return False
-        if selector_segment == "*":
-            return match_from(actual_index + 1, selector_index + 1)
-        if selector_segment == "[*]":
-            return re.match(r"^\[\d+\]$", actual_segments[actual_index]) is not None and match_from(actual_index + 1, selector_index + 1)
-        return selector_segment == actual_segments[actual_index] and match_from(actual_index + 1, selector_index + 1)
-
-    return match_from(0, 0)
+    return actual_path == allowed_path
 
 
 def resolve_terminal_reference_event(event: dict[str, object], events: dict[str, dict[str, object]], active_paths: set[str], remaining_steps: int, state: dict[str, bool]) -> dict[str, object] | None:
@@ -1439,11 +1451,18 @@ def format_reference_target_path(segments: list[object]) -> str:
         elif isinstance(segment, dict) and segment.get("type") == "attr":
             key = str(segment.get("key", ""))
             if is_identifier_safe(key):
-                out += f"@{key}"
+                out += f".@.{key}"
             else:
                 escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
-                out += f'@["{escaped_key}"]'
+                out += f'.@.["{escaped_key}"]'
     return out
+
+
+def format_attribute_path(owner_path: str, key: str) -> str:
+    if is_identifier_safe(key):
+        return f"{owner_path}.@.{key}"
+    escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{owner_path}.@.["{escaped_key}"]'
 
 
 def is_reference_type(value_type: object) -> bool:
@@ -1531,6 +1550,18 @@ def hydrate_indexed_fallback(base_path: str, value: dict[str, object], fallback_
             "reference_path": element.get("path") if isinstance(element.get("path"), list) else None,
             "attributes": build_attribute_info_map(element.get("attributes")),
         }
+        hydrate_attribute_info_events(element_path, events_by_path[element_path].get("attributes"), events_by_path)
+
+
+def hydrate_attribute_info_events(base_path: str, attributes: object, events_by_path: dict[str, dict[str, object]]) -> None:
+    if not isinstance(attributes, dict):
+        return
+    for key, info in attributes.items():
+        if not isinstance(info, dict):
+            continue
+        attribute_path = format_attribute_path(base_path, str(key))
+        events_by_path[attribute_path] = info
+        hydrate_attribute_info_events(attribute_path, info.get("attributes"), events_by_path)
 
 
 def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]] | None:

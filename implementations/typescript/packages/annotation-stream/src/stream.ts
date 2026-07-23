@@ -657,8 +657,8 @@ function scanAttributeEntryBindables(
 
 function formatAttributePath(ownerPath: string, key: string): string {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
-        ? `${ownerPath}@${key}`
-        : `${ownerPath}@[${JSON.stringify(key)}]`;
+        ? `${ownerPath}.@.${key}`
+        : `${ownerPath}.@.[${JSON.stringify(key)}]`;
 }
 
 function isCommentToken(token: Token): boolean {

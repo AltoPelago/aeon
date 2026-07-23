@@ -9,12 +9,28 @@ import { hasUnknownConstraintKeys } from '../types/schema.js';
 import type { DiagContext } from '../diag/emit.js';
 import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
+import { parseAddress } from '@altopelago/sansa';
 
 const MAX_SCHEMA_REGEX_LENGTH = 512;
 const PORTABLE_REGEX_ESCAPES = new Set([
     '0', 'b', 'B', 'd', 'D', 'f', 'n', 'r', 's', 'S', 't', 'v', 'w', 'W',
     '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
 ]);
+
+function formatQuotedMemberSegment(key: unknown): string {
+    return `.[${JSON.stringify(String(key))}]`;
+}
+
+function formatMemberSelector(key: unknown): string {
+    const value = String(key);
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)
+        ? `.${value}`
+        : formatQuotedMemberSegment(value);
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return `${basePath}.@${formatMemberSelector(key)}`;
+}
 
 function isReferenceType(type: string | undefined): boolean {
     return type === 'CloneReference' || type === 'PointerReference';
@@ -480,16 +496,17 @@ function validateConstraintTree(
     }
 
     for (const [key, childConstraints] of Object.entries(nestedAttributes)) {
+        const childPath = appendAttributePath(rulePath, key);
         if (childConstraints === null || typeof childConstraints !== 'object' || Array.isArray(childConstraints)) {
             emitError(ctx, createDiag(
-                `${rulePath}@${key}`,
+                childPath,
                 null,
-                `Invalid attribute constraint for path ${rulePath}@${key}`,
+                `Invalid attribute constraint for path ${childPath}`,
                 ErrorCodes.UNKNOWN_CONSTRAINT_KEY
             ));
             return false;
         }
-        if (!validateConstraintTree(schema, `${rulePath}@${key}`, childConstraints as Record<string, unknown>, ctx)) {
+        if (!validateConstraintTree(schema, childPath, childConstraints as Record<string, unknown>, ctx)) {
             return false;
         }
     }
@@ -559,6 +576,29 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
                 null,
                 `Rule must use either "path" or "selector", not both: ${ruleKey}`,
                 ErrorCodes.RULE_MISSING_PATH
+            ));
+            continue;
+        }
+
+        if (hasSelector) {
+            const selectorResult = parseAddress(rule.selector!);
+            if (!selectorResult.ok) {
+                emitError(ctx, createDiag(
+                    rule.selector!,
+                    null,
+                    `Invalid SANSA selector: ${selectorResult.errors[0]?.message ?? rule.selector!}`,
+                    ErrorCodes.INVALID_SCHEMA_POLICY
+                ));
+                continue;
+            }
+        }
+
+        if (hasPath && rule.path!.includes('[*]')) {
+            emitError(ctx, createDiag(
+                rule.path!,
+                null,
+                `Legacy indexed wildcard paths are not supported; use a SANSA selector with .* instead: ${rule.path!}`,
+                ErrorCodes.INVALID_SCHEMA_POLICY
             ));
             continue;
         }

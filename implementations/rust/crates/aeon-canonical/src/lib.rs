@@ -1060,7 +1060,7 @@ fn normalize_raw(raw: &str) -> String {
         value.make_ascii_lowercase();
     }
     value = normalize_quoted_reference_segments(&value, ".[\"", ".");
-    value = normalize_quoted_reference_segments(&value, "@[\"", "@");
+    value = normalize_quoted_reference_segments(&value, ".@.[\"", ".@.");
     value
 }
 
@@ -1859,7 +1859,9 @@ impl<'a> Parser<'a> {
     fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
         let start = self.index;
         let mut bracket_depth = 0usize;
+        let mut paren_depth = 0usize;
         let mut in_quote = None;
+        let is_sansa_like = matches!(self.source[start], b'$' | b'?');
         while let Some(ch) = self.peek() {
             if let Some(quote) = in_quote {
                 self.index += 1;
@@ -1891,13 +1893,26 @@ impl<'a> Parser<'a> {
                     bracket_depth -= 1;
                     self.index += 1;
                 }
-                '/' if self.source[start] != b'$'
-                    && bracket_depth == 0
+                '(' if is_sansa_like => {
+                    paren_depth += 1;
+                    self.index += 1;
+                }
+                ')' if is_sansa_like && paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.index += 1;
+                }
+                '/' if is_sansa_like && bracket_depth == 0 && paren_depth == 0 => break,
+                '/' if bracket_depth == 0
+                    && paren_depth == 0
                     && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
                 {
                     break;
                 }
-                ' ' | '\t' | ',' | '\n' | '\r' | '}' | ')' if bracket_depth == 0 => break,
+                ' ' | '\t' | ',' | '\n' | '\r' | '}' | ')'
+                    if bracket_depth == 0 && paren_depth == 0 =>
+                {
+                    break;
+                }
                 _ => self.index += 1,
             }
         }
@@ -2409,6 +2424,30 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_sansa_address_literals_before_comments_and_inside_containers() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\n\
+             a:sansa = $.name/* block */\n\
+             b:sansa = $.name// line\n\
+             c:list = [$.name]\n\
+             d:node = <tag($.name)>\n\
+             e:tuple = ($.name)\n\
+             f:sansa = $.items.*#text%stringLiteral.(\"item?*\")\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.text,
+            "aeon:header = {\n  mode = \"strict\"\n}\n\
+             a:sansa = $.name\n\
+             b:sansa = $.name\n\
+             c:list = [$.name]\n\
+             d:node = <tag(\n  $.name\n)>\n\
+             e:tuple = ($.name)\n\
+             f:sansa = $.items.*#text%stringLiteral.(\"item?*\")\n"
+        );
+    }
+
+    #[test]
     fn canonicalizes_braced_unicode_escapes_in_all_string_delimiters() {
         let result = canonicalize(
             "string014:string = '\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}'\nstring015:string = \"\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}\"\nstring016:string = `\\u2B62 \\u{10908} \\u{2B95} \\u{2B91}`\n",
@@ -2528,12 +2567,12 @@ mod tests {
              a = { \"b.c\" = 1 }\n\
              v = ~$.a.[\"b.c\"]\n\
              p = ~>$.a\n\
-             q = ~a@[\"meta\"].deep\n",
+             q = ~a.@.[\"meta\"].deep\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a@meta.deep\nv = ~a.[\"b.c\"]\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a.@.meta.deep\nv = ~a.[\"b.c\"]\n"
         );
     }
 
@@ -2662,12 +2701,12 @@ mod tests {
     #[test]
     fn canonicalizes_root_prefixed_quoted_attribute_traversal() {
         let result = canonicalize(
-            "aeon:mode = \"transport\"\na@{ meta = { deep = 1 } } = 3\nv = ~$.a@[\"meta\"].[\"deep\"]\n",
+            "aeon:mode = \"transport\"\na@{ meta = { deep = 1 } } = 3\nv = ~$.a.@.[\"meta\"].[\"deep\"]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\nv = ~a@meta.deep\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 1 }} = 3\nv = ~a.@.meta.deep\n"
         );
     }
 

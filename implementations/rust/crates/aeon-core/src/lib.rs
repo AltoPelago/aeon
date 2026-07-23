@@ -4,6 +4,7 @@ mod flatten;
 mod header;
 mod lexer;
 mod pathing;
+mod sansa;
 mod temporal;
 mod token_parser;
 mod validation;
@@ -16,6 +17,13 @@ use flatten::{flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
+pub use sansa::{
+    QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
+    SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
+    SansaResolveOptions, SansaResolveOutput, SansaRoot, SansaSelector,
+    parse_address as parse_sansa_address, resolve_address as resolve_sansa_address,
+    resolve_parsed_address as resolve_parsed_sansa_address,
+};
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_datatypes,
     validate_datatypes_light, validate_duplicate_canonical_paths,
@@ -271,6 +279,11 @@ pub enum Value {
     TimeLiteral {
         raw: String,
     },
+    SansaAddressLiteral {
+        address: SansaAddress,
+        raw: String,
+        canonical: String,
+    },
     NodeLiteral {
         raw: String,
         tag: String,
@@ -367,6 +380,7 @@ impl Value {
             Self::DateLiteral { .. } => "DateLiteral",
             Self::DateTimeLiteral { .. } => "DateTimeLiteral",
             Self::TimeLiteral { .. } => "TimeLiteral",
+            Self::SansaAddressLiteral { .. } => "SansaAddressLiteral",
             Self::NodeLiteral { .. } => "NodeLiteral",
             Self::ListNode { .. } => "ListNode",
             Self::TupleLiteral { .. } => "TupleLiteral",
@@ -487,6 +501,7 @@ pub struct CompileResult {
     pub source: String,
     pub events: Vec<AssignmentEvent>,
     pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     pub bindings: Vec<BindingProjection>,
     pub header: Option<HeaderFields>,
 }
@@ -506,6 +521,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile("compile:start");
     let source = strip_leading_bom(input);
     let source = strip_preamble(&source);
+    let warnings = compile_portability_warnings(&options);
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     if let Some(max_bytes) = options.max_input_bytes {
@@ -523,6 +539,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
                         "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
                     ),
                 }],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -541,6 +558,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
             source,
             events: Vec::new(),
             errors: parsed.errors,
+            warnings,
             bindings: Vec::new(),
             header: None,
         };
@@ -648,6 +666,7 @@ fn finalize_compile(
     bindings: Vec<Binding>,
     options: CompileOptions,
 ) -> CompileResult {
+    let warnings = compile_portability_warnings(&options);
     trace_compile("compile:finalize:start");
     let bindings = match lower_header(bindings) {
         Ok(bindings) => bindings,
@@ -657,6 +676,7 @@ fn finalize_compile(
                 source,
                 events: Vec::new(),
                 errors: vec![error],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -672,7 +692,7 @@ fn finalize_compile(
         && !options.recovery;
     if validation_only {
         trace_compile("compile:validation_only");
-        return validate_only_compile(source, bindings, options, &root);
+        return validate_only_compile(source, bindings, options, &root, warnings);
     }
     trace_compile("compile:flatten_document");
     let mut flattened = flatten_document(
@@ -691,6 +711,7 @@ fn finalize_compile(
                     flattened.events.len(),
                     max_events,
                 )],
+                warnings,
                 bindings: Vec::new(),
                 header: options
                     .include_header
@@ -732,6 +753,7 @@ fn finalize_compile(
             source,
             events: Vec::new(),
             errors,
+            warnings,
             bindings: Vec::new(),
             header,
         };
@@ -741,6 +763,7 @@ fn finalize_compile(
         source,
         events: flattened.events,
         errors,
+        warnings,
         bindings: flattened.bindings,
         header,
     }
@@ -751,6 +774,7 @@ fn validate_only_compile(
     bindings: Vec<Binding>,
     options: CompileOptions,
     root: &CanonicalPath,
+    warnings: Vec<Diagnostic>,
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
     let mut errors = Vec::new();
@@ -765,6 +789,7 @@ fn validate_only_compile(
                     flattened.events.len(),
                     max_events,
                 )],
+                warnings,
                 bindings: Vec::new(),
                 header: None,
             };
@@ -806,9 +831,78 @@ fn validate_only_compile(
         source,
         events: Vec::new(),
         errors,
+        warnings,
         bindings: Vec::new(),
         header: None,
     }
+}
+
+fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
+    let defaults = CompileOptions::default();
+    let mut warnings = Vec::new();
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_attribute_depth",
+        options.max_attribute_depth,
+        8,
+        defaults.max_attribute_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_separator_depth",
+        options.max_separator_depth,
+        8,
+        defaults.max_separator_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_POLICY_DEPTH",
+        "max_generic_depth",
+        options.max_generic_depth,
+        8,
+        defaults.max_generic_depth,
+    );
+    warn_if_above(
+        &mut warnings,
+        "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+        "max_nesting_depth",
+        options.max_nesting_depth,
+        64,
+        defaults.max_nesting_depth,
+    );
+    if let Some(max_events) = options.max_events {
+        warn_if_above(
+            &mut warnings,
+            "AEON_NON_PORTABLE_EVENT_BUDGET",
+            "max_events",
+            max_events,
+            100_000,
+            defaults.max_events.unwrap_or(0),
+        );
+    }
+    warnings
+}
+
+fn warn_if_above(
+    warnings: &mut Vec<Diagnostic>,
+    code: &str,
+    policy: &str,
+    observed: usize,
+    portable_floor: usize,
+    default_value: usize,
+) {
+    if observed == default_value || observed <= portable_floor {
+        return;
+    }
+    warnings.push(Diagnostic {
+        code: String::from(code),
+        path: Some(String::from("$")),
+        span: None,
+        phase: None,
+        message: format!("{policy} {observed} exceeds the AEON v1 portable floor {portable_floor}"),
+    });
 }
 
 fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagnostic {
@@ -830,6 +924,7 @@ mod tests {
         let result = compile("\u{feff}hello = 1", CompileOptions::default());
         assert_eq!(result.source, "hello = 1");
         assert!(result.errors.is_empty());
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -863,6 +958,41 @@ mod tests {
     }
 
     #[test]
+    fn warns_when_policy_ceilings_exceed_portable_floors() {
+        let result = compile(
+            "a = 1",
+            CompileOptions {
+                max_attribute_depth: 9,
+                max_separator_depth: 9,
+                max_generic_depth: 9,
+                max_nesting_depth: 65,
+                max_events: Some(100_001),
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty());
+        let codes = result
+            .warnings
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            vec![
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                "AEON_NON_PORTABLE_EVENT_BUDGET",
+            ]
+        );
+        assert!(result.warnings[0].message.contains("portable floor 8"));
+        assert!(result.warnings[3].message.contains("portable floor 64"));
+        assert!(result.warnings[4].message.contains("portable floor 100000"));
+    }
+
+    #[test]
     fn formats_root_member_and_index_segments() {
         let path = CanonicalPath::root()
             .member("users")
@@ -879,6 +1009,63 @@ mod tests {
         assert_eq!(result.bindings[0].path, "$.a");
         assert_eq!(result.bindings[0].datatype.as_deref(), Some("number"));
         assert_eq!(result.events[0].value.value_kind(), "NumberLiteral");
+    }
+
+    #[test]
+    fn parses_sansa_address_literals() {
+        let result = compile(
+            "absolute:sansa = $.inventory:csv[\",\"]\ncontext:sansa = ?.name\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 2);
+        assert_eq!(
+            result.events[0].value,
+            Value::SansaAddressLiteral {
+                address: parse_sansa_address("$.inventory:csv[\",\"]").expect("parse"),
+                raw: String::from("$.inventory:csv[\",\"]"),
+                canonical: String::from("$.inventory:csv[\",\"]"),
+            }
+        );
+        assert_eq!(result.events[1].value.value_kind(), "SansaAddressLiteral");
+    }
+
+    #[test]
+    fn sansa_datatype_rejects_non_address_literal_values() {
+        let result = compile("address:sansa = \"$.path\"\n", CompileOptions::default());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+    }
+
+    #[test]
+    fn clone_reference_root_dollar_is_not_scanned_as_sansa_address() {
+        let result = compile("path = 1\ncopy = ~$.path\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[1].value.value_kind(), "CloneReference");
+    }
+
+    #[test]
+    fn parses_sansa_address_literals_before_comments_and_inside_containers() {
+        let result = compile(
+            "a:sansa = $.name/* block */\n\
+             b:sansa = $.name// line\n\
+             c:list = [$.name]\n\
+             d:node = <tag($.name)>\n\
+             e:tuple = ($.name)\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_path = result
+            .events
+            .iter()
+            .map(|event| (format_path(&event.path), event.value.value_kind()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(by_path["$.a"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.b"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.c[0]"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.d[0]"], "SansaAddressLiteral");
+        assert_eq!(by_path["$.e[0]"], "SansaAddressLiteral");
     }
 
     #[test]
@@ -958,9 +1145,9 @@ mod tests {
     #[test]
     fn payload_can_reference_own_attached_attributes() {
         for source in [
-            "a@{x = 2} = ~a@x\n",
-            "a@{\"x.y\" = 2} = ~a@[\"x.y\"]\n",
-            "a@{x = { z = 2 }} = ~a@x.z\n",
+            "a@{x = 2} = ~a.@.x\n",
+            "a@{\"x.y\" = 2} = ~a.@.[\"x.y\"]\n",
+            "a@{x = { z = 2 }} = ~a.@.x.z\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -984,23 +1171,23 @@ mod tests {
 
     #[test]
     fn attribute_payload_self_and_missing_targets_fail_closed() {
-        let self_ref = compile("a@{x = ~a@x} = 1\n", CompileOptions::default());
+        let self_ref = compile("a@{x = ~a.@.x} = 1\n", CompileOptions::default());
         assert_eq!(self_ref.errors[0].code, "SELF_REFERENCE");
 
-        let nested_self = compile("a@{x = { z = ~a@x.z }} = 1\n", CompileOptions::default());
+        let nested_self = compile("a@{x = { z = ~a.@.x.z }} = 1\n", CompileOptions::default());
         assert_eq!(nested_self.errors[0].code, "SELF_REFERENCE");
 
-        let missing = compile("a@{x = ~a@missing} = 1\n", CompileOptions::default());
+        let missing = compile("a@{x = ~a.@.missing} = 1\n", CompileOptions::default());
         assert_eq!(missing.errors[0].code, "MISSING_REFERENCE_TARGET");
     }
 
     #[test]
     fn attribute_payload_sibling_order_is_source_ordered() {
-        let backward = compile("a@{y = 1, x = ~a@y} = 1\n", CompileOptions::default());
+        let backward = compile("a@{y = 1, x = ~a.@.y} = 1\n", CompileOptions::default());
         assert!(backward.errors.is_empty(), "{:?}", backward.errors);
 
         let quoted_backward = compile(
-            "a@{\"z.y\" = 1, \"x.y\" = ~a@[\"z.y\"]} = 1\n",
+            "a@{\"z.y\" = 1, \"x.y\" = ~a.@.[\"z.y\"]} = 1\n",
             CompileOptions::default(),
         );
         assert!(
@@ -1009,11 +1196,11 @@ mod tests {
             quoted_backward.errors
         );
 
-        let forward = compile("a@{x = ~a@y, y = 1} = 1\n", CompileOptions::default());
+        let forward = compile("a@{x = ~a.@.y, y = 1} = 1\n", CompileOptions::default());
         assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
 
         let quoted_forward = compile(
-            "a@{\"x.y\" = ~a@[\"z.y\"], \"z.y\" = 1} = 1\n",
+            "a@{\"x.y\" = ~a.@.[\"z.y\"], \"z.y\" = 1} = 1\n",
             CompileOptions::default(),
         );
         assert_eq!(quoted_forward.errors[0].code, "FORWARD_REFERENCE");
@@ -1325,7 +1512,7 @@ mod tests {
     #[test]
     fn reports_missing_reference_target_with_path_and_span_details() {
         let result = compile(
-            "a@{ ns = \"alto.v1\" } = 1\nb = ~a@missing\n",
+            "a@{ ns = \"alto.v1\" } = 1\nb = ~a.@.missing\n",
             CompileOptions::default(),
         );
         assert!(result.events.is_empty());
@@ -1333,7 +1520,7 @@ mod tests {
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
         assert_eq!(
             result.errors[0].message,
-            "Missing reference target: '$.a@missing'"
+            "Missing reference target: '$.a.@.missing'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$"));
         let span = result.errors[0].span.as_ref().expect("span");
@@ -1341,19 +1528,19 @@ mod tests {
         assert_eq!(span.start.column, 5);
         assert_eq!(span.start.offset, 29);
         assert_eq!(span.end.line, 2);
-        assert_eq!(span.end.column, 15);
-        assert_eq!(span.end.offset, 39);
+        assert_eq!(span.end.column, 17);
+        assert_eq!(span.end.offset, 41);
     }
 
     #[test]
     fn classifies_missing_attribute_target_on_missing_binding_as_missing_reference_target() {
-        let result = compile("b = ~a@missing\n", CompileOptions::default());
+        let result = compile("b = ~a.@.missing\n", CompileOptions::default());
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
         assert_eq!(
             result.errors[0].message,
-            "Missing reference target: '$.a@missing'"
+            "Missing reference target: '$.a.@.missing'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$"));
     }
@@ -1935,9 +2122,9 @@ mod tests {
         assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
         assert_eq!(
             result.errors[0].message,
-            "Datatype/literal mismatch at '$.b@n': datatype ':string' expects StringLiteral, got NumberLiteral"
+            "Datatype/literal mismatch at '$.b.@.n': datatype ':string' expects StringLiteral, got NumberLiteral"
         );
-        assert_eq!(result.errors[0].path.as_deref(), Some("$.b@n"));
+        assert_eq!(result.errors[0].path.as_deref(), Some("$.b.@.n"));
     }
 
     #[test]
@@ -1951,7 +2138,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.b@n")),
+                    && error.path.as_deref() == Some("$.b.@.n")),
             "{:?}",
             result.errors
         );
@@ -1968,7 +2155,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.content@id")),
+                    && error.path.as_deref() == Some("$.content.@.id")),
             "{:?}",
             result.errors
         );
@@ -1977,7 +2164,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "UNTYPED_VALUE_IN_STRICT_MODE"
-                    && error.path.as_deref() == Some("$.content@class")),
+                    && error.path.as_deref() == Some("$.content.@.class")),
             "{:?}",
             result.errors
         );

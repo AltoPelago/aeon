@@ -18,5 +18,5 @@ ptrNested = ~>obj.["b\u0041"]
 host@{
   "xA":int32 = 3
 } = 4
-ptrAttr = ~>host@["x\u0041"]
+ptrAttr = ~>host.@.["x\u0041"]
 

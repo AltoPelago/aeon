@@ -297,12 +297,20 @@ def materialize_schema_v1(
             if not isinstance(rule, dict):
                 raise AeonLoadError(f"Schema contract rule at index {index} is not an object: {file_label}")
             path = rule.get("path")
+            selector = rule.get("selector")
             constraints = rule.get("constraints")
-            if not isinstance(path, str) or not path:
-                raise AeonLoadError(f"Schema contract rule at index {index} missing string 'path': {file_label}")
+            has_path = isinstance(path, str) and bool(path)
+            has_selector = isinstance(selector, str) and bool(selector)
+            if not has_path and not has_selector:
+                raise AeonLoadError(f"Schema contract rule at index {index} missing string 'path' or 'selector': {file_label}")
+            if has_path and has_selector:
+                raise AeonLoadError(f"Schema contract rule at index {index} must use either 'path' or 'selector': {file_label}")
             if not isinstance(constraints, dict):
                 raise AeonLoadError(f"Schema contract rule at index {index} missing object 'constraints': {file_label}")
-            normalized_rules.append({"path": path, "constraints": project_constraints(constraints, file_label, path)})
+            owner = path if has_path else selector
+            assert isinstance(owner, str)
+            target = {"path": path} if has_path else {"selector": selector}
+            normalized_rules.append({**target, "constraints": project_constraints(constraints, file_label, owner)})
     else:
         kind = "object or array" if allow_object_rules else "array"
         raise AeonLoadError(f"Schema contract field 'rules' must be {kind}: {file_label}")
@@ -346,13 +354,9 @@ def project_constraints(constraints: dict[str, object], file_label: str, owner: 
 
 
 def reference_target_path_to_pattern(selector: str) -> str:
-    placeholder = "__AEOS_WILDCARD_INDEX__"
-    if "*" in selector.replace("[*]", ""):
+    if "*" in selector:
         raise AeonLoadError(f"Unsupported reference_target_path selector: {selector}")
-    return "^" + re.escape(selector.replace("[*]", placeholder)).replace(
-        re.escape(placeholder),
-        r"\[\d+\]",
-    ) + "$"
+    return "^" + re.escape(selector) + "$"
 
 
 def parse_document_path(path: str) -> list[str | int]:

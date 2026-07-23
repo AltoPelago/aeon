@@ -84,6 +84,43 @@ test('validates against a trusted registry schema and surfaces schema errors', (
     assert.ok(diagnostics.some((diag) => diag.code === 'missing_required_field'));
 });
 
+test('validates against trusted native aeos schema documents with SANSA selectors', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-lsp-validation-'));
+    const schemaPath = writeFile(dir, 'schema.aeos', [
+        'aeos:schema = {',
+        '  id:string = "aeon.demo.schema.v1"',
+        '  version:string = "1"',
+        '  rules:list<object> = [',
+        '    {',
+        '      selector:sansa = $.app.port',
+        '      constraints:object = {',
+        '        type:string = "NumberLiteral"',
+        '        required:boolean = true',
+        '      }',
+        '    }',
+        '  ]',
+        '}',
+        '',
+    ].join('\n'));
+    const registryPath = writeFile(dir, 'registry.json', JSON.stringify({
+        contracts: [{
+            id: 'aeon.demo.schema.v1',
+            kind: 'schema',
+            version: '1.0.0',
+            path: './schema.aeos',
+            sha256: sha256(schemaPath),
+            status: 'active',
+        }],
+    }, null, 2));
+
+    const diagnostics = getConfiguredDiagnostics('app = { name = "demo" }\n', null, {
+        contractRegistry: registryPath,
+        schema: 'aeon.demo.schema.v1',
+    });
+
+    assert.ok(diagnostics.some((diag) => diag.code === 'missing_required_field'));
+});
+
 test('accepts datatype_rules in schema contracts and enforces gp-style numeric semantics', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-lsp-validation-'));
     const schemaPath = writeFile(dir, 'schema.json', JSON.stringify({

@@ -25,6 +25,13 @@
 
 export { validate } from './validate.js';
 export type { ValidateOptions } from './validate.js';
+export {
+    normalizeSchemaObject,
+    parseSchemaSource,
+    schemaToAeon,
+    SchemaCodecError,
+} from './schema-codec.js';
+export type { SchemaCodecOptions } from './schema-codec.js';
 
 // =============================================================================
 // TYPES

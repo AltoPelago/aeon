@@ -263,6 +263,9 @@ Notes:
 - `domain/literals/inline-array-literals-pass.aeon`
   - Inline array pass coverage for literal families that should delimit safely.
 
+- `domain/literals/sansa-address-literals.aeon`
+  - SANSA address literal pass coverage for qualifiers, comment boundaries, and container boundaries.
+
 - `domain/literals/heterogeneous-inline-nesting.aeon`
   - Mixed inline list nesting with scalars, object literals, separator literals, and node literals.
 

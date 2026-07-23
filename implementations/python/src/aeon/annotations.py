@@ -784,7 +784,7 @@ def scan_attribute_value_end(source: str, start: int, end: int) -> int:
 
 
 def format_attribute_path(owner_path: str, key: str) -> str:
-    return f"{owner_path}@{key}" if is_ascii_identifier(key) else f"{owner_path}@[{json.dumps(key, ensure_ascii=False)}]"
+    return f"{owner_path}.@.{key}" if is_ascii_identifier(key) else f"{owner_path}.@.[{json.dumps(key, ensure_ascii=False)}]"
 
 
 def is_ascii_identifier(value: str) -> bool:

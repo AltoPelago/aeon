@@ -18,6 +18,11 @@ import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
+import {
+    parseAddress,
+    resolveAddress,
+    type SansaResolveNamespace,
+} from '@altopelago/sansa';
 
 const TYPE_ALIASES: Record<string, readonly string[]> = {
     NumberLiteral: ['NumberLiteral'],
@@ -35,6 +40,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     RadixLiteral: ['RadixLiteral'],
     EncodingLiteral: ['EncodingLiteral'],
     SeparatorLiteral: ['SeparatorLiteral'],
+    SansaAddressLiteral: ['SansaAddressLiteral'],
     DateLiteral: ['DateLiteral'],
     TimeLiteral: ['TimeLiteral'],
     DateTimeLiteral: ['DateTimeLiteral'],
@@ -63,8 +69,28 @@ type EventInfo = {
     referencePath?: readonly (string | number | { readonly type: 'attr'; readonly key: string })[];
 };
 
+type AeosSansaResolveBinding = {
+    path: string;
+    name?: string;
+    index?: number;
+    info?: EventInfo;
+    children: AeosSansaResolveBinding[];
+    attributeSpace?: AeosSansaResolveBinding;
+};
+
 function formatQuotedMemberSegment(key: unknown): string {
     return `.[${JSON.stringify(String(key))}]`;
+}
+
+function formatMemberSelector(key: unknown): string {
+    const value = String(key);
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)
+        ? `.${value}`
+        : formatQuotedMemberSegment(value);
+}
+
+function appendAttributePath(basePath: string, key: string): string {
+    return `${basePath}.@${formatMemberSelector(key)}`;
 }
 
 /**
@@ -153,6 +179,7 @@ const STRING_LIKE_VALUE_TYPES = new Set([
     'StringLiteral',
     'TrimtickLiteral',
     'SeparatorLiteral',
+    'SansaAddressLiteral',
     'HexLiteral',
     'EncodingLiteral',
     'NullLiteral',
@@ -179,7 +206,7 @@ function enforceStringLengthResourceBudget(
         emitResourceError(ctx, path, `String-like payload length ${payloadLength} exceeds max_string_length_default ${policy.max_string_length_default}`, info.span);
     }
     for (const [key, attribute] of info.attributes ?? []) {
-        enforceStringLengthResourceBudget(attribute, `${path}@${key}`, policy, ctx);
+        enforceStringLengthResourceBudget(attribute, appendAttributePath(path, key), policy, ctx);
     }
 }
 
@@ -225,7 +252,7 @@ function inspectConstraintResourceShape(
     }
     if (constraints.attributes !== undefined) {
         for (const [key, child] of Object.entries(constraints.attributes)) {
-            inspectConstraintResourceShape(child, `${path}@${key}`, depth + 1, policy, ctx);
+            inspectConstraintResourceShape(child, appendAttributePath(path, key), depth + 1, policy, ctx);
         }
     }
 }
@@ -359,6 +386,7 @@ export function validate(
                 ...(attributes ? { attributes } : {}),
             };
             eventsByPath.set(elementPath, info);
+            addAttributeEvents(elementPath, attributes);
         }
     }
 
@@ -384,6 +412,22 @@ export function validate(
             mapped.set(String(key), info);
         }
         return mapped;
+    }
+
+    function addAttributeEvents(basePath: string, attributes: ReadonlyMap<string, AttributeInfo> | undefined): void {
+        if (!attributes) return;
+        for (const [key, attribute] of attributes.entries()) {
+            const attributePath = appendAttributePath(basePath, key);
+            eventsByPath.set(attributePath, {
+                type: attribute.type,
+                raw: attribute.raw,
+                value: attribute.value,
+                ...(attribute.datatype !== undefined ? { datatype: attribute.datatype } : {}),
+                span: attribute.span,
+                ...(attribute.attributes ? { attributes: attribute.attributes } : {}),
+            });
+            addAttributeEvents(attributePath, attribute.attributes);
+        }
     }
 
     for (let i = 0; i < aes.length; i++) {
@@ -425,6 +469,7 @@ export function validate(
                     ...(attributes ? { attributes } : {}),
                 };
                 eventsByPath.set(pathStr, info);
+                addAttributeEvents(pathStr, attributes);
                 if ((event.value.type === 'TupleLiteral' || event.value.type === 'ListLiteral' || event.value.type === 'ListNode')
                     && Array.isArray((event.value as any).elements)) {
                     containerArity.set(pathStr, (event.value as any).elements.length);
@@ -481,19 +526,13 @@ export function validate(
     // Phase 3: Build rule index from schema (run after baseline invariants)
     const ruleIndex = buildRuleIndex(schema, ctx);
     const selectorExpansionBudget = { count: 0 };
-    const expandedRuleIndex = expandWildcardRules(
-        expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget),
-        eventsByPath,
-        ctx,
-        resourcePolicy,
-        selectorExpansionBudget,
-    );
+    const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
-    const boundPaths = new Set(seen.keys());
+    const boundPaths = new Set(eventsByPath.keys());
     checkPresence(effectiveRuleIndex, boundPaths, ctx);
-    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, ctx);
+    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx);
 
     // Phase 5: Type checks (literal kind)
     checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
@@ -619,6 +658,7 @@ function checkWorldPolicy(
     schema: SchemaV1,
     aes: readonly { key?: string; path?: unknown; span?: unknown }[],
     boundPaths: ReadonlySet<string>,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
@@ -630,13 +670,18 @@ function checkWorldPolicy(
                 ? { kind: 'selector' as const, value: rule.selector }
                 : null)
         .filter((rule): rule is { kind: 'path' | 'selector'; value: string } => rule !== null);
+    const selectorMatches = new Map<string, ReadonlySet<string> | null>();
+    for (const rule of allowedRules) {
+        if (rule.kind !== 'selector' || selectorMatches.has(rule.value)) continue;
+        selectorMatches.set(rule.value, resolveSansaSelectorPathSet(rule.value, eventsByPath, ctx));
+    }
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
         if (key.startsWith('aeon:')) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
         if (allowedRules.some((rule) => rule.kind === 'selector'
-            ? matchesSelectorPath(path, rule.value)
+            ? selectorMatches.get(rule.value)?.has(path) === true
             : matchesAllowedPath(path, rule.value))) continue;
         emitError(ctx, createDiag(
             path,
@@ -687,9 +732,10 @@ function expandSelectorRules(
     for (const rule of schema.rules) {
         if (typeof rule.selector !== 'string' || rule.selector.length === 0) continue;
         if (typeof rule.path === 'string' && rule.path.length > 0) continue;
+        const resolvedPaths = resolveSansaSelectorPathSet(rule.selector, eventsByPath, ctx);
+        if (resolvedPaths === null) continue;
         let matched = false;
-        for (const actualPath of eventsByPath.keys()) {
-            if (!matchesSelectorPath(actualPath, rule.selector)) continue;
+        for (const actualPath of resolvedPaths) {
             matched = true;
             expansionBudget.count += 1;
             if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
@@ -707,31 +753,6 @@ function expandSelectorRules(
                 `Missing required field: ${rule.selector}`,
                 ErrorCodes.MISSING_REQUIRED_FIELD
             ));
-        }
-    }
-    return expanded;
-}
-
-function expandWildcardRules(
-    ruleIndex: RuleIndex,
-    eventsByPath: ReadonlyMap<string, EventInfo>,
-    ctx: ReturnType<typeof createDiagContext>,
-    resourcePolicy: Required<ResourcePolicyV1>,
-    expansionBudget: { count: number },
-): RuleIndex {
-    const expanded = new Map(ruleIndex);
-    for (const [path, rule] of ruleIndex.entries()) {
-        if (!path.includes('[*]')) continue;
-        expanded.delete(path);
-        for (const actualPath of eventsByPath.keys()) {
-            if (matchesAllowedPath(actualPath, path)) {
-                expansionBudget.count += 1;
-                if (expansionBudget.count > resourcePolicy.max_selector_expansions) {
-                    emitResourceError(ctx, path, `Wildcard expansion count exceeds max_selector_expansions ${resourcePolicy.max_selector_expansions}`);
-                    return expanded;
-                }
-                expanded.set(actualPath, { ...rule, path: actualPath });
-            }
         }
     }
     return expanded;
@@ -865,149 +886,115 @@ function formatReferenceLookupPath(
                 : formatQuotedMemberSegment(segment);
             continue;
         }
-        out += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-            ? `@${segment.key}`
-            : `@[${JSON.stringify(segment.key)}]`;
+        out = appendAttributePath(out, segment.key);
     }
     return out;
 }
 
 function matchesAllowedPath(actualPath: string, allowedPath: string): boolean {
-    if (actualPath === allowedPath) return true;
-
-    // Closed-world schemas may allow list descendants via canonical wildcard paths
-    // such as `$.items[*]` or `$.items[*].x`.
-    if (!allowedPath.includes('[*]')) return false;
-
-    const escaped = allowedPath
-        .split('[*]')
-        .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
-        .join('\\[\\d+\\]');
-    const pattern = `^${escaped}$`;
-    return new RegExp(pattern).test(actualPath);
+    return actualPath === allowedPath;
 }
 
-function tokenizeCanonicalLikePath(path: string): string[] | null {
-    if (!path.startsWith('$')) return null;
-    const segments: string[] = [];
-    let index = 1;
-    while (index < path.length) {
-        const marker = path[index];
-        if (marker === '.') {
-            index += 1;
-            if (path[index] === '[') {
-                const end = findBracketEnd(path, index);
-                if (end < 0) return null;
-                segments.push(path.slice(index, end + 1));
-                index = end + 1;
-                continue;
-            }
-            const start = index;
-            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
-                index += 1;
-            }
-            if (start === index) return null;
-            segments.push(path.slice(start, index));
-            continue;
-        }
-        if (marker === '[') {
-            const end = findBracketEnd(path, index);
-            if (end < 0) return null;
-            segments.push(path.slice(index, end + 1));
-            index = end + 1;
-            continue;
-        }
-        if (marker === '@') {
-            index += 1;
-            if (path[index] === '[') {
-                const end = findBracketEnd(path, index);
-                if (end < 0) return null;
-                segments.push(`@${path.slice(index, end + 1)}`);
-                index = end + 1;
-                continue;
-            }
-            const start = index;
-            while (index < path.length && !['.', '[', '@'].includes(path[index]!)) {
-                index += 1;
-            }
-            if (start === index) return null;
-            segments.push(`@${path.slice(start, index)}`);
-            continue;
-        }
+function resolveSansaSelectorPathSet(
+    selector: string,
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+    ctx: ReturnType<typeof createDiagContext>,
+): ReadonlySet<string> | null {
+    const result = resolveAddress(selector, createAeosSansaResolveNamespace(eventsByPath));
+    if (!result.ok) {
+        const first = result.errors[0];
+        emitError(ctx, createDiag(
+            selector,
+            null,
+            first ? `Invalid or unsupported SANSA selector: ${first.message}` : `Invalid or unsupported SANSA selector: ${selector}`,
+            ErrorCodes.INVALID_SCHEMA_POLICY,
+        ));
         return null;
     }
-    return segments;
+
+    return new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
 }
 
-function findBracketEnd(path: string, start: number): number {
-    let quote: string | null = null;
-    let escaped = false;
-    for (let index = start + 1; index < path.length; index++) {
-        const ch = path[index]!;
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-        if (quote) {
-            if (ch === '\\') {
-                escaped = true;
-            } else if (ch === quote) {
-                quote = null;
-            }
-            continue;
-        }
-        if (ch === '"' || ch === "'") {
-            quote = ch;
-            continue;
-        }
-        if (ch === ']') return index;
-    }
-    return -1;
-}
-
-function matchesSelectorPath(actualPath: string, selector: string): boolean {
-    if (actualPath === selector) return true;
-    const actualSegments = tokenizeCanonicalLikePath(actualPath);
-    const selectorSegments = tokenizeCanonicalLikePath(selector);
-    if (!actualSegments || !selectorSegments) return false;
-
-    const matchFrom = (actualIndex: number, selectorIndex: number): boolean => {
-        if (selectorIndex === selectorSegments.length) {
-            return actualIndex === actualSegments.length;
-        }
-        const selectorSegment = selectorSegments[selectorIndex]!;
-        if (selectorSegment === '**') {
-            if (selectorIndex === selectorSegments.length - 1) return true;
-            for (let nextActual = actualIndex; nextActual <= actualSegments.length; nextActual++) {
-                if (matchFrom(nextActual, selectorIndex + 1)) return true;
-            }
-            return false;
-        }
-        if (actualIndex >= actualSegments.length) return false;
-        if (selectorSegment === '*') {
-            return matchFrom(actualIndex + 1, selectorIndex + 1);
-        }
-        if (selectorSegment === '[*]') {
-            return /^\[\d+\]$/.test(actualSegments[actualIndex]!)
-                && matchFrom(actualIndex + 1, selectorIndex + 1);
-        }
-        return selectorSegment === actualSegments[actualIndex]
-            && matchFrom(actualIndex + 1, selectorIndex + 1);
+function createAeosSansaResolveNamespace(
+    eventsByPath: ReadonlyMap<string, EventInfo>,
+): SansaResolveNamespace<AeosSansaResolveBinding> {
+    const root = buildAeosSansaResolveTree(eventsByPath);
+    return {
+        root,
+        children: (binding) => binding.children,
+        member: (binding, name) => binding.children.find((child) => child.name === name),
+        position: (binding, index) => binding.children.find((child) => child.index === index),
+        attributeSpace: (binding) => binding.attributeSpace,
+        name: (binding) => binding.name,
+        index: (binding) => binding.index,
+        semanticType: (binding) => binding.info?.datatype,
+        representationKind: (binding) => binding.info?.type,
     };
+}
 
-    return matchFrom(0, 0);
+function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>): AeosSansaResolveBinding {
+    const root: AeosSansaResolveBinding = { path: '$', children: [] };
+    for (const [path, info] of [...eventsByPath.entries()].sort((a, b) => a[0].length - b[0].length)) {
+        insertAeosSansaResolvePath(root, path, info);
+    }
+    return root;
+}
+
+function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string, info: EventInfo): void {
+    const parsed = parseAddress(path);
+    if (!parsed.ok) return;
+    if (parsed.address.root.kind !== 'absolute') return;
+
+    let current = root;
+    let currentPath = '$';
+    for (const selector of parsed.address.selectors) {
+        switch (selector.type) {
+            case 'member':
+                currentPath += formatMemberSelector(selector.name);
+                current = getOrCreateChildBinding(current, currentPath, { name: selector.name });
+                break;
+            case 'position':
+                currentPath += `[${selector.index}]`;
+                current = getOrCreateChildBinding(current, currentPath, { index: selector.index });
+                break;
+            case 'attributeSpace':
+                currentPath += '.@';
+                current.attributeSpace ??= { path: currentPath, children: [] };
+                current = current.attributeSpace;
+                break;
+            default:
+                return;
+        }
+    }
+    current.info = info;
+}
+
+function getOrCreateChildBinding(
+    parent: AeosSansaResolveBinding,
+    path: string,
+    identity: { readonly name?: string; readonly index?: number },
+): AeosSansaResolveBinding {
+    const existing = parent.children.find((child) =>
+        identity.name !== undefined
+            ? child.name === identity.name
+            : child.index === identity.index
+    );
+    if (existing) return existing;
+    const child: AeosSansaResolveBinding = { path, children: [], ...identity };
+    parent.children.push(child);
+    return child;
 }
 
 function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {
     const allowed: string[] = [];
     function visit(basePath: string, constraints: ConstraintsV1): void {
-        if (basePath.includes('@')) {
+        if (basePath.includes('.@.')) {
             allowed.push(basePath);
         }
         const attributes = constraints.attributes;
         if (!attributes) return;
         for (const [key, childConstraints] of Object.entries(attributes)) {
-            visit(`${basePath}@${key}`, childConstraints);
+            visit(appendAttributePath(basePath, key), childConstraints);
         }
     }
     for (const [path, rule] of ruleIndex) {
@@ -1023,7 +1010,7 @@ function collectAttributeEntries(
     function visit(basePath: string, attributes: ReadonlyMap<string, AttributeInfo> | undefined): void {
         if (!attributes) return;
         for (const [key, entry] of attributes.entries()) {
-            const path = `${basePath}@${key}`;
+            const path = appendAttributePath(basePath, key);
             entries.push({ path, span: entry.span });
             visit(path, entry.attributes);
         }
@@ -1206,7 +1193,7 @@ function validateAttributeMap(
 ): void {
     const requiredAttributes = constraints.attributes ?? {};
     for (const [key, childConstraints] of Object.entries(requiredAttributes)) {
-        const childPath = `${basePath}@${key}`;
+        const childPath = appendAttributePath(basePath, key);
         const entry = attributes?.get(key);
         if (childConstraints.required === true && !entry) {
             emitError(ctx, createDiag(
@@ -1225,7 +1212,7 @@ function validateAttributeMap(
         const allowed = new Set(Object.keys(requiredAttributes));
         for (const key of attributes.keys()) {
             if (allowed.has(key)) continue;
-            const childPath = `${basePath}@${key}`;
+            const childPath = appendAttributePath(basePath, key);
             emitError(ctx, createDiag(
                 childPath,
                 attributes.get(key)?.span ?? null,
@@ -1569,6 +1556,7 @@ function isStringType(type: string): boolean {
         || type === 'TrimtickLiteral'
         || type === 'TrimtickStringLiteral'
         || type === 'SeparatorLiteral'
+        || type === 'SansaAddressLiteral'
         || type === 'NullLiteral'
         || type === 'EncodingLiteral'
         || type === 'DateLiteral'

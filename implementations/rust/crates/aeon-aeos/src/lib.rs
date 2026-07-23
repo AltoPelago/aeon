@@ -4,6 +4,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use aeon_core::{
+    SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions, SansaSelector,
+    parse_sansa_address, resolve_sansa_address,
+};
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ValidationEnvelope {
     pub aes: Vec<AesEvent>,
@@ -393,7 +398,7 @@ fn enforce_string_length_resource_budget_inner(
     for (key, attribute) in attributes {
         enforce_attribute_string_length_resource_budget(
             attribute,
-            &format!("{path}@{key}"),
+            &format_attribute_path(path, key),
             policy,
             ctx,
         );
@@ -486,7 +491,7 @@ fn inspect_constraint_resource_shape(
         for (key, child) in attributes {
             inspect_constraint_resource_shape(
                 child,
-                &format!("{path}@{key}"),
+                &format_attribute_path(path, key),
                 depth + 1,
                 policy,
                 ctx,
@@ -786,18 +791,17 @@ fn validate_inner(
         }
 
         bound_paths.insert(path.clone());
-        events_by_path.insert(
-            path.clone(),
-            EventInfo {
-                value_type: event.value.value_type.clone(),
-                datatype: event.datatype.clone(),
-                raw: event.value.raw.clone().unwrap_or_default(),
-                value: event.value.value.clone(),
-                span: event.span_pair(),
-                attributes: build_attribute_info_map(&event.annotations),
-                reference_path: event.value.path.clone(),
-            },
-        );
+        let info = EventInfo {
+            value_type: event.value.value_type.clone(),
+            datatype: event.datatype.clone(),
+            raw: event.value.raw.clone().unwrap_or_default(),
+            value: event.value.value.clone(),
+            span: event.span_pair(),
+            attributes: build_attribute_info_map(&event.annotations),
+            reference_path: event.value.path.clone(),
+        };
+        events_by_path.insert(path.clone(), info.clone());
+        hydrate_attribute_info_events(&path, &info.attributes, &mut events_by_path);
 
         if matches!(
             event.value.value_type.as_str(),
@@ -858,6 +862,7 @@ fn validate_inner(
             );
         }
     }
+    bound_paths.extend(events_by_path.keys().cloned());
     for (path, info) in &events_by_path {
         enforce_string_length_resource_budget(info, path, &resource_policy, &mut ctx);
     }
@@ -905,16 +910,9 @@ fn validate_inner(
 
     let rule_index = build_rule_index(schema, &mut ctx);
     let mut expansion_budget = 0usize;
-    let selector_rule_index = expand_selector_rules(
+    let expanded_rule_index = expand_selector_rules(
         &rule_index,
         schema,
-        &events_by_path,
-        &mut ctx,
-        &resource_policy,
-        &mut expansion_budget,
-    );
-    let expanded_rule_index = expand_wildcard_rules(
-        &selector_rule_index,
         &events_by_path,
         &mut ctx,
         &resource_policy,
@@ -952,7 +950,7 @@ fn validate_inner(
         &schema.datatype_rules,
         &mut ctx,
     );
-    check_world_policy(schema, aes, &bound_paths, &rule_index, &mut ctx);
+    check_world_policy(schema, aes, &bound_paths, &events_by_path, &mut ctx);
 
     finalize_result(ctx, &bound_paths, &events_by_path)
 }
@@ -1021,6 +1019,34 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
                 ValidationDiagnostic {
                     path: None,
                     code: String::from("rule_missing_path"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        }
+        if let Some(path) = path
+            && path.contains("[*]")
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("invalid_schema_policy"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        }
+        if let Some(selector) = selector
+            && selector.contains("[*]")
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.clone()),
+                    code: String::from("invalid_schema_policy"),
                     phase: String::from("schema_validation"),
                     span: None,
                 },
@@ -1312,7 +1338,7 @@ fn validate_constraint_tree(
             emit_error(
                 ctx,
                 ValidationDiagnostic {
-                    path: Some(format!("{path}@{key}")),
+                    path: Some(format_attribute_path(path, key)),
                     code: String::from("unknown_constraint_key"),
                     phase: String::from("schema_validation"),
                     span: None,
@@ -1320,7 +1346,12 @@ fn validate_constraint_tree(
             );
             return false;
         };
-        if !validate_constraint_tree(schema, &format!("{path}@{key}"), child_constraints, ctx) {
+        if !validate_constraint_tree(
+            schema,
+            &format_attribute_path(path, key),
+            child_constraints,
+            ctx,
+        ) {
             return false;
         }
     }
@@ -1547,7 +1578,6 @@ fn check_presence(
             .get("required")
             .and_then(JsonValue::as_bool)
             .unwrap_or(false)
-            && !path.contains("[*]")
             && !bound_paths.contains(path)
         {
             emit_error(
@@ -2077,7 +2107,7 @@ fn validate_attribute_map(
 
     if let Some(attribute_rules) = attribute_rules {
         for (key, child_constraints_value) in attribute_rules {
-            let child_path = format!("{base_path}@{key}");
+            let child_path = format_attribute_path(base_path, key);
             let required = child_constraints_value
                 .get("required")
                 .and_then(JsonValue::as_bool)
@@ -2123,7 +2153,7 @@ fn validate_attribute_map(
             emit_error(
                 ctx,
                 ValidationDiagnostic {
-                    path: Some(format!("{base_path}@{key}")),
+                    path: Some(format_attribute_path(base_path, key)),
                     code: String::from("unexpected_attribute_entry"),
                     phase: String::from("schema_validation"),
                     span: entry.span,
@@ -2480,7 +2510,7 @@ fn check_world_policy(
     schema: &Schema,
     aes: &[AesEvent],
     bound_paths: &BTreeSet<String>,
-    _rule_index: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
 ) {
     if schema.world != "closed" {
@@ -2503,6 +2533,15 @@ fn check_world_policy(
                 })
         })
         .collect::<Vec<_>>();
+    let mut selector_matches = BTreeMap::<String, Option<BTreeSet<String>>>::new();
+    for (kind, selector) in &allowed_rules {
+        if *kind == "selector" && !selector_matches.contains_key(*selector) {
+            selector_matches.insert(
+                (*selector).to_string(),
+                resolve_sansa_selector_path_set(selector, events_by_path, ctx),
+            );
+        }
+    }
     for event in aes {
         if event.key.starts_with("aeon:") {
             continue;
@@ -2511,7 +2550,10 @@ fn check_world_policy(
         if !bound_paths.contains(&path)
             || allowed_rules.iter().any(|(kind, allowed_path)| {
                 if *kind == "selector" {
-                    matches_selector_path(&path, allowed_path)
+                    selector_matches
+                        .get(*allowed_path)
+                        .and_then(Option::as_ref)
+                        .is_some_and(|paths| paths.contains(&path))
                 } else {
                     matches_allowed_path(&path, allowed_path)
                 }
@@ -2610,6 +2652,29 @@ fn build_attribute_info_map(
     mapped
 }
 
+fn hydrate_attribute_info_events(
+    base_path: &str,
+    attributes: &BTreeMap<String, AttributeInfo>,
+    events_by_path: &mut BTreeMap<String, EventInfo>,
+) {
+    for (key, entry) in attributes {
+        let attribute_path = format_attribute_path(base_path, key);
+        events_by_path.insert(
+            attribute_path.clone(),
+            EventInfo {
+                value_type: entry.value_type.clone(),
+                datatype: entry.datatype.clone(),
+                raw: entry.raw.clone(),
+                value: entry.value.clone(),
+                span: entry.span,
+                attributes: entry.attributes.clone(),
+                reference_path: None,
+            },
+        );
+        hydrate_attribute_info_events(&attribute_path, &entry.attributes, events_by_path);
+    }
+}
+
 fn resolve_reference_form_events(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
@@ -2680,11 +2745,12 @@ fn expand_selector_rules(
         if rule.path.as_ref().is_some_and(|path| !path.is_empty()) {
             continue;
         }
+        let Some(resolved_paths) = resolve_sansa_selector_path_set(selector, events_by_path, ctx)
+        else {
+            continue;
+        };
         let mut matched = false;
-        for actual_path in events_by_path.keys() {
-            if !matches_selector_path(actual_path, selector) {
-                continue;
-            }
+        for actual_path in resolved_paths {
             matched = true;
             *expansion_budget += 1;
             if *expansion_budget > resource_policy.max_selector_expansions {
@@ -2700,7 +2766,7 @@ fn expand_selector_rules(
                 return expanded;
             }
             expanded
-                .entry(actual_path.clone())
+                .entry(actual_path)
                 .or_insert_with(|| rule.constraints.clone());
         }
         if !matched
@@ -2719,41 +2785,6 @@ fn expand_selector_rules(
                     span: None,
                 },
             );
-        }
-    }
-    expanded
-}
-
-fn expand_wildcard_rules(
-    rule_index: &BTreeMap<String, JsonValue>,
-    events_by_path: &BTreeMap<String, EventInfo>,
-    ctx: &mut DiagContext,
-    resource_policy: &ResourcePolicy,
-    expansion_budget: &mut usize,
-) -> BTreeMap<String, JsonValue> {
-    let mut expanded = rule_index.clone();
-    for (path, constraints) in rule_index {
-        if !path.contains("[*]") {
-            continue;
-        }
-        expanded.remove(path);
-        for actual_path in events_by_path.keys() {
-            if matches_allowed_path(actual_path, path) {
-                *expansion_budget += 1;
-                if *expansion_budget > resource_policy.max_selector_expansions {
-                    emit_resource_error(
-                        ctx,
-                        path,
-                        format!(
-                            "Wildcard expansion count exceeds max_selector_expansions {}",
-                            resource_policy.max_selector_expansions
-                        ),
-                        None,
-                    );
-                    return expanded;
-                }
-                expanded.insert(actual_path.clone(), constraints.clone());
-            }
         }
     }
     expanded
@@ -2913,165 +2944,153 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
 }
 
 fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
-    if actual_path == allowed_path {
-        return true;
-    }
-    if !allowed_path.contains("[*]") {
-        return false;
-    }
-    let pattern = format!(
-        "^{}$",
-        allowed_path
-            .split("[*]")
-            .map(regex::escape)
-            .collect::<Vec<_>>()
-            .join(r"\[\d+\]")
-    );
-    Regex::new(&pattern)
-        .map(|regex| regex.is_match(actual_path))
-        .unwrap_or(false)
+    actual_path == allowed_path
 }
 
-fn tokenize_canonical_like_path(path: &str) -> Option<Vec<String>> {
-    if !path.starts_with('$') {
+fn resolve_sansa_selector_path_set(
+    selector: &str,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    ctx: &mut DiagContext,
+) -> Option<BTreeSet<String>> {
+    let namespace = create_aeos_sansa_resolve_namespace(events_by_path);
+    let result = resolve_sansa_address(selector, &namespace, &SansaResolveOptions::default());
+    if !result.ok {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(selector.to_string()),
+                code: String::from("invalid_schema_policy"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
         return None;
     }
-    let mut segments = Vec::new();
-    let mut cursor = 1;
-    while cursor < path.len() {
-        let marker = path[cursor..].chars().next()?;
-        if marker == '.' {
-            cursor += marker.len_utf8();
-            if cursor < path.len() && path[cursor..].starts_with('[') {
-                let end = find_bracket_end(path, cursor)?;
-                segments.push(path[cursor..=end].to_string());
-                cursor = end + 1;
-                continue;
-            }
-            let start = cursor;
-            while cursor < path.len() {
-                let ch = path[cursor..].chars().next()?;
-                if matches!(ch, '.' | '[' | '@') {
-                    break;
-                }
-                cursor += ch.len_utf8();
-            }
-            if start == cursor {
-                return None;
-            }
-            segments.push(path[start..cursor].to_string());
-            continue;
-        }
-        if marker == '[' {
-            let end = find_bracket_end(path, cursor)?;
-            segments.push(path[cursor..=end].to_string());
-            cursor = end + 1;
-            continue;
-        }
-        if marker == '@' {
-            cursor += marker.len_utf8();
-            if cursor < path.len() && path[cursor..].starts_with('[') {
-                let end = find_bracket_end(path, cursor)?;
-                segments.push(format!("@{}", &path[cursor..=end]));
-                cursor = end + 1;
-                continue;
-            }
-            let start = cursor;
-            while cursor < path.len() {
-                let ch = path[cursor..].chars().next()?;
-                if matches!(ch, '.' | '[' | '@') {
-                    break;
-                }
-                cursor += ch.len_utf8();
-            }
-            if start == cursor {
-                return None;
-            }
-            segments.push(format!("@{}", &path[start..cursor]));
-            continue;
-        }
-        return None;
-    }
-    Some(segments)
+    Some(
+        result
+            .bindings
+            .into_iter()
+            .filter_map(|binding| binding.address)
+            .filter(|path| events_by_path.contains_key(path))
+            .collect(),
+    )
 }
 
-fn find_bracket_end(path: &str, start: usize) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (offset, ch) in path[start + 1..].char_indices() {
-        let index = start + 1 + offset;
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if let Some(active_quote) = quote {
-            if ch == '\\' {
-                escaped = true;
-            } else if ch == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-        if ch == '"' || ch == '\'' {
-            quote = Some(ch);
-            continue;
-        }
-        if ch == ']' {
-            return Some(index);
-        }
-    }
-    None
+fn create_aeos_sansa_resolve_namespace(
+    events_by_path: &BTreeMap<String, EventInfo>,
+) -> SansaResolveNamespace {
+    let mut namespace = SansaResolveNamespace::new(build_aeos_sansa_resolve_tree(events_by_path));
+    namespace.supports_attribute_space = true;
+    namespace.supports_local_space = false;
+    namespace
 }
 
-fn matches_selector_path(actual_path: &str, selector: &str) -> bool {
-    if actual_path == selector {
-        return true;
-    }
-    let Some(actual_segments) = tokenize_canonical_like_path(actual_path) else {
-        return false;
+fn build_aeos_sansa_resolve_tree(
+    events_by_path: &BTreeMap<String, EventInfo>,
+) -> SansaResolveBinding {
+    let mut root = SansaResolveBinding {
+        address: Some(String::from("$")),
+        children: Vec::new(),
+        ..SansaResolveBinding::default()
     };
-    let Some(selector_segments) = tokenize_canonical_like_path(selector) else {
-        return false;
-    };
-
-    fn match_from(
-        actual: &[String],
-        selector: &[String],
-        actual_index: usize,
-        selector_index: usize,
-    ) -> bool {
-        if selector_index == selector.len() {
-            return actual_index == actual.len();
-        }
-        let selector_segment = selector[selector_index].as_str();
-        if selector_segment == "**" {
-            if selector_index == selector.len() - 1 {
-                return true;
-            }
-            for next_actual in actual_index..=actual.len() {
-                if match_from(actual, selector, next_actual, selector_index + 1) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        if actual_index >= actual.len() {
-            return false;
-        }
-        if selector_segment == "*" {
-            return match_from(actual, selector, actual_index + 1, selector_index + 1);
-        }
-        if selector_segment == "[*]" {
-            return Regex::new(r"^\[\d+\]$")
-                .map(|regex| regex.is_match(&actual[actual_index]))
-                .unwrap_or(false)
-                && match_from(actual, selector, actual_index + 1, selector_index + 1);
-        }
-        selector_segment == actual[actual_index]
-            && match_from(actual, selector, actual_index + 1, selector_index + 1)
+    let mut entries = events_by_path.iter().collect::<Vec<_>>();
+    entries.sort_by_key(|(path, _)| path.len());
+    for (path, info) in entries {
+        insert_aeos_sansa_resolve_path(&mut root, path, info);
     }
+    root
+}
 
-    match_from(&actual_segments, &selector_segments, 0, 0)
+fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, info: &EventInfo) {
+    let Ok(address) = parse_sansa_address(path) else {
+        return;
+    };
+    let mut current = root;
+    let mut current_path = String::from("$");
+    for selector in address.selectors {
+        match selector {
+            SansaSelector::Member { name, .. } => {
+                current_path.push_str(&format_member_selector(&name));
+                current = get_or_create_sansa_child_binding(
+                    current,
+                    current_path.clone(),
+                    Some(name),
+                    None,
+                );
+            }
+            SansaSelector::Position { index } => {
+                current_path.push('[');
+                current_path.push_str(&index.to_string());
+                current_path.push(']');
+                current = get_or_create_sansa_child_binding(
+                    current,
+                    current_path.clone(),
+                    None,
+                    Some(index),
+                );
+            }
+            SansaSelector::AttributeSpace => {
+                current_path.push_str(".@");
+                current = get_or_create_sansa_attribute_space(current, current_path.clone());
+            }
+            _ => return,
+        }
+    }
+    current.semantic_type = info.datatype.clone();
+    current.datatype = info.datatype.clone();
+    current.representation_kind = Some(info.value_type.clone());
+    current.kind = Some(info.value_type.clone());
+    current.value_type = Some(info.value_type.clone());
+}
+
+fn get_or_create_sansa_child_binding(
+    parent: &mut SansaResolveBinding,
+    path: String,
+    name: Option<String>,
+    index: Option<usize>,
+) -> &mut SansaResolveBinding {
+    if let Some(existing_index) = parent.children.iter().position(|child| {
+        if let Some(name) = name.as_deref() {
+            child.name.as_deref() == Some(name)
+        } else {
+            child.index == index
+        }
+    }) {
+        return &mut parent.children[existing_index];
+    }
+    parent.children.push(SansaResolveBinding {
+        address: Some(path),
+        name,
+        index,
+        children: Vec::new(),
+        ..SansaResolveBinding::default()
+    });
+    parent.children.last_mut().expect("inserted child")
+}
+
+fn get_or_create_sansa_attribute_space(
+    parent: &mut SansaResolveBinding,
+    path: String,
+) -> &mut SansaResolveBinding {
+    if parent.attribute_space.is_none() {
+        parent.attribute_space = Some(Box::new(SansaResolveBinding {
+            address: Some(path),
+            children: Vec::new(),
+            ..SansaResolveBinding::default()
+        }));
+    }
+    parent
+        .attribute_space
+        .as_deref_mut()
+        .expect("attribute space exists")
+}
+
+fn format_member_selector(name: &str) -> String {
+    if is_identifier(name) {
+        format!(".{name}")
+    } else {
+        format!(".[\"{}\"]", escape_quoted_key(name))
+    }
 }
 
 fn resolve_terminal_reference_event(
@@ -3460,10 +3479,10 @@ fn format_reference_target_path(segments: &[ReferencePathSegment]) -> String {
             }
             ReferencePathSegment::Attribute { segment_type, key } if segment_type == "attr" => {
                 if is_identifier(key) {
-                    rendered.push('@');
+                    rendered.push_str(".@.");
                     rendered.push_str(key);
                 } else {
-                    rendered.push_str("@[\"");
+                    rendered.push_str(".@.[\"");
                     rendered.push_str(&escape_quoted_key(key));
                     rendered.push_str("\"]");
                 }
@@ -3472,6 +3491,14 @@ fn format_reference_target_path(segments: &[ReferencePathSegment]) -> String {
         }
     }
     rendered
+}
+
+fn format_attribute_path(owner_path: &str, key: &str) -> String {
+    if is_identifier(key) {
+        format!("{owner_path}.@.{key}")
+    } else {
+        format!("{owner_path}.@.[\"{}\"]", escape_quoted_key(key))
+    }
 }
 
 fn is_identifier(key: &str) -> bool {
@@ -3637,7 +3664,7 @@ mod tests {
     }
 
     #[test]
-    fn wildcard_rules_apply_to_indexed_children_without_requiring_placeholder() {
+    fn sansa_selector_rules_apply_to_indexed_children_without_requiring_placeholder() {
         let payload = r#"{
           "aes": [
             {
@@ -3656,7 +3683,7 @@ mod tests {
           "schema": {
             "rules": [
               {
-                "path": "$.contact.measurements[*]",
+                "selector": "$.contact.measurements.*",
                 "constraints": { "required": true, "type": "NumberLiteral" }
               }
             ]
@@ -3682,8 +3709,132 @@ mod tests {
         }));
         assert!(!failing.errors.iter().any(|error| {
             error.code == "missing_required_field"
-                && error.path.as_deref() == Some("$.contact.measurements[*]")
+                && error.path.as_deref() == Some("$.contact.measurements.*")
         }));
+    }
+
+    #[test]
+    fn legacy_bracket_wildcard_is_rejected_as_rule_address() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "contact" }, { "type": "member", "key": "measurements" } ] },
+              "key": "measurements",
+              "value": { "type": "ListNode", "elements": [] },
+              "span": [1, 8]
+            }
+          ],
+          "schema": {
+            "rules": [
+              {
+                "path": "$.contact.measurements[*]",
+                "constraints": { "required": true, "type": "NumberLiteral" }
+              }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(
+            envelope
+                .errors
+                .iter()
+                .any(|error| error.code == "invalid_schema_policy")
+        );
+    }
+
+    #[test]
+    fn schema_expresses_generic_container_content_claims() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "numbers" } ] },
+              "key": "numbers",
+              "datatype": "list<number>",
+              "value": { "type": "ListNode", "elements": [] },
+              "span": [1, 2]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "numbers" }, { "type": "index", "index": 0 } ] },
+              "key": "0",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [2, 3]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "point" } ] },
+              "key": "point",
+              "datatype": "tuple<number>",
+              "value": { "type": "TupleLiteral", "elements": [] },
+              "span": [4, 5]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "point" }, { "type": "index", "index": 1 } ] },
+              "key": "1",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [5, 6]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "scores" } ] },
+              "key": "scores",
+              "datatype": "object<number>",
+              "value": { "type": "ObjectNode", "bindings": [] },
+              "span": [7, 8]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "scores" }, { "type": "member", "key": "bob" } ] },
+              "key": "bob",
+              "datatype": "string",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [8, 9]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "group" } ] },
+              "key": "group",
+              "datatype": "node",
+              "value": { "type": "NodeLiteral", "tag": "group", "datatype": "node<node>", "children": [] },
+              "span": [10, 11]
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "group" }, { "type": "index", "index": 1 } ] },
+              "key": "1",
+              "value": { "type": "StringLiteral", "raw": "\"bad\"", "value": "bad" },
+              "span": [11, 12]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.numbers", "constraints": { "type": "ListNode", "datatype": "list<number>" } },
+              { "selector": "$.numbers.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.point", "constraints": { "type": "TupleLiteral", "datatype": "tuple<number>" } },
+              { "selector": "$.point.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.scores", "constraints": { "type": "ObjectNode", "datatype": "object<number>" } },
+              { "selector": "$.scores.*", "constraints": { "type": "NumberLiteral" } },
+              { "path": "$.group", "constraints": { "type": "NodeLiteral" } },
+              { "selector": "$.group.*", "constraints": { "type": "NodeLiteral" } }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        for (path, codes) in [
+            ("$.numbers[0]", ["type_mismatch", "type_mismatch"]),
+            (
+                "$.point[1]",
+                ["type_mismatch", "TUPLE_ELEMENT_TYPE_MISMATCH"],
+            ),
+            ("$.scores.bob", ["type_mismatch", "type_mismatch"]),
+            ("$.group[1]", ["type_mismatch", "type_mismatch"]),
+        ] {
+            assert!(envelope.errors.iter().any(|error| {
+                codes.contains(&error.code.as_str()) && error.path.as_deref() == Some(path)
+            }));
+        }
     }
 
     #[test]
@@ -4248,7 +4399,7 @@ mod tests {
         let result = validate(&envelope);
         assert!(!result.ok);
         assert_eq!(result.errors[0].code, "missing_required_field");
-        assert_eq!(result.errors[0].path, Some(String::from("$.value@unit")));
+        assert_eq!(result.errors[0].path, Some(String::from("$.value.@.unit")));
     }
 
     #[test]
@@ -4341,7 +4492,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "unexpected_attribute_entry"
-                    && error.path.as_deref() == Some("$.value@extra"))
+                    && error.path.as_deref() == Some("$.value.@.extra"))
         );
     }
 
@@ -4425,7 +4576,7 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.code == "numeric_form_violation"
-                    && error.path.as_deref() == Some("$.value@unit"))
+                    && error.path.as_deref() == Some("$.value.@.unit"))
         );
     }
 

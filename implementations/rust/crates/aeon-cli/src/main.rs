@@ -294,7 +294,8 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             );
             println!("{{");
             println!("  \"events\": {},", render_events(&result.events));
-            println!("  \"errors\": {}", render_errors(&result.errors));
+            println!("  \"errors\": {},", render_errors(&result.errors));
+            println!("  \"warnings\": {}", render_errors(&result.warnings));
             if let Some(contracts) = declared_contracts {
                 println!(",");
                 println!(
@@ -554,11 +555,13 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
                 ),
             )])),
         );
-        let meta = merged_meta_json(
-            &result.errors,
-            &finalized.meta.errors,
-            &finalized.meta.warnings,
-        );
+        let warnings = result
+            .warnings
+            .iter()
+            .chain(finalized.meta.warnings.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &warnings);
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -568,11 +571,13 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         has_finalize_errors = !finalized.meta.errors.is_empty();
         let mut top = Map::new();
         top.insert(String::from("document"), finalized.document);
-        let meta = merged_meta_json(
-            &result.errors,
-            &finalized.meta.errors,
-            &finalized.meta.warnings,
-        );
+        let warnings = result
+            .warnings
+            .iter()
+            .chain(finalized.meta.warnings.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let meta = merged_meta_json(&result.errors, &finalized.meta.errors, &warnings);
         if let Some(meta) = meta {
             top.insert(String::from("meta"), meta);
         }
@@ -1398,10 +1403,7 @@ fn specs_repo_root() -> PathBuf {
 
 #[cfg(test)]
 fn examples_repo_root() -> PathBuf {
-    repo_root_from_env(
-        "AEON_EXAMPLES_ROOT",
-        &["altopelago", "aeon-examples-private"],
-    )
+    repo_root_from_env("AEON_EXAMPLES_ROOT", &["altopelago", "aeon-examples"])
 }
 
 fn run_doctor(registry_path: &str) -> Vec<DoctorCheck> {
@@ -2140,6 +2142,7 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
+        Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
         Value::CloneReference { segments, .. } => {
             format!("\"~{}\"", render_reference_path(segments))
@@ -2499,6 +2502,7 @@ fn render_inspect_markdown(
         lines.push(format!("- Annotations: {}", annotations.len()));
     }
     lines.push(format!("- Errors: {}", result.errors.len()));
+    lines.push(format!("- Warnings: {}", result.warnings.len()));
     if options.profile.is_some() || options.schema.is_some() || !options.schema_contexts.is_empty()
     {
         lines.push(String::new());
@@ -2519,6 +2523,14 @@ fn render_inspect_markdown(
         lines.push(String::from("## Errors"));
         for error in &result.errors {
             lines.push(format!("- {}", format_error_line(error)));
+        }
+    }
+
+    if !result.warnings.is_empty() {
+        lines.push(String::new());
+        lines.push(String::from("## Warnings"));
+        for warning in &result.warnings {
+            lines.push(format!("- {}", format_error_line(warning)));
         }
     }
 
@@ -2736,6 +2748,13 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw.trim_start_matches('%')),
             escape_json(raw)
         ),
+        Value::SansaAddressLiteral { raw, canonical, .. } => format!(
+            "{{\"type\":\"SansaAddressLiteral\",\"value\":\"{}\",\"raw\":\"{}\",\"canonical\":\"{}\",\"address\":{{\"type\":\"SansaAddress\",\"canonical\":\"{}\"}}}}",
+            escape_json(canonical),
+            escape_json(raw),
+            escape_json(canonical),
+            escape_json(canonical)
+        ),
         Value::DateLiteral { raw } => format!(
             "{{\"type\":\"DateLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
             escape_json(raw),
@@ -2875,6 +2894,7 @@ fn render_human_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
+        Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
         Value::PointerReference { segments, .. } => {
             format!("~>{}", render_reference_path(segments))
@@ -2966,7 +2986,7 @@ fn render_reference_path(segments: &[ReferenceSegment]) -> String {
                 rendered.push(']');
             }
             ReferenceSegment::Attr(key) => {
-                rendered.push('@');
+                rendered.push_str(".@.");
                 rendered.push_str(key);
             }
         }
@@ -3409,6 +3429,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("TimeLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.clone())),
+            path: None,
+            elements: Vec::new(),
+            bindings: Vec::new(),
+        },
+        Value::SansaAddressLiteral { raw, canonical, .. } => EventValue {
+            value_type: String::from("SansaAddressLiteral"),
+            raw: Some(raw.clone()),
+            value: Some(JsonValue::String(canonical.clone())),
             path: None,
             elements: Vec::new(),
             bindings: Vec::new(),
@@ -4530,7 +4558,7 @@ mod tests {
                 schema_contexts: BTreeMap::new(),
             },
         );
-        let expected = "# AEON Inspect\n\n## Summary\n- File: valid.aeon\n- Version: —\n- Mode: transport\n- Profile: —\n- Schema: —\n- Recovery: false\n- Events: 2\n- Errors: 0\n\n## Assignment Events\n- $.a :int32 = 1\n- $.b = ~a\n\n## References\n- $.b = ~a\n";
+        let expected = "# AEON Inspect\n\n## Summary\n- File: valid.aeon\n- Version: —\n- Mode: transport\n- Profile: —\n- Schema: —\n- Recovery: false\n- Events: 2\n- Errors: 0\n- Warnings: 0\n\n## Assignment Events\n- $.a :int32 = 1\n- $.b = ~a\n\n## References\n- $.b = ~a\n";
         assert_eq!(normalize(&rendered), normalize(expected));
     }
 

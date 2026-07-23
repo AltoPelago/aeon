@@ -56,7 +56,7 @@ Required change:
 Not currently modeled:
 - root-qualified references: `~$.a`
 - mixed quoted traversal: `~a.["b.c"]`
-- quoted attribute selectors: `~a@["x.y"]`
+- quoted attribute selectors: `~a.@.["x.y"]`
 - local ZRUT convention: `...&Local`
 - invalid numeric underscore forms
 - malformed quoted-key escapes

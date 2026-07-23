@@ -100,6 +100,22 @@ test('canonicalizes null literals without collapsing reserved and reason forms',
     assert.ok(result.text.includes('bottom:null = !"postponed"'));
 });
 
+test('canonicalizes SANSA address literals', () => {
+    const input = [
+        'address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>',
+        'field:sansa = $.field:sep[.]',
+        'csv:sansa = $.inventory:csv[","]',
+        'external:sansa = $.value:type<type>[arg]',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>'));
+    assert.ok(result.text.includes('field:sansa = $.field:sep[.]'));
+    assert.ok(result.text.includes('csv:sansa = $.inventory:csv[","]'));
+    assert.ok(result.text.includes('external:sansa = $.value:type<type>[arg]'));
+});
+
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',
@@ -275,12 +291,12 @@ test('preserves padded base64url encoding literals in canonical output', () => {
 });
 
 test('quotes non-identifier attribute keys in canonical output and preserves round-trip parseability', () => {
-    const input = 'a@{"x.y" = 1} = 2\nb = ~a@["x.y"]';
+    const input = 'a@{"x.y" = 1} = 2\nb = ~a.@.["x.y"]';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('a@{"x.y" = 1} = 2'));
-    assert.ok(result.text.includes('b = ~a@["x.y"]'));
+    assert.ok(result.text.includes('b = ~a.@.["x.y"]'));
 
     const relex = tokenize(result.text);
     assert.equal(relex.errors.length, 0);
@@ -519,7 +535,7 @@ test('canonicalizes quoted attribute selectors and root-prefixed attribute trave
     const input = [
         'aeon:mode = "transport"',
         'a@{ meta = { deep = 1 } } = 3',
-        'v = ~$.a@["meta"].["deep"]',
+        'v = ~$.a.@.["meta"].["deep"]',
     ].join('\n');
     const result = canonicalize(input);
 
@@ -531,7 +547,7 @@ test('canonicalizes quoted attribute selectors and root-prefixed attribute trave
             '  mode = "transport"',
             '}',
             'a@{meta = { deep = 1 }} = 3',
-            'v = ~a@meta.deep',
+            'v = ~a.@.meta.deep',
         ].join('\n') + '\n'
     );
 });

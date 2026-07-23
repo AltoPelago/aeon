@@ -19,7 +19,7 @@ import { formatDatatypeAnnotation } from './datatype.js';
 export interface AssignmentEvent {
     /** Canonical path to the binding (e.g., $.config.db.host) */
     readonly path: CanonicalPath;
-    /** Derived wildcard path for dispatch ergonomics (e.g., config.db.items[*]) */
+    /** Derived SANSA selector path for dispatch ergonomics (e.g., $.config.db.items.*) */
     readonly normalizedPath?: string;
     /** Local key name (e.g., "host") */
     readonly key: string;

@@ -5,7 +5,7 @@ import { compile as compileCore, type AEONError } from '@altopelago/aeon-core';
 import { finalizeJson } from '@altopelago/aeon-finalize';
 import { compile as compileProfile, createDefaultRegistry, type Diagnostic as ProfileDiagnostic } from '@altopelago/aeon-profiles';
 import { inspectHeader } from '@altopelago/aeon-transport';
-import { validate, type Diag as SchemaDiagnostic, type SchemaV1 } from '@altopelago/aeos-core';
+import { validate, type Diag as SchemaDiagnostic, type SchemaRule, type SchemaV1 } from '@altopelago/aeos-core';
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver/node';
 
 export interface ValidationConfig {
@@ -277,7 +277,8 @@ function verifyContractArtifact(entry: ContractRegistryEntry, registryPath: stri
 }
 
 function readSchemaAny(file: string, diagnostics: Diagnostic[], expectedSchemaId?: string): SchemaV1 | null {
-    if (file.toLowerCase().endsWith('.aeon')) {
+    const lower = file.toLowerCase();
+    if (lower.endsWith('.aeon') || lower.endsWith('.aeos')) {
         return readSchemaAeon(file, diagnostics, expectedSchemaId);
     }
     return readSchemaJson(file, diagnostics, expectedSchemaId);
@@ -319,13 +320,18 @@ function normalizeSchemaContractDoc(
     diagnostics: Diagnostic[],
     expectedSchemaId?: string,
 ): SchemaV1 | null {
+    if (doc.aeos && typeof doc.aeos === 'object' && !Array.isArray(doc.aeos)) {
+        return normalizeAeosSchemaDoc(doc.aeos as Record<string, unknown>, file, diagnostics, expectedSchemaId);
+    }
+
     const schemaId = doc['schema_id'];
     const schemaVersion = doc['schema_version'];
     const rulesRaw = doc['rules'];
     const world = doc['world'];
+    const referencePolicy = doc['reference_policy'];
     const datatypeAllowlist = doc['datatype_allowlist'];
     const datatypeRules = doc['datatype_rules'];
-    const allowedTopLevel = new Set(['schema_id', 'schema_version', 'rules', 'world', 'datatype_allowlist', 'datatype_rules']);
+    const allowedTopLevel = new Set(['schema_id', 'schema_version', 'rules', 'world', 'reference_policy', 'datatype_allowlist', 'datatype_rules']);
 
     for (const key of Object.keys(doc)) {
         if (!allowedTopLevel.has(key)) {
@@ -354,6 +360,10 @@ function normalizeSchemaContractDoc(
         diagnostics.push(simpleDiagnostic(`Schema contract field 'world' must be 'open' or 'closed': ${file}`, 'SCHEMA_WORLD_INVALID'));
         return null;
     }
+    if (referencePolicy !== undefined && referencePolicy !== 'allow' && referencePolicy !== 'forbid') {
+        diagnostics.push(simpleDiagnostic(`Schema contract field 'reference_policy' must be 'allow' or 'forbid': ${file}`, 'SCHEMA_REFERENCE_POLICY_INVALID'));
+        return null;
+    }
     if (datatypeAllowlist !== undefined) {
         if (!Array.isArray(datatypeAllowlist) || datatypeAllowlist.some((v) => typeof v !== 'string')) {
             diagnostics.push(simpleDiagnostic(`Schema contract field 'datatype_allowlist' must be array<string>: ${file}`, 'SCHEMA_DATATYPE_ALLOWLIST_INVALID'));
@@ -373,38 +383,147 @@ function normalizeSchemaContractDoc(
         }
     }
 
-    const rules = rulesRaw.map((rule, index) => {
-        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-            diagnostics.push(simpleDiagnostic(`Schema contract rule at index ${index} is not an object: ${file}`, 'SCHEMA_RULE_INVALID'));
-            return null;
-        }
-        const ruleObj = rule as Record<string, unknown>;
-        if (typeof ruleObj.path !== 'string' || !ruleObj.path) {
-            diagnostics.push(simpleDiagnostic(`Schema contract rule at index ${index} missing string 'path': ${file}`, 'SCHEMA_RULE_PATH_MISSING'));
-            return null;
-        }
-        if (!ruleObj.constraints || typeof ruleObj.constraints !== 'object' || Array.isArray(ruleObj.constraints)) {
-            diagnostics.push(simpleDiagnostic(`Schema contract rule at index ${index} missing object 'constraints': ${file}`, 'SCHEMA_RULE_CONSTRAINTS_MISSING'));
-            return null;
-        }
-        return {
-            path: ruleObj.path,
-            constraints: ruleObj.constraints as Record<string, unknown>,
-        };
-    });
-
-    if (rules.some((rule) => rule === null)) {
-        return null;
-    }
+    const rules = normalizeSchemaRules(rulesRaw, file, diagnostics, 'Schema contract');
+    if (!rules) return null;
 
     return {
-        rules: rules as Array<{ path: string; constraints: Record<string, unknown> }>,
+        rules,
         ...(world === 'open' || world === 'closed' ? { world } : {}),
+        ...(referencePolicy === 'allow' || referencePolicy === 'forbid' ? { reference_policy: referencePolicy } : {}),
         ...(Array.isArray(datatypeAllowlist) ? { datatype_allowlist: datatypeAllowlist as string[] } : {}),
         ...(datatypeRules && typeof datatypeRules === 'object' && !Array.isArray(datatypeRules)
             ? { datatype_rules: datatypeRules as Record<string, Record<string, unknown>> }
             : {}),
     } as SchemaV1;
+}
+
+function normalizeAeosSchemaDoc(
+    doc: Record<string, unknown>,
+    file: string,
+    diagnostics: Diagnostic[],
+    expectedSchemaId?: string,
+): SchemaV1 | null {
+    const schemaId = doc['id'];
+    const schemaVersion = doc['version'];
+    const rulesRaw = doc['rules'];
+    const world = doc['world'];
+    const referencePolicy = doc['reference_policy'];
+    const datatypeAllowlist = doc['datatype_allowlist'];
+    const datatypeRules = doc['datatype_rules'];
+    const allowedTopLevel = new Set([
+        'id',
+        'version',
+        'rules',
+        'patterns',
+        'charsets',
+        'world',
+        'reference_policy',
+        'datatype_allowlist',
+        'datatype_rules',
+    ]);
+
+    for (const key of Object.keys(doc)) {
+        if (!allowedTopLevel.has(key)) {
+            diagnostics.push(simpleDiagnostic(`Unknown schema document key '${key}' in ${file}`, 'SCHEMA_UNKNOWN_KEY'));
+            return null;
+        }
+    }
+    if (typeof schemaId !== 'string' || schemaId.length === 0) {
+        diagnostics.push(simpleDiagnostic(`Schema document missing required string field 'id': ${file}`, 'SCHEMA_ID_MISSING'));
+        return null;
+    }
+    if (expectedSchemaId && schemaId !== expectedSchemaId) {
+        diagnostics.push(simpleDiagnostic(`Schema contract id mismatch. Expected '${expectedSchemaId}', found '${schemaId}' in ${file}`, 'SCHEMA_ID_MISMATCH'));
+        return null;
+    }
+    if (typeof schemaVersion !== 'string' || schemaVersion.length === 0) {
+        diagnostics.push(simpleDiagnostic(`Schema document missing required string field 'version': ${file}`, 'SCHEMA_VERSION_MISSING'));
+        return null;
+    }
+    if (rulesRaw === undefined) {
+        diagnostics.push(simpleDiagnostic(`Schema document missing required field 'rules': ${file}`, 'SCHEMA_RULES_MISSING'));
+        return null;
+    }
+    if (world !== undefined && world !== 'open' && world !== 'closed') {
+        diagnostics.push(simpleDiagnostic(`Schema document field 'world' must be 'open' or 'closed': ${file}`, 'SCHEMA_WORLD_INVALID'));
+        return null;
+    }
+    if (referencePolicy !== undefined && referencePolicy !== 'allow' && referencePolicy !== 'forbid') {
+        diagnostics.push(simpleDiagnostic(`Schema document field 'reference_policy' must be 'allow' or 'forbid': ${file}`, 'SCHEMA_REFERENCE_POLICY_INVALID'));
+        return null;
+    }
+    if (datatypeAllowlist !== undefined && (!Array.isArray(datatypeAllowlist) || datatypeAllowlist.some((v) => typeof v !== 'string'))) {
+        diagnostics.push(simpleDiagnostic(`Schema document field 'datatype_allowlist' must be array<string>: ${file}`, 'SCHEMA_DATATYPE_ALLOWLIST_INVALID'));
+        return null;
+    }
+    if (datatypeRules !== undefined && (!datatypeRules || typeof datatypeRules !== 'object' || Array.isArray(datatypeRules))) {
+        diagnostics.push(simpleDiagnostic(`Schema document field 'datatype_rules' must be object<string, constraints>: ${file}`, 'SCHEMA_DATATYPE_RULES_INVALID'));
+        return null;
+    }
+
+    const rules = normalizeSchemaRules(rulesRaw, file, diagnostics, 'Schema document');
+    if (!rules) return null;
+
+    return {
+        rules,
+        ...(world === 'open' || world === 'closed' ? { world } : {}),
+        ...(referencePolicy === 'allow' || referencePolicy === 'forbid' ? { reference_policy: referencePolicy } : {}),
+        ...(Array.isArray(datatypeAllowlist) ? { datatype_allowlist: datatypeAllowlist as string[] } : {}),
+        ...(datatypeRules && typeof datatypeRules === 'object' && !Array.isArray(datatypeRules)
+            ? { datatype_rules: datatypeRules as Record<string, Record<string, unknown>> }
+            : {}),
+    } as SchemaV1;
+}
+
+function normalizeSchemaRules(
+    rulesRaw: unknown,
+    file: string,
+    diagnostics: Diagnostic[],
+    label: string,
+): SchemaRule[] | null {
+    if (Array.isArray(rulesRaw)) {
+        const rules: SchemaRule[] = [];
+        for (let index = 0; index < rulesRaw.length; index += 1) {
+            const rule = normalizeSchemaRuleObject(rulesRaw[index], `${label} rule at index ${index}`, file, diagnostics);
+            if (!rule) return null;
+            rules.push(rule);
+        }
+        return rules;
+    }
+    if (rulesRaw && typeof rulesRaw === 'object') {
+        return Object.entries(rulesRaw as Record<string, unknown>).map(([rulePath, constraints]) => ({
+            path: rulePath,
+            constraints: constraints as Record<string, unknown>,
+        }));
+    }
+    diagnostics.push(simpleDiagnostic(`${label} field 'rules' must be a list of rule objects: ${file}`, 'SCHEMA_RULES_INVALID'));
+    return null;
+}
+
+function normalizeSchemaRuleObject(
+    rule: unknown,
+    label: string,
+    file: string,
+    diagnostics: Diagnostic[],
+): SchemaRule | null {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+        diagnostics.push(simpleDiagnostic(`${label} is not an object: ${file}`, 'SCHEMA_RULE_INVALID'));
+        return null;
+    }
+    const ruleObj = rule as Record<string, unknown>;
+    const pathTarget = typeof ruleObj.path === 'string' && ruleObj.path.length > 0 ? ruleObj.path : undefined;
+    const selectorTarget = typeof ruleObj.selector === 'string' && ruleObj.selector.length > 0 ? ruleObj.selector : undefined;
+    if ((pathTarget === undefined) === (selectorTarget === undefined)) {
+        diagnostics.push(simpleDiagnostic(`${label} must define exactly one of 'path' or 'selector': ${file}`, 'SCHEMA_RULE_TARGET_INVALID'));
+        return null;
+    }
+    if (!ruleObj.constraints || typeof ruleObj.constraints !== 'object' || Array.isArray(ruleObj.constraints)) {
+        diagnostics.push(simpleDiagnostic(`${label} missing object 'constraints': ${file}`, 'SCHEMA_RULE_CONSTRAINTS_MISSING'));
+        return null;
+    }
+    return pathTarget !== undefined
+        ? { path: pathTarget, constraints: ruleObj.constraints as Record<string, unknown> }
+        : { selector: selectorTarget!, constraints: ruleObj.constraints as Record<string, unknown> };
 }
 
 function fromCoreError(error: AEONError): Diagnostic {

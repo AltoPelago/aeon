@@ -1,5 +1,6 @@
 import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
 import type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
+import { resolveAddress, type SansaResolveDiagnostic, type SansaResolveNamespace } from '@altopelago/sansa';
 import type { TonicInput } from './tonic.js';
 
 export type MatterKind = 'object' | 'list' | 'scalar' | 'reference' | 'node';
@@ -74,10 +75,23 @@ export interface MatterElementNode extends MatterNode {
 
 export type MatterAnyNode = MatterObject | MatterList | MatterScalar | MatterReference | MatterElementNode;
 
+export type MatterResolveResult =
+    | {
+        readonly ok: true;
+        readonly nodes: readonly MatterAnyNode[];
+        readonly diagnostics: readonly SansaResolveDiagnostic[];
+    }
+    | {
+        readonly ok: false;
+        readonly nodes: readonly MatterAnyNode[];
+        readonly errors: readonly SansaResolveDiagnostic[];
+    };
+
 export interface AeonMatter {
     readonly root: MatterObject | MatterList;
     at(address: string): MatterAnyNode | undefined;
     has(address: string): boolean;
+    resolve(address: string): MatterResolveResult;
     inspect(address?: string): string;
     serialize(): string;
     toSchema(): unknown;
@@ -353,6 +367,14 @@ class AeonMatterDocument implements AeonMatter {
         return this.nodesByAddress.has(address);
     }
 
+    resolve(address: string): MatterResolveResult {
+        const result = resolveAddress(address, createMatterResolveNamespace(this.root));
+        if (!result.ok) {
+            return { ok: false, nodes: [], errors: result.errors };
+        }
+        return { ok: true, nodes: result.bindings, diagnostics: result.diagnostics };
+    }
+
     inspect(address?: string): string {
         const node = address ? this.at(address) : this.root;
         if (!node) {
@@ -488,6 +510,7 @@ function valueToMatterNode(
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
@@ -580,9 +603,80 @@ function assignAddresses(node: MatterAnyNode, address: string, registry: Map<str
     }
     if (node.kind === 'node') {
         node.children().forEach((child, index) => {
-            assignAddresses(child, `${address}.$children[${index}]`, registry);
+            assignAddresses(child, `${address}[${index}]`, registry);
         });
     }
+}
+
+function createMatterResolveNamespace(root: MatterAnyNode): SansaResolveNamespace<MatterAnyNode> {
+    return {
+        root,
+        children: matterChildren,
+        member: matterMember,
+        position: matterPosition,
+        name: matterName,
+        index: matterIndex,
+        semanticType: matterSemanticType,
+        representationKind: matterRepresentationKind,
+    };
+}
+
+function matterChildren(node: MatterAnyNode): readonly MatterAnyNode[] {
+    switch (node.kind) {
+        case 'object':
+            return node.entries().map(([, child]) => child);
+        case 'list':
+            return node.items();
+        case 'node':
+            return node.children();
+        case 'scalar':
+        case 'reference':
+            return [];
+    }
+}
+
+function matterMember(node: MatterAnyNode, name: string): MatterAnyNode | undefined {
+    if (node.kind !== 'object') return undefined;
+    return node.get(name);
+}
+
+function matterPosition(node: MatterAnyNode, index: number): MatterAnyNode | undefined {
+    if (node.kind === 'list') return node.get(index);
+    if (node.kind === 'node') return node.children()[index];
+    return undefined;
+}
+
+function matterName(node: MatterAnyNode): string | undefined {
+    const parent = node.parent;
+    if (parent?.kind !== 'object') return undefined;
+    return parent.entries().find(([, child]) => child === node)?.[0];
+}
+
+function matterIndex(node: MatterAnyNode): number | undefined {
+    const parent = node.parent;
+    if (parent?.kind === 'list') {
+        const index = parent.items().indexOf(node);
+        return index >= 0 ? index : undefined;
+    }
+    if (parent?.kind === 'node') {
+        const index = parent.children().indexOf(node);
+        return index >= 0 ? index : undefined;
+    }
+    return undefined;
+}
+
+function matterSemanticType(node: MatterAnyNode): string | undefined {
+    if (node.kind !== 'scalar') return undefined;
+    const value = node.get();
+    return value === null ? 'null' : typeof value;
+}
+
+function matterRepresentationKind(node: MatterAnyNode): string {
+    if (node.kind === 'scalar') {
+        const value = node.get();
+        return value === null ? 'null' : typeof value;
+    }
+    return node.kind;
 }
 
 function serializeRootObject(node: MatterObjectNode): string {
@@ -707,6 +801,7 @@ function scalarValueFromValue(value: Value): MatterScalarValue | undefined {
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':

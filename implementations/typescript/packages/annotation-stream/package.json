@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-annotation-stream",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Build AEON annotation streams from comments, attributes, and source metadata.",
   "license": "MIT",
   "type": "module",

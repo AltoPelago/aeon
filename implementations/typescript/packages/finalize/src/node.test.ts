@@ -52,6 +52,16 @@ describe('Finalization (Node)', () => {
         assert.strictEqual(node?.type, 'Time');
     });
 
+    it('materializes SANSA address literals as scalar SANSA address nodes', () => {
+        const events = compileToEvents('test:sansa = $.inventory.items[2].sku');
+        const result = finalizeNode(events);
+        const node = result.document.root.entries.get('test');
+
+        assert.ok(node);
+        assert.strictEqual(node?.type, 'SansaAddress');
+        assert.strictEqual((node as { value?: string }).value, '$.inventory.items[2].sku');
+    });
+
     it('projects only whitelisted paths in node materialization', () => {
         const events = compileToEvents('app = { name = "demo", port = 8080 }\nother = "ignore"');
         const result = finalizeNode(events, {

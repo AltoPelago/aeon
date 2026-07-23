@@ -16,6 +16,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_simple_strict_parse(self) -> None:
         result = compile_source("a:number = 1")
         self.assertEqual([], result.errors)
+        self.assertEqual([], result.warnings)
         self.assertEqual("$.a", result.events[0]["path"])
         self.assertEqual("number", result.events[0]["datatype"])
 
@@ -44,6 +45,48 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("NodeLiteral", by_path["$.node"]["value"]["type"])
         self.assertIn("$.group.false", by_path)
         self.assertIn("$.group.off", by_path)
+
+    def test_sansa_address_literals_accept_rich_forms(self) -> None:
+        result = compile_source(
+            "absolute:sansa = $.inventory.items[2].sku\n"
+            "contextual:sansa = ?.name\n"
+            'rich:sansa = $.items.*#text%stringLiteral.("item?*")\n'
+            "parent:sansa = $.items[1].^.sku\n"
+            "range:sansa = $.items[0..1]\n"
+            "openEnd:sansa = $.items[1..]\n"
+            "openStart:sansa = $.items[..1]\n"
+            "maxIndex:sansa = $.items[999999]\n"
+            'csv:sansa = $.inventory:csv[","]\n'
+            "external:sansa = $.value:type<type>[arg]\n"
+            "chained:sansa = $.path:tuple<x><y>\n"
+            'literalStar:sansa = $.items.("item\\\\*")\n'
+            'literalQuestion:sansa = $.items.("item\\\\?")'
+        )
+        self.assertEqual([], result.errors)
+        for event in result.events:
+            self.assertEqual("SansaAddressLiteral", event["value"]["type"])
+
+    def test_sansa_address_literals_reject_indexes_above_local_configured_limit(self) -> None:
+        result = compile_source("tooHigh:sansa = $.items[1000000]")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
+    def test_sansa_address_literals_terminate_before_comments_and_containers(self) -> None:
+        result = compile_source(
+            "a:sansa = $.name/* block */\n"
+            "b:sansa = $.name// line\n"
+            "c:list = [$.name]\n"
+            "d:node = <tag($.name)>\n"
+            "e:tuple = ($.name)\n"
+            'f:sansa = $.items.("item_*")'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("SansaAddressLiteral", by_path["$.a"]["value"]["type"])
+        self.assertEqual("SansaAddressLiteral", by_path["$.b"]["value"]["type"])
+        self.assertEqual("ListNode", by_path["$.c"]["value"]["type"])
+        self.assertEqual("NodeLiteral", by_path["$.d"]["value"]["type"])
+        self.assertEqual("TupleLiteral", by_path["$.e"]["value"]["type"])
+        self.assertEqual("SansaAddressLiteral", by_path["$.f"]["value"]["type"])
 
     def test_empty_quoted_key_rejected(self) -> None:
         result = compile_source('"" = ""')
@@ -491,11 +534,11 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("^aaa", result.events[0]["value"]["raw"])
 
     def test_missing_attribute_reference(self) -> None:
-        result = compile_source("a = 1\nv = ~a@ns")
+        result = compile_source("a = 1\nv = ~a.@.ns")
         self.assertEqual(["MISSING_REFERENCE_TARGET"], [error.code for error in result.errors])
 
     def test_nested_attribute_reference_allows_raised_depth(self) -> None:
-        result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a@b@c", CompileOptions(max_attribute_depth=8))
+        result = compile_source("a@{b@{c=3}=2} = 1\nv = ~a.@.b.@.c", CompileOptions(max_attribute_depth=8))
         self.assertEqual([], result.errors)
 
     def test_nested_attribute_heads_fail_at_default_depth(self) -> None:
@@ -503,7 +546,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["ATTRIBUTE_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
     def test_forward_reference(self) -> None:
-        result = compile_source('v = ~a@ns\na@{ns="alto.v1"} = 1')
+        result = compile_source('v = ~a.@.ns\na@{ns="alto.v1"} = 1')
         self.assertEqual(["FORWARD_REFERENCE"], [error.code for error in result.errors])
 
     def test_late_structured_header_is_rejected(self) -> None:
@@ -580,7 +623,7 @@ class CoreCompileTests(unittest.TestCase):
         )
 
     def test_nested_binding_attribute_reference(self) -> None:
-        result = compile_source("a = [{x@{b=0}=1}]\nv = ~a[0].x@b")
+        result = compile_source("a = [{x@{b=0}=1}]\nv = ~a[0].x.@.b")
         self.assertEqual([], result.errors)
         self.assertEqual(["$.a", "$.a[0]", "$.a[0].x", "$.v"], [event["path"] for event in result.events])
 
@@ -632,7 +675,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("list<n>", result.events[1]["datatype"])
 
     def test_reference_path_is_preserved_structurally(self) -> None:
-        result = compile_source('a@{meta = { "x.y" = 1 }} = 0\nv = ~a@meta.["x.y"]')
+        result = compile_source('a@{meta = { "x.y" = 1 }} = 0\nv = ~a.@.meta.["x.y"]')
         self.assertEqual([], result.errors)
         reference_value = result.events[1]["value"]
         self.assertEqual(
@@ -649,6 +692,30 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("a = 1\nb = 2", CompileOptions(max_events=1))
         self.assertEqual(["EVENT_COUNT_EXCEEDED"], [error.code for error in result.errors])
         self.assertEqual([], result.events)
+
+    def test_portability_warnings_for_elevated_policy_floors(self) -> None:
+        result = compile_source(
+            "a = 1",
+            CompileOptions(
+                max_attribute_depth=9,
+                max_separator_depth=9,
+                max_generic_depth=9,
+                max_nesting_depth=65,
+                max_events=100_001,
+            ),
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            [
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_POLICY_DEPTH",
+                "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                "AEON_NON_PORTABLE_EVENT_BUDGET",
+            ],
+            [warning["code"] for warning in result.warnings],
+        )
+        self.assertEqual([8, 8, 8, 64, 100_000], [warning["portableFloor"] for warning in result.warnings])
 
     def test_exponent_underscore_is_accepted(self) -> None:
         result = compile_source("value:number = 3e3_3")
@@ -673,7 +740,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
         self.assertIn("UNTYPED_VALUE_IN_STRICT_MODE", [error.code for error in result.errors])
-        self.assertIn("$.b@n", [error.path for error in result.errors])
+        self.assertIn("$.b.@.n", [error.path for error in result.errors])
 
     def test_strict_mode_accepts_typed_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n:number=3}:n = 3')

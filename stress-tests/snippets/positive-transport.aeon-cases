@@ -15,6 +15,10 @@ widget:node = <tag:pair("x", "y")>
 ---
 glyphTyped:node = <glyph:node>
 ---
+nodeTyped:node = <tag:node<node>>
+---
+nodeChildren:node = <tag:node<node>(<item>, <item>)>
+---
 target:number = 1
 a = ~target
 ---
@@ -22,25 +26,25 @@ a = { "b.c" = 1 }
 v = ~a.["b.c"]
 ---
 a@{ ns = 1 } = 3
-v = ~a@ns
+v = ~a.@.ns
 ---
 a@{ "x.y" = 1 } = 3
-v = ~a@["x.y"]
+v = ~a.@.["x.y"]
 ---
 a@{ meta = { "x.y" = 1 } } = 3
-v = ~a@meta.["x.y"]
+v = ~a.@.meta.["x.y"]
 ---
 a@{ "x.y" = { z = 1 } } = 3
-v = ~a@["x.y"].z
+v = ~a.@.["x.y"].z
 ---
 a@{ meta = { deep = 1 } } = 3
-v = ~a@meta.deep
+v = ~a.@.meta.deep
 ---
 a@{ meta = { deep = 1 } } = 3
-v = ~a@["meta"].deep
+v = ~a.@.["meta"].deep
 ---
 a@{ meta = { deep = 1 } } = 3
-v = ~$.a@["meta"].["deep"]
+v = ~$.a.@.["meta"].["deep"]
 ---
 a = { b = { c = 1 } }
 v = ~$.a.b.c
@@ -116,6 +120,26 @@ z5 = 2025-01-01T00:00:00&l
 z5:zrut = 2025-01-01T00:00:00Z&l
 ---
 z5 = 2025-01-01T00:00:00&l
+---
+addr:sansa = $.inventory.items[2].sku
+---
+addr:sansa = ?.name
+---
+addr:sansa = $.items.*#text%stringLiteral.("item?*")
+---
+addr:sansa = $.inventory:csv[","]
+---
+addr:sansa = $.path:tuple<x><y>
+---
+addr:sansa = $.name/* comment */
+---
+addr:sansa = $.name// comment
+---
+items:list = [$.name]
+---
+node:node = <tag($.name)>
+---
+tuple:tuple = ($.name)
 ---
 sep3 : sep [x] = ^1920x1080
 ---

@@ -1,4 +1,4 @@
-import { compile as compileAeon, type AEONError } from '@altopelago/aeon-core';
+import { compile as compileAeon, type AEONError, type AEONWarning } from '@altopelago/aeon-core';
 import type { AssignmentEvent } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import type { CompileCtx, Diagnostic } from '../types.js';
@@ -23,6 +23,14 @@ function errorToDiagnostic(error: AEONError): Omit<Diagnostic, 'level'> {
     };
 }
 
+function warningToDiagnostic(warning: AEONWarning): Omit<Diagnostic, 'level'> {
+    return {
+        message: warning.message,
+        code: warning.code,
+        ...(warning.path !== undefined ? { path: warning.path } : {}),
+    };
+}
+
 export function compileWithCore(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] {
     if (typeof input !== 'string') {
         ctx.error({
@@ -42,6 +50,11 @@ export function compileWithCore(input: unknown, ctx: CompileCtx): readonly Assig
     if (result.errors.length > 0) {
         for (const err of result.errors) {
             ctx.error(errorToDiagnostic(err));
+        }
+    }
+    if (result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+            ctx.warn(warningToDiagnostic(warning));
         }
     }
 

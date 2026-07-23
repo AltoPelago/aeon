@@ -79,12 +79,15 @@ class ApiConvenienceTests(unittest.TestCase):
                         '  id = "com.example.person"',
                         '  version = "1"',
                         '  world = "closed"',
-                        "  rules = {",
-                        '    "$.ages[*]" = {',
-                        '      type = "IntegerLiteral"',
-                        '      reference_target_path = "$.people[*].age"',
+                        "  rules:list<object> = [",
+                        "    {",
+                        "      selector:sansa = $.ages.*",
+                        "      constraints:object = {",
+                        '        type:string = "IntegerLiteral"',
+                        '        reference_target_pattern:string = "^\\\\$\\\\.people\\\\[\\\\d+\\\\]\\\\.age$"',
+                        "      }",
                         "    }",
-                        "  }",
+                        "  ]",
                         "}",
                     ]
                 )
@@ -93,7 +96,7 @@ class ApiConvenienceTests(unittest.TestCase):
             )
             schema = load_schema_file(schema_path)
             self.assertEqual("closed", schema["world"])
-            self.assertEqual("$.ages[*]", schema["rules"][0]["path"])
+            self.assertEqual("$.ages.*", schema["rules"][0]["selector"])
             self.assertEqual(
                 r"^\$\.people\[\d+\]\.age$",
                 schema["rules"][0]["constraints"]["reference_target_pattern"],

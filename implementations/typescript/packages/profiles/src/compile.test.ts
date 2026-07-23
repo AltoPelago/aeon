@@ -49,6 +49,22 @@ test('compile defaults to core when profile is omitted', () => {
     assert.equal(formatPath(result.aes[0]!.path), '$.view');
 });
 
+test('compile forwards core portability warnings through profile metadata', () => {
+    const result = compile('a = 1', {
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        maxAttributeDepth: 9,
+        maxSeparatorDepth: 9,
+        maxGenericDepth: 9,
+    });
+
+    assert.deepEqual(result.meta?.warnings?.map((warning) => warning.code), [
+        'AEON_NON_PORTABLE_POLICY_DEPTH',
+        'AEON_NON_PORTABLE_POLICY_DEPTH',
+        'AEON_NON_PORTABLE_POLICY_DEPTH',
+    ]);
+});
+
 test('compile fails with unknown profile', () => {
     const result = compile(sourceOk, {
         profile: 'unknown.profile',

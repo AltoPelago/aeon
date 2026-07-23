@@ -1,0 +1,30 @@
+{
+  "name": "@altopelago/sansa-resolve-cts-runner",
+  "version": "0.11.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "sansa-resolve-cts-runner": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@altopelago/sansa": "0.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "description": "SANSA Resolve CTS runner for the TypeScript AEON workspace",
+  "keywords": ["aeon", "sansa", "cts", "resolve"]
+}

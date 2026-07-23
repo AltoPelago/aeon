@@ -9,9 +9,9 @@ export function formatReferencePath(pathParts: readonly ReferencePathPart[]): st
             out += `[${segment}]`;
         } else if (typeof segment === 'object' && segment.type === 'attr') {
             if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
-                out += `@${segment.key}`;
+                out += `.@.${segment.key}`;
             } else {
-                out += `@[${JSON.stringify(segment.key)}]`;
+                out += `.@.[${JSON.stringify(segment.key)}]`;
             }
         } else {
             const member = segment as string;

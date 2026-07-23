@@ -24,6 +24,7 @@ pub enum TokenKind {
     Percent,
     Ampersand,
     Semicolon,
+    SansaAddressLiteral,
     String,
     Number,
     HexLiteral,
@@ -205,9 +206,10 @@ impl<'a> Lexer<'a> {
                     self.push_token(TokenKind::Hash, "#", start, None, None);
                 }
             }
-            '$' => {
+            '$' if self.previous_token_is_reference_marker() => {
                 self.push_token(TokenKind::Dollar, "$", start, None, None);
             }
+            '$' | '?' => self.scan_sansa_address_literal(start),
             '&' => {
                 if is_encoding_start_char(self.peek()) {
                     self.scan_prefixed_literal(
@@ -508,6 +510,73 @@ impl<'a> Lexer<'a> {
         self.push_token(kind, &text, start, None, None);
     }
 
+    fn scan_sansa_address_literal(&mut self, start: Position) {
+        let mut stack = Vec::new();
+        let mut in_quote = false;
+        let mut escaped = false;
+
+        while !self.is_at_end() {
+            let ch = self.peek();
+
+            if in_quote {
+                if escaped {
+                    escaped = false;
+                    self.advance();
+                    continue;
+                }
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        self.advance();
+                    }
+                    '"' => {
+                        in_quote = false;
+                        self.advance();
+                    }
+                    _ => {
+                        self.advance();
+                    }
+                }
+                continue;
+            }
+
+            if stack.is_empty()
+                && matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | '/' | '}' | ']' | ')')
+            {
+                break;
+            }
+
+            match ch {
+                '"' => {
+                    in_quote = true;
+                    self.advance();
+                }
+                '[' => {
+                    stack.push(']');
+                    self.advance();
+                }
+                '(' => {
+                    stack.push(')');
+                    self.advance();
+                }
+                '<' => {
+                    stack.push('>');
+                    self.advance();
+                }
+                ']' | ')' | '>' if stack.last().copied() == Some(ch) => {
+                    stack.pop();
+                    self.advance();
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+
+        let text = self.slice_from(start.offset);
+        self.push_token(TokenKind::SansaAddressLiteral, &text, start, None, None);
+    }
+
     fn scan_slash_channel_or_symbol(&mut self, start: Position) {
         match self.peek() {
             '/' => {
@@ -588,6 +657,12 @@ impl<'a> Lexer<'a> {
             comment,
             quote,
         });
+    }
+
+    fn previous_token_is_reference_marker(&self) -> bool {
+        self.tokens
+            .last()
+            .is_some_and(|token| matches!(token.kind, TokenKind::Tilde | TokenKind::TildeArrow))
     }
 
     fn push_error(&mut self, error: LexError) {
@@ -1090,7 +1165,46 @@ mod tests {
     fn dollar_prefixed_text_is_not_encoding_literal() {
         let result = tokenize("value = $abc", LexerOptions::default());
         assert!(result.errors.is_empty());
-        assert_eq!(result.tokens[2].kind, TokenKind::Dollar);
+        assert_eq!(result.tokens[2].kind, TokenKind::SansaAddressLiteral);
+    }
+
+    #[test]
+    fn sansa_address_literals_terminate_before_comments_and_container_boundaries() {
+        let line_comment = tokenize(
+            "$.name// hello",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(line_comment.errors.is_empty());
+        assert_eq!(line_comment.tokens[0].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(line_comment.tokens[0].text, "$.name");
+        assert_eq!(line_comment.tokens[1].kind, TokenKind::LineComment);
+
+        let block_comment = tokenize(
+            "$.name/* hello */",
+            LexerOptions {
+                include_comments: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(block_comment.errors.is_empty());
+        assert_eq!(block_comment.tokens[0].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(block_comment.tokens[0].text, "$.name");
+        assert_eq!(block_comment.tokens[1].kind, TokenKind::BlockComment);
+
+        let list = tokenize("[$.name]", LexerOptions::default());
+        assert!(list.errors.is_empty());
+        assert_eq!(list.tokens[1].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(list.tokens[1].text, "$.name");
+        assert_eq!(list.tokens[2].kind, TokenKind::RightBracket);
+
+        let tuple = tokenize("($.name)", LexerOptions::default());
+        assert!(tuple.errors.is_empty());
+        assert_eq!(tuple.tokens[1].kind, TokenKind::SansaAddressLiteral);
+        assert_eq!(tuple.tokens[1].text, "$.name");
+        assert_eq!(tuple.tokens[2].kind, TokenKind::RightParen);
     }
 
     #[test]

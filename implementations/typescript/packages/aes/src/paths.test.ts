@@ -68,13 +68,13 @@ describe('Canonical Path Resolution', () => {
     });
 
     describe('normalized paths', () => {
-        it('should drop root marker for normalized top-level path', () => {
+        it('should preserve root marker for normalized top-level path', () => {
             const result = resolve('a = 1');
             assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), 'a');
+            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '$.a');
         });
 
-        it('should normalize indexed paths using wildcard segments', () => {
+        it('should normalize indexed paths using SANSA expansion segments', () => {
             const tokens = tokenize('contacts = [{ email = "a" }, { email = "b" }]').tokens;
             const ast = parse(tokens);
             assert.ok(ast.document);
@@ -82,19 +82,19 @@ describe('Canonical Path Resolution', () => {
 
             assert.strictEqual(result.errors.length, 0);
             const normalized = result.bindings.map((b) => formatNormalizedPath(b.path));
-            assert.ok(normalized.includes('contacts[*].email'));
+            assert.ok(normalized.includes('$.contacts.*.email'));
         });
 
         it('should preserve quoted member rendering for non-bare keys', () => {
             const result = resolve('"a.b" = 2');
             assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '["a.b"]');
+            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '$.["a.b"]');
         });
 
         it('should escape backslashes in quoted normalized members', () => {
             const result = resolve('"a\\\\b" = 2');
             assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '["a\\\\b"]');
+            assert.strictEqual(formatNormalizedPath(result.bindings[0]!.path), '$.["a\\\\b"]');
         });
     });
 

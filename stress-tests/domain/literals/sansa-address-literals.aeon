@@ -1,0 +1,23 @@
+//# SANSA address literal pass cases.
+//# These value forms should remain individually delimited like other scalar
+//# literals, including when the address itself contains brackets or parens.
+
+absolute:sansa = $.inventory.items[2].sku
+contextual:sansa = ?.name
+rich:sansa = $.items.*#text%stringLiteral.("item?*").**
+
+quotedQualifierArgument:sansa = $.inventory:csv[","]
+unquotedQualifierArgument:sansa = $.field:sep[.]
+externalQualifier:sansa = $.value:type<type>[arg]
+chainedQualifierParameters:sansa = $.path:tuple<x><y>
+
+beforeBlockComment:sansa = $.name/* block */
+beforeLineComment:sansa = $.name// line
+
+list:list = [$.name, $.inventory.items[2].sku]
+node:node = <tag($.name, $.items.*#text%stringLiteral.("item?*"))>
+tuple:tuple = ($.name, $.inventory:csv[","])
+
+literalUnderscorePattern:sansa = $.items.("item_*")
+literalStarPattern:sansa = $.items.("item\\*")
+literalQuestionPattern:sansa = $.items.("item\\?")

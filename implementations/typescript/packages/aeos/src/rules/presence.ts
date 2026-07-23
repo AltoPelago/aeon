@@ -27,7 +27,6 @@ export function checkPresence(
 ): void {
     for (const [path, rule] of ruleIndex) {
         if (rule.constraints.required === true) {
-            if (path.includes('[*]')) continue;
             if (!boundPaths.has(path)) {
                 emitError(ctx, createDiag(
                     path,

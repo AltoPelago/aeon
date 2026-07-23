@@ -130,7 +130,7 @@ test('reports invalid schema paths', () => {
 test('reports pathless schema rules without concrete type output', () => {
     const schema: SchemaV1 = {
         rules: [
-            { selector: '$.items[*]', constraints: { type: 'StringLiteral' } },
+            { selector: '$.items.*', constraints: { type: 'StringLiteral' } },
             { constraints: { type: 'NumberLiteral' } },
         ],
     };

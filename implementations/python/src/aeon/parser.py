@@ -28,6 +28,7 @@ from .ast import (
     PointerReference,
     RadixLiteral,
     ReferencePathSegment,
+    SansaAddressLiteral,
     SeparatorLiteral,
     StringLiteral,
     ToggleLiteral,
@@ -49,6 +50,7 @@ from .errors import (
     UnsafeMaxNestingDepthError,
 )
 from .lexer import Token
+from .sansa import parse_address
 from .spans import Span
 
 GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node", "null", "nan", "infinity"}
@@ -62,7 +64,7 @@ RESERVED_V1_DATATYPES = {
     "encoding", "base64", "embed", "inline",
     "radix", "radix2", "radix6", "radix8", "radix12",
     "sep", "kadot",
-    "tuple", "list", "object", "obj", "envelope", "o", "node", "null",
+    "tuple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
 }
 
 RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}
@@ -664,17 +666,17 @@ class Parser:
             saw_root_dot=saw_root_dot,
             saw_explicit_root=saw_explicit_root,
         )
-        while self.check("DOT") or self.check("LBRACKET") or self.check("AT"):
+        while self.check("DOT") or self.check("LBRACKET"):
             if self.check("DOT"):
                 self.advance()
-                if self.check("LBRACKET"):
+                if self.check("AT"):
+                    self.advance()
+                    self.consume("DOT", "Expected '.' after attribute address-space marker")
+                    path.append(self.parse_attribute_path_segment())
+                elif self.check("LBRACKET"):
                     path.append(self.parse_quoted_bracket_member_segment())
                 else:
                     path.append(self.parse_member_segment("Expected member path segment after '.'"))
-                continue
-            if self.check("AT"):
-                self.advance()
-                path.append(self.parse_attribute_path_segment())
                 continue
             path.append(self.parse_bracket_path_segment())
         return path
@@ -796,6 +798,25 @@ class Parser:
         if token.kind == "SEPARATOR":
             self.advance()
             return SeparatorLiteral(value=token.value[1:], raw=token.value, span=token.span)
+        if token.kind == "SANSA_ADDRESS":
+            self.advance()
+            result = parse_address(token.value)
+            if not result["ok"]:
+                errors = result.get("errors")
+                if isinstance(errors, list) and errors:
+                    first = errors[0]
+                    message = first.get("message") if isinstance(first, dict) else None
+                    raise SyntaxError(str(message or "Invalid SANSA address literal"), token.span)
+                raise SyntaxError("Invalid SANSA address literal", token.span)
+            address = result["address"]
+            canonical = str(address.get("canonical") if isinstance(address, dict) else token.value)
+            return SansaAddressLiteral(
+                address=address if isinstance(address, dict) else {},
+                value=canonical,
+                raw=token.value,
+                canonical=canonical,
+                span=token.span,
+            )
         raise SyntaxError(f"Unexpected token '{token.value}'", token.span)
 
     def parse_null_literal(self) -> NullLiteral:

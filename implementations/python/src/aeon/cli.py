@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     command = args[0]
     if command in {"version", "--version", "-v"}:
-        print("aeon-python 0.10.0")
+        print("aeon-python 0.11.0")
         return 0
     if command == "fmt":
         return fmt(args[1:])
@@ -55,6 +55,7 @@ def inspect(args: list[str]) -> int:
     include_annotations = "--annotations" in args or annotations_only
     sort_annotations = "--sort-annotations" in args
     datatype_policy = resolve_datatype_policy(args)
+    mode = "strict" if "--strict" in args else "transport" if "--transport" in args else None
     if datatype_policy is None and "--datatype-policy" in args:
         print(
             "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)",
@@ -99,6 +100,7 @@ def inspect(args: list[str]) -> int:
             max_separator_depth=1 if max_separator_depth is None else max_separator_depth,
             max_generic_depth=1 if max_generic_depth is None else max_generic_depth,
             max_nesting_depth=256 if max_nesting_depth is None else max_nesting_depth,
+            mode=mode,
             max_input_bytes=max_input_bytes,
             max_events=max_events,
         ),
@@ -160,6 +162,7 @@ def fmt(args: list[str]) -> int:
 def finalize(args: list[str]) -> int:
     recovery = "--recovery" in args
     datatype_policy = resolve_datatype_policy(args)
+    mode = "strict" if "--strict" in args else "transport" if "--transport" in args else None
     if datatype_policy is None and "--datatype-policy" in args:
         print(
             "Error: Invalid value for --datatype-policy (expected reserved_only or allow_custom)",
@@ -199,6 +202,7 @@ def finalize(args: list[str]) -> int:
         CompileOptions(
             recovery=recovery,
             datatype_policy=datatype_policy,
+            mode=mode,
             max_input_bytes=max_input_bytes,
         ),
     )

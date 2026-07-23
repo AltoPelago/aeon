@@ -220,14 +220,14 @@ describe('Reference Validation', () => {
 
     describe('attribute depth policy', () => {
         it('should enforce max_attribute_depth by default (1)', () => {
-            const result = validate('a = 1\nv = ~a@x@y', true);
+            const result = validate('a = 1\nv = ~a.@.x.@.y', true);
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'ATTRIBUTE_DEPTH_EXCEEDED');
         });
 
         it('should allow deeper attribute paths when explicitly raised', () => {
-            const result = validate('a = 1\nv = ~a@x@y', true, 8);
+            const result = validate('a = 1\nv = ~a.@.x.@.y', true, 8);
             assert.ok(result.errors.length > 0);
             // Attribute depth is allowed at this policy level; remaining error is missing target.
             assert.strictEqual(result.errors[0]!.code, 'MISSING_REFERENCE_TARGET');
@@ -236,44 +236,44 @@ describe('Reference Validation', () => {
 
     describe('attribute reference targets', () => {
         it('should resolve clone reference to existing binding attribute', () => {
-            const result = validate('a@{ ns = "alto.v1" } = 3\nv = ~a@ns', true);
+            const result = validate('a@{ ns = "alto.v1" } = 3\nv = ~a.@.ns', true);
             assert.strictEqual(result.errors.length, 0);
         });
 
         it('should resolve quoted attribute selector with dotted key', () => {
-            const result = validate('a@{ "x.y" = 3 } = 1\nv = ~a@["x.y"]', true);
+            const result = validate('a@{ "x.y" = 3 } = 1\nv = ~a.@.["x.y"]', true);
             assert.strictEqual(result.errors.length, 0);
         });
 
         it('should resolve nested quoted member under attribute path', () => {
-            const result = validate('a@{ meta = { "x.y" = 3 } } = 1\nv = ~a@meta.["x.y"]', true);
+            const result = validate('a@{ meta = { "x.y" = 3 } } = 1\nv = ~a.@.meta.["x.y"]', true);
             assert.strictEqual(result.errors.length, 0);
         });
 
         it('should resolve pointer reference to existing binding attribute', () => {
-            const result = validate('a@{ ns = "alto.v1" } = 3\nv = ~>a@ns', true);
+            const result = validate('a@{ ns = "alto.v1" } = 3\nv = ~>a.@.ns', true);
             assert.strictEqual(result.errors.length, 0);
         });
 
         it('should classify missing attribute target as missing reference', () => {
-            const result = validate('a = 1\nv = ~a@ns', true);
+            const result = validate('a = 1\nv = ~a.@.ns', true);
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'MISSING_REFERENCE_TARGET');
-            assert.strictEqual(result.errors[0]!.targetPath, '$.a@ns');
+            assert.strictEqual(result.errors[0]!.targetPath, '$.a.@.ns');
         });
 
         it('should detect forward reference for attribute target on later binding', () => {
-            const result = validate('v = ~a@ns\na@{ ns = 1 } = 3', true);
+            const result = validate('v = ~a.@.ns\na@{ ns = 1 } = 3', true);
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'FORWARD_REFERENCE');
-            assert.strictEqual(result.errors[0]!.targetPath, '$.a@ns');
+            assert.strictEqual(result.errors[0]!.targetPath, '$.a.@.ns');
         });
 
         it('should classify missing quoted attribute target as missing reference', () => {
-            const result = validate('a = 1\nv = ~a@["x.y"]', true);
+            const result = validate('a = 1\nv = ~a.@.["x.y"]', true);
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'MISSING_REFERENCE_TARGET');
-            assert.strictEqual(result.errors[0]!.targetPath, '$.a@["x.y"]');
+            assert.strictEqual(result.errors[0]!.targetPath, '$.a.@.["x.y"]');
         });
     });
 

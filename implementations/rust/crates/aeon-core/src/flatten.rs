@@ -843,6 +843,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::DateLiteral { .. } => Value::DateLiteral { raw: String::new() },
         Value::DateTimeLiteral { .. } => Value::DateTimeLiteral { raw: String::new() },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
+        Value::SansaAddressLiteral { .. } => unwrap_typed_value(value).clone(),
         Value::NodeLiteral { .. } => Value::NodeLiteral {
             raw: String::new(),
             tag: String::new(),
@@ -878,10 +879,11 @@ fn collect_attribute_targets(
         let Some(value) = attributes.get(key) else {
             continue;
         };
+        let attr_segment = format!(".@{}", render_member_segment(key));
         let next_prefix = if prefix.is_empty() {
-            format!("@{key}")
+            attr_segment
         } else {
-            format!("{prefix}@{key}")
+            format!("{prefix}{attr_segment}")
         };
         let _ = targets.insert(format!("{base}{next_prefix}"));
         collect_attribute_targets(
@@ -945,10 +947,11 @@ fn collect_attribute_reference_steps(
         let Some(value) = attributes.get(key) else {
             continue;
         };
+        let attr_segment = format!(".@{}", render_member_segment(key));
         let next_prefix = if prefix.is_empty() {
-            format!("@{key}")
+            attr_segment
         } else {
-            format!("{prefix}@{key}")
+            format!("{prefix}{attr_segment}")
         };
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {

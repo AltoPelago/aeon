@@ -10,22 +10,22 @@ Main implementation docs now live in:
 
 ## Summary
 
-AEOS should be able to validate attribute entries carried on AES events, not just the event value itself.
+AEOS validates attribute entries carried on AES events, not just the event value itself. This document records the implemented model and the design boundary behind it.
 
-Today AEOS can validate:
+AEOS can validate:
 
 - whether `$.values[0]` exists
 - the value type at `$.values[0]`
 - the datatype at `$.values[0]`
 - reference and container constraints at `$.values[0]`
 
-It cannot yet validate the contents of:
+It can also validate the contents of:
 
 ```aeon
 values:list = [@{unit:string = "cm" precision:n = 2}:n = 3]
 ```
 
-Specifically, it cannot express:
+Specifically, schemas can express:
 
 - `unit` must exist
 - `unit` must be a string
@@ -47,7 +47,7 @@ This proposal adds attribute-aware constraints to AEOS while keeping them clearl
 - Reinterpreting attributes as ordinary child bindings.
 - Allowing AEOS to mutate, normalize, or materialize attribute values.
 - Adding attribute-aware finalization semantics.
-- Adding arbitrary selector languages beyond the current path model plus annotation keys.
+- Adding arbitrary selector languages beyond SANSA paths and selectors.
 
 ## Current AES Shape
 
@@ -160,13 +160,13 @@ This rejects extra attribute keys on `$.values[0]`.
 
 ### Example 3: Nested attributes
 
-If AEON permits nested annotation entries like:
+For nested attribute entries like:
 
 ```aeon
 a@{meta@{label:string = "x"} = {}} = 1
 ```
 
-AEOS should be able to express:
+AEOS can express:
 
 ```json
 {
@@ -198,17 +198,17 @@ For a rule:
 {
   "path": "$.values[0]",
   "constraints": {
-    "annotations": {
+    "attributes": {
       "unit": { "required": true, "type": "StringLiteral" }
     }
   }
 }
 ```
 
-AEOS should:
+AEOS:
 
 1. Find the event at `$.values[0]`.
-2. Read its `annotations` map, if any.
+2. Read its attribute map, if any.
 3. Evaluate the `unit` entry against the nested constraints.
 
 ### Constraint interpretation
@@ -218,7 +218,7 @@ AEOS should:
 - `type`
   The attribute entry value must have the expected AEON literal/container kind.
 - `datatype`
-  The attribute entry must carry the expected datatype annotation.
+  The attribute entry must carry the expected datatype label.
 - `pattern`, `min_length`, `max_length`
   Apply to string-valued attribute entries.
 - `sign`, `min_digits`, `max_digits`, `min_value`, `max_value`
@@ -232,15 +232,15 @@ AEOS should:
 
 ## Diagnostic Model
 
-The initial implementation should reuse existing value diagnostics wherever possible.
+Implementations reuse existing value diagnostics wherever practical.
 
 Recommended path format for attribute diagnostics:
 
-- `$.values[0]@unit`
-- `$.page[0]@unit`
-- `$.value@meta@label`
+- `$.values[0].@.unit`
+- `$.page[0].@.unit`
+- `$.value.@.meta.@.label`
 
-Recommended initial behavior:
+Recommended behavior:
 
 - Missing attribute entry:
   `missing_required_field`
@@ -249,29 +249,35 @@ Recommended initial behavior:
 - Wrong attribute datatype:
   existing datatype mismatch diagnostic where applicable
 - Unknown attribute entry under `closed_attributes: true`:
-  new diagnostic code, recommended: `unexpected_attribute_entry`
+  `unexpected_attribute_entry`
 
 This keeps diagnostics locally understandable without pretending attribute entries are ordinary member paths.
 
 ## Wildcards and Matching
 
-Ordinary path matching remains unchanged:
+Ordinary path matching uses SANSA paths and selectors. In JSON-shaped schema payloads:
 
 ```json
 {
-  "path": "$.items[*]",
+  "selector": "$.items.*",
   "constraints": {
-    "annotations": {
+    "attributes": {
       "unit": { "type": "StringLiteral" }
     }
   }
 }
 ```
 
+In native AEON schema source, the address is carried as a `sansa` value:
+
+```aeon
+selector:sansa = $.items.*
+```
+
 This means:
 
 - wildcard matching selects the event(s)
-- annotation constraints are evaluated after the event match
+- attribute constraints are evaluated after the event match
 
 No separate wildcard syntax is needed inside `attributes`.
 
@@ -297,36 +303,21 @@ This is preferable to a separate top-level rule family because:
 - implementations do not need a second rule-dispatch surface
 - users can reason about one path rule at a time
 
-## Minimal Implementation Plan
+## Implementation Coverage
 
-### Phase 1
+The implemented surface includes:
 
-- Extend schema types with:
-  - `attributes`
-  - `closed_attributes`
-- Extend schema-key validation.
-- Add recursive attribute constraint evaluator in TypeScript AEOS.
-- Add focused tests for:
-  - required attribute entry
-  - attribute type mismatch
-  - attribute datatype match/mismatch
-  - closed attribute object with extra entry
-  - nested attribute recursion
+- schema keys `attributes` and `closed_attributes`
+- recursive attribute constraint evaluation
+- required attribute checks
+- attribute value kind checks
+- attribute datatype checks
+- closed attribute object checks
+- nested attribute recursion
+- SANSA selector expansion over ordinary event paths and hydrated attribute paths
+- CTS coverage across TypeScript, Rust, and Python
 
-### Phase 2
-
-- Port the same behavior to Rust AEOS.
-- Port the same behavior to Python AEOS.
-- Add CTS payload coverage.
-
-### Phase 3
-
-- Datatype-wide rules should also apply to attribute entries automatically when those entries carry matching datatypes, with explicit `attributes` constraints taking precedence.
-
-## Open Questions
-
-1. Should attribute diagnostics always use `@` path notation, or should they remain attached to the parent path with richer messages?
-2. Should attribute diagnostics always use `@` path notation, or should they remain attached to the parent path with richer messages?
+Datatype-wide rules can apply to attribute entries when those entries carry matching datatypes, with explicit `attributes` constraints taking precedence.
 
 ## Recommendation
 

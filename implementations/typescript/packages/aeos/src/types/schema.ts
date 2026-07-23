@@ -102,13 +102,13 @@ export interface ConstraintsV1 {
 }
 
 /**
- * Schema rule for a canonical path or selector
+ * Schema rule for an exact SANSA path or non-exact SANSA selector
  */
 export interface SchemaRule {
-    /** Canonical path this rule applies to */
+    /** Exact SANSA path this rule applies to */
     readonly path?: string;
 
-    /** Canonical path selector this rule applies to */
+    /** SANSA selector this rule applies to */
     readonly selector?: string;
 
     /** Constraints to apply */

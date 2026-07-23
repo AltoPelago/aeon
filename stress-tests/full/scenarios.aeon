@@ -563,7 +563,7 @@ test017:o = {
 	clone006:number = ~test017.ref_source_obj.inner_b
 	clone007:number = ~test017.ref_source_list[0]
 	clone008:number = ~test017.ref_source_list[2]
-	clone009:string = ~test017.ref_source_attr@meta
+	clone009:string = ~test017.ref_source_attr.@.meta
 
 	pointer001:number = ~>test017.ref_source_num
 	pointer002:string = ~>test017.ref_source_str
@@ -607,7 +607,7 @@ test018:o = {
 
 test019:o = {
 	quoted_attr_source@{meta:object = { "x.y":number = 1 }}:number = 0
-	quoted_attr_clone:number = ~test019.quoted_attr_source@meta.["x.y"]
+	quoted_attr_clone:number = ~test019.quoted_attr_source.@.meta.["x.y"]
 	quoted_key_scope:o = {
 		"a.b":string = "hello"
 		c:string = ~test019.quoted_key_scope.["a.b"]

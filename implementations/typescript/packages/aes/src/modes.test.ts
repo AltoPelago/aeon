@@ -58,11 +58,23 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should accept sansa as a reserved address datatype in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nlink:sansa = ?.name');
+
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should reject non-address values for the reserved sansa datatype', () => {
+            const result = enforce('aeon:mode = "strict"\nlink:sansa = "?.name"');
+
+            assert.ok(result.errors.some((error) => error.code === 'DATATYPE_LITERAL_MISMATCH'));
+        });
+
         it('should error on untyped attribute entries in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\na @{label = "public"}:int32 = 1');
 
             assert.ok(result.errors.some((error) => error.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
-            assert.ok(result.errors.some((error) => error.path === '$.a@label'));
+            assert.ok(result.errors.some((error) => error.path === '$.a.@.label'));
         });
 
         it('should pass typed attribute entries in strict mode', () => {

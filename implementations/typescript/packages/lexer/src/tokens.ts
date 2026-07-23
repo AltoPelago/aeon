@@ -43,6 +43,7 @@ export enum TokenType {
     Caret = 'Caret',                   // ^
     Hash = 'Hash',                     // #
     Dollar = 'Dollar',                 // $
+    Question = 'Question',             // ?
     Percent = 'Percent',               // %
     Ampersand = 'Ampersand',           // &
     Semicolon = 'Semicolon',           // ;
@@ -54,6 +55,7 @@ export enum TokenType {
     RadixLiteral = 'RadixLiteral',     // %1011
     EncodingLiteral = 'EncodingLiteral', // &Base64...
     SeparatorLiteral = 'SeparatorLiteral', // ^content
+    SansaAddressLiteral = 'SansaAddressLiteral', // $.path or ?.path
 
     // Keywords
     True = 'True',

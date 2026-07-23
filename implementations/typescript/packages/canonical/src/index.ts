@@ -294,6 +294,8 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return [`&${formatEncoding(value.value)}`];
         case 'SeparatorLiteral':
             return [`^${formatSeparator(value.raw)}`];
+        case 'SansaAddressLiteral':
+            return [value.canonical];
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
@@ -452,6 +454,8 @@ function renderCompactInlineValue(value: Value): string {
             return `&${formatEncoding(value.value)}`;
         case 'SeparatorLiteral':
             return `^${formatSeparator(value.raw)}`;
+        case 'SansaAddressLiteral':
+            return value.canonical;
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
@@ -811,6 +815,7 @@ function isSimpleValue(value: Value): boolean {
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'CloneReference':

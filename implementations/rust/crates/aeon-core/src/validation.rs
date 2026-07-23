@@ -273,9 +273,9 @@ fn validate_value_reference(
                 );
                 return;
             }
-            let requires_exact_attr_visibility = target.contains('@')
+            let requires_exact_attr_visibility = target.contains(".@")
                 && !(current_path == format_reference_base(segments)
-                    && target.starts_with(&format!("{current_path}@")));
+                    && target.starts_with(&format!("{current_path}.@")));
             let is_visible = if requires_exact_attr_visibility {
                 seen_base.contains(&target)
             } else {
@@ -342,7 +342,7 @@ fn validate_value_reference(
 
 fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bool {
     current_path
-        .split_once('@')
+        .split_once(".@")
         .is_some_and(|(binding_path, _)| target == binding_path)
 }
 
@@ -1142,6 +1142,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "envelope"
             | "o"
             | "node"
+            | "sansa"
             | "null"
     )
 }
@@ -1170,6 +1171,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
         "node" => Some(vec!["NodeLiteral"]),
+        "sansa" => Some(vec!["SansaAddressLiteral"]),
         _ => None,
     }
 }
@@ -1328,6 +1330,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
+        "sansa" => matches!(value, Value::SansaAddressLiteral { .. }),
         "null" => matches!(value, Value::NullLiteral { .. }),
         _ if custom_expected.is_some() => {
             let expected = custom_expected.as_ref().expect("checked is_some");
@@ -1654,7 +1657,7 @@ fn validate_attribute_datatype_map(
         let Some(entry) = attributes.get(key) else {
             continue;
         };
-        let attr_path = format!("{}@{}", format_path(owner_path), key);
+        let attr_path = format!("{}.@.{}", format_path(owner_path), key);
         if entry.datatype.is_none()
             && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
             && let Some(value) = &entry.value

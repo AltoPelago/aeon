@@ -199,16 +199,16 @@ test('Clone with bracket index',
     'a = ~b[0]');
 
 test('Clone with attribute path',
-    'a = ~b@x');
+    'a = ~b.@.x');
 
 test('Clone with chained attribute paths',
-    'a = ~b@x@y');
+    'a = ~b.@.x.@.y');
 
 test('Pointer reference basic',
     'a = ~>b');
 
 test('Pointer with complex path',
-    'a = ~>$.b[0].c@x');
+    'a = ~>$.b[0].c.@.x');
 
 test('Clone with consecutive dots',
     'a = ~b..c');

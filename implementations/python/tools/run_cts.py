@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -21,6 +22,7 @@ class LaneCommand:
 def main() -> int:
     python_root = repo_root / "implementations" / "python"
     sut = python_root / "bin" / "aeon-python"
+    python_sut = find_compatible_python()
     env = repo_path_env()
     cts_root = get_aeonite_cts_root()
 
@@ -94,6 +96,28 @@ def main() -> int:
             ],
         ),
         LaneCommand(
+            name="sansa",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("sansa", "v1", "sansa-aeon-address-literals-cts.v1.json"),
+                "--lane",
+                "sansa-address",
+            ],
+        ),
+        LaneCommand(
+            name="sansa-resolve",
+            command=[
+                python_sut,
+                str(python_root / "tools" / "run_sansa_resolve_cts.py"),
+                "--cts",
+                cts_manifest("sansa", "v1", "sansa-resolve-cts.v1.json"),
+            ],
+        ),
+        LaneCommand(
             name="annotations",
             command=[
                 "node",
@@ -122,7 +146,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core aes finalize inspect finalize-map annotations aeos", file=sys.stderr)
+            print("Valid lanes: core aes finalize inspect finalize-map sansa sansa-resolve annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
 
@@ -134,6 +158,16 @@ def main() -> int:
 
     print("\nAll requested CTS lanes passed.")
     return 0
+
+
+def find_compatible_python() -> str:
+    if sys.version_info >= (3, 12):
+        return sys.executable
+    for candidate in ("python3.14", "python3.13", "python3.12"):
+        resolved = shutil.which(candidate)
+        if resolved is not None:
+            return resolved
+    return sys.executable
 
 
 if __name__ == "__main__":

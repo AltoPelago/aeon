@@ -197,6 +197,8 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
             return scalarNode('Encoding', value.value, value.raw, meta);
         case 'SeparatorLiteral':
             return scalarNode('Separator', value.value, value.raw, meta);
+        case 'SansaAddressLiteral':
+            return scalarNode('SansaAddress', value.value, value.raw, meta);
         case 'DateLiteral':
             return scalarNode('Date', value.value, value.raw, meta);
         case 'DateTimeLiteral':

@@ -629,12 +629,12 @@ function buildCoverageSnippet(featureId, index) {
         case 'ref-attr-selector':
             return {
                 featureId,
-                text: `cov_attr_src_${suffix}@{meta:string = "val"}:number = 1\ncov_attr_ref_${suffix}:string = ~cov_attr_src_${suffix}@meta`,
+                text: `cov_attr_src_${suffix}@{meta:string = "val"}:number = 1\ncov_attr_ref_${suffix}:string = ~cov_attr_src_${suffix}.@.meta`,
             };
         case 'ref-quoted-attr-selector':
             return {
                 featureId,
-                text: `cov_qattr_src_${suffix}@{"x.y":number = 1}:number = 2\ncov_qattr_ref_${suffix}:number = ~cov_qattr_src_${suffix}@["x.y"]`,
+                text: `cov_qattr_src_${suffix}@{"x.y":number = 1}:number = 2\ncov_qattr_ref_${suffix}:number = ~cov_qattr_src_${suffix}.@.["x.y"]`,
             };
         case 'comment-doc-line':
             return {

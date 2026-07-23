@@ -119,15 +119,18 @@ class Lexer:
             ",": "COMMA",
             ".": "DOT",
             "@": "AT",
-            "$": "DOLLAR",
             "%": "PERCENT",
             "&": "AMPERSAND",
             ";": "SEMICOLON",
         }
-        if char in singles:
-            if char == "$" and self.peek() == ".":
-                self.add_token(singles[char], char, start)
+        if char in {"$", "?"}:
+            if char == "$" and self.tokens and self.tokens[-1].kind in {"TILDE", "TILDE_ARROW"}:
+                self.add_token("DOLLAR", char, start)
                 return
+            self.scan_sansa_address_literal(start)
+            return
+
+        if char in singles:
             if char == "&" and self.is_encoding_start_char(self.peek()):
                 self.scan_prefixed_literal(start, char, "ENCODING", self.is_encoding_char, self.is_valid_encoding_payload)
                 return
@@ -195,6 +198,50 @@ class Lexer:
             return
 
         self.add_token("SYMBOL", char, start)
+
+    def scan_sansa_address_literal(self, start: Position) -> None:
+        depth_stack: list[str] = []
+        quote: str | None = None
+        escaped = False
+
+        while not self.is_at_end():
+            char = self.peek()
+
+            if quote is not None:
+                self.advance()
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                continue
+
+            if not depth_stack and char in {",", " ", "\t", "\n", "\r", "]", ")", "}"}:
+                break
+
+            if not depth_stack and char == "/" and self.peek_next() in {"/", "*"}:
+                break
+
+            if char == '"':
+                quote = char
+                self.advance()
+                continue
+
+            if char in {"[", "(", "<"}:
+                depth_stack.append({"[": "]", "(": ")", "<": ">"}[char])
+                self.advance()
+                continue
+
+            if depth_stack and char == depth_stack[-1]:
+                depth_stack.pop()
+                self.advance()
+                continue
+
+            self.advance()
+
+        text = self.source[start.offset:self.offset]
+        self.add_token("SANSA_ADDRESS", text, start)
 
     def scan_string(self, start: Position, delimiter: str) -> None:
         is_raw = delimiter == "`"

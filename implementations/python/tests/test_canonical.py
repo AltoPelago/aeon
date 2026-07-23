@@ -16,10 +16,10 @@ from aeon.lexer import tokenize
 
 class CanonicalTests(unittest.TestCase):
     def test_canonicalizes_quoted_reference_paths(self) -> None:
-        result = canonicalize('a@{"x.y" = 1} = 2\nb = ~["a.b"]@["x.y"].["z w"]')
+        result = canonicalize('a@{"x.y" = 1} = 2\nb = ~["a.b"].@.["x.y"].["z w"]')
         self.assertEqual([], result.errors)
         self.assertIn('a@{"x.y" = 1} = 2', result.text)
-        self.assertIn('b = ~["a.b"]@["x.y"].["z w"]', result.text)
+        self.assertIn('b = ~["a.b"].@.["x.y"].["z w"]', result.text)
 
     def test_canonicalizes_multiline_strings_as_trimticks(self) -> None:
         result = canonicalize('text = "Line\\nBreak"')

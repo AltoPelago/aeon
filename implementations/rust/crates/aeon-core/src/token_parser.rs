@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::header::apply_trimticks;
+use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
@@ -422,6 +423,7 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::At
                     | TokenKind::Hash
                     | TokenKind::Dollar
+                    | TokenKind::SansaAddressLiteral
                     | TokenKind::Percent
                     | TokenKind::Ampersand
                     | TokenKind::Caret
@@ -459,6 +461,7 @@ impl<'a> TokenParser<'a> {
                     | TokenKind::At
                     | TokenKind::Hash
                     | TokenKind::Dollar
+                    | TokenKind::SansaAddressLiteral
                     | TokenKind::Percent
                     | TokenKind::Ampersand
                     | TokenKind::Caret
@@ -694,6 +697,23 @@ impl<'a> TokenParser<'a> {
             TokenKind::SeparatorLiteral => Ok(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::SansaAddressLiteral => {
+                let token = self.advance();
+                let raw = token.text.clone();
+                let address = parse_sansa_address(&raw).map_err(|error| Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(token.span),
+                    phase: None,
+                    message: error.message,
+                })?;
+                let canonical = address.canonical.clone();
+                Ok(Value::SansaAddressLiteral {
+                    address,
+                    raw,
+                    canonical,
+                })
+            }
             TokenKind::LeftBracket => self.parse_list(),
             TokenKind::LeftParen => self.parse_tuple(),
             TokenKind::LeftBrace => self.parse_object(),
@@ -909,31 +929,33 @@ impl<'a> TokenParser<'a> {
         }
 
         loop {
-            if self.match_kind(TokenKind::At) {
-                if self.match_kind(TokenKind::LeftBracket) {
-                    let key_token =
-                        self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                    let key = decode_quoted_token(key_token)?;
-                    if key.is_empty() {
-                        return Err(Diagnostic::new(
-                            "SYNTAX_ERROR",
-                            "Empty quoted path segments are not valid",
-                        )
-                        .at_path("$")
-                        .with_span(key_token.span));
-                    }
-                    self.consume(
-                        TokenKind::RightBracket,
-                        "Expected `]` after quoted attribute key",
-                    )?;
-                    segments.push(ReferenceSegment::Attr(key));
-                } else {
-                    segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
-                }
-                continue;
-            }
             if self.match_kind(TokenKind::Dot) {
-                if self.match_kind(TokenKind::LeftBracket) {
+                if self.match_kind(TokenKind::At) {
+                    self.consume(
+                        TokenKind::Dot,
+                        "Expected `.` after attribute address-space marker",
+                    )?;
+                    if self.match_kind(TokenKind::LeftBracket) {
+                        let key_token =
+                            self.consume(TokenKind::String, "Expected quoted attribute key")?;
+                        let key = decode_quoted_token(key_token)?;
+                        if key.is_empty() {
+                            return Err(Diagnostic::new(
+                                "SYNTAX_ERROR",
+                                "Empty quoted path segments are not valid",
+                            )
+                            .at_path("$")
+                            .with_span(key_token.span));
+                        }
+                        self.consume(
+                            TokenKind::RightBracket,
+                            "Expected `]` after quoted attribute key",
+                        )?;
+                        segments.push(ReferenceSegment::Attr(key));
+                    } else {
+                        segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
+                    }
+                } else if self.match_kind(TokenKind::LeftBracket) {
                     let key_token =
                         self.consume(TokenKind::String, "Expected quoted member key")?;
                     let key = decode_quoted_token(key_token)?;
@@ -1622,6 +1644,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "envelope"
             | "o"
             | "node"
+            | "sansa"
             | "null"
     )
 }
@@ -2284,7 +2307,7 @@ group:object = {
         assert_eq!(object_key_error.code, "SYNTAX_ERROR");
         assert_eq!(object_key_error.message, "Keys must not be empty");
 
-        for source in ["a = 1\nv = ~a@[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
+        for source in ["a = 1\nv = ~a.@.[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
             let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "SYNTAX_ERROR");
             assert!(

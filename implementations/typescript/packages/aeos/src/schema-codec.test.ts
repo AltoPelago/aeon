@@ -1,0 +1,140 @@
+/**
+ * @altopelago/aeos-core - Schema codec tests
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { normalizeSchemaObject, parseSchemaSource, schemaToAeon, SchemaCodecError } from './schema-codec.js';
+
+describe('schema codec', () => {
+    it('parses AEON schema source with SANSA path and selector fields', () => {
+        const schema = parseSchemaSource(`
+aeos:schema = {
+  world:string = "closed"
+  rules:list<object> = [
+    {
+      path:sansa = $.contact.name
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+      }
+    }
+    {
+      selector:sansa = $.contact.measurements.*
+      constraints:object = {
+        type:string = "NumberLiteral"
+      }
+    }
+  ]
+}
+`);
+
+        assert.strictEqual(schema.world, 'closed');
+        assert.deepStrictEqual(schema.rules, [
+            {
+                path: '$.contact.name',
+                constraints: { required: true, type: 'StringLiteral' },
+            },
+            {
+                selector: '$.contact.measurements.*',
+                constraints: { type: 'NumberLiteral' },
+            },
+        ]);
+    });
+
+    it('accepts legacy string address fields but normalizes through SANSA', () => {
+        const schema = parseSchemaSource(`
+schema:object = {
+  rules:list<object> = [
+    {
+      path:string = "$.[\\"safe key\\"]"
+      constraints:object = { required:boolean = true }
+    }
+  ]
+}
+`);
+
+        assert.deepStrictEqual(schema.rules, [
+            {
+                path: '$.["safe key"]',
+                constraints: { required: true },
+            },
+        ]);
+    });
+
+    it('rejects legacy indexed wildcard selectors', () => {
+        assert.throws(
+            () => parseSchemaSource(`
+aeos:schema = {
+  rules:list<object> = [
+    { selector:string = "$.items[*]" constraints:object = { required:boolean = true } }
+  ]
+}
+`),
+            SchemaCodecError
+        );
+    });
+
+    it('rejects wildcard selectors in exact path fields', () => {
+        assert.throws(
+            () => normalizeSchemaObject({
+                rules: [
+                    {
+                        path: '$.items.*',
+                        constraints: { required: true },
+                    },
+                ],
+            }),
+            /must be an exact SANSA address/
+        );
+    });
+
+    it('prints schemas using path:sansa and selector:sansa', () => {
+        const source = schemaToAeon({
+            world: 'open',
+            rules: [
+                { path: '$.contact.name', constraints: { required: true, type: 'StringLiteral' } },
+                { selector: '$.contact.measurements.*', constraints: { type: 'NumberLiteral' } },
+            ],
+        });
+
+        assert.match(source, /path:sansa = \$\.contact\.name/);
+        assert.match(source, /selector:sansa = \$\.contact\.measurements\.\*/);
+        assert.match(source, /constraints:object = \{/);
+    });
+
+    it('round-trips nested constraints through AEON source', () => {
+        const source = schemaToAeon({
+            rules: [
+                {
+                    path: '$.contact.name',
+                    constraints: {
+                        any_of: [
+                            { type: 'StringLiteral', datatype: 'string' },
+                            { type: 'NullLiteral', null_values: ['missing', 'unknown'] },
+                        ],
+                        attributes: {
+                            label: {
+                                required: true,
+                                type: 'StringLiteral',
+                            },
+                        },
+                    },
+                },
+            ],
+        });
+
+        assert.deepStrictEqual(parseSchemaSource(source).rules[0]?.constraints, {
+            any_of: [
+                { type: 'StringLiteral', datatype: 'string' },
+                { type: 'NullLiteral', null_values: ['missing', 'unknown'] },
+            ],
+            attributes: {
+                label: {
+                    required: true,
+                    type: 'StringLiteral',
+                },
+            },
+        });
+    });
+});

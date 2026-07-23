@@ -75,19 +75,19 @@ describe('Finalization (Map)', () => {
 
         const topLevel = finalizeMap(events, {
             materialization: 'projected',
-            includePaths: ['$.title@lang', '$.title@meta.keep'],
+            includePaths: ['$.title.@.lang', '$.title.@.meta.keep'],
         });
         assert.deepStrictEqual(Array.from(topLevel.document.entries.keys()), ['$.title']);
 
         const nested = finalizeMap(events, {
             materialization: 'projected',
-            includePaths: ['$.card.label@meta.keep', '$.card.label@meta.["x.y"]'],
+            includePaths: ['$.card.label.@.meta.keep', '$.card.label.@.meta.["x.y"]'],
         });
         assert.deepStrictEqual(Array.from(nested.document.entries.keys()), ['$.card', '$.card.label']);
 
         const node = finalizeMap(events, {
             materialization: 'projected',
-            includePaths: ['$.rich@@id', '$.rich@@meta.keep'],
+            includePaths: ['$.rich.@.@.id', '$.rich.@.@.meta.keep'],
         });
         assert.deepStrictEqual(Array.from(node.document.entries.keys()), ['$.rich']);
     });

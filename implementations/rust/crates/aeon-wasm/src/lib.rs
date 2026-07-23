@@ -137,7 +137,7 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
             "finalized": null,
             "annotations": annotations,
             "events": events,
-            "warnings": [],
+            "warnings": diagnostics_json(&compile_result.warnings),
             "errors": diagnostics_json(&compile_result.errors),
         });
     }
@@ -146,13 +146,19 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         &compile_result.events,
         finalize_options(options, compile_result.header),
     );
+    let warnings = compile_result
+        .warnings
+        .iter()
+        .chain(finalized.meta.warnings.iter())
+        .cloned()
+        .collect::<Vec<_>>();
 
     json!({
         "canonical": canonical.text,
         "finalized": finalized.document,
         "annotations": annotations,
         "events": events,
-        "warnings": diagnostics_json(&finalized.meta.warnings),
+        "warnings": diagnostics_json(&warnings),
         "errors": diagnostics_json(&finalized.meta.errors),
     })
 }
@@ -347,6 +353,16 @@ fn value_json(value: &Value) -> JsonValue {
         Value::SeparatorLiteral { raw } => json!({ "type": "SeparatorLiteral", "raw": raw }),
         Value::EncodingLiteral { raw } => json!({ "type": "EncodingLiteral", "raw": raw }),
         Value::RadixLiteral { raw } => json!({ "type": "RadixLiteral", "raw": raw }),
+        Value::SansaAddressLiteral { raw, canonical, .. } => json!({
+            "type": "SansaAddressLiteral",
+            "value": canonical,
+            "raw": raw,
+            "canonical": canonical,
+            "address": {
+                "type": "SansaAddress",
+                "canonical": canonical,
+            },
+        }),
         Value::DateLiteral { raw } => json!({ "type": "DateLiteral", "raw": raw }),
         Value::DateTimeLiteral { raw } => json!({ "type": "DateTimeLiteral", "raw": raw }),
         Value::TimeLiteral { raw } => json!({ "type": "TimeLiteral", "raw": raw }),

@@ -103,6 +103,7 @@ FIXTURES: tuple[FixtureCase, ...] = (
         facets=("positive", "stress-only"),
     ),
     FixtureCase("domain/literals/inline-array-literals-pass.aeon", "stress-tests/domain/literals/inline-array-literals-pass.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive",)),
+    FixtureCase("domain/literals/sansa-address-literals.aeon", "stress-tests/domain/literals/sansa-address-literals.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive", "promotion-candidate"), cts_lane="core"),
     FixtureCase("domain/literals/leading-dot-decimals.aeon", "stress-tests/domain/literals/leading-dot-decimals.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive",)),
     FixtureCase("domain/literals/trimticks-mixed-whitespace.aeon", "stress-tests/domain/literals/trimticks-mixed-whitespace.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive", "stress-only")),
     FixtureCase("domain/literals/unicode-escape-pair.aeon", "stress-tests/domain/literals/unicode-escape-pair.aeon", 0, '"errors": []', ("--json",), fixture_class="parse", facets=("positive", "stress-only")),

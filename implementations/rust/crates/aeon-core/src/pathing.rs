@@ -29,8 +29,8 @@ pub fn format_reference_target(segments: &[ReferenceSegment]) -> String {
                 output.push(']');
             }
             ReferenceSegment::Attr(key) => {
-                output.push('@');
-                output.push_str(key);
+                output.push_str(".@");
+                output.push_str(&render_member_segment(key));
             }
         }
     }
