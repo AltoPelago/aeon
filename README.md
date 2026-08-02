@@ -100,3 +100,4 @@ Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.
 Package changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 Branching and implementation-specific release strategy are tracked in [docs/release-strategy.md](./docs/release-strategy.md).
 Version separation across spec, CTS, and implementation packages is tracked in [VERSIONING.md](./VERSIONING.md).
+Implementation CTS snapshot claims are tracked in [conformance/cts-claims.json](./conformance/cts-claims.json).
