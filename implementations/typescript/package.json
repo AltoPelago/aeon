@@ -36,7 +36,7 @@
 	},
 	"devDependencies": {
 		"typescript": "7.0.2",
-		"@types/node": "26.1.1"
+		"@types/node": "26.1.2"
 	},
 	"packageManager": "pnpm@10.34.4",
 	"engines": {
