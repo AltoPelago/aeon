@@ -1,0 +1,173 @@
+{
+  "claim_format": "aeonite.cts-claims.v1",
+  "repository": "AltoPelago/aeon",
+  "cts_repository": "aeonite-org/aeonite-cts",
+  "cts_protocol": "cts.protocol.v1",
+  "claim_sets": [
+    {
+      "implementation": "typescript",
+      "implementation_version": "0.11.0",
+      "workspace": "implementations/typescript",
+      "claims": [
+        {
+          "surface": "aeos-validator",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts"
+        },
+        {
+          "surface": "core",
+          "snapshot_id": "core-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:core"
+        },
+        {
+          "surface": "aes",
+          "snapshot_id": "aes-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:aes"
+        },
+        {
+          "surface": "canonical",
+          "snapshot_id": "canonical-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:canonical"
+        },
+        {
+          "surface": "sansa-aeon-address-literals",
+          "snapshot_id": "sansa-aeon-address-literals-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:sansa:literals"
+        },
+        {
+          "surface": "sansa-resolve",
+          "snapshot_id": "sansa-resolve-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:sansa:resolve"
+        },
+        {
+          "surface": "annotation-stream",
+          "snapshot_id": "annotation-stream-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "pnpm test:cts:annotations"
+        }
+      ]
+    },
+    {
+      "implementation": "rust",
+      "implementation_version": "0.11.0",
+      "workspace": "implementations/rust",
+      "claims": [
+        {
+          "surface": "core",
+          "snapshot_id": "core-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py core"
+        },
+        {
+          "surface": "aes",
+          "snapshot_id": "aes-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py aes"
+        },
+        {
+          "surface": "finalize-json",
+          "snapshot_id": "finalize-json-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py finalize"
+        },
+        {
+          "surface": "inspect-json",
+          "snapshot_id": "inspect-json-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py inspect"
+        },
+        {
+          "surface": "finalize-map",
+          "snapshot_id": "finalize-map-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py finalize-map"
+        },
+        {
+          "surface": "sansa-aeon-address-literals",
+          "snapshot_id": "sansa-aeon-address-literals-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py sansa"
+        },
+        {
+          "surface": "annotation-stream",
+          "snapshot_id": "annotation-stream-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py annotations"
+        },
+        {
+          "surface": "aeos-validator",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py aeos"
+        }
+      ]
+    },
+    {
+      "implementation": "python",
+      "implementation_version": "0.11.0",
+      "workspace": "implementations/python",
+      "claims": [
+        {
+          "surface": "core",
+          "snapshot_id": "core-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py core"
+        },
+        {
+          "surface": "aes",
+          "snapshot_id": "aes-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py aes"
+        },
+        {
+          "surface": "finalize-json",
+          "snapshot_id": "finalize-json-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py finalize"
+        },
+        {
+          "surface": "inspect-json",
+          "snapshot_id": "inspect-json-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py inspect"
+        },
+        {
+          "surface": "finalize-map",
+          "snapshot_id": "finalize-map-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py finalize-map"
+        },
+        {
+          "surface": "sansa-aeon-address-literals",
+          "snapshot_id": "sansa-aeon-address-literals-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py sansa"
+        },
+        {
+          "surface": "sansa-resolve",
+          "snapshot_id": "sansa-resolve-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py sansa-resolve"
+        },
+        {
+          "surface": "annotation-stream",
+          "snapshot_id": "annotation-stream-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py annotations"
+        },
+        {
+          "surface": "aeos-validator",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.1",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py aeos"
+        }
+      ]
+    }
+  ]
+}

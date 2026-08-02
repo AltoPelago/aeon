@@ -42,6 +42,7 @@ interface ResolveTest {
         readonly contextualRoot?: string;
         readonly parentTraversal?: 'allow' | 'forbid';
         readonly failOnParentFromEffectiveRoot?: boolean;
+        readonly maxBindings?: number;
         readonly source?: string;
     };
     readonly expected?: {
@@ -49,12 +50,19 @@ interface ResolveTest {
         readonly addresses?: readonly string[];
         readonly error?: string;
         readonly selectorIndex?: number;
+        readonly limit?: number;
+        readonly observed?: number;
     };
 }
 
 interface BuiltNamespace {
     readonly namespace: SansaResolveNamespace<ResolveBinding>;
     readonly byAddress: ReadonlyMap<string, ResolveBinding>;
+}
+
+interface ResolveDiagnosticDetails {
+    readonly limit?: number;
+    readonly observed?: number;
 }
 
 let pass = 0;
@@ -116,6 +124,7 @@ function runTest(test: ResolveTest, namespaces: ReadonlyMap<string, BuiltNamespa
         contextualRoot?: ResolveBinding;
         parentTraversal?: 'allow' | 'forbid';
         failOnParentFromEffectiveRoot?: boolean;
+        maxBindings?: number;
     } = {};
     if (typeof input.contextualRoot === 'string') {
         const contextualRoot = fixture.byAddress.get(input.contextualRoot);
@@ -127,6 +136,9 @@ function runTest(test: ResolveTest, namespaces: ReadonlyMap<string, BuiltNamespa
     }
     if (input.parentTraversal === 'forbid') options.parentTraversal = 'forbid';
     if (input.failOnParentFromEffectiveRoot === true) options.failOnParentFromEffectiveRoot = true;
+    if (typeof input.maxBindings === 'number' && Number.isSafeInteger(input.maxBindings)) {
+        options.maxBindings = input.maxBindings;
+    }
 
     const result = resolveAddress(input.source, fixture.namespace, options);
     const expectedOk = expected.ok === true;
@@ -147,6 +159,13 @@ function runTest(test: ResolveTest, namespaces: ReadonlyMap<string, BuiltNamespa
             if (actualSelectorIndex !== expected.selectorIndex) {
                 failures.push(`selectorIndex mismatch: expected ${expected.selectorIndex}, got ${actualSelectorIndex ?? null}`);
             }
+        }
+        const details = result.errors[0] as ResolveDiagnosticDetails | undefined;
+        if (Number.isSafeInteger(expected.limit) && details?.limit !== expected.limit) {
+            failures.push(`limit mismatch: expected ${expected.limit}, got ${details?.limit ?? null}`);
+        }
+        if (Number.isSafeInteger(expected.observed) && details?.observed !== expected.observed) {
+            failures.push(`observed mismatch: expected ${expected.observed}, got ${details?.observed ?? null}`);
         }
         return failures;
     }

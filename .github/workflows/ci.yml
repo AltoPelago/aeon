@@ -66,6 +66,12 @@ jobs:
           repository: aeonite-org/aeonite-cts
           path: aeonite-cts
 
+      - name: CTS claim validation
+        working-directory: .
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+        run: npm run validate:cts-claims
+
       - name: CTS conformance (all lanes)
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
