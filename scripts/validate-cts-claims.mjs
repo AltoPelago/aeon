@@ -27,7 +27,7 @@ if (typeof claimsDocument.cts_protocol !== 'string' || claimsDocument.cts_protoc
   errors.push('cts_protocol must be a non-empty string');
 }
 
-claims.forEach((claim, index) => validateClaim(claim, index, snapshotIds, errors));
+claims.forEach((claim) => validateClaim(claim, snapshotIds, errors));
 
 if (errors.length > 0) {
   console.error(`CTS claim validation failed: ${errors.length} issue(s)`);
@@ -40,7 +40,9 @@ console.log(`CTS claim validation passed: claims=${claims.length} cts_snapshots=
 function readArg(name) {
   const index = process.argv.indexOf(name);
   if (index < 0) return null;
-  return process.argv[index + 1] ?? null;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.startsWith('--')) return null;
+  return value;
 }
 
 function readJson(file, label) {
@@ -52,7 +54,12 @@ function readJson(file, label) {
 }
 
 function collectClaims(document) {
-  if (Array.isArray(document.claims)) return document.claims;
+  if (Array.isArray(document.claims)) {
+    return document.claims.map((claim, claimIndex) => ({
+      claim,
+      path: `claims[${claimIndex}]`,
+    }));
+  }
   if (!Array.isArray(document.claim_sets)) {
     errors.push('claims document must contain claims or claim_sets');
     return [];
@@ -69,28 +76,32 @@ function collectClaims(document) {
       errors.push(`claim_sets[${claimSetIndex}].claims must be a list`);
       return [];
     }
-    return claimSet.claims.map((claim) => ({ ...claim, __claimSetIndex: claimSetIndex }));
+    return claimSet.claims.map((claim, claimIndex) => ({
+      claim,
+      path: `claim_sets[${claimSetIndex}].claims[${claimIndex}]`,
+    }));
   });
 }
 
-function validateClaim(claim, index, knownSnapshotIds, output) {
+function validateClaim(entry, knownSnapshotIds, output) {
+  const { claim, path } = entry;
   if (!claim || typeof claim !== 'object') {
-    output.push(`claims[${index}] must be an object`);
+    output.push(`${path} must be an object`);
     return;
   }
   if (typeof claim.surface !== 'string' || claim.surface.length === 0) {
-    output.push(`claims[${index}].surface must be a non-empty string`);
+    output.push(`${path}.surface must be a non-empty string`);
   }
   if (typeof claim.snapshot_id !== 'string' || claim.snapshot_id.length === 0) {
-    output.push(`claims[${index}].snapshot_id must be a non-empty string`);
+    output.push(`${path}.snapshot_id must be a non-empty string`);
   } else if (!knownSnapshotIds.has(claim.snapshot_id)) {
-    output.push(`claims[${index}].snapshot_id is not present in CTS manifests: ${claim.snapshot_id}`);
+    output.push(`${path}.snapshot_id is not present in CTS manifests: ${claim.snapshot_id}`);
   }
   if (!['claimed', 'experimental', 'advisory'].includes(claim.status)) {
-    output.push(`claims[${index}].status must be one of claimed, experimental, advisory`);
+    output.push(`${path}.status must be one of claimed, experimental, advisory`);
   }
   if (claim.command !== undefined && (typeof claim.command !== 'string' || claim.command.length === 0)) {
-    output.push(`claims[${index}].command must be a non-empty string when present`);
+    output.push(`${path}.command must be a non-empty string when present`);
   }
 }
 
