@@ -31,6 +31,11 @@ if (result.errors.length === 0) {
 - `emitAssignmentEvents(input, options?)`
 - canonical path helpers
 - Assignment Event Stream types
+- reconstructed candidate AES types:
+  - `CandidateAES`
+  - `CandidateAssignmentEvent`
+  - `CandidateAttributeEntry`
+  - `CandidateValue`
 
 ## When To Use It
 
@@ -40,6 +45,8 @@ If you want the stable application-facing entry point, prefer `@altopelago/aeon-
 ## Notes
 
 - AES is the structural event layer between parsing and downstream validation.
+- Candidate AES types describe reconstructed validation input for speculative
+  post-commit state. They do not define substrate materialization policy.
 - This package does not materialize application objects.
 - Schema validation belongs in `@altopelago/aeos-core`.
 - JSON or map materialization belongs in `@altopelago/aeon-finalize`.
