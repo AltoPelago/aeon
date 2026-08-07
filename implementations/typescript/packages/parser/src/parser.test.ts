@@ -232,6 +232,25 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
+        it('should reject structural identity as a standalone scalar value', () => {
+            const tokens = tokenize('id = \\A1\\').tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('should keep structural identity syntax literal inside quoted strings', () => {
+            const tokens = tokenize(String.raw`id = "\\A1\\"`).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'StringLiteral');
+            if (value.type !== 'StringLiteral') assert.fail('Expected StringLiteral');
+            assert.strictEqual(value.value, '\\A1\\');
+        });
+
         it('should parse quoted top-level key', () => {
             const tokens = tokenize('"a.b" = 2').tokens;
             const result = parse(tokens);
