@@ -38,6 +38,7 @@ import {
     ParserError,
     SyntaxError,
     DuplicateKeyError,
+    DuplicateStructuralIdentityError,
     InvalidSeparatorCharError,
     SeparatorDepthExceededError,
     GenericDepthExceededError,
@@ -80,6 +81,7 @@ class Parser {
     private currentNestingDepth: number = 0;
     private current: number = 0;
     private readonly errors: ParserError[] = [];
+    private readonly structuralIdentities = new Map<string, Span>();
 
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
@@ -242,6 +244,7 @@ class Parser {
                 bindings.push({
                     type: 'Binding',
                     key: fieldName,
+                    structuralId: null,
                     value,
                     datatype: null,
                     attributes: [],
@@ -295,6 +298,8 @@ class Parser {
         const keyToken = this.advance();
         const key = this.keyFromToken(keyToken);
 
+        const structuralId = this.parseOptionalStructuralIdentity();
+
         // Parse optional attributes @{...}
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
@@ -337,6 +342,7 @@ class Parser {
         return {
             type: 'Binding',
             key,
+            structuralId,
             value,
             datatype,
             attributes,
@@ -623,11 +629,12 @@ class Parser {
     }
 
     private parseContainerValue(): Value {
-        if (!this.check(TokenType.Colon) && !this.check(TokenType.At)) {
+        if (!this.check(TokenType.StructuralIdentity) && !this.check(TokenType.Colon) && !this.check(TokenType.At)) {
             return this.parseValue();
         }
 
         const start = this.peek().span.start;
+        const structuralId = this.parseOptionalStructuralIdentity();
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
@@ -652,6 +659,7 @@ class Parser {
 
         return {
             type: 'TypedValue',
+            structuralId,
             datatype,
             attributes,
             value,
@@ -1520,6 +1528,21 @@ class Parser {
     private consume(type: TokenType, message: string): Token {
         if (this.check(type)) return this.advance();
         throw new SyntaxError(message, this.peek().span, type, this.peek().value);
+    }
+
+    private parseOptionalStructuralIdentity(): string | null {
+        if (!this.check(TokenType.StructuralIdentity)) {
+            return null;
+        }
+
+        const token = this.advance();
+        const structuralId = token.value;
+        if (this.structuralIdentities.has(structuralId)) {
+            this.errors.push(new DuplicateStructuralIdentityError(structuralId, token.span));
+        } else {
+            this.structuralIdentities.set(structuralId, token.span);
+        }
+        return structuralId;
     }
 
     private keyFromToken(token: Token): string {

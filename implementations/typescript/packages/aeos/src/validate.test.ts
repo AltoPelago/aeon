@@ -106,7 +106,7 @@ describe('validate()', () => {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'a' }] },
                     key: 'a',
                     value: { type: 'ObjectNode', bindings: [
-                        { key: 'ref', value: { type: 'CloneReference', path: ['b'], span: [1,2] }, attributes: [], span: [1,2], type: 'Binding' }
+                        { key: 'ref', structuralId: null, value: { type: 'CloneReference', path: ['b'], span: [1,2] }, attributes: [], span: [1,2], type: 'Binding' }
                     ], attributes: [], span: [1,2] },
                     span: [1, 2],
                 },
@@ -2110,8 +2110,8 @@ describe('validate()', () => {
                     value: {
                         type: 'ObjectNode',
                         bindings: [
-                            { type: 'Binding', key: 'a', value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
-                            { type: 'Binding', key: 'b', value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
+                            { type: 'Binding', key: 'a', structuralId: null, value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
+                            { type: 'Binding', key: 'b', structuralId: null, value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
                         ],
                         attributes: [],
                         span: [0, 5],

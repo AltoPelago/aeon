@@ -19,6 +19,7 @@ import {
     InvalidDateError,
     InvalidDateTimeError,
     UnterminatedBlockCommentError,
+    InvalidStructuralIdentityError,
 } from './errors.js';
 
 /**
@@ -127,6 +128,10 @@ function slashChannelClosingMarker(openMarker: string): string {
 
 function isSeparatorRawChar(c: string): boolean {
     return /[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]/.test(c);
+}
+
+function isStructuralIdentityChar(c: string): boolean {
+    return isLetter(c) || isDigit(c) || c === '-' || c === '_';
 }
 
 
@@ -325,6 +330,15 @@ export class Lexer {
                 this.scanString(c, start);
                 break;
 
+            // Structural identity (\identifier\)
+            case '\\':
+                if (this.hasStructuralIdentityTerminator()) {
+                    this.scanStructuralIdentity(start);
+                } else {
+                    this.addToken(TokenType.Symbol, c, start);
+                }
+                break;
+
             // Newline
             case '\n':
                 if (this.options.includeNewlines) {
@@ -406,6 +420,39 @@ export class Lexer {
         }
 
         this.errors.push(new UnterminatedStringError(delimiter, createSpan(start, this.currentPosition())));
+    }
+
+    private scanStructuralIdentity(start: Position): void {
+        let value = '';
+
+        while (!this.isAtEnd() && this.peek() !== '\\') {
+            const c = this.peek();
+            if (!isStructuralIdentityChar(c)) {
+                value += this.advance();
+                while (!this.isAtEnd() && this.peek() !== '\\') {
+                    value += this.advance();
+                }
+                if (!this.isAtEnd()) {
+                    value += this.advance();
+                }
+                this.errors.push(new InvalidStructuralIdentityError(`\\${value}`, createSpan(start, this.currentPosition())));
+                return;
+            }
+            value += this.advance();
+        }
+
+        if (value.length === 0 || this.isAtEnd() || this.peek() !== '\\') {
+            this.errors.push(new InvalidStructuralIdentityError(`\\${value}`, createSpan(start, this.currentPosition())));
+            return;
+        }
+
+        this.advance(); // consume closing \
+        this.tokens.push(createToken(TokenType.StructuralIdentity, value, createSpan(start, this.currentPosition())));
+    }
+
+    private hasStructuralIdentityTerminator(): boolean {
+        const nextSlash = this.input.indexOf('\\', this.offset);
+        return nextSlash > this.offset;
     }
 
     private scanEscapeSequence(_stringStart: Position): string | null {

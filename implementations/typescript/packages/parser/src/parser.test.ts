@@ -185,6 +185,53 @@ describe('Parser', () => {
             assert.deepStrictEqual(result.document.bindings[0]!.datatype!.genericArgs, []);
         });
 
+        it('should parse structural identity before attributes and datatype', () => {
+            const tokens = tokenize('age\\A1\\@{source = "user"}:int32 = 42').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const binding = result.document!.bindings[0]!;
+            assert.strictEqual(binding.key, 'age');
+            assert.strictEqual(binding.structuralId, 'A1');
+            assert.strictEqual(binding.attributes.length, 1);
+            assert.strictEqual(binding.datatype?.name, 'int32');
+        });
+
+        it('should parse anonymous structural identities inside value containers', () => {
+            const tokens = tokenize(String.raw`items = [\A1\ = "red", \B2\@{source = "user"}:string = "green"]`).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'ListNode');
+            if (value.type !== 'ListNode') assert.fail('Expected ListNode');
+            assert.strictEqual(value.elements[0]!.type, 'TypedValue');
+            assert.strictEqual(value.elements[1]!.type, 'TypedValue');
+            if (value.elements[0]!.type !== 'TypedValue' || value.elements[1]!.type !== 'TypedValue') {
+                assert.fail('Expected headed list values');
+            }
+            assert.strictEqual(value.elements[0]!.structuralId, 'A1');
+            assert.strictEqual(value.elements[1]!.structuralId, 'B2');
+            assert.strictEqual(value.elements[1]!.attributes.length, 1);
+            assert.strictEqual(value.elements[1]!.datatype?.name, 'string');
+        });
+
+        it('should reject duplicate structural identities document-wide', () => {
+            const tokens = tokenize(String.raw`a\A1\ = 1
+b = [\A1\ = 2]`).tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.some(error => error.code === 'DUPLICATE_STRUCTURAL_IDENTITY'));
+        });
+
+        it('should reject structural identity after attributes', () => {
+            const tokens = tokenize(String.raw`age@{source = "user"}\A1\:int32 = 42`).tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.length > 0);
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
         it('should parse quoted top-level key', () => {
             const tokens = tokenize('"a.b" = 2').tokens;
             const result = parse(tokens);

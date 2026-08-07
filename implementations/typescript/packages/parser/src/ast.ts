@@ -40,6 +40,7 @@ export interface Header extends ASTNode {
 export interface Binding extends ASTNode {
     readonly type: 'Binding';
     readonly key: string;
+    readonly structuralId: string | null;
     readonly value: Value;
     readonly datatype: TypeAnnotation | null;
     readonly attributes: readonly Attribute[];
@@ -114,6 +115,7 @@ export type Value =
  */
 export interface TypedValue extends ASTNode {
     readonly type: 'TypedValue';
+    readonly structuralId: string | null;
     readonly datatype: TypeAnnotation | null;
     readonly attributes: readonly Attribute[];
     readonly value: Value;

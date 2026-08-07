@@ -875,7 +875,9 @@ function suppressMultilineStringCascadeDiagnostics(text: string, diagnostics: Di
 }
 
 function isMultilineStringCascadeDiagnostic(diagnostic: Diagnostic): boolean {
-    return diagnostic.code === 'SYNTAX_ERROR' || diagnostic.code === 'UNTERMINATED_STRING';
+    return diagnostic.code === 'SYNTAX_ERROR'
+        || diagnostic.code === 'UNTERMINATED_STRING'
+        || diagnostic.code === 'INVALID_STRUCTURAL_IDENTITY';
 }
 
 function findLikelyMultilineQuotedStringRanges(text: string): Array<{ start: number; end: number }> {

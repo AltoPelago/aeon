@@ -143,6 +143,7 @@ function renderHeader(document: Document): string[] {
             .map(([key, value]) => ({
                 type: 'Binding' as const,
                 key,
+                structuralId: null,
                 value,
                 datatype: null,
                 attributes: [],
@@ -160,7 +161,7 @@ function renderHeader(document: Document): string[] {
 
 function renderBinding(binding: Binding, indent: number): string[] {
     const prefix = ' '.repeat(indent);
-    const key = `${formatBindingKey(binding.key)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
+    const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
 
     if (binding.value.type === 'ObjectNode') {
         return renderObjectBinding(prefix, key, binding.value, indent);
@@ -266,7 +267,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
     switch (value.type) {
         case 'TypedValue': {
             const rendered = renderValue(value.value, indent, opts);
-            const head = `${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const head = `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
             if (rendered.length === 0) {
                 return [`${head} = `];
             }
@@ -404,6 +405,10 @@ function renderType(datatype: TypeAnnotation | null): string {
     return formatDatatypeAnnotation(datatype);
 }
 
+function renderStructuralId(structuralId: string | null | undefined): string {
+    return structuralId ? `\\${structuralId}\\` : '';
+}
+
 function renderAttributes(attributes: readonly Attribute[]): string {
     if (!attributes || attributes.length === 0) return '';
     const entries = new Map<string, AttributeValue>();
@@ -432,7 +437,7 @@ function renderValueInline(value: Value): string {
 function renderCompactInlineValue(value: Value): string {
     switch (value.type) {
         case 'TypedValue':
-            return `${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
+            return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
         case 'StringLiteral':
             return formatString(value.value);
         case 'NumberLiteral':
@@ -467,7 +472,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'ObjectNode': {
             const sorted = [...value.bindings].sort((a, b) => compareKeys(a.key, b.key));
             const bindings = sorted.map((binding) => {
-                const key = `${formatBindingKey(binding.key)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
+                const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
                 return `${key} = ${renderCompactInlineValue(binding.value)}`;
             });
             return `{ ${bindings.join(', ')} }`;

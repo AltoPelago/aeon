@@ -56,6 +56,7 @@ export enum TokenType {
     EncodingLiteral = 'EncodingLiteral', // &Base64...
     SeparatorLiteral = 'SeparatorLiteral', // ^content
     SansaAddressLiteral = 'SansaAddressLiteral', // $.path or ?.path
+    StructuralIdentity = 'StructuralIdentity', // \identifier\
 
     // Keywords
     True = 'True',

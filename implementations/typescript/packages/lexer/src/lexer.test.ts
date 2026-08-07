@@ -50,6 +50,24 @@ describe('Lexer', () => {
             ]);
             assert.deepStrictEqual(tokens.map(t => t.value), ['|', '/', '+']);
         });
+
+        it('should tokenize structural identities', () => {
+            const result = tokenize('\\A1\\ \\item-42\\ \\item_42\\');
+            const tokens = result.tokens.filter(t => t.type !== TokenType.EOF);
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(tokens.map(t => t.type), [
+                TokenType.StructuralIdentity,
+                TokenType.StructuralIdentity,
+                TokenType.StructuralIdentity,
+            ]);
+            assert.deepStrictEqual(tokens.map(t => t.value), ['A1', 'item-42', 'item_42']);
+        });
+
+        it('should reject malformed structural identities', () => {
+            const result = tokenize('\\bad.dot\\');
+            assert.strictEqual(result.tokens.filter(t => t.type !== TokenType.EOF).length, 0);
+            assert.strictEqual(result.errors[0]?.code, 'INVALID_STRUCTURAL_IDENTITY');
+        });
     });
 
     describe('identifiers and keywords', () => {

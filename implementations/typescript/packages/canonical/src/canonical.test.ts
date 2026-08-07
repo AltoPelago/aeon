@@ -188,6 +188,23 @@ test('renders attributes in sorted order', () => {
     assert.equal(line, 'title@{a = "1", b = "2"} = "Hello"');
 });
 
+test('preserves structural identities before attributes and datatypes', () => {
+    const input = [
+        'items:list = [',
+        '  \\B2\\@{source = "user"}:string = "green",',
+        '  \\A1\\ = "red"',
+        ']',
+        'person = {',
+        '  name\\N1\\@{source = "user"}:string = "Alice"',
+        '}',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('items:list = [\\B2\\@{source = "user"}:string = "green", \\A1\\ = "red"]'));
+    assert.ok(result.text.includes('name\\N1\\@{source = "user"}:string = "Alice"'));
+});
+
 test('canonicalizes nested node attribute values without truncation', () => {
     const input = [
         'd@{',
