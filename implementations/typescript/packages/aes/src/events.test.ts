@@ -54,6 +54,13 @@ describe('Assignment Event Emission', () => {
             const result = emit('a = 1');
             assert.strictEqual(result.events[0]!.normalizedPath, '$.a');
         });
+
+        it('should preserve structural identity metadata on events', () => {
+            const result = emit(String.raw`a\A1\ = 1`);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events[0]!.structuralId, 'A1');
+        });
     });
 
     describe('headers', () => {
