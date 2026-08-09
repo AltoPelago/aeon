@@ -8,7 +8,7 @@ Lanes:
   - built-in vs custom datatype policy (`reserved_only` vs `allow_custom`)
   - toggle literals
   - hex/radix/encoding/separator literals
-  - date/datetime/ZRUT
+  - date/datetime/WTC
   - tuples
   - separator depth gating (`maxSeparatorDepth`)
   - attribute ordering and typed attributes

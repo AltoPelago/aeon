@@ -410,7 +410,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "raw": raw,
         }),
         Value::DateTimeLiteral { raw } => json!({
-            "type": "DateTimeLiteral",
+            "type": if raw.contains('&') { "WTCDateTimeLiteral" } else { "DateTimeLiteral" },
             "value": raw,
             "raw": raw,
         }),
@@ -1728,6 +1728,7 @@ fn object_attribute_members_to_json(
 
 fn declared_radix_base(datatype: Option<&str>) -> Option<usize> {
     match datatype?.trim() {
+        "decimal" => Some(10),
         "radix2" => Some(2),
         "radix6" => Some(6),
         "radix8" => Some(8),
@@ -2549,6 +2550,20 @@ mod tests {
     #[test]
     fn reports_radix_digits_that_exceed_declared_base_during_finalization() {
         let source = "mask:radix[10] = %1A\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "mask": "1A" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert!(
+            finalized.meta.errors[0]
+                .message
+                .contains("declared radix 10")
+        );
+    }
+
+    #[test]
+    fn reports_radix_digits_that_exceed_decimal_alias_base_during_finalization() {
+        let source = "mask:decimal = %1A\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "mask": "1A" }));

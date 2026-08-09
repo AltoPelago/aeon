@@ -892,7 +892,7 @@ fn looks_like_datetime(value: &str) -> bool {
         }
         if let Some((base, zone)) = rest.split_once('&') {
             return (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
-                && is_valid_zrut_zone(zone);
+                && is_valid_wtc_reference(zone);
         }
     }
     false
@@ -940,13 +940,13 @@ fn looks_like_zoned_time(value: &str) -> bool {
             .is_some_and(|(time, offset)| matches_time_core(time, true) && matches_offset(offset))
 }
 
-fn is_valid_zrut_zone(zone: &str) -> bool {
-    !zone.is_empty()
-        && !zone.starts_with('/')
-        && !zone.ends_with('/')
-        && !zone.contains("//")
-        && !zone.contains("/*")
-        && !zone.contains("/[")
+fn is_valid_wtc_reference(reference: &str) -> bool {
+    !reference.is_empty()
+        && !reference.starts_with('/')
+        && !reference.ends_with('/')
+        && !reference.contains("//")
+        && !reference.contains("/*")
+        && !reference.contains("/[")
 }
 
 fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
@@ -1077,7 +1077,7 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
     if datatype.contains('<')
         && !matches!(
             base,
-            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+            "list" | "tuple" | "triple" | "object" | "node" | "null" | "nan" | "infinity"
         )
     {
         return Err(format!(
@@ -1210,6 +1210,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "pointer"
             | "ptr"
             | "radix"
+            | "decimal"
             | "radix2"
             | "radix6"
             | "radix8"
@@ -1226,6 +1227,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "trimmed"
             | "trimtick"
             | "tuple"
+            | "triple"
             | "utc"
             | "xml"
             | "yaml"
@@ -1233,7 +1235,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "zone"
             | "zoned"
             | "zoned-datetime"
-            | "zrut"
+            | "wtc"
             | "zutc"
     )
 }
@@ -2392,14 +2394,14 @@ mod tests {
     }
 
     #[test]
-    fn preserves_zrut_zone_casing_in_canonicalization() {
+    fn preserves_wtc_zone_casing_in_canonicalization() {
         let result = canonicalize(
-            "aeon:mode = \"strict\"\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n",
+            "aeon:mode = \"strict\"\nz5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nz5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n"
         );
     }
 
@@ -2902,7 +2904,7 @@ mod tests {
     fn rejects_invalid_lowercase_t_temporal_literals_during_canonicalization() {
         for source in [
             "dt:datetime = 2007-01-02t10:10:25\n",
-            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+            "z:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
         ] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
@@ -2940,7 +2942,7 @@ mod tests {
     fn accepts_hour_precision_datetime_offsets_during_canonicalization() {
         for source in [
             "aeon:mode = \"strict\"\ndt5:datetime = 2025-01-01T09:+02:00\n",
-            "aeon:mode = \"strict\"\nzdt7:zrut = 2025-01-01T09:+02:00&Europe/Belgium/Brussels\n",
+            "aeon:mode = \"strict\"\nzdt7:wtc = 2025-01-01T09:+02:00&Europe/Belgium/Brussels\n",
         ] {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{:?}", result.errors);

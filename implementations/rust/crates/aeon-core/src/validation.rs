@@ -1121,6 +1121,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "toggle"
             | "hex"
             | "radix"
+            | "decimal"
             | "radix2"
             | "radix6"
             | "radix8"
@@ -1132,10 +1133,11 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "date"
             | "time"
             | "datetime"
-            | "zrut"
+            | "wtc"
             | "sep"
             | "kadot"
             | "tuple"
+            | "triple"
             | "list"
             | "object"
             | "obj"
@@ -1161,13 +1163,16 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
         "toggle" => Some(vec!["ToggleLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),
-        "radix" | "radix2" | "radix6" | "radix8" | "radix12" => Some(vec!["RadixLiteral"]),
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
+            Some(vec!["RadixLiteral"])
+        }
         "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
         "date" => Some(vec!["DateLiteral"]),
         "time" => Some(vec!["TimeLiteral"]),
-        "datetime" | "zrut" => Some(vec!["DateTimeLiteral"]),
+        "datetime" => Some(vec!["DateTimeLiteral"]),
+        "wtc" => Some(vec!["WTCDateTimeLiteral"]),
         "sep" | "kadot" => Some(vec!["SeparatorLiteral"]),
-        "tuple" => Some(vec!["TupleLiteral"]),
+        "tuple" | "triple" => Some(vec!["TupleLiteral"]),
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
         "node" => Some(vec!["NodeLiteral"]),
@@ -1314,7 +1319,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
         "toggle" => matches!(value, Value::ToggleLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
-        "radix" | "radix2" | "radix6" | "radix8" | "radix12" => {
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
             matches!(value, Value::RadixLiteral { raw } if has_valid_radix_literal(raw))
         }
         "encoding" | "base64" | "embed" | "inline" => {
@@ -1322,11 +1327,11 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         }
         "date" => matches!(value, Value::DateLiteral { .. }),
         "time" => matches!(value, Value::TimeLiteral { .. }),
-        "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
-        "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
+        "datetime" => matches!(value, Value::DateTimeLiteral { raw } if !raw.contains('&')),
+        "wtc" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
         "sep" => matches!(value, Value::SeparatorLiteral { .. }),
         "kadot" => matches!(value, Value::SeparatorLiteral { .. }),
-        "tuple" => matches!(value, Value::TupleLiteral { .. }),
+        "tuple" | "triple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),

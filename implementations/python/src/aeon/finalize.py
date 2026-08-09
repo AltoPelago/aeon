@@ -759,6 +759,8 @@ def declared_radix_base(datatype: object) -> int | None:
     if rendered is None:
         return None
     trimmed = rendered.strip()
+    if trimmed == "decimal":
+        return 10
     if trimmed == "radix2":
         return 2
     if trimmed == "radix6":

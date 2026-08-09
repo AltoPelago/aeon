@@ -432,7 +432,7 @@ function resolvedValueKind(value: Value): string {
         return value.trimticks ? 'TrimtickStringLiteral' : 'StringLiteral';
     }
     if (value.type === 'DateTimeLiteral') {
-        return value.raw.includes('&') ? 'ZRUTDateTimeLiteral' : 'DateTimeLiteral';
+        return value.raw.includes('&') ? 'WTCDateTimeLiteral' : 'DateTimeLiteral';
     }
     if (value.type === 'SeparatorLiteral') {
         return 'SeparatorLiteral';
@@ -879,10 +879,10 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'date') return ['DateLiteral'];
     if (base === 'time') return ['TimeLiteral'];
     if (base === 'datetime') return ['DateTimeLiteral'];
-    if (base === 'zrut') return ['ZRUTDateTimeLiteral'];
+    if (base === 'wtc') return ['WTCDateTimeLiteral'];
     if (SEPARATOR_TYPES.has(base)) return ['SeparatorLiteral'];
     if (base === 'sansa') return ['SansaAddressLiteral'];
-    if (base === 'tuple') return ['TupleLiteral'];
+    if (base === 'tuple' || base === 'triple') return ['TupleLiteral'];
     if (base === 'list') return ['ListNode'];
     if (OBJECT_TYPES.has(base)) return ['ObjectNode'];
     if (base === 'node') return ['NodeLiteral'];
@@ -1036,6 +1036,7 @@ const NUMERIC_TYPES = new Set([
 
 const RADIX_TYPES = new Set([
     'radix',
+    'decimal',
     'radix2',
     'radix6',
     'radix8',

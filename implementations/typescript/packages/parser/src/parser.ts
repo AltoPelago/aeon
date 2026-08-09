@@ -1927,7 +1927,7 @@ function isAllowedSeparatorSpecChar(char: string): boolean {
     return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
 }
 
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node', 'null', 'nan', 'infinity']);
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity']);
 const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
@@ -1936,12 +1936,12 @@ const RESERVED_V1_DATATYPES = new Set([
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',
     'float', 'float32', 'float64',
     'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
-    'hex', 'date', 'time', 'datetime', 'zrut',
+    'hex', 'date', 'time', 'datetime', 'wtc',
     'encoding', 'base64', 'embed', 'inline',
-    'radix', 'radix2', 'radix6', 'radix8', 'radix12',
+    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12',
     'sep', 'kadot',
     'sansa',
-    'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
+    'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 
 /**

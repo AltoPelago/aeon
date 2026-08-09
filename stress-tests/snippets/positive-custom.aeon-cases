@@ -23,7 +23,7 @@ top:infinity = Infinity
 ---
 bottom:infinity = -Infinity
 ---
-zone:zrut = 2025-01-01T00:00:00Z&l
+zone:wtc = 2025-01-01T00:00:00Z&l
 ---
 addr:sansa = $.inventory.items[2].sku
 ---

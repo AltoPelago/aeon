@@ -178,7 +178,9 @@ function countFormDigits(type: string, raw: string): number {
 
 function declaredRadixFromDatatype(datatype: string | undefined): number | null {
     if (datatype === undefined) return null;
-    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
+    const trimmed = datatype.trim();
+    if (trimmed.toLowerCase() === 'decimal') return 10;
+    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(trimmed);
     if (!match) return null;
     const value = Number(match[1] ?? match[2]);
     return Number.isInteger(value) && value >= 0 ? value : null;

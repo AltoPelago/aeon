@@ -386,6 +386,15 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.match(result.meta?.errors?.[0]?.message ?? '', /declared radix 10/);
     });
 
+    it('reports radix digits that exceed the decimal alias radix during finalization', () => {
+        const events = compileToEvents('mask:decimal = %1A');
+        const result = finalizeJson(events, { mode: 'strict' });
+
+        assert.strictEqual(result.document.mask, '1A');
+        assert.ok((result.meta?.errors?.length ?? 0) > 0);
+        assert.match(result.meta?.errors?.[0]?.message ?? '', /declared radix 10/);
+    });
+
     it('keeps declared radix validation working in full-scope nested payload output', () => {
         const events = compileToEvents('config = { mask:radix[10] = %1A }');
         const result = finalizeJson(events, { mode: 'strict', scope: 'full' });

@@ -34,7 +34,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
     'DateLiteral': ['DateLiteral'],
     'TimeLiteral': ['TimeLiteral'],
     'DateTimeLiteral': ['DateTimeLiteral'],
-    'ZRUTDateTimeLiteral': ['ZRUTDateTimeLiteral'],
+    'WTCDateTimeLiteral': ['WTCDateTimeLiteral'],
     'ObjectNode': ['ObjectNode'],
     'ListNode': ['ListNode'],
     'ListLiteral': ['ListNode', 'ListLiteral'],

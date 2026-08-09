@@ -168,6 +168,16 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should accept triple as a tuple alias in strict mode', () => {
+            const result = enforceIndexed('aeon:mode = "strict"\nedge:triple<string, string, string> = ("a", "b", "c")');
+            assert.strictEqual(result.errors.length, 0);
+        });
+
+        it('should accept decimal as a radix[10] alias in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\nprice:decimal = %19.9900');
+            assert.strictEqual(result.errors.length, 0);
+        });
+
         it('should pass typed list object items in strict mode with indexed paths', () => {
             const result = enforceIndexed('aeon:mode = "strict"\ncontacts:list = [{ email:string = "a@x.com" }]');
             assert.strictEqual(result.errors.length, 0);

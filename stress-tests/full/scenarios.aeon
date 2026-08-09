@@ -241,7 +241,7 @@ test007:o = {
 	Field: Names
 	Type: radix
 	Alternative names: none
-	Reserved: radix2, radix6, radix8, radix12
+	Reserved: decimal, radix2, radix6, radix8, radix12
 #/
 
 test008:o = {
@@ -268,7 +268,7 @@ test009:o = {
 }
 
 /*
-	Date, Time, DateTime, ZRUT
+	Date, Time, DateTime, WTC
 */
 
 
@@ -278,10 +278,10 @@ test010:o = {
 	utc:time = 09:30:00Z
 	local:time = 09:30:00+02:40
 	ts:datetime = 2025-01-01T09:30:00Z
-	z:zrut = 2025-01-01T00:00:00Z&Australia/Sydney
-	localTime:zrut = 2025-01-01T00:00:00&Local         // ZRUT local time convention
+	z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney
+	localTime:wtc = 2025-01-01T00:00:00&Local         // WTC local time convention
 
-	t1:date = 2025-01-01, t2:time = 09:30:00, t3:time = 09:30:00+02:40, t4:datetime = 2025-01-01T09:30:00Z, t5:zrut = 2025-01-01T00:00:00Z&Australia/Sydney, t6:zrut = 2025-01-01T00:00:00&Local 
+	t1:date = 2025-01-01, t2:time = 09:30:00, t3:time = 09:30:00+02:40, t4:datetime = 2025-01-01T09:30:00Z, t5:wtc = 2025-01-01T00:00:00Z&Australia/Sydney, t6:wtc = 2025-01-01T00:00:00&Local 
 }
 
 /#

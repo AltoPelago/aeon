@@ -1478,7 +1478,7 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
     if datatype_has_generic_args(datatype)
         && !matches!(
             base,
-            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+            "list" | "tuple" | "triple" | "object" | "node" | "null" | "nan" | "infinity"
         )
     {
         return Err(Diagnostic {
@@ -1625,12 +1625,13 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "date"
             | "time"
             | "datetime"
-            | "zrut"
+            | "wtc"
             | "encoding"
             | "base64"
             | "embed"
             | "inline"
             | "radix"
+            | "decimal"
             | "radix2"
             | "radix6"
             | "radix8"
@@ -1638,6 +1639,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "sep"
             | "kadot"
             | "tuple"
+            | "triple"
             | "list"
             | "object"
             | "obj"

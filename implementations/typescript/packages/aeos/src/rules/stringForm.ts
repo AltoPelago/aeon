@@ -148,7 +148,7 @@ function isStringLikeLiteral(type: string): boolean {
         || type === 'DateLiteral'
         || type === 'TimeLiteral'
         || type === 'DateTimeLiteral'
-        || type === 'ZRUTDateTimeLiteral'
+        || type === 'WTCDateTimeLiteral'
         || type === 'TrimtickLiteral'
         || type === 'TrimtickStringLiteral';
 }

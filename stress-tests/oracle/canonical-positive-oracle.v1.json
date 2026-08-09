@@ -536,7 +536,7 @@
     {
       "id": "canonical-strict-0026",
       "kind": "compile",
-      "source": "zdt1:zrut = 2025-01-01T09&Europe/Belgium/Brussels",
+      "source": "zdt1:wtc = 2025-01-01T09&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -549,14 +549,14 @@
           "$.zdt1"
         ],
         "datatypes": {
-          "$.zdt1": "zrut"
+          "$.zdt1": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0027",
       "kind": "compile",
-      "source": "zdt2:zrut = 2025-01-01T09Z&Europe/Belgium/Brussels",
+      "source": "zdt2:wtc = 2025-01-01T09Z&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -569,14 +569,14 @@
           "$.zdt2"
         ],
         "datatypes": {
-          "$.zdt2": "zrut"
+          "$.zdt2": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0028",
       "kind": "compile",
-      "source": "zdt3:zrut = 2025-01-01T09+02:00&Europe/Belgium/Brussels",
+      "source": "zdt3:wtc = 2025-01-01T09+02:00&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -589,14 +589,14 @@
           "$.zdt3"
         ],
         "datatypes": {
-          "$.zdt3": "zrut"
+          "$.zdt3": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0029",
       "kind": "compile",
-      "source": "zdt4:zrut = 2025-01-01T09:30&Europe/Belgium/Brussels",
+      "source": "zdt4:wtc = 2025-01-01T09:30&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -609,14 +609,14 @@
           "$.zdt4"
         ],
         "datatypes": {
-          "$.zdt4": "zrut"
+          "$.zdt4": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0030",
       "kind": "compile",
-      "source": "zdt5:zrut = 2025-01-01T09:30Z&Europe/Belgium/Brussels",
+      "source": "zdt5:wtc = 2025-01-01T09:30Z&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -629,14 +629,14 @@
           "$.zdt5"
         ],
         "datatypes": {
-          "$.zdt5": "zrut"
+          "$.zdt5": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0031",
       "kind": "compile",
-      "source": "zdt6:zrut = 2025-01-01T09:30+02:00&Europe/Belgium/Brussels",
+      "source": "zdt6:wtc = 2025-01-01T09:30+02:00&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -649,14 +649,14 @@
           "$.zdt6"
         ],
         "datatypes": {
-          "$.zdt6": "zrut"
+          "$.zdt6": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0032",
       "kind": "compile",
-      "source": "zdt7:zrut = 2025-01-01T09:+02:00&Europe/Belgium/Brussels",
+      "source": "zdt7:wtc = 2025-01-01T09:+02:00&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -669,14 +669,14 @@
           "$.zdt7"
         ],
         "datatypes": {
-          "$.zdt7": "zrut"
+          "$.zdt7": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0033",
       "kind": "compile",
-      "source": "zdt8:zrut = 2025-01-01T09:30Z&Local",
+      "source": "zdt8:wtc = 2025-01-01T09:30Z&Local",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -689,7 +689,7 @@
           "$.zdt8"
         ],
         "datatypes": {
-          "$.zdt8": "zrut"
+          "$.zdt8": "wtc"
         }
       }
     },
@@ -876,7 +876,7 @@
     {
       "id": "canonical-strict-0043",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&l",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&l",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -889,7 +889,7 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
@@ -1142,7 +1142,7 @@
     {
       "id": "canonical-strict-0052",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&l/l",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&l/l",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -1155,14 +1155,14 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0053",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -1175,14 +1175,14 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0054",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels // comment",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels // comment",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -1195,14 +1195,14 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
     {
       "id": "canonical-strict-0055",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels,/* comment */",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels,/* comment */",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -1215,7 +1215,7 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
@@ -2358,7 +2358,7 @@
     {
       "id": "canonical-strict-0112",
       "kind": "compile",
-      "source": "t:time = 10:10:35\nz:zrut = 2007-01-02T10:10:25Z&Australia/Melbourne",
+      "source": "t:time = 10:10:35\nz:wtc = 2007-01-02T10:10:25Z&Australia/Melbourne",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2373,7 +2373,7 @@
         ],
         "datatypes": {
           "$.t": "time",
-          "$.z": "zrut"
+          "$.z": "wtc"
         }
       }
     },
@@ -4184,7 +4184,7 @@
     {
       "id": "canonical-transport-0048",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00&l",
+      "source": "z5:wtc = 2025-01-01T00:00:00&l",
       "mode": "transport",
       "source_ref": "positive-transport.aeon-cases",
       "options": {
@@ -4197,7 +4197,7 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
@@ -4224,7 +4224,7 @@
     {
       "id": "canonical-transport-0050",
       "kind": "compile",
-      "source": "z5:zrut = 2025-01-01T00:00:00Z&l",
+      "source": "z5:wtc = 2025-01-01T00:00:00Z&l",
       "mode": "transport",
       "source_ref": "positive-transport.aeon-cases",
       "options": {
@@ -4237,7 +4237,7 @@
           "$.z5"
         ],
         "datatypes": {
-          "$.z5": "zrut"
+          "$.z5": "wtc"
         }
       }
     },
@@ -4998,7 +4998,7 @@
     {
       "id": "canonical-custom-0013",
       "kind": "compile",
-      "source": "zone:zrut = 2025-01-01T00:00:00Z&l",
+      "source": "zone:wtc = 2025-01-01T00:00:00Z&l",
       "mode": "custom",
       "source_ref": "positive-custom.aeon-cases",
       "options": {
@@ -5011,7 +5011,7 @@
           "$.zone"
         ],
         "datatypes": {
-          "$.zone": "zrut"
+          "$.zone": "wtc"
         }
       }
     },

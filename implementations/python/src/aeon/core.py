@@ -107,8 +107,9 @@ RESERVED_KIND_MAP = {
     "date": ("DateLiteral",),
     "time": ("TimeLiteral",),
     "datetime": ("DateTimeLiteral",),
-    "zrut": ("ZRUTDateTimeLiteral",),
+    "wtc": ("WTCDateTimeLiteral",),
     "tuple": ("TupleLiteral",),
+    "triple": ("TupleLiteral",),
     "list": ("ListNode",),
     "object": ("ObjectNode",),
     "obj": ("ObjectNode",),
@@ -122,6 +123,7 @@ RESERVED_KIND_MAP = {
     "embed": ("EncodingLiteral",),
     "inline": ("EncodingLiteral",),
     "radix": ("RadixLiteral",),
+    "decimal": ("RadixLiteral",),
     "radix2": ("RadixLiteral",),
     "radix6": ("RadixLiteral",),
     "radix8": ("RadixLiteral",),
@@ -1137,7 +1139,7 @@ def value_kind(value: Value) -> str:
     if isinstance(value, StringLiteral):
         return "TrimtickStringLiteral" if value.trimticks is not None else "StringLiteral"
     if isinstance(value, DateTimeLiteral):
-        return "ZRUTDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
+        return "WTCDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
     if isinstance(value, SeparatorLiteral):
         return "SeparatorLiteral"
     if isinstance(value, HexLiteral):

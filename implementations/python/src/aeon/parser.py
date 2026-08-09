@@ -53,18 +53,18 @@ from .lexer import Token
 from .sansa import parse_address
 from .spans import Span
 
-GENERIC_V1_DATATYPES = {"list", "tuple", "object", "node", "null", "nan", "infinity"}
+GENERIC_V1_DATATYPES = {"list", "tuple", "triple", "object", "node", "null", "nan", "infinity"}
 BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "float", "float32", "float64",
     "string", "trimtick", "prose", "boolean", "bool", "toggle", "infinity", "nan",
-    "hex", "date", "time", "datetime", "zrut",
+    "hex", "date", "time", "datetime", "wtc",
     "encoding", "base64", "embed", "inline",
-    "radix", "radix2", "radix6", "radix8", "radix12",
+    "radix", "decimal", "radix2", "radix6", "radix8", "radix12",
     "sep", "kadot",
-    "tuple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
+    "tuple", "triple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
 }
 
 RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype"}

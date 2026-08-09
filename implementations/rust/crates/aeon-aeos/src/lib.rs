@@ -318,7 +318,7 @@ fn is_string_like_value_type(value_type: &str) -> bool {
             | "DateLiteral"
             | "TimeLiteral"
             | "DateTimeLiteral"
-            | "ZRUTDateTimeLiteral"
+            | "WTCDateTimeLiteral"
     )
 }
 
@@ -3279,12 +3279,15 @@ fn is_string_like_literal(value_type: &str) -> bool {
             | "DateLiteral"
             | "TimeLiteral"
             | "DateTimeLiteral"
-            | "ZRUTDateTimeLiteral"
+            | "WTCDateTimeLiteral"
     )
 }
 
 fn declared_radix_from_datatype(datatype: Option<&str>) -> Option<usize> {
     let datatype = datatype?.trim().to_ascii_lowercase();
+    if datatype == "decimal" {
+        return Some(10);
+    }
     if let Some(inner) = datatype
         .strip_prefix("radix[")
         .and_then(|rest| rest.strip_suffix(']'))

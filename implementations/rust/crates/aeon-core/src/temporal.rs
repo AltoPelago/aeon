@@ -26,9 +26,9 @@ pub(crate) fn invalid_temporal_literal(raw: &str) -> Option<(&'static str, Strin
     if has_malformed_lowercase_datetime_marker(raw) {
         return Some(("SYNTAX_ERROR", format!("Invalid datetime literal: '{raw}'")));
     }
-    if has_invalid_zrut_zone(raw) {
+    if has_invalid_wtc_reference(raw) {
         return Some((
-            if has_invalid_zrut_zone_punctuation(raw) {
+            if has_invalid_wtc_reference_punctuation(raw) {
                 "SYNTAX_ERROR"
             } else {
                 "INVALID_DATETIME"
@@ -103,7 +103,7 @@ fn looks_like_datetime(value: &str) -> bool {
         }
         if let Some((base, zone)) = rest.split_once('&') {
             return (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
-                && is_valid_zrut_zone(zone);
+                && is_valid_wtc_reference(zone);
         }
     }
     false
@@ -155,18 +155,18 @@ fn looks_like_zoned_time(value: &str) -> bool {
             .is_some_and(|(time, offset)| matches_time_core(time, true) && matches_offset(offset))
 }
 
-fn is_valid_zrut_zone(zone: &str) -> bool {
-    !zone.is_empty()
-        && !zone.starts_with('/')
-        && !zone.ends_with('/')
-        && !zone.contains("//")
-        && zone
+fn is_valid_wtc_reference(reference: &str) -> bool {
+    !reference.is_empty()
+        && !reference.starts_with('/')
+        && !reference.ends_with('/')
+        && !reference.contains("//")
+        && reference
             .split('/')
-            .all(|segment| !segment.is_empty() && segment.chars().all(is_valid_zrut_zone_char))
+            .all(|segment| !segment.is_empty() && segment.chars().all(is_valid_wtc_reference_char))
 }
 
-fn is_valid_zrut_zone_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+')
+fn is_valid_wtc_reference_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+' | '.')
 }
 
 fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
@@ -192,7 +192,7 @@ fn has_malformed_lowercase_datetime_marker(value: &str) -> bool {
     false
 }
 
-fn has_invalid_zrut_zone(value: &str) -> bool {
+fn has_invalid_wtc_reference(value: &str) -> bool {
     let Some((date, rest)) = value.split_once('T') else {
         return false;
     };
@@ -203,10 +203,10 @@ fn has_invalid_zrut_zone(value: &str) -> bool {
         return false;
     };
     (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
-        && !is_valid_zrut_zone(zone)
+        && !is_valid_wtc_reference(zone)
 }
 
-fn has_invalid_zrut_zone_punctuation(value: &str) -> bool {
+fn has_invalid_wtc_reference_punctuation(value: &str) -> bool {
     let Some((_date, rest)) = value.split_once('T') else {
         return false;
     };
@@ -308,14 +308,14 @@ mod tests {
     use super::classify_temporal_literal;
 
     #[test]
-    fn accepts_zrut_with_non_empty_slash_separated_segments() {
+    fn accepts_wtc_with_non_empty_slash_separated_segments() {
         assert!(
             classify_temporal_literal("2025-01-01T00:00:00Z&Europe/Belgium/Brussels").is_some()
         );
     }
 
     #[test]
-    fn rejects_zrut_with_invalid_slash_placement() {
+    fn rejects_wtc_with_invalid_slash_placement() {
         assert!(classify_temporal_literal("2025-01-01T00:00:00Z&/Belgium/Brussels").is_none());
         assert!(classify_temporal_literal("2025-01-01T00:00:00Z&Europe/Belgium/").is_none());
         assert!(classify_temporal_literal("2025-01-01T00:00:00Z&Belgium//Brussels").is_none());

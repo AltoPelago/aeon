@@ -219,23 +219,23 @@ const valueFeatures = [
     },
   },
   {
-    id: 'zrut-literal',
+    id: 'wtc-literal',
     category: 'values',
     priority: 'medium',
     contexts: ['top', 'object'],
     generate() {
-      const k = uniqueKey('zr');
-      return { text: `${k}:zrut = 2025-01-15T09:30:00Z&Australia/Sydney`, expectPass: true, isBinding: true, metadata: { valueType: 'DateTimeLiteral' } };
+      const k = uniqueKey('wt');
+      return { text: `${k}:wtc = 2025-01-15T09:30:00Z&Australia/Sydney`, expectPass: true, isBinding: true, metadata: { valueType: 'WTCDateTimeLiteral' } };
     },
   },
   {
-    id: 'zrut-local-literal',
+    id: 'wtc-local-literal',
     category: 'values',
     priority: 'medium',
     contexts: ['top', 'object'],
     generate() {
-      const k = uniqueKey('zr');
-      return { text: `${k}:zrut = 2025-01-15T09:30:00&Local`, expectPass: true, isBinding: true, metadata: { valueType: 'DateTimeLiteral', local: true } };
+      const k = uniqueKey('wt');
+      return { text: `${k}:wtc = 2025-01-15T09:30:00&Local`, expectPass: true, isBinding: true, metadata: { valueType: 'WTCDateTimeLiteral', local: true } };
     },
   },
   {

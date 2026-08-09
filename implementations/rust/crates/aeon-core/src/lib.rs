@@ -378,7 +378,13 @@ impl Value {
             Self::EncodingLiteral { .. } => "EncodingLiteral",
             Self::RadixLiteral { .. } => "RadixLiteral",
             Self::DateLiteral { .. } => "DateLiteral",
-            Self::DateTimeLiteral { .. } => "DateTimeLiteral",
+            Self::DateTimeLiteral { raw } => {
+                if raw.contains('&') {
+                    "WTCDateTimeLiteral"
+                } else {
+                    "DateTimeLiteral"
+                }
+            }
             Self::TimeLiteral { .. } => "TimeLiteral",
             Self::SansaAddressLiteral { .. } => "SansaAddressLiteral",
             Self::NodeLiteral { .. } => "NodeLiteral",
@@ -1579,7 +1585,7 @@ mod tests {
                 "Invalid datetime literal: '2007-01-02t10:10:25'",
             ),
             (
-                "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+                "a:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
                 "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
             ),
@@ -1605,7 +1611,7 @@ mod tests {
     fn rejects_lowercase_z_datetime_markers_as_syntax_errors() {
         for source in [
             "a:datetime = 2007-01-02T10:10:25z\n",
-            "a:zrut = 2007-01-02T10:10:25z&Australia/Melbourne\n",
+            "a:wtc = 2007-01-02T10:10:25z&Australia/Melbourne\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(
@@ -1625,17 +1631,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_malformed_zrut_zone_punctuation() {
+    fn rejects_malformed_wtc_reference_punctuation() {
         for source in [
-            "z:zrut = 2025-01-01T09Z&Europe*Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe#Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe[Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe;Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe=Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe'Brussels\n",
-            "z:zrut = 2025-01-01T09Z&*\n",
-            "z:zrut = 2025-01-01T09Z&#\n",
-            "z:zrut = 2025-01-01T09Z&Europe/Brussels&Local\n",
+            "z:wtc = 2025-01-01T09Z&Europe*Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe#Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe[Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe;Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe=Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe'Brussels\n",
+            "z:wtc = 2025-01-01T09Z&*\n",
+            "z:wtc = 2025-01-01T09Z&#\n",
+            "z:wtc = 2025-01-01T09Z&Europe/Brussels&Local\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(
@@ -1648,12 +1654,13 @@ mod tests {
     }
 
     #[test]
-    fn accepts_valid_zrut_zone_characters() {
+    fn accepts_valid_wtc_reference_characters() {
         for source in [
-            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince\n",
-            "z:zrut = 2025-01-01T09Z&GB-Eire\n",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT-1\n",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT+1\n",
+            "z:wtc = 2025-01-01T09Z&America/Port-au-Prince\n",
+            "z:wtc = 2025-01-01T09Z&GB-Eire\n",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT-1\n",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT+1\n",
+            "z:wtc = 2035-01-01T09:00&-36.7590183/144.2826718\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2794,7 +2801,7 @@ mod tests {
              d:date = 2025-12-12\n\
              t:time = 09:30:00Z\n\
              dt:datetime = 2025-01-01T09:30:00Z\n\
-             z:zrut = 2025-01-01T00:00:00Z&Australia/Sydney\n\
+             z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n\
              sep:sep[;] = ^a;b;c\n",
             CompileOptions::default(),
         );

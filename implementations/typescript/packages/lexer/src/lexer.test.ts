@@ -467,7 +467,7 @@ describe('Lexer', () => {
             }
         });
 
-        it('should tokenize reduced-precision zrut datetime literals', () => {
+        it('should tokenize reduced-precision wtc datetime literals', () => {
             for (const source of [
                 '2025-01-01T09&Europe/Belgium/Brussels',
                 '2025-01-01T09Z&Europe/Belgium/Brussels',
@@ -543,32 +543,39 @@ describe('Lexer', () => {
             }
         });
 
-        it('should tokenize ZRUT literals', () => {
+        it('should tokenize WTC literals', () => {
             const result = tokenize('2025-12-02T02:00:00Z&Asia/Tokyo');
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
             assert.strictEqual(result.tokens[0]!.value, '2025-12-02T02:00:00Z&Asia/Tokyo');
         });
 
-        it('accepts ZRUT zones with slash-separated non-empty segments', () => {
+        it('accepts WTC references with slash-separated non-empty segments', () => {
             const result = tokenize('2025-01-01T00:00:00Z&Europe/Belgium/Brussels');
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01T00:00:00Z&Europe/Belgium/Brussels');
         });
 
-        it('rejects ZRUT zones that start with a slash', () => {
+        it('accepts WTC geographic coordinate references', () => {
+            const result = tokenize('2035-01-01T09:00&-36.7590183/144.2826718');
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
+            assert.strictEqual(result.tokens[0]!.value, '2035-01-01T09:00&-36.7590183/144.2826718');
+        });
+
+        it('rejects WTC references that start with a slash', () => {
             const result = tokenize('2025-01-01T00:00:00Z&/Belgium/Brussels');
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.tokens[0]!.type, TokenType.EOF);
         });
 
-        it('rejects ZRUT zones that end with a slash', () => {
+        it('rejects WTC references that end with a slash', () => {
             const result = tokenize('2025-01-01T00:00:00Z&Europe/Belgium/');
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.tokens[0]!.type, TokenType.EOF);
         });
 
-        it('rejects ZRUT zones with double slashes', () => {
+        it('rejects WTC references with double slashes', () => {
             const result = tokenize('2025-01-01T00:00:00Z&Belgium//Brussels');
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.tokens[0]!.type, TokenType.EOF);

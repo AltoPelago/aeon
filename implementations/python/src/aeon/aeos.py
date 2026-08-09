@@ -75,7 +75,7 @@ STRING_LIKE_VALUE_TYPES = {
     "DateLiteral",
     "TimeLiteral",
     "DateTimeLiteral",
-    "ZRUTDateTimeLiteral",
+    "WTCDateTimeLiteral",
 }
 
 
@@ -1630,7 +1630,7 @@ def is_string_like_literal(value_type: str) -> bool:
         "DateLiteral",
         "TimeLiteral",
         "DateTimeLiteral",
-        "ZRUTDateTimeLiteral",
+        "WTCDateTimeLiteral",
     }
 
 
@@ -1666,7 +1666,10 @@ def is_form_negative(raw: str) -> bool:
 def declared_radix_from_datatype(datatype: str | None) -> int | None:
     if datatype is None:
         return None
-    match = re.fullmatch(r"radix(?:\[(\d+)\]|(\d+))", datatype.strip(), re.IGNORECASE)
+    trimmed = datatype.strip()
+    if trimmed.lower() == "decimal":
+        return 10
+    match = re.fullmatch(r"radix(?:\[(\d+)\]|(\d+))", trimmed, re.IGNORECASE)
     if match is None:
         return None
     return int(match.group(1) or match.group(2))

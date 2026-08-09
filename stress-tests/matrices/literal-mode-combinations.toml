@@ -340,11 +340,11 @@ string = "|KEY||TYPE| = 2027-01-22T20|0|1| // datetime"
 outcome = "pass"
 
 [[stress]]
-description = "ZRUT"
+description = "WTC"
 key = "a"
-type = { strict = ":zrut", custom = ":wakeup", transport = "" }
+type = { strict = ":wtc", custom = ":wakeup", transport = "" }
 value = [
   ["Europe/Belgium/Brussels", "Europe/Maastricht", "GMT+1", "GMT-1", "Europe/Gent-Brugge"],
 ]
-string = "|KEY||TYPE| = 2027-01-22T20&|0| // zrut"
+string = "|KEY||TYPE| = 2027-01-22T20&|0| // wtc"
 outcome = "pass"

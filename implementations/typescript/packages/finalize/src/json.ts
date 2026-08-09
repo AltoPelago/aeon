@@ -814,6 +814,7 @@ function declaredRadixBase(datatype: string | undefined): number | null {
     if (!datatype) return null;
 
     const trimmed = datatype.trim();
+    if (trimmed === 'decimal') return 10;
     if (trimmed === 'radix2') return 2;
     if (trimmed === 'radix6') return 6;
     if (trimmed === 'radix8') return 8;

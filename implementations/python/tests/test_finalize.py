@@ -236,6 +236,12 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertTrue(result["meta"]["errors"])
         self.assertIn("declared radix 10", result["meta"]["errors"][0]["message"])
 
+    def test_reports_radix_digits_that_exceed_decimal_alias_base_during_finalization(self) -> None:
+        result = finalize_json(compile_events("mask:decimal = %1A"), FinalizeOptions(mode="strict"))
+        self.assertEqual("1A", result["document"]["mask"])
+        self.assertTrue(result["meta"]["errors"])
+        self.assertIn("declared radix 10", result["meta"]["errors"][0]["message"])
+
     def test_keeps_declared_radix_validation_working_for_nested_payload_output(self) -> None:
         result = finalize_json(compile_events("config = { mask:radix[10] = %1A }"), FinalizeOptions(mode="strict", scope="full"))
         self.assertEqual(

@@ -244,7 +244,7 @@ export interface DateLiteral extends ASTNode {
 }
 
 /**
- * DateTime literal (including ZRUT)
+ * DateTime literal
  */
 export interface DateTimeLiteral extends ASTNode {
     readonly type: 'DateTimeLiteral';

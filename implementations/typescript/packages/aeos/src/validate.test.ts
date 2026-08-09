@@ -453,9 +453,9 @@ describe('validate()', () => {
                     span: [5, 6],
                 },
                 {
-                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'zrut' }] },
-                    key: 'zrut',
-                    value: { type: 'ZRUTDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'wtc' }] },
+                    key: 'wtc',
+                    value: { type: 'WTCDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
                     span: [7, 8],
                 },
             ] as unknown as AES;
@@ -465,7 +465,7 @@ describe('validate()', () => {
                     { path: '$.date', constraints: { type: 'DateLiteral' } },
                     { path: '$.time', constraints: { type: 'TimeLiteral' } },
                     { path: '$.datetime', constraints: { type: 'DateTimeLiteral' } },
-                    { path: '$.zrut', constraints: { type: 'ZRUTDateTimeLiteral' } },
+                    { path: '$.wtc', constraints: { type: 'WTCDateTimeLiteral' } },
                 ],
             };
 

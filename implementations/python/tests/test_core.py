@@ -412,30 +412,31 @@ class CoreCompileTests(unittest.TestCase):
     def test_invalid_lowercase_t_temporals_are_rejected(self) -> None:
         cases = (
             "dt:datetime = 2007-01-02t10:10:25",
-            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne",
+            "z:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne",
         )
         for source in cases:
             with self.subTest(source=source):
                 result = compile_source(f'aeon:mode = "strict"\n{source}')
                 self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
-    def test_zrut_accepts_common_named_zone_identifiers_with_dash_and_plus(self) -> None:
+    def test_wtc_accepts_common_references_with_dash_plus_and_decimal_points(self) -> None:
         cases = (
-            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince",
-            "z:zrut = 2025-01-01T09Z&GB-Eire",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT-1",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT+1",
+            "z:wtc = 2025-01-01T09Z&America/Port-au-Prince",
+            "z:wtc = 2025-01-01T09Z&GB-Eire",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT-1",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT+1",
+            "z:wtc = 2035-01-01T09:00&-36.7590183/144.2826718",
         )
         for source in cases:
             with self.subTest(source=source):
                 result = compile_source(source)
                 self.assertEqual([], result.errors)
 
-    def test_zrut_still_rejects_invalid_slash_placement(self) -> None:
+    def test_wtc_still_rejects_invalid_slash_placement(self) -> None:
         cases = (
-            "z:zrut = 2025-01-01T09Z&/",
-            "z:zrut = 2025-01-01T09Z&Europe//Brussels",
-            "z:zrut = 2025-01-01T09Z&Europe/Belgium/",
+            "z:wtc = 2025-01-01T09Z&/",
+            "z:wtc = 2025-01-01T09Z&Europe//Brussels",
+            "z:wtc = 2025-01-01T09Z&Europe/Belgium/",
         )
         for source in cases:
             with self.subTest(source=source):
@@ -754,6 +755,14 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("aa:tuple<string> = (3,)")
         self.assertEqual([], result.errors)
 
+    def test_triple_alias_accepts_tuple_literals(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nedge:triple<string, string, string> = ("a", "b", "c")')
+        self.assertEqual([], result.errors)
+
+    def test_decimal_alias_accepts_radix_literals(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nprice:decimal = %19.9900')
+        self.assertEqual([], result.errors)
+
     def test_empty_separator_literal_is_rejected(self) -> None:
         result = compile_source("blue:sep = ^")
         self.assertNotEqual([], result.errors)
@@ -784,7 +793,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], [error.code for error in result.errors])
 
     def test_invalid_temporal_literals_use_specific_error_codes(self) -> None:
-        result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:zrut = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))
+        result = compile_source("at:time = 24:00\nbad:date = 2025-02-29\ndt:wtc = 2025-01-01T09:30Z&/\n", CompileOptions(recovery=True))
         self.assertEqual(["INVALID_TIME", "INVALID_DATE", "INVALID_DATETIME"], [error.code for error in result.errors[:3]])
 
     def test_invalid_single_digit_hour_time_candidate_uses_invalid_time(self) -> None:

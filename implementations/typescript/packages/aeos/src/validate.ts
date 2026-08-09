@@ -44,7 +44,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     DateLiteral: ['DateLiteral'],
     TimeLiteral: ['TimeLiteral'],
     DateTimeLiteral: ['DateTimeLiteral'],
-    ZRUTDateTimeLiteral: ['ZRUTDateTimeLiteral'],
+    WTCDateTimeLiteral: ['WTCDateTimeLiteral'],
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
@@ -186,7 +186,7 @@ const STRING_LIKE_VALUE_TYPES = new Set([
     'DateLiteral',
     'TimeLiteral',
     'DateTimeLiteral',
-    'ZRUTDateTimeLiteral',
+    'WTCDateTimeLiteral',
 ]);
 
 function stringLikePayloadLength(event: Pick<EventInfo, 'type' | 'raw' | 'value'>): number | null {
@@ -1545,7 +1545,9 @@ function radixConstraintMatches(datatype: string | undefined, raw: string, const
 
 function declaredRadixFromDatatype(datatype: string | undefined): number | null {
     if (datatype === undefined) return null;
-    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
+    const trimmed = datatype.trim();
+    if (trimmed.toLowerCase() === 'decimal') return 10;
+    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(trimmed);
     if (!match) return null;
     const value = Number(match[1] ?? match[2]);
     return Number.isInteger(value) && value >= 0 ? value : null;
@@ -1562,7 +1564,7 @@ function isStringType(type: string): boolean {
         || type === 'DateLiteral'
         || type === 'TimeLiteral'
         || type === 'DateTimeLiteral'
-        || type === 'ZRUTDateTimeLiteral';
+        || type === 'WTCDateTimeLiteral';
 }
 
 function countFormDigits(type: string, raw: string): number {

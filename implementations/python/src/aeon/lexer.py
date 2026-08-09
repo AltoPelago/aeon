@@ -577,7 +577,7 @@ class Lexer:
                     value += self.advance()
             if self.peek() == "&":
                 value += self.advance()
-                while self.peek().isalnum() or self.peek() in {"/", "_", "-", "+"}:
+                while self.peek().isalnum() or self.peek() in {"/", "_", "-", "+", "."}:
                     value += self.advance()
             if self.is_valid_datetime_literal(value):
                 self.add_token("DATETIME", value, start)
@@ -632,18 +632,18 @@ class Lexer:
             return True
         if "&" in rest:
             base, zone = rest.split("&", 1)
-            return cls.is_valid_zrut_zone(zone) and (cls.matches_datetime_time(base) or cls.matches_datetime_zoned_time(base))
+            return cls.is_valid_wtc_reference(zone) and (cls.matches_datetime_time(base) or cls.matches_datetime_zoned_time(base))
         return False
 
     @staticmethod
-    def is_valid_zrut_zone(zone: str) -> bool:
+    def is_valid_wtc_reference(reference: str) -> bool:
         return (
-            bool(zone)
-            and not zone.startswith("/")
-            and not zone.endswith("/")
-            and "//" not in zone
-            and "/*" not in zone
-            and "/[" not in zone
+            bool(reference)
+            and not reference.startswith("/")
+            and not reference.endswith("/")
+            and "//" not in reference
+            and "/*" not in reference
+            and "/[" not in reference
         )
 
     @staticmethod

@@ -57,7 +57,7 @@ Not currently modeled:
 - root-qualified references: `~$.a`
 - mixed quoted traversal: `~a.["b.c"]`
 - quoted attribute selectors: `~a.@.["x.y"]`
-- local ZRUT convention: `...&Local`
+- local WTC convention: `...&Local`
 - invalid numeric underscore forms
 - malformed quoted-key escapes
 - host comments: `//!`
@@ -153,7 +153,7 @@ Add missing features for:
 - mixed addressing
 - quoted attribute selectors
 - root-qualified references
-- local ZRUT
+- local WTC
 - numeric underscore negatives
 - quoted-key escape negatives
 - host/reserved line channels
