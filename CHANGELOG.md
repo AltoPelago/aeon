@@ -6,6 +6,22 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.12.0 - 2026-08-10
+
+### Breaking
+
+- Renamed the WTC datatype surface from `zrut` to `wtc` and the public literal
+  kind from `ZRUTDateTimeLiteral` to `WTCDateTimeLiteral` across the
+  implementation line.
+
+### Added
+
+- Added `triple<A,B,C>` as a reserved alias for `tuple<A,B,C>`.
+- Added `decimal` as a reserved alias for `radix[10]`, including AEOS numeric
+  form enforcement for declared radix constraints.
+- Added WTC temporal-reference support for geographic coordinate payloads such
+  as `2035-01-01T09:00&-36.7590183/144.2826718`.
+
 ## 0.11.0 - 2026-07-24
 
 ### Added
