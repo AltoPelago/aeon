@@ -91,7 +91,7 @@ export interface ConstraintsV1 {
     /** AEOS portable pattern for string matching */
     readonly pattern?: string;
 
-    /** Datatype label (presence check only, no capacity) */
+    /** Exact datatype-label constraint; deeper datatype semantics belong in datatype_rules. */
     readonly datatype?: string;
 
     /** Attribute entry constraints keyed by attribute name */

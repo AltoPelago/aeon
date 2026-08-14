@@ -11,7 +11,7 @@
       "claims": [
         {
           "surface": "aeos-validator",
-          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.2",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "pnpm test:cts"
         },
@@ -102,7 +102,7 @@
         },
         {
           "surface": "aeos-validator",
-          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.2",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aeos"
         }
@@ -163,7 +163,7 @@
         },
         {
           "surface": "aeos-validator",
-          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.2",
+          "snapshot_id": "aeos-validator-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aeos"
         }

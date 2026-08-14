@@ -665,8 +665,9 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
         if not isinstance(constraints, dict):
             continue
         expected_type = constraints.get("type")
+        expected_datatype = constraints.get("datatype")
         expected_container = constraints.get("type_is")
-        if expected_type is None and expected_container is None:
+        if expected_type is None and expected_datatype is None and expected_container is None:
             continue
         event = events.get(path)
         if event is None:
@@ -678,6 +679,9 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             ok = expected_container == "list" and actual_type in {"ListLiteral", "ListNode"} or expected_container == "tuple" and actual_type == "TupleLiteral"
             if not ok:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
+        if isinstance(expected_datatype, str) and event.get("datatype") != expected_datatype:
+            actual_datatype = event.get("datatype")
+            emit_error(ctx, create_diag(path, event.get("span"), f"Datatype mismatch: expected {expected_datatype}, got {actual_datatype if isinstance(actual_datatype, str) else 'none'}", ERROR_CODES["type_mismatch"]))
         if isinstance(expected_type, str):
             if not type_matches(expected_type, actual_type, constraints):
                 code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]

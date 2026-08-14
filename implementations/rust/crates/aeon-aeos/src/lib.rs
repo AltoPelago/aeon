@@ -1622,6 +1622,20 @@ fn check_types(
             }
         }
 
+        if let Some(expected_datatype) = constraints.get("datatype").and_then(JsonValue::as_str)
+            && event.datatype.as_deref() != Some(expected_datatype)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("type_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
+        }
+
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
             && !type_matches(expected_type, &event.value_type, constraints)
         {
@@ -3562,6 +3576,33 @@ mod tests {
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert!(envelope.ok);
+    }
+
+    #[test]
+    fn datatype_constraint_requires_exact_label() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "id" } ] },
+              "key": "id",
+              "datatype": "user-id",
+              "value": { "type": "StringLiteral", "raw": "\"U-1\"", "value": "U-1" },
+              "span": [0, 1]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.id", "constraints": { "datatype": "product-id" } }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(envelope.errors.iter().any(|error| {
+            error.path.as_deref() == Some("$.id") && error.code == "type_mismatch"
+        }));
     }
 
     #[test]
