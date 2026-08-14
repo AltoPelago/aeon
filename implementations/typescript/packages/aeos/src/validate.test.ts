@@ -1568,6 +1568,33 @@ describe('validate()', () => {
         });
     });
 
+    describe('Phase 5: representation type', () => {
+        it('enforces exact datatypes on ordinary bindings', () => {
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.note', constraints: { type: 'StringLiteral', datatype: 'string' } },
+                ],
+            };
+            const event = (datatype: string): AES => [{
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'note' }] },
+                key: 'note',
+                datatype,
+                value: { type: 'StringLiteral', value: '$.random', raw: '$.random', span: [1, 9] },
+                span: [1, 9],
+            }] as unknown as AES;
+
+            assert.strictEqual(validate(event('string'), schema).ok, true);
+
+            const mismatched = validate(event('sansa'), schema);
+            assert.strictEqual(mismatched.ok, false);
+            assert.ok(mismatched.errors.some((error) =>
+                error.code === ErrorCodes.TYPE_MISMATCH
+                && error.path === '$.note'
+                && error.message.includes('expected string, got sansa')
+            ));
+        });
+    });
+
     describe('symbolic literal form constraints', () => {
         it('validates min and max digits for hex and radix literals while treating separators as string-like', () => {
             const aes: AES = [
