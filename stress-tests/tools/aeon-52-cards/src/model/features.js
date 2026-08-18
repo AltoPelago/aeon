@@ -585,7 +585,7 @@ const typeAnnotationFeatures = [
     generate() {
       const k = uniqueKey('tp');
       return {
-        text: `${k}:dim[x][y] = ^100x200y300`,
+        text: `${k}:dim["x", "y"] = ^100x200y300`,
         expectPass: false,
         isBinding: true,
         metadata: { typeKind: 'multi-separator-spec', depth: 2, negative: true, reason: 'custom-separator-type-not-allowed' },

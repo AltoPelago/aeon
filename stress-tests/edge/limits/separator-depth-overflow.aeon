@@ -1,2 +1,2 @@
-//# Resource-limit stress: chained separator specs beyond the default depth
-a:grid[|][x] = ^1|2x3
+//# Resource-limit stress: clarifier lists beyond the default depth
+a:grid["|", "x"] = ^1|2x3

@@ -295,21 +295,21 @@ test010:o = {
 
 test011:o = {
 	sep1:sep = ^93.2.3.3
-	sep2:sep[.] = ^93.2.3.3
-	sep3:sep[x] = ^1920x1080
-	sep4:sep[-] = ^1-2-3
-	sep5:sep[:] = ^10:20:30
+	sep2:sep["."] = ^93.2.3.3
+	sep3:sep["x"] = ^1920x1080
+	sep4:sep["-"] = ^1-2-3
+	sep5:sep[":"] = ^10:20:30
 	sep6:sep = ^"usr/local/bin"
 	sep7:kadot = ^3.14.15
 	sep8:sep = ^hello
-	sep9:sep[;] = ^one;two;three
-	sep10:sep[.] = ^93.2.3.3, sep11:sep[x] = ^800x600, sep12:sep[-] = ^2025-01-01
-	sep13:sep[x] = ^100x200y300z
+	sep9:sep[";"] = ^one;two;three
+	sep10:sep["."] = ^93.2.3.3, sep11:sep["x"] = ^800x600, sep12:sep["-"] = ^2025-01-01
+	sep13:sep["x"] = ^100x200y300z
 
-	sep14:sep[|] = ^"one"|"two"|"three"|"four"
-		sep15:sep[|] = ^"one"|"two"|"threefour"|"five"
+	sep14:sep["|"] = ^"one"|"two"|"three"|"four"
+		sep15:sep["|"] = ^"one"|"two"|"threefour"|"five"
 
-	sep16:sep[|] = ^one|two|three|"four five"
+	sep16:sep["|"] = ^one|two|three|"four five"
 
 }
 

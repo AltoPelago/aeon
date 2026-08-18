@@ -106,7 +106,7 @@ node:node = <tag($.name)>
 ---
 tuple:tuple = ($.name)
 ---
-sep3:sep[a] = ^1920x1080
+sep3:sep["a"] = ^1920x1080
 ---
 c:trimtick = >> ``
 ---
@@ -312,9 +312,9 @@ d:date = 2007-01-02
 t:time = 10:10:35
 z:wtc = 2007-01-02T10:10:25Z&Australia/Melbourne
 ---
-s:sep[x] = ^300x200
+s:sep["x"] = ^300x200
 ---
-s:sep[.] = ^00.00;00
+s:sep["."] = ^00.00;00
 ---
 o:o = { n:n = 0 }
 ---
