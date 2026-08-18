@@ -1615,7 +1615,7 @@ describe('validate()', () => {
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'sep' }] },
                     key: 'sep',
-                    datatype: 'sep[|]',
+                    datatype: 'sep["|"]',
                     value: { type: 'SeparatorLiteral', value: '0|0|0', raw: '^0|0|0', span: [10, 16] },
                     span: [10, 16],
                 },
@@ -1769,7 +1769,7 @@ describe('validate()', () => {
             {
                 path: { segments: [{ type: 'root' }, { type: 'member', key: 'line' }] },
                 key: 'line',
-                datatype: 'sep[|]',
+                datatype: 'sep["|"]',
                 value: { type: 'SeparatorLiteral', value: '0|0|0|', raw: '^0|0|0|', span: [1, 8] },
                 span: [1, 8],
             },

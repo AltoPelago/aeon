@@ -38,6 +38,8 @@ export {
     inferSchemaFromAeon,
     inferSchemaFromEvents,
     SchemaInferenceError,
+    validateSchemaEvolution,
+    validateSchemaEvolutionSources,
 } from './schema-tools.js';
 export type {
     InferSchemaOptions,
@@ -45,6 +47,7 @@ export type {
     PossibleRuleMove,
     SchemaDiff,
     SchemaDiffChange,
+    SchemaEvolutionDiagnostic,
 } from './schema-tools.js';
 
 // =============================================================================
@@ -58,7 +61,13 @@ export { createPassingEnvelope, createFailingEnvelope } from './types/envelope.j
 export { spanToTuple } from './types/spans.js';
 
 // Schema types
-export type { SchemaV1, SchemaRule, ConstraintsV1 } from './types/schema.js';
+export type {
+    SchemaV1,
+    SchemaRule,
+    ConstraintsV1,
+    SchemaEvolutionKindV1,
+    SchemaEvolutionV1,
+} from './types/schema.js';
 
 // AES types (re-exported from @altopelago/aeon-aes)
 export type { AES, AssignmentEvent } from './types/aes.js';

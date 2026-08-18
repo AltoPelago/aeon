@@ -105,6 +105,12 @@ export interface ConstraintsV1 {
  * Schema rule for an exact SANSA path or non-exact SANSA selector
  */
 export interface SchemaRule {
+    /** Stable identity for this declaration across schema versions. */
+    readonly declaration_id?: string;
+
+    /** Optional semantic lineage shared by related declarations. */
+    readonly lineage_id?: string;
+
     /** Exact SANSA path this rule applies to */
     readonly path?: string;
 
@@ -115,12 +121,38 @@ export interface SchemaRule {
     readonly constraints: ConstraintsV1;
 }
 
+export type SchemaEvolutionKindV1 =
+    | 'add'
+    | 'remove'
+    | 'rename'
+    | 'move'
+    | 'constraint-change'
+    | 'datatype-change'
+    | 'split'
+    | 'merge'
+    | 'derive'
+    | 'replace';
+
+/** Authored temporal intent relating declarations across schema versions. */
+export interface SchemaEvolutionV1 {
+    readonly change_id: string;
+    readonly kind: SchemaEvolutionKindV1;
+    readonly from_declarations: readonly string[];
+    readonly to_declarations: readonly string[];
+    readonly from_contract?: string;
+    readonly transform?: string;
+    readonly note?: string;
+}
+
 /**
  * AEOS Schema v1
  */
 export interface SchemaV1 {
     /** Array of rules */
     readonly rules: readonly SchemaRule[];
+
+    /** Authored changes from an earlier schema into this schema. */
+    readonly evolution?: readonly SchemaEvolutionV1[];
 
     /** Open-world or closed-world validation policy */
     readonly world?: 'open' | 'closed';

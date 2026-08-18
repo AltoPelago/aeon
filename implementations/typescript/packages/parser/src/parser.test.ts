@@ -873,7 +873,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse separator literal', () => {
-            const tokens = tokenize('size:dim[x] = ^300x250').tokens;
+            const tokens = tokenize('size:dim["x"] = ^300x250').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -975,7 +975,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse AEON separator and radix SANSA qualifiers', () => {
-            const tokens = tokenize('a:sansa = $.field:sep[.]\nb:sansa = $.bits:radix[16]').tokens;
+            const tokens = tokenize('a:sansa = $.field:sep["."]\nb:sansa = $.bits:radix[16]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -995,14 +995,14 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should transport SANSA qualifiers that combine parameters and arguments', () => {
-            const tokens = tokenize('address:sansa = $.value:type<type>[arg]').tokens;
+            const tokens = tokenize('address:sansa = $.value:type<type>["arg"]').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             const value = result.document!.bindings[0]!.value;
             assert.strictEqual(value.type, 'SansaAddressLiteral');
             if (value.type !== 'SansaAddressLiteral') assert.fail('Expected SansaAddressLiteral');
-            assert.strictEqual(value.canonical, '$.value:type<type>[arg]');
+            assert.strictEqual(value.canonical, '$.value:type<type>["arg"]');
         });
 
         it('should parse SANSA address literals before comments and inside containers', () => {
@@ -1122,7 +1122,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should keep quoted separator segments intact', () => {
-            const tokens = tokenize('line:sep[|] = ^"hello world"|"this, [is] fine"').tokens;
+            const tokens = tokenize('line:sep["|"] = ^"hello world"|"this, [is] fine"').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
@@ -1134,7 +1134,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should allow semicolon inside raw separator literal payload', () => {
-            const tokens = tokenize('line:sep[|] = ^0|0|0;0|0').tokens;
+            const tokens = tokenize('line:sep["|"] = ^0|0|0;0|0').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
@@ -1145,60 +1145,60 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
-        it('should parse chained separator specs', () => {
-            const tokens = tokenize('matrix:grid[|][x] = 1').tokens;
+        it('should parse ordered string clarifiers', () => {
+            const tokens = tokenize('matrix:grid["|", "x"] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', 'x']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, ['|', 'x']);
         });
 
-        it('should parse symbol separator chars', () => {
-            const tokens = tokenize('matrix:grid[|][<] = 1').tokens;
+        it('should parse symbol clarifier strings', () => {
+            const tokens = tokenize('matrix:grid["|", "<"] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['|', '<']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, ['|', '<']);
         });
 
-        it('should parse caret separator chars', () => {
-            const tokens = tokenize('matrix:grid[^] = ^a^b').tokens;
+        it('should parse caret clarifier strings', () => {
+            const tokens = tokenize('matrix:grid["^"] = ^a^b').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['^']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, ['^']);
         });
 
-        it('should reject bracket separator chars', () => {
+        it('should reject unquoted bracket clarifier values', () => {
             const tokens = tokenize('x:sep[[] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should reject comma separator chars', () => {
+        it('should reject unquoted comma clarifier values', () => {
             const tokens = tokenize('x:sep[,] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should allow semicolon separator chars', () => {
-            const tokens = tokenize('x:t[;] = ^1').tokens;
+        it('should allow quoted semicolon clarifier strings', () => {
+            const tokens = tokenize('x:t[";"] = ^1').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, [';']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [';']);
         });
 
-        it('should reject slash separator chars', () => {
-            const tokens = tokenize('x:sep[/] = ^1').tokens;
+        it('should allow quoted slash clarifier strings', () => {
+            const tokens = tokenize('x:sep["/"] = ^1').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, ['/']);
         });
 
         it('should reject raw slash characters inside separator payloads', () => {
@@ -1209,36 +1209,36 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should reject multi-character separator specs', () => {
+        it('should reject unquoted identifier clarifier values', () => {
             const tokens = tokenize('x:sep[ab] = ^1').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_SEPARATOR_CHAR');
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should accept single-digit separator specs', () => {
+        it('should accept numeric clarifier values', () => {
             const tokens = tokenize('x:t[2] = ^a2b').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['2']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [2]);
         });
 
-        it('should enforce max_separator_depth policy', () => {
-            const tokens = tokenize('matrix:grid[|][>] = 1').tokens;
+        it('should enforce max_separator_depth policy for clarifier values', () => {
+            const tokens = tokenize('matrix:grid["|", ">"] = 1').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 1 });
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
         });
 
-        it('should enforce separator depth before rejecting custom bracket punctuation in repeated specs', () => {
-            const tokens = tokenize('badSepType1:matrix[,][;] = ^1,2,3;4,5,6').tokens;
+        it('should reject repeated clarifier brackets', () => {
+            const tokens = tokenize('badSepType1:matrix[","][","] = ^1,2,3;4,5,6').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 1 });
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
+            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
         it('should parse radix base brackets', () => {
@@ -1247,18 +1247,16 @@ b = [\A1\ = 2]`).tokens;
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'radix');
-            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, 10);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, []);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
         });
 
-        it('should treat uppercase Radix brackets as custom datatype specs', () => {
+        it('should treat uppercase Radix brackets as custom datatype clarifiers', () => {
             const tokens = tokenize('mask:Radix[10] = %19').tokens;
             const result = parse(tokens, { maxSeparatorDepth: 8 });
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'Radix');
-            assert.strictEqual(result.document!.bindings[0]!.datatype!.radixBase, null);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.separators, ['10']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
         });
 
         it('should reject radix generic parameter syntax', () => {
@@ -1269,12 +1267,12 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should reject radix base values outside 2..64', () => {
+        it('should parse radix clarifier values outside 2..64 for validation layers', () => {
             const tokens = tokenize('mask:radix[65] = %19').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [65]);
         });
 
         it('should reject empty radix base brackets', () => {
@@ -1636,12 +1634,12 @@ b = [\A1\ = 2]`).tokens;
             assert.match(result.errors[0]!.message, /Generic node head datatypes must use node<T>/);
         });
 
-        it('should reject separator-spec inline node head datatypes', () => {
-            const tokens = tokenize('item = <tag:contact[x]("x")>').tokens;
+        it('should reject clarifier inline node head datatypes', () => {
+            const tokens = tokenize('item = <tag:contact["x"]("x")>').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
-            assert.match(result.errors[0]!.message, /Node head datatypes must not use bracket specs/);
+            assert.match(result.errors[0]!.message, /Node head datatypes must not use clarifiers/);
         });
     });
 

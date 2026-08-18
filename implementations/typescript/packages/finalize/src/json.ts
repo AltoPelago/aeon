@@ -820,11 +820,29 @@ function declaredRadixBase(datatype: string | undefined): number | null {
     if (trimmed === 'radix8') return 8;
     if (trimmed === 'radix12') return 12;
 
-    const match = /^radix\[(\d+)\]$/.exec(trimmed);
-    if (!match) return null;
+    if (datatypeBase(trimmed) !== 'radix') return null;
+    const values = parseClarifierValues(trimmed);
+    if (values.length !== 1 || typeof values[0] !== 'number') return null;
 
-    const base = Number(match[1]);
+    const base = values[0];
     return Number.isInteger(base) && base >= 2 && base <= 64 ? base : null;
+}
+
+function datatypeBase(datatype: string): string {
+    return datatype.split(/[<[]/, 1)[0] ?? datatype;
+}
+
+function parseClarifierValues(datatype: string): (string | number)[] {
+    const start = datatype.indexOf('[');
+    if (start < 0 || !datatype.endsWith(']')) return [];
+    const payload = datatype.slice(start + 1, -1);
+    try {
+        const parsed = JSON.parse(`[${payload}]`) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
+    } catch {
+        return [];
+    }
 }
 
 function exceedsDeclaredRadix(value: string, base: number): boolean {

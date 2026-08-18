@@ -53,9 +53,10 @@ export interface TypeAnnotation extends ASTNode {
     readonly type: 'TypeAnnotation';
     readonly name: string;
     readonly genericArgs: readonly string[];
-    readonly radixBase?: number | null;
-    readonly separators: readonly string[];
+    readonly clarifiers: readonly ClarifierValue[];
 }
+
+export type ClarifierValue = string | number;
 
 /**
  * Attribute (@{...})

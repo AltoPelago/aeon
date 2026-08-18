@@ -7,26 +7,23 @@ describe('Finalize datatype formatting', () => {
         assert.strictEqual(formatDatatypeAnnotation({
             name: 'int32',
             genericArgs: [],
-            radixBase: null,
-            separators: [],
+            clarifiers: [],
         }), 'int32');
     });
 
-    it('formats datatype with generic args and separators', () => {
+    it('formats datatype with generic args and string clarifiers', () => {
         assert.strictEqual(formatDatatypeAnnotation({
             name: 'tuple',
             genericArgs: ['int32', 'string'],
-            radixBase: null,
-            separators: ['|'],
-        }), 'tuple<int32, string>[|]');
+            clarifiers: ['|'],
+        }), 'tuple<int32, string>["|"]');
     });
 
     it('formats radix datatype with bracket base metadata', () => {
         assert.strictEqual(formatDatatypeAnnotation({
             name: 'radix',
             genericArgs: [],
-            radixBase: 10,
-            separators: [],
+            clarifiers: [10],
         }), 'radix[10]');
     });
 

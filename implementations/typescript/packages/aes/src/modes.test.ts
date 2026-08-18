@@ -399,36 +399,33 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(tupleResult.errors.length, 0);
         });
 
-        it('should reject non separator and radix values for custom bracket specs in custom mode', () => {
+        it('should allow custom clarifiers without imposing literal family in custom mode', () => {
             const radixLikeResult = enforce('aeon:mode = "custom"\nd:custom[3] = 3');
-            assert.ok(radixLikeResult.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(radixLikeResult.errors.length, 0);
 
-            const separatorLikeResult = enforce('aeon:mode = "custom"\ne:custom[.] = 3');
-            assert.ok(separatorLikeResult.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+            const separatorLikeResult = enforce('aeon:mode = "custom"\ne:custom["."] = 3');
+            assert.strictEqual(separatorLikeResult.errors.length, 0);
         });
 
-        it('should continue to allow valid custom bracket spec bindings in custom mode', () => {
+        it('should preserve custom clarifier bindings in custom mode', () => {
             const radixResult = enforce('aeon:mode = "custom"\nf:custom[2] = %10101');
             assert.strictEqual(radixResult.errors.length, 0);
 
-            const separatorResult = enforce('aeon:mode = "custom"\ng:custom[.] = ^1.1.1');
+            const separatorResult = enforce('aeon:mode = "custom"\ng:custom["."] = ^1.1.1');
             assert.strictEqual(separatorResult.errors.length, 0);
 
             const ambiguousResult = enforce('aeon:mode = "custom"\nh:custom[1] = ^1.1.1');
             assert.strictEqual(ambiguousResult.errors.length, 0);
         });
 
-        it('should report incompatible generic and bracket custom constraints clearly', () => {
-            const result = enforce('aeon:mode = "custom"\na:custom<custom>[.] = [2]');
-            assert.ok(result.errors.some((e) =>
-                e.code === 'DATATYPE_LITERAL_MISMATCH'
-                && e.message.includes('combines incompatible generic and bracket constraints')
-            ));
+        it('should allow custom clarifiers alongside compatible generic constraints', () => {
+            const result = enforce('aeon:mode = "custom"\na:custom<custom>["."] = [2]');
+            assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should ignore angle brackets that only appear inside custom separator specs', () => {
+        it('should ignore angle brackets that only appear inside custom clarifier strings', () => {
             assert.strictEqual(datatypeHasGenericArgs('custom<custom>'), true);
-            assert.strictEqual(datatypeHasGenericArgs('custom["<"][">"]'), false);
+            assert.strictEqual(datatypeHasGenericArgs('custom["<", ">"]'), false);
         });
     });
 

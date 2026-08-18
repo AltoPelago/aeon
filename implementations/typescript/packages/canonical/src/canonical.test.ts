@@ -103,17 +103,17 @@ test('canonicalizes null literals without collapsing reserved and reason forms',
 test('canonicalizes SANSA address literals', () => {
     const input = [
         'address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>',
-        'field:sansa = $.field:sep[.]',
+        'field:sansa = $.field:sep["."]',
         'csv:sansa = $.inventory:csv[","]',
-        'external:sansa = $.value:type<type>[arg]',
+        'external:sansa = $.value:type<type>["arg"]',
     ].join('\n');
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('address:sansa = $.inventory.["items.with.dots"][2]:tuple<x><y>'));
-    assert.ok(result.text.includes('field:sansa = $.field:sep[.]'));
+    assert.ok(result.text.includes('field:sansa = $.field:sep["."]'));
     assert.ok(result.text.includes('csv:sansa = $.inventory:csv[","]'));
-    assert.ok(result.text.includes('external:sansa = $.value:type<type>[arg]'));
+    assert.ok(result.text.includes('external:sansa = $.value:type<type>["arg"]'));
 });
 
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
@@ -330,12 +330,12 @@ test('renders generic type annotations in core v1', () => {
     assert.ok(result.text.includes('coords:tuple<int32, int32> = (1, 2)'));
 });
 
-test('canonicalizes chained separator specs up to the v1 capability floor', () => {
-    const input = 'grid:dim[x][y] = ^100x200y300';
+test('canonicalizes clarifier lists up to the v1 capability floor', () => {
+    const input = 'grid:dim["x", "y"] = ^100x200y300';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('grid:dim[x][y] = ^100x200y300'));
+    assert.ok(result.text.includes('grid:dim["x", "y"] = ^100x200y300'));
 
     const relex = tokenize(result.text);
     assert.equal(relex.errors.length, 0);
@@ -345,15 +345,15 @@ test('canonicalizes chained separator specs up to the v1 capability floor', () =
 });
 
 test('canonicalize preserves separator payload quoting without trimming raw segments', () => {
-    const input = 'parts:sep[|] = ^"hello world"|tail';
+    const input = 'parts:sep["|"] = ^"hello world"|tail';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('parts:sep[|] = ^"hello world"|tail'));
+    assert.ok(result.text.includes('parts:sep["|"] = ^"hello world"|tail'));
 });
 
 test('canonicalize honors custom maxSeparatorDepth', () => {
-    const input = 'grid:dim[x][y] = ^100x200y300';
+    const input = 'grid:dim["x", "y"] = ^100x200y300';
     const result = canonicalize(input, { maxSeparatorDepth: 1 });
 
     assert.ok(result.errors.length > 0);
