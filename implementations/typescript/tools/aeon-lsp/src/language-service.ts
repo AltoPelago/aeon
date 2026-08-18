@@ -112,13 +112,13 @@ export function getHover(text: string, position: Position): Hover | null {
         const genericLine = datatype.node.genericArgs.length > 0
             ? `\nGeneric args: ${datatype.node.genericArgs.join(', ')}`
             : '';
-        const separatorLine = datatype.node.separators.length > 0
-            ? `\nSeparators: ${datatype.node.separators.join(', ')}`
+        const clarifierLine = datatype.node.clarifiers.length > 0
+            ? `\nClarifiers: ${datatype.node.clarifiers.map(formatClarifier).join(', ')}`
             : '';
         return {
             contents: {
                 kind: MarkupKind.Markdown,
-                value: `**Datatype** \`${datatypeText}\`${genericLine}${separatorLine}`,
+                value: `**Datatype** \`${datatypeText}\`${genericLine}${clarifierLine}`,
             },
             range: toRange(datatype.node.span),
         };
@@ -1194,8 +1194,14 @@ function collectReferenceCandidates(text: string): string[] {
 
 function formatDatatype(datatype: TypeAnnotation): string {
     const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-    const separators = datatype.separators.map((separator) => `[${separator}]`).join('');
-    return `${datatype.name}${generics}${separators}`;
+    const clarifiers = datatype.clarifiers.length > 0
+        ? `[${datatype.clarifiers.map(formatClarifier).join(', ')}]`
+        : '';
+    return `${datatype.name}${generics}${clarifiers}`;
+}
+
+function formatClarifier(clarifier: string | number): string {
+    return typeof clarifier === 'string' ? JSON.stringify(clarifier) : String(clarifier);
 }
 
 function formatReferencePath(path: readonly ReferencePathSegment[]): string {
