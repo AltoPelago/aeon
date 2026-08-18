@@ -5826,7 +5826,7 @@ mod tests {
             r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
         )
         .expect("schema");
-        fs::write(&input, "line:sep[|] = ^0|0|0|\n").expect("input");
+        fs::write(&input, "line:sep[\"|\"] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),
@@ -5863,7 +5863,7 @@ mod tests {
             r#"{"schema_id":"aeon.gp.schema.v1","schema_version":"1.0.0","rules":[]}"#,
         )
         .expect("schema");
-        fs::write(&input, "line:sep[|] = ^0|0|0|\n").expect("input");
+        fs::write(&input, "line:sep[\"|\"] = ^0|0|0|\n").expect("input");
 
         let (code, output) = execute_bind(&[
             input.to_string_lossy().into_owned(),

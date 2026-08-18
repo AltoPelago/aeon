@@ -1087,11 +1087,90 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
 
     if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
         return Err(format!(
-            "Datatype `{base}` does not support bracket specifiers in v1"
+            "Datatype `{base}` does not support clarifiers in v1"
         ));
     }
 
     Ok(())
+}
+
+fn validate_datatype_clarifiers(clarifiers: &[&str]) -> Result<(), String> {
+    if clarifiers.is_empty() {
+        return Ok(());
+    }
+    if clarifiers.len() > 1 {
+        return Err(String::from(
+            "Datatype clarifiers must use a single bracketed list like `sep[\"/\", \".\"]`",
+        ));
+    }
+    validate_clarifier_list(clarifiers[0])
+}
+
+fn validate_clarifier_list(payload: &str) -> Result<(), String> {
+    if payload.trim().is_empty() {
+        return Err(String::from(
+            "Datatype clarifier must contain at least one string or number",
+        ));
+    }
+
+    let mut values = 0usize;
+    let mut rest = payload.trim();
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            return Err(String::from("Expected clarifier value"));
+        }
+
+        let consumed = if matches!(rest.chars().next(), Some('"') | Some('\'')) {
+            parse_clarifier_string(rest)?
+        } else {
+            let end = rest.find(',').unwrap_or(rest.len());
+            let number = rest[..end].trim();
+            if !looks_like_number_literal(number) {
+                return Err(String::from("Expected clarifier value"));
+            }
+            end
+        };
+
+        values += 1;
+        rest = rest[consumed..].trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        if !rest.starts_with(',') {
+            return Err(String::from("Expected ',' between clarifier values"));
+        }
+        rest = &rest[1..];
+        if rest.trim().is_empty() {
+            return Err(String::from("Expected clarifier value"));
+        }
+    }
+
+    if values == 0 {
+        return Err(String::from(
+            "Datatype clarifier must contain at least one string or number",
+        ));
+    }
+    Ok(())
+}
+
+fn parse_clarifier_string(raw: &str) -> Result<usize, String> {
+    let delimiter = raw.chars().next().unwrap_or('"');
+    let mut escaped = false;
+    for (index, ch) in raw.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == delimiter {
+            return Ok(index + ch.len_utf8());
+        }
+    }
+    Err(String::from("Unterminated clarifier string"))
 }
 
 fn validate_binding_node_datatype(datatype: &str) -> Result<(), String> {
@@ -1133,10 +1212,6 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
             }
             _ => {}
         }
-    }
-
-    if datatype_base(datatype) == "radix" && !specs.is_empty() {
-        specs.remove(0);
     }
 
     specs
@@ -1713,7 +1788,7 @@ impl<'a> Parser<'a> {
                     || !datatype_bracket_specs(&parsed).is_empty()
                 {
                     return Err(self.syntax_error(
-                        "Node head datatypes must be simple labels or node<T> without separator specs",
+                        "Node head datatypes must be simple labels or node<T> without clarifiers",
                     ));
                 }
                 datatype = Some(parsed);
@@ -2024,6 +2099,9 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
         }
+        if let Err(message) = validate_datatype_clarifiers(&datatype_bracket_specs(&value)) {
+            return Err(self.syntax_error(&message));
+        }
         if let Err(message) = validate_reserved_datatype_adornments(&value) {
             return Err(self.syntax_error(&message));
         }
@@ -2298,17 +2376,17 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_datatype_spacing_separator_specs_and_number_forms() {
+    fn canonicalizes_datatype_spacing_clarifiers_and_number_forms() {
         let result = canonicalize(
             "aeon:mode = \"strict\"\n\
              a:tuple<int32,int32> = (1, 2)\n\
-             sep3 : sep [x] = ^1920x1080\n\
+             sep3 : sep [\"x\"] = ^1920x1080\n\
              n:number = 1_1_1.2_2e3_3\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[x] = ^1920x1080\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[\"x\"] = ^1920x1080\n"
         );
     }
 
@@ -2407,11 +2485,11 @@ mod tests {
 
     #[test]
     fn strips_trailing_comments_from_raw_literals_in_canonicalization() {
-        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[|] = ^aaa // comment\n");
+        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[\"|\"] = ^aaa // comment\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[|] = ^aaa\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[\"|\"] = ^aaa\n"
         );
     }
 
@@ -2647,14 +2725,14 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_multiline_separator_specs_and_generic_boundaries_in_strict_mode() {
+    fn canonicalizes_multiline_clarifiers_and_generic_boundaries_in_strict_mode() {
         let result = canonicalize(
             "aeon:mode = \"strict\"\n\
              size\n\
              :\n\
              sep\n\
              [\n\
-             x\n\
+             \"x\"\n\
              ]\n\
              = ^300x250\n\
              items\n\
@@ -2673,7 +2751,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[x] = ^300x250\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[\"x\"] = ^300x250\n"
         );
     }
 
@@ -2957,6 +3035,16 @@ mod tests {
             "b:string[333] = \"hello world\"\n",
             "r:radix2[4] = %111\n",
         ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_unquoted_and_repeated_clarifiers_during_canonicalization() {
+        for source in ["a:sep[x] = ^300x250\n", "b:sep[\"x\"][\"y\"] = ^300x200\n"] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");

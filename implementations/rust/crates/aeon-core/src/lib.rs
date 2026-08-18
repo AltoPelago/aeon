@@ -1972,18 +1972,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_reserved_comma_separator_datatypes() {
+    fn rejects_unquoted_comma_separator_clarifiers() {
         let result = compile("badSepType2:sep[,] = ^0,0,0,\n", CompileOptions::default());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR"
+                    && error.message.contains("Expected clarifier value"))
         );
     }
 
     #[test]
-    fn recovers_past_comma_split_separator_literals_to_report_separator_datatype_errors() {
+    fn recovers_past_old_separator_clarifiers_to_report_syntax_errors() {
         let result = compile(
             "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:sep[,] = ^0,0,0,\n",
             CompileOptions::default(),
@@ -1992,25 +1993,25 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR")
         );
     }
 
     #[test]
-    fn rejects_reserved_slash_separator_datatypes() {
+    fn rejects_unquoted_slash_separator_clarifiers() {
         let result = compile("badSepType3:sep[/] = ^000.000\n", CompileOptions::default());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR")
         );
     }
 
     #[test]
     fn accepts_reserved_angle_separator_datatypes() {
         let result = compile(
-            "a:sep[<] = ^a<b\nb:sep[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
+            "a:sep[\"<\"] = ^a<b\nb:sep[\">\"] = ^a>b\nc:sep[\"<\"] = ^a<b\nd:sep[\">\"] = ^a>b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2019,7 +2020,7 @@ mod tests {
     #[test]
     fn accepts_reserved_caret_separator_datatypes() {
         let result = compile(
-            "a:sep[^] = ^a^b\nb:sep[^] = ^a^b\n",
+            "a:sep[\"^\"] = ^a^b\nb:sep[\"^\"] = ^a^b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2078,9 +2079,7 @@ mod tests {
         );
         assert!(result.errors.iter().any(|error| {
             error.code == "SYNTAX_ERROR"
-                && error
-                    .message
-                    .contains("Radix base must be an integer from 2 to 64")
+                && error.message.contains("must be `radix` or `radix[2..64]`")
         }));
         assert!(
             !result
@@ -2274,32 +2273,30 @@ mod tests {
     }
 
     #[test]
-    fn custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes() {
+    fn custom_mode_allows_scalar_values_for_clarified_custom_datatypes() {
         let radix_like_result = compile(
             "aeon:mode = \"custom\"\nd:custom[3] = 3\n",
             CompileOptions::default(),
         );
         assert!(
-            radix_like_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            radix_like_result.errors.is_empty(),
+            "{:?}",
+            radix_like_result.errors
         );
 
         let separator_like_result = compile(
-            "aeon:mode = \"custom\"\ne:custom[.] = 3\n",
+            "aeon:mode = \"custom\"\ne:custom[\".\"] = 3\n",
             CompileOptions::default(),
         );
         assert!(
-            separator_like_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            separator_like_result.errors.is_empty(),
+            "{:?}",
+            separator_like_result.errors
         );
     }
 
     #[test]
-    fn custom_mode_keeps_valid_custom_separator_and_radix_bindings() {
+    fn custom_mode_preserves_custom_clarifier_bindings() {
         let radix_result = compile(
             "aeon:mode = \"custom\"\nf:custom[2] = %10101\n",
             CompileOptions::default(),
@@ -2307,7 +2304,7 @@ mod tests {
         assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
 
         let separator_result = compile(
-            "aeon:mode = \"custom\"\ng:custom[.] = ^1.1.1\n",
+            "aeon:mode = \"custom\"\ng:custom[\".\"] = ^1.1.1\n",
             CompileOptions::default(),
         );
         assert!(
@@ -2328,28 +2325,22 @@ mod tests {
     }
 
     #[test]
-    fn custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly() {
+    fn custom_mode_allows_generic_custom_datatypes_with_clarifiers() {
         let result = compile(
-            "aeon:mode = \"custom\"\na:custom<custom>[.] = [2]\n",
+            "aeon:mode = \"custom\"\na:custom<custom>[\".\"] = [2]\n",
             CompileOptions::default(),
         );
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-        assert!(
-            result.errors[0]
-                .message
-                .contains("combines incompatible generic and bracket constraints")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
-    fn custom_mode_ignores_angle_brackets_inside_separator_specs() {
+    fn custom_mode_ignores_angle_brackets_inside_clarifiers() {
         assert!(datatype_has_generic_args("custom<custom>"));
-        assert!(!datatype_has_generic_args("custom[\"<\"][\">\"]"));
+        assert!(!datatype_has_generic_args("custom[\"<\",\">\"]"));
     }
 
     #[test]
-    fn custom_bracket_specs_reject_multi_digit_separator_case_but_allow_radix_case() {
+    fn custom_numeric_clarifiers_do_not_constrain_separator_or_radix_literals() {
         let separator_result = compile(
             "aeon:mode = \"strict\"\na:test[22] = ^300x200\n",
             CompileOptions {
@@ -2358,10 +2349,9 @@ mod tests {
             },
         );
         assert!(
-            separator_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            separator_result.errors.is_empty(),
+            "{:?}",
+            separator_result.errors
         );
 
         let radix_result = compile(
@@ -2375,9 +2365,9 @@ mod tests {
     }
 
     #[test]
-    fn custom_separator_style_specs_only_allow_separator_literals() {
+    fn custom_string_clarifiers_do_not_constrain_separator_or_radix_literals() {
         let separator_result = compile(
-            "aeon:mode = \"strict\"\na:custom[.] = ^300x200\n",
+            "aeon:mode = \"strict\"\na:custom[\".\"] = ^300x200\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
@@ -2390,22 +2380,17 @@ mod tests {
         );
 
         let radix_result = compile(
-            "aeon:mode = \"strict\"\nb:custom[.] = %0101\n",
+            "aeon:mode = \"strict\"\nb:custom[\".\"] = %0101\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
             },
         );
-        assert!(
-            radix_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
-        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
     }
 
     #[test]
-    fn custom_bracket_specs_invalid_for_both_report_specific_message() {
+    fn custom_clarifier_values_outside_core_meaning_are_allowed() {
         let result = compile(
             "aeon:mode = \"strict\"\na:custom[222] = %222\n",
             CompileOptions {
@@ -2413,12 +2398,7 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-        assert_eq!(
-            result.errors[0].message,
-            "Datatype/literal mismatch at '$.a': datatype ':custom[222]' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got RadixLiteral"
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
@@ -2663,7 +2643,7 @@ mod tests {
     #[test]
     fn supports_comma_delimited_separator_literals() {
         let result = compile(
-            "obj = { sep10:sep[.] = ^93.2.3.3, sep11:sep[x] = ^800x600, sep12:sep[-] = ^2025-01-01 }\n",
+            "obj = { sep10:sep[\".\"] = ^93.2.3.3, sep11:sep[\"x\"] = ^800x600, sep12:sep[\"-\"] = ^2025-01-01 }\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -2802,7 +2782,7 @@ mod tests {
              t:time = 09:30:00Z\n\
              dt:datetime = 2025-01-01T09:30:00Z\n\
              z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n\
-             sep:sep[;] = ^a;b;c\n",
+             sep:sep[\";\"] = ^a;b;c\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2812,7 +2792,7 @@ mod tests {
     #[test]
     fn separator_literals_accept_quoted_sections_in_payload() {
         let result = compile(
-            "a:sep[|] = ^\"hello world\"|\"this, [is] fine\"\n",
+            "a:sep[\"|\"] = ^\"hello world\"|\"this, [is] fine\"\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2821,21 +2801,21 @@ mod tests {
 
     #[test]
     fn separator_literals_reject_unterminated_quoted_sections() {
-        let result = compile("a:sep[|] = ^\"0;0\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^\"0;0\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
     }
 
     #[test]
     fn separator_literals_stop_before_comments_resume() {
-        let result = compile("a:sep[|] = ^aaa // d\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^aaa // d\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
     }
 
     #[test]
     fn separator_literals_reject_raw_slashes() {
-        let result = compile("a:sep[|] = ^root/main\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^root/main\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
     }

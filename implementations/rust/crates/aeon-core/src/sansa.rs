@@ -17,20 +17,33 @@ pub enum SansaRoot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SansaSelector {
-    Member { name: String, quoted: bool },
-    Position { index: usize },
+    Member {
+        name: String,
+        quoted: bool,
+    },
+    Position {
+        index: usize,
+    },
     PositionRange {
         start: Option<usize>,
         end: Option<usize>,
     },
     Parent,
     AttributeSpace,
-    LocalSpace { name: String },
+    LocalSpace {
+        name: String,
+    },
     DirectExpansion,
     DescendantExpansion,
-    NamePattern { pattern: String },
-    SemanticTypeFilter { name: String },
-    RepresentationKindFilter { name: String },
+    NamePattern {
+        pattern: String,
+    },
+    SemanticTypeFilter {
+        name: String,
+    },
+    RepresentationKindFilter {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +62,7 @@ pub struct QualifierTerm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QualifierArgument {
     Token(String),
+    Number(String),
     Quoted(String),
 }
 
@@ -221,9 +235,16 @@ pub fn render_qualifier_term(term: &QualifierTerm) -> String {
         );
         output.push('>');
     }
-    for argument in &term.arguments {
+    if !term.arguments.is_empty() {
         output.push('[');
-        output.push_str(&render_qualifier_argument(argument));
+        output.push_str(
+            &term
+                .arguments
+                .iter()
+                .map(render_qualifier_argument)
+                .collect::<Vec<_>>()
+                .join(","),
+        );
         output.push(']');
     }
     output
@@ -233,6 +254,7 @@ pub fn render_qualifier_term(term: &QualifierTerm) -> String {
 pub fn render_qualifier_argument(argument: &QualifierArgument) -> String {
     match argument {
         QualifierArgument::Token(value) => value.clone(),
+        QualifierArgument::Number(value) => value.clone(),
         QualifierArgument::Quoted(value) => quote_payload(value),
     }
 }
@@ -423,10 +445,11 @@ fn select_position_range(
         .enumerate()
         .filter(|(ordinal, child)| {
             let position = child.index.unwrap_or(*ordinal);
-            position >= lower && match end {
-                Some(upper) => position <= upper,
-                None => true,
-            }
+            position >= lower
+                && match end {
+                    Some(upper) => position <= upper,
+                    None => true,
+                }
         })
         .map(|(_, child)| child.clone())
         .collect()
@@ -834,9 +857,18 @@ impl<'a> AddressParser<'a> {
             parameter_groups.push(group);
         }
 
-        while self.match_char('[') {
+        if self.match_char('[') {
             arguments.push(self.parse_qualifier_argument()?);
+            while self.match_char(',') {
+                arguments.push(self.parse_qualifier_argument()?);
+            }
             self.consume(']')?;
+            if self.peek() == Some('[') {
+                self.fail(
+                    "Qualifier clarifiers must use a single bracketed list",
+                    "SANSA_INVALID_QUALIFIER",
+                )?;
+            }
         }
 
         if let Some(next) = self.peek()
@@ -863,14 +895,7 @@ impl<'a> AddressParser<'a> {
         }
 
         let start = self.index;
-        while !self.at_end() && self.peek() != Some(']') {
-            let char = self.peek().unwrap_or_default();
-            if !is_qualifier_argument_char(char) {
-                self.fail(
-                    format!("Invalid unquoted qualifier argument character '{char}'"),
-                    "SANSA_INVALID_QUALIFIER_ARGUMENT_CHAR",
-                )?;
-            }
+        while !self.at_end() && self.peek() != Some(']') && self.peek() != Some(',') {
             self.advance();
         }
         if self.index == start {
@@ -879,9 +904,14 @@ impl<'a> AddressParser<'a> {
                 "SANSA_EXPECTED_QUALIFIER_ARGUMENT",
             )?;
         }
-        Ok(QualifierArgument::Token(
-            self.input[start..self.index].to_owned(),
-        ))
+        let value = &self.input[start..self.index];
+        if !is_number_literal(value) {
+            self.fail(
+                "Invalid qualifier argument",
+                "SANSA_INVALID_QUALIFIER_ARGUMENT",
+            )?;
+        }
+        Ok(QualifierArgument::Number(value.to_owned()))
     }
 
     fn parse_identifier(&mut self, context: &str) -> Result<String, SansaParseError> {
@@ -1090,30 +1120,32 @@ fn is_layout(char: char) -> bool {
     matches!(char, ' ' | '\t' | '\n' | '\r')
 }
 
-fn is_qualifier_argument_char(char: char) -> bool {
-    char.is_ascii_alphanumeric()
-        || matches!(
-            char,
-            '!' | '#'
-                | '$'
-                | '%'
-                | '&'
-                | '*'
-                | '+'
-                | '-'
-                | '.'
-                | ':'
-                | ';'
-                | '='
-                | '?'
-                | '@'
-                | '^'
-                | '_'
-                | '|'
-                | '~'
-                | '<'
-                | '>'
-        )
+fn is_number_literal(value: &str) -> bool {
+    let rest = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if rest.is_empty() {
+        return false;
+    }
+    if let Some(fraction) = rest.strip_prefix('.') {
+        return !fraction.is_empty() && fraction.chars().all(|char| char.is_ascii_digit());
+    }
+    let mut parts = rest.split('.');
+    let Some(integer) = parts.next() else {
+        return false;
+    };
+    if integer.is_empty() || !integer.chars().all(|char| char.is_ascii_digit()) {
+        return false;
+    }
+    if integer.len() > 1 && integer.starts_with('0') {
+        return false;
+    }
+    match parts.next() {
+        None => parts.next().is_none(),
+        Some(fraction) => {
+            !fraction.is_empty()
+                && fraction.chars().all(|char| char.is_ascii_digit())
+                && parts.next().is_none()
+        }
+    }
 }
 
 fn code_point_to_char(code_point: u32, index: usize) -> Result<char, SansaParseError> {
@@ -1173,8 +1205,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_multiple_and_numeric_qualifier_clarifiers() {
+        assert_eq!(
+            parse_address("$.inventory:string[\",\",\".\"]")
+                .expect("parse")
+                .canonical,
+            "$.inventory:string[\",\",\".\"]"
+        );
+        assert_eq!(
+            parse_address("$.bits:radix[16]").expect("parse").canonical,
+            "$.bits:radix[16]"
+        );
+    }
+
+    #[test]
     fn rejects_raw_comma_qualifier_argument() {
         assert!(parse_address("$.inventory:csv[,]").is_err());
+    }
+
+    #[test]
+    fn rejects_unquoted_string_and_repeated_qualifier_clarifiers() {
+        assert!(parse_address("$.version:sep[.]").is_err());
+        assert!(parse_address("$.inventory:string[\",\"][\".\"]").is_err());
     }
 
     #[test]
@@ -1190,9 +1242,7 @@ mod tests {
     #[test]
     fn parses_parent_and_position_range_selectors() {
         assert_eq!(
-            parse_address("$.items[1].^.sku")
-                .expect("parse")
-                .canonical,
+            parse_address("$.items[1].^.sku").expect("parse").canonical,
             "$.items[1].^.sku"
         );
         assert_eq!(
@@ -1225,8 +1275,8 @@ mod tests {
         let too_high = parse_address("$.items[1000000]").expect_err("limit");
         assert_eq!(too_high.code, "SANSA_POSITION_INDEX_LIMIT_EXCEEDED");
 
-        let huge = parse_address("$.items[999999999999999999999999999999999999999]")
-            .expect_err("limit");
+        let huge =
+            parse_address("$.items[999999999999999999999999999999999999999]").expect_err("limit");
         assert_eq!(huge.code, "SANSA_POSITION_INDEX_LIMIT_EXCEEDED");
     }
 
@@ -1815,9 +1865,7 @@ mod tests {
         name: &str,
         local_space: SansaResolveBinding,
     ) -> SansaResolveBinding {
-        binding
-            .local_spaces
-            .push((name.to_owned(), local_space));
+        binding.local_spaces.push((name.to_owned(), local_space));
         binding
     }
 }
