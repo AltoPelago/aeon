@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from ._compat import dataclass
@@ -283,11 +284,15 @@ def render_type(datatype: TypeAnnotation | None) -> str:
     text = datatype.name
     if datatype.generic_args:
         text += "<" + ", ".join(datatype.generic_args) + ">"
-    if datatype.radix_base is not None:
-        text += f"[{datatype.radix_base}]"
-    for separator in datatype.separators:
-        text += f"[{separator}]"
+    if datatype.clarifiers:
+        text += "[" + ", ".join(format_clarifier(value) for value in datatype.clarifiers) + "]"
     return f":{text}"
+
+
+def format_clarifier(value: str | int | float) -> str:
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def render_value_inline(value: Value) -> str:

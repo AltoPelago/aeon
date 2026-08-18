@@ -11,8 +11,7 @@ from .spans import Span
 class TypeAnnotation:
     name: str
     generic_args: list[str]
-    radix_base: int | None
-    separators: list[str]
+    clarifiers: list[str | int | float]
     span: Span
 
 

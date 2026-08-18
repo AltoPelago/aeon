@@ -57,7 +57,7 @@ class CoreCompileTests(unittest.TestCase):
             "openStart:sansa = $.items[..1]\n"
             "maxIndex:sansa = $.items[999999]\n"
             'csv:sansa = $.inventory:csv[","]\n'
-            "external:sansa = $.value:type<type>[arg]\n"
+            "external:sansa = $.value:type<type>[\"arg\"]\n"
             "chained:sansa = $.path:tuple<x><y>\n"
             'literalStar:sansa = $.items.("item\\\\*")\n'
             'literalQuestion:sansa = $.items.("item\\\\?")'
@@ -347,21 +347,21 @@ class CoreCompileTests(unittest.TestCase):
     def test_reserved_separator_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("sep",):
             with self.subTest(datatype=datatype):
-                source = f'aeon:mode = "strict"\nvalue:{datatype}[|] = ^a|b'
+                source = f'aeon:mode = "strict"\nvalue:{datatype}["|"] = ^a|b'
                 result = compile_source(source)
                 self.assertEqual([], result.errors)
-                self.assertEqual(f"{datatype}[|]", result.events[0]["datatype"])
+                self.assertEqual(f'{datatype}["|"]', result.events[0]["datatype"])
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
-    def test_reserved_slash_separator_specs_are_rejected(self) -> None:
+    def test_unquoted_slash_separator_clarifiers_are_rejected(self) -> None:
         result = compile_source('aeon:mode = "strict"\nvalue:sep[/] = ^000.000')
-        self.assertEqual(["INVALID_SEPARATOR_CHAR"], [error.code for error in result.errors])
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
-    def test_reserved_caret_separator_specs_are_allowed(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nleft:sep[^] = ^a^b\nright:sep[^] = ^a^b')
+    def test_reserved_caret_separator_clarifiers_are_allowed(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nleft:sep["^"] = ^a^b\nright:sep["^"] = ^a^b')
         self.assertEqual([], result.errors)
-        self.assertEqual("sep[^]", result.events[0]["datatype"])
-        self.assertEqual("sep[^]", result.events[1]["datatype"])
+        self.assertEqual('sep["^"]', result.events[0]["datatype"])
+        self.assertEqual('sep["^"]', result.events[1]["datatype"])
 
     def test_infinity_datatype_is_allowed_in_typed_modes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nlimit:infinity = Infinity')
@@ -489,47 +489,46 @@ class CoreCompileTests(unittest.TestCase):
         tuple_result = compile_source('aeon:mode = "custom"\nc:custom<custom> = (2)')
         self.assertEqual([], tuple_result.errors)
 
-    def test_custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes(self) -> None:
+    def test_custom_mode_allows_scalar_values_for_clarified_custom_datatypes(self) -> None:
         radix_like_result = compile_source('aeon:mode = "custom"\nd:custom[3] = 3')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in radix_like_result.errors])
+        self.assertEqual([], radix_like_result.errors)
 
-        separator_like_result = compile_source('aeon:mode = "custom"\ne:custom[.] = 3')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in separator_like_result.errors])
+        separator_like_result = compile_source('aeon:mode = "custom"\ne:custom["."] = 3')
+        self.assertEqual([], separator_like_result.errors)
 
     def test_custom_mode_allows_custom_radix_base_between_2_and_64(self) -> None:
         result = compile_source('aeon:mode = "custom"\ns:custom[2] = %111')
         self.assertEqual([], result.errors)
 
-    def test_custom_mode_rejects_custom_radix_base_below_2(self) -> None:
+    def test_custom_mode_allows_numeric_clarifiers_outside_core_radix_meaning(self) -> None:
         result = compile_source('aeon:mode = "custom"\ns:custom[1] = %111')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertEqual([], result.errors)
 
-    def test_custom_mode_rejects_separator_style_custom_spec_for_radix_literal(self) -> None:
-        result = compile_source('aeon:mode = "custom"\ns:custom[.] = %111')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+    def test_custom_mode_allows_string_clarifiers_for_radix_literals(self) -> None:
+        result = compile_source('aeon:mode = "custom"\ns:custom["."] = %111')
+        self.assertEqual([], result.errors)
 
-    def test_custom_mode_rejects_multi_bracket_custom_spec_for_radix_literal(self) -> None:
+    def test_custom_mode_rejects_multi_bracket_custom_clarifier_list(self) -> None:
         result = compile_source('aeon:mode = "custom"\ns:custom[1][2] = %111')
         self.assertNotEqual([], result.errors)
 
-    def test_custom_mode_allows_valid_custom_separator_bindings(self) -> None:
-        separator_result = compile_source('aeon:mode = "custom"\ng:custom[.] = ^1.1.1')
+    def test_custom_mode_allows_custom_separator_bindings_with_clarifiers(self) -> None:
+        separator_result = compile_source('aeon:mode = "custom"\ng:custom["."] = ^1.1.1')
         self.assertEqual([], separator_result.errors)
 
         ambiguous_result = compile_source('aeon:mode = "custom"\nh:custom[1] = ^1.1.1')
         self.assertEqual([], ambiguous_result.errors)
 
-    def test_custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly(self) -> None:
-        result = compile_source('aeon:mode = "custom"\na:custom<custom>[.] = [2]')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
-        self.assertIn("combines incompatible generic and bracket constraints", result.errors[0].message)
+    def test_custom_mode_allows_generic_custom_datatypes_with_clarifiers(self) -> None:
+        result = compile_source('aeon:mode = "custom"\na:custom<custom>["."] = [2]')
+        self.assertEqual([], result.errors)
 
-    def test_custom_mode_ignores_angle_brackets_inside_separator_specs(self) -> None:
+    def test_custom_mode_ignores_angle_brackets_inside_clarifiers(self) -> None:
         self.assertTrue(datatype_has_generic_args("custom<custom>"))
-        self.assertFalse(datatype_has_generic_args('custom["<"][">"]'))
+        self.assertFalse(datatype_has_generic_args('custom["<", ">"]'))
 
     def test_separator_literals_terminate_before_comments_resume(self) -> None:
-        result = compile_source('g:sep[|] = ^aaa // d')
+        result = compile_source('g:sep["|"] = ^aaa // d')
         self.assertEqual([], result.errors)
         self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
         self.assertEqual("^aaa", result.events[0]["value"]["raw"])
@@ -655,7 +654,7 @@ class CoreCompileTests(unittest.TestCase):
             ':\n'
             'sep\n'
             '[\n'
-            'x\n'
+            '"x"\n'
             ']\n'
             '= ^300x250\n'
             'items\n'
@@ -672,7 +671,7 @@ class CoreCompileTests(unittest.TestCase):
             ']\n'
         )
         self.assertEqual([], result.errors)
-        self.assertEqual("sep[x]", result.events[0]["datatype"])
+        self.assertEqual('sep["x"]', result.events[0]["datatype"])
         self.assertEqual("list<n>", result.events[1]["datatype"])
 
     def test_reference_path_is_preserved_structurally(self) -> None:
@@ -768,7 +767,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertNotEqual([], result.errors)
 
     def test_separator_literals_accept_quoted_segments_with_spaces_and_punctuation(self) -> None:
-        result = compile_source('value:sep[|] = ^"hello world"|"this, [is] fine"')
+        result = compile_source('value:sep["|"] = ^"hello world"|"this, [is] fine"')
         self.assertEqual([], result.errors)
         self.assertEqual('"hello world"|"this, [is] fine"', result.events[0]["value"]["value"])
 
@@ -777,7 +776,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_separator_literals_reject_raw_slashes(self) -> None:
-        result = compile_source("blue:sep[|] = ^root/main")
+        result = compile_source('blue:sep["|"] = ^root/main')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_unparameterized_separator_datatype_accepts_caret_payload(self) -> None:

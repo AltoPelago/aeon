@@ -325,8 +325,7 @@ class Parser:
         start = self.peek().span.start
         name = self.consume("IDENT", "Expected type name").value
         generic_args: list[str] = []
-        radix_base: int | None = None
-        separators: list[str] = []
+        clarifiers: list[str | int | float] = []
         self.skip_layout()
         if self.check("LANGLE"):
             if name == "radix":
@@ -342,33 +341,38 @@ class Parser:
                 self.skip_layout()
             self.consume("RANGLE", "Expected '>' to close generic arguments")
             self.skip_layout()
-        while self.check("LBRACKET"):
+        if self.check("LBRACKET"):
             self.advance()
             self.skip_layout()
             if name in RESERVED_V1_DATATYPES and name not in BRACKETED_V1_DATATYPES:
-                raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.peek().span)
-            if name == "radix" and radix_base is None:
+                raise SyntaxError(f"Datatype '{name}' does not support clarifiers in v1", self.peek().span)
+            while True:
                 token = self.peek()
                 if token.kind == "RBRACKET":
-                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
-                if token.kind != "NUMBER" or not self.is_valid_radix_base_spec(token.value):
-                    raise SyntaxError("Radix base must be an integer from 2 to 64", token.span)
-                radix_base = int(token.value)
-                self.advance()
-            elif name == "radix":
-                raise SyntaxError("Radix datatype allows exactly one base bracket like 'radix[10]'", self.peek().span)
-            else:
-                if name in RESERVED_V1_DATATYPES:
-                    separators.append(self.parse_separator_char())
+                    if not clarifiers:
+                        raise SyntaxError("Datatype clarifier must contain at least one string or number", token.span)
+                    break
+                if token.kind == "STRING":
+                    clarifiers.append(token.value)
+                    self.advance()
+                elif token.kind == "NUMBER":
+                    clarifiers.append(self.parse_numeric_clarifier(token.value))
+                    self.advance()
                 else:
-                    separators.append(self.parse_custom_bracket_spec())
+                    raise SyntaxError("Expected clarifier value", token.span)
+                if len(clarifiers) > self.max_separator_depth:
+                    raise SeparatorDepthExceededError(len(clarifiers), self.max_separator_depth, token.span)
+                self.skip_layout()
+                if self.check("RBRACKET"):
+                    break
+                self.consume("COMMA", "Expected ',' between clarifier values")
+                self.skip_layout()
+            self.consume("RBRACKET", "Expected ']' to close datatype clarifier")
             self.skip_layout()
-            self.consume("RBRACKET", "Expected ']' to close radix base spec" if name == "radix" and radix_base is not None else "Expected ']' to close separator spec")
-            self.skip_layout()
-            if len(separators) > self.max_separator_depth:
-                raise SeparatorDepthExceededError(len(separators), self.max_separator_depth, self.previous().span)
-        self.validate_reserved_datatype_adornments(name, generic_args, radix_base, separators)
-        return TypeAnnotation(name=name, generic_args=generic_args, radix_base=radix_base, separators=separators, span=Span(start=start, end=self.previous().span.end))
+            if self.check("LBRACKET"):
+                raise SyntaxError('Datatype clarifiers must use a single bracketed list like \'sep["/", "."]\'', self.peek().span)
+        self.validate_reserved_datatype_adornments(name, generic_args, clarifiers)
+        return TypeAnnotation(name=name, generic_args=generic_args, clarifiers=clarifiers, span=Span(start=start, end=self.previous().span.end))
 
     def parse_generic_argument(self, generic_depth: int) -> str:
         token = self.peek()
@@ -384,11 +388,25 @@ class Parser:
         generic_suffix = ""
         if annotation.generic_args:
             generic_suffix = "<" + ", ".join(annotation.generic_args) + ">"
-        radix_suffix = f"[{annotation.radix_base}]" if annotation.radix_base is not None else ""
-        separator_suffix = "".join(f"[{separator}]" for separator in annotation.separators)
-        if annotation.name == "radix":
-            return f"{annotation.name}{generic_suffix}{radix_suffix}"
-        return f"{annotation.name}{generic_suffix}{separator_suffix}"
+        clarifier_suffix = ""
+        if annotation.clarifiers:
+            clarifier_suffix = "[" + ", ".join(self.format_clarifier(value) for value in annotation.clarifiers) + "]"
+        return f"{annotation.name}{generic_suffix}{clarifier_suffix}"
+
+    @staticmethod
+    def format_clarifier(value: str | int | float) -> str:
+        if isinstance(value, str):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    @staticmethod
+    def parse_numeric_clarifier(value: str) -> int | float:
+        normalized = value.replace("_", "")
+        if normalized.startswith("+"):
+            normalized = normalized[1:]
+        if re.fullmatch(r"-?\d+", normalized):
+            return int(normalized)
+        return float(normalized)
 
     @staticmethod
     def is_valid_radix_base_spec(spec: str) -> bool:
@@ -401,15 +419,14 @@ class Parser:
         self,
         name: str,
         generic_args: list[str],
-        radix_base: int | None,
-        separators: list[str],
+        clarifiers: list[str | int | float],
     ) -> None:
         if name not in RESERVED_V1_DATATYPES:
             return
         if generic_args and name not in GENERIC_V1_DATATYPES:
             raise SyntaxError(f"Datatype '{name}' does not support generic arguments in v1", self.previous().span)
-        if (radix_base is not None or separators) and name not in BRACKETED_V1_DATATYPES:
-            raise SyntaxError(f"Datatype '{name}' does not support bracket specifiers in v1", self.previous().span)
+        if clarifiers and name not in BRACKETED_V1_DATATYPES:
+            raise SyntaxError(f"Datatype '{name}' does not support clarifiers in v1", self.previous().span)
 
     def validate_binding_node_datatype(self, annotation: TypeAnnotation) -> None:
         if annotation.name != "node":
@@ -580,8 +597,8 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
-            if (datatype.generic_args and datatype.name != "node") or datatype.radix_base is not None or datatype.separators:
-                raise SyntaxError("Node head datatypes must be simple labels or node<T> without separator specs", datatype.span)
+            if (datatype.generic_args and datatype.name != "node") or datatype.clarifiers:
+                raise SyntaxError("Node head datatypes must be simple labels or node<T> without clarifiers", datatype.span)
             self.skip_layout()
         children: list[Value] = []
         if self.check("RANGLE"):

@@ -1592,22 +1592,21 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
 def decode_separator_chars(datatype: str | None) -> list[str]:
     if not datatype:
         return []
-    match = re.search(r"\[([^\]]*)\]$", datatype)
+    if datatype_base(datatype) != "sep":
+        return []
+    match = re.fullmatch(r"sep\[(.*)\]", datatype.strip())
     if match is None:
         return []
     payload = match.group(1)
     if not payload:
         return []
-    separators: list[str] = []
-    index = 0
-    while index < len(payload):
-        separators.append(payload[index])
-        index += 1
-        if index < len(payload):
-            if payload[index] != ",":
-                return []
-            index += 1
-    return separators
+    try:
+        values = json.loads(f"[{payload}]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str) and len(value) == 1]
 
 
 def count_integer_digits(raw: str) -> int:
@@ -1673,10 +1672,15 @@ def declared_radix_from_datatype(datatype: str | None) -> int | None:
     trimmed = datatype.strip()
     if trimmed.lower() == "decimal":
         return 10
-    match = re.fullmatch(r"radix(?:\[(\d+)\]|(\d+))", trimmed, re.IGNORECASE)
+    lowered = trimmed.lower()
+    aliases = {"radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
+    if lowered in aliases:
+        return aliases[lowered]
+    match = re.fullmatch(r"radix\[(\d+)\]", trimmed, re.IGNORECASE)
     if match is None:
         return None
-    return int(match.group(1) or match.group(2))
+    base = int(match.group(1))
+    return base if 2 <= base <= 64 else None
 
 
 def first_invalid_radix_digit(raw: str, radix: int) -> str | None:

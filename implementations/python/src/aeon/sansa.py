@@ -4,7 +4,7 @@ import re
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-QUALIFIER_ARG_RE = re.compile(r"^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]+$")
+QUALIFIER_NUMBER_RE = re.compile(r"^[+-]?(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-9]+)$")
 MAX_POSITION_INDEX = 999_999
 
 
@@ -451,15 +451,16 @@ def render_qualifier_term(term: object) -> str:
             output += "<" + ",".join(render_qualifier_term(param) for param in group) + ">"
     arguments = term.get("arguments")
     if isinstance(arguments, list):
-        for argument in arguments:
-            output += f"[{render_qualifier_argument(argument)}]"
+        rendered_arguments = [render_qualifier_argument(argument) for argument in arguments]
+        if rendered_arguments:
+            output += "[" + ",".join(rendered_arguments) + "]"
     return output
 
 
 def render_qualifier_argument(argument: object) -> str:
     if not isinstance(argument, dict):
         return ""
-    if argument.get("kind") == "token":
+    if argument.get("kind") in {"token", "number"}:
         return str(argument.get("value", ""))
     return quote_payload(str(argument.get("value", "")))
 
@@ -606,9 +607,13 @@ class AddressParser:
             parameter_groups.append(group)
             parameters.extend(group)
 
-        while self.match("["):
+        if self.match("["):
             arguments.append(self.parse_qualifier_argument())
+            while self.match(","):
+                arguments.append(self.parse_qualifier_argument())
             self.consume("]")
+            if self.peek() == "[":
+                self.fail("Qualifier clarifiers must use a single bracketed list", "SANSA_INVALID_QUALIFIER")
 
         next_char = self.peek()
         if next_char and next_char not in {"|", ",", ">", stop_char}:
@@ -627,20 +632,14 @@ class AddressParser:
             return {"kind": "quoted", "value": self.parse_quoted_payload()}
 
         start = self.index
-        while not self.at_end() and self.peek() != "]":
-            char = self.peek()
-            if not is_qualifier_argument_char(char):
-                self.fail(
-                    f"Invalid unquoted qualifier argument character '{char}'",
-                    "SANSA_INVALID_QUALIFIER_ARGUMENT_CHAR",
-                )
+        while not self.at_end() and self.peek() not in {"]", ","}:
             self.index += 1
         if self.index == start:
             self.fail("Expected qualifier argument", "SANSA_EXPECTED_QUALIFIER_ARGUMENT")
         value = self.input[start:self.index]
-        if not QUALIFIER_ARG_RE.fullmatch(value):
+        if not QUALIFIER_NUMBER_RE.fullmatch(value):
             self.fail("Invalid qualifier argument", "SANSA_INVALID_QUALIFIER_ARGUMENT")
-        return {"kind": "token", "value": value}
+        return {"kind": "number", "value": value}
 
     def parse_identifier(self, context: str) -> str:
         start = self.index
@@ -761,10 +760,6 @@ def is_digit(char: str) -> bool:
 
 def is_layout(char: str) -> bool:
     return char in {" ", "\t", "\n", "\r"}
-
-
-def is_qualifier_argument_char(char: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", char or ""))
 
 
 def datatype_base_name(datatype: str) -> str:

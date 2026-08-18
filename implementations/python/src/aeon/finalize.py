@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+import json
 import re
 from typing import Iterable
 
@@ -793,13 +794,24 @@ def render_datatype(datatype: object) -> str | None:
     if isinstance(generic_args, list) and all(isinstance(item, str) for item in generic_args):
         if generic_args:
             generic = "<" + ", ".join(generic_args) + ">"
-    radix_base = datatype.get("radixBase")
-    radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
-    separators = datatype.get("separators")
     suffix = ""
-    if isinstance(separators, list):
-        suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
-    return f"{name}{generic}{radix}{suffix}"
+    clarifiers = datatype.get("clarifiers")
+    if isinstance(clarifiers, list):
+        suffix = "[" + ", ".join(format_clarifier(item) for item in clarifiers if isinstance(item, (str, int, float))) + "]" if clarifiers else ""
+    else:
+        radix_base = datatype.get("radixBase")
+        radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
+        separators = datatype.get("separators")
+        if isinstance(separators, list):
+            suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
+        suffix = f"{radix}{suffix}"
+    return f"{name}{generic}{suffix}"
+
+
+def format_clarifier(value: str | int | float) -> str:
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def exceeds_declared_radix(value: str, base: int) -> bool:

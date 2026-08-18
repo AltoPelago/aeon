@@ -56,7 +56,7 @@ class TestAlgorithmicStress(unittest.TestCase):
     def test_separator_literal_segment_stress(self):
         repeats = 4000
         payload = '0|0;"0, [x]"|tail|'
-        source = f"line:sep[|] = ^{payload * repeats}"
+        source = f'line:sep["|"] = ^{payload * repeats}'
         result = compile_source(source, CompileOptions(max_separator_depth=8))
         self.assertEqual([], [error.code for error in result.errors])
         event = next((entry for entry in result.events if entry["key"] == "line"), None)
