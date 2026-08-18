@@ -32,6 +32,20 @@ export {
     SchemaCodecError,
 } from './schema-codec.js';
 export type { SchemaCodecOptions } from './schema-codec.js';
+export {
+    diffSchemas,
+    diffSchemaSources,
+    inferSchemaFromAeon,
+    inferSchemaFromEvents,
+    SchemaInferenceError,
+} from './schema-tools.js';
+export type {
+    InferSchemaOptions,
+    InferredSchemaCandidate,
+    PossibleRuleMove,
+    SchemaDiff,
+    SchemaDiffChange,
+} from './schema-tools.js';
 
 // =============================================================================
 // TYPES
