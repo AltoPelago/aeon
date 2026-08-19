@@ -111,6 +111,12 @@ export interface SchemaRule {
     /** Optional semantic lineage shared by related declarations. */
     readonly lineage_id?: string;
 
+    /** Optional short consumer-facing name; non-operational schema metadata. */
+    readonly label?: string;
+
+    /** Optional consumer-facing purpose and usage description; non-operational schema metadata. */
+    readonly description?: string;
+
     /** Exact SANSA path this rule applies to */
     readonly path?: string;
 

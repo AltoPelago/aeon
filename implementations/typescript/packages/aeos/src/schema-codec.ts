@@ -137,6 +137,12 @@ export function schemaToAeon(input: SchemaV1): string {
         if (rule.lineage_id !== undefined) {
             lines.push(`      lineage_id:string = ${renderString(rule.lineage_id)}`);
         }
+        if (rule.label !== undefined) {
+            lines.push(`      label:string = ${renderString(rule.label)}`);
+        }
+        if (rule.description !== undefined) {
+            lines.push(`      description:string = ${renderString(rule.description)}`);
+        }
         if (rule.path !== undefined) {
             lines.push(`      path:sansa = ${canonicalAddress(rule.path, 'path')}`);
         } else if (rule.selector !== undefined) {
@@ -195,6 +201,8 @@ function normalizeRule(input: unknown, label: string): SchemaRule {
     const selector = optionalString(input.selector, `${label}.selector`);
     const declarationId = optionalSchemaIdentity(input.declaration_id, `${label}.declaration_id`);
     const lineageId = optionalSchemaIdentity(input.lineage_id, `${label}.lineage_id`);
+    const ruleLabel = optionalMetadataText(input.label, `${label}.label`, 160);
+    const description = optionalMetadataText(input.description, `${label}.description`, 4_000);
     if ((path === undefined) === (selector === undefined)) {
         throw new SchemaCodecError(`Schema rule ${label} must define exactly one of 'path' or 'selector'`);
     }
@@ -205,6 +213,8 @@ function normalizeRule(input: unknown, label: string): SchemaRule {
     const identity = {
         ...(declarationId === undefined ? {} : { declaration_id: declarationId }),
         ...(lineageId === undefined ? {} : { lineage_id: lineageId }),
+        ...(ruleLabel === undefined ? {} : { label: ruleLabel }),
+        ...(description === undefined ? {} : { description }),
     };
     if (path !== undefined) {
         return { ...identity, path: canonicalAddress(path, 'path'), constraints };
@@ -424,6 +434,14 @@ function optionalString(value: unknown, label: string): string | undefined {
         throw new SchemaCodecError(`${label} must be a non-empty string`);
     }
     return value;
+}
+
+function optionalMetadataText(value: unknown, label: string, maximumLength: number): string | undefined {
+    const text = optionalString(value, label);
+    if (text !== undefined && (text.length === 0 || text.trim() !== text || text.length > maximumLength)) {
+        throw new SchemaCodecError(`${label} must be trimmed, non-empty, and contain at most ${maximumLength} characters`);
+    }
+    return text;
 }
 
 function isRecord(value: unknown): value is UnknownRecord {

@@ -103,6 +103,33 @@ aeos:schema = {
         assert.match(source, /constraints:object = \{/);
     });
 
+    it('round-trips bounded declaration labels and descriptions', () => {
+        const source = schemaToAeon({
+            rules: [{
+                declaration_id: 'contact-email',
+                label: 'Email address',
+                description: 'Primary address used for direct communication with the contact.',
+                selector: '$.contacts.*.email',
+                constraints: { type: 'StringLiteral', datatype: 'email' },
+            }],
+        });
+        assert.match(source, /label:string = "Email address"/);
+        assert.match(source, /description:string = "Primary address/);
+        assert.deepStrictEqual(parseSchemaSource(source).rules[0], {
+            declaration_id: 'contact-email',
+            label: 'Email address',
+            description: 'Primary address used for direct communication with the contact.',
+            selector: '$.contacts.*.email',
+            constraints: { type: 'StringLiteral', datatype: 'email' },
+        });
+        assert.throws(() => schemaToAeon({
+            rules: [{ label: ' padded ', path: '$.value', constraints: {} }],
+        }), /must be trimmed/);
+        assert.throws(() => schemaToAeon({
+            rules: [{ description: '', path: '$.value', constraints: {} }],
+        }), /non-empty/);
+    });
+
     it('round-trips schema evolution intent', () => {
         const source = schemaToAeon({
             rules: [

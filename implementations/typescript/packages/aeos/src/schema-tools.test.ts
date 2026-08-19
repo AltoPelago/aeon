@@ -137,6 +137,15 @@ schema = { rules = [{ path:sansa = $.value, constraints = { type = "StringLitera
         assert.deepStrictEqual(diff, { equal: true, changes: [], possibleRuleMoves: [] });
     });
 
+    it('treats declaration labels and descriptions as non-operational metadata', () => {
+        const diff = diffSchemaSources(`
+schema = { rules = [{ declaration_id = "name", label = "Name", path:sansa = $.person.name, constraints = { type = "StringLiteral" } }] }
+`, `
+schema = { rules = [{ declaration_id = "name", label = "Display name", description = "Shown to other users.", path:sansa = $.person.name, constraints = { type = "StringLiteral" } }] }
+`);
+        assert.deepStrictEqual(diff, { equal: true, changes: [], possibleRuleMoves: [] });
+    });
+
     it('uses stable declaration identity as relocation evidence without admitting a rename', () => {
         const diff = diffSchemaSources(`
 schema = { rules = [{ declaration_id = "person-name", lineage_id = "person-name", path:sansa = $.person.name, constraints = { type = "StringLiteral" } }] }
