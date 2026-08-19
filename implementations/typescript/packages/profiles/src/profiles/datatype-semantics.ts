@@ -76,6 +76,18 @@ function validateOwnClarifiers(
                 ...(path !== undefined ? { path } : {}),
             });
         }
+        return;
+    }
+
+    if (rule.clarifiers === 'encoding_name') {
+        const [encodingName] = datatype.clarifiers;
+        if (datatype.clarifiers.length !== 1 || typeof encodingName !== 'string') {
+            ctx.error({
+                code: 'PROFILE_DATATYPE_CLARIFIER_INVALID',
+                message: `Profile datatype ':${datatype.name}' expects exactly one string encoding-name clarifier`,
+                ...(path !== undefined ? { path } : {}),
+            });
+        }
     }
 }
 

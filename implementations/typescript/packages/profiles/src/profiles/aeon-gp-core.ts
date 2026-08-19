@@ -25,6 +25,18 @@ const datatypeSemantics = {
         literalFamily: 'SeparatorLiteral',
         clarifiers: 'none',
     },
+    encoding: {
+        literalFamily: 'EncodingLiteral',
+        clarifiers: 'encoding_name',
+    },
+    inline: {
+        literalFamily: 'EncodingLiteral',
+        clarifiers: 'encoding_name',
+    },
+    embed: {
+        literalFamily: 'EncodingLiteral',
+        clarifiers: 'encoding_name',
+    },
 } as const;
 
 export const aeonGpCoreProfile: Profile = {

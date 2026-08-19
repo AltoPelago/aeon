@@ -272,6 +272,18 @@ test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capabil
             literalFamily: 'SeparatorLiteral',
             clarifiers: 'none',
         },
+        encoding: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
+        inline: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
+        embed: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
     });
     assert.deepEqual(profile?.capabilities, {
         references: true,
@@ -326,8 +338,28 @@ test('aeon.gp.profile.v1 rejects invalid radix clarifier shapes', () => {
     }
 });
 
+test('aeon.gp.profile.v1 rejects invalid encoding clarifier shapes', () => {
+    for (const source of [
+        'code:encoding[58] = &FFF',
+        'code:encoding["base58", "z"] = &FFF',
+        'code:inline[58] = &FFF',
+        'code:embed["base58", "z"] = &FFF',
+    ]) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+            maxSeparatorDepth: 2,
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_INVALID', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.code', source);
+    }
+});
+
 test('aeon.gp.profile.v1 accepts declared datatype clarifier shapes', () => {
-    const result = compile('r:radix[16] = %01\ns:sep[".", ":"] = ^1.2:3', {
+    const result = compile('r:radix[16] = %01\ns:sep[".", ":"] = ^1.2:3\ncode:encoding["base58"] = &FFF\ninline:inline["base58"] = &FFF\nembed:embed["base58"] = &FFF', {
         profile: 'aeon.gp.profile.v1',
         registry: createDefaultRegistry(),
         mode: 'strict',
@@ -335,7 +367,13 @@ test('aeon.gp.profile.v1 accepts declared datatype clarifier shapes', () => {
     });
 
     assert.equal(result.meta?.errors?.length ?? 0, 0);
-    assert.deepEqual(result.aes.map((event) => event.datatype), ['radix[16]', 'sep[".", ":"]']);
+    assert.deepEqual(result.aes.map((event) => event.datatype), [
+        'radix[16]',
+        'sep[".", ":"]',
+        'encoding["base58"]',
+        'inline["base58"]',
+        'embed["base58"]',
+    ]);
 });
 
 test('core profile preserves clarifiers that GP profile rejects', () => {

@@ -84,7 +84,7 @@ export interface ProfileCapabilities {
     readonly clones: boolean;
 }
 
-export type DatatypeClarifierSemantics = 'none' | 'radix_base' | 'separator_chars';
+export type DatatypeClarifierSemantics = 'none' | 'radix_base' | 'separator_chars' | 'encoding_name';
 
 export interface DatatypeSemantics {
     readonly literalFamily: string;
