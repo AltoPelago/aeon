@@ -2402,17 +2402,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_adornments() {
+    fn rejects_meaningless_reserved_datatype_generics() {
         for source in [
             "a:n<string> = 3\n",
             "b:boolean<toggle> = true\n",
-            "b:string[333] = \"hello world\"\n",
-            "r:radix2[4] = %111\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(!result.errors.is_empty(), "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
+    }
+
+    #[test]
+    fn preserves_reserved_datatype_clarifiers_without_core_meaning() {
+        let result = compile(
+            "aeon:mode = \"strict\"\na:n[10] = 22\nb:string[333] = \"hello world\"\nr:radix2[4] = %111\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("n[10]"));
+        assert_eq!(result.events[1].datatype.as_deref(), Some("string[333]"));
+        assert_eq!(result.events[2].datatype.as_deref(), Some("radix2[4]"));
     }
 
     #[test]

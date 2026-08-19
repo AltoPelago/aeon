@@ -1045,6 +1045,14 @@ describe('Core - compile()', () => {
             assert.strictEqual(separatorLikeResult.errors.length, 0);
         });
 
+        it('should preserve clarifiers on reserved datatypes without imposing profile meaning', () => {
+            const result = compile('aeon:mode = "strict"\na:n[10] = 22');
+            const event = result.events.find((candidate) => candidate.normalizedPath === '$.a');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(event?.datatype, 'n[10]');
+        });
+
         it('should preserve custom clarifier bindings in custom mode', () => {
             const radixResult = compile('aeon:mode = "custom"\nf:custom[2] = %10101');
             assert.strictEqual(radixResult.errors.length, 0);

@@ -1323,20 +1323,29 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should reject meaningless brackets on reserved scalar datatypes', () => {
+        it('should preserve clarifiers on reserved scalar datatypes without assigning meaning', () => {
             const tokens = tokenize('b:string[333] = "hello world"').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [333]);
         });
 
-        it('should reject brackets on fixed-base radix aliases', () => {
+        it('should preserve clarifiers on fixed-base radix aliases without assigning meaning', () => {
             const tokens = tokenize('r:radix2[4] = %111').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [4]);
+        });
+
+        it('should preserve clarifiers on compact reserved aliases', () => {
+            const tokens = tokenize('a:n[10] = 22').tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'n');
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
         });
     });
 

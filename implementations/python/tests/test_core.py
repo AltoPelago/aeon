@@ -327,13 +327,17 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
         self.assertIn("reserved child value datatypes belong on node heads", result.errors[0].message)
 
-    def test_reserved_scalar_brackets_are_rejected(self) -> None:
-        result = compile_source('b:string[333] = "hello world"')
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
-
-    def test_fixed_radix_alias_brackets_are_rejected(self) -> None:
-        result = compile_source("r:radix2[4] = %111")
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+    def test_reserved_datatype_clarifiers_are_preserved_without_core_meaning(self) -> None:
+        result = compile_source(
+            'aeon:mode = "strict"\n'
+            "a:n[10] = 22\n"
+            'b:string[333] = "hello world"\n'
+            "r:radix2[4] = %111"
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual("n[10]", result.events[0]["datatype"])
+        self.assertEqual("string[333]", result.events[1]["datatype"])
+        self.assertEqual("radix2[4]", result.events[2]["datatype"])
 
     def test_reserved_object_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("object", "obj", "envelope", "o"):

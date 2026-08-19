@@ -54,7 +54,6 @@ from .sansa import parse_address
 from .spans import Span
 
 GENERIC_V1_DATATYPES = {"list", "tuple", "triple", "object", "node", "null", "nan", "infinity"}
-BRACKETED_V1_DATATYPES = {"sep", "radix"}
 RESERVED_V1_DATATYPES = {
     "n", "number", "int", "int8", "int16", "int32", "int64",
     "uint", "uint8", "uint16", "uint32", "uint64",
@@ -344,8 +343,6 @@ class Parser:
         if self.check("LBRACKET"):
             self.advance()
             self.skip_layout()
-            if name in RESERVED_V1_DATATYPES and name not in BRACKETED_V1_DATATYPES:
-                raise SyntaxError(f"Datatype '{name}' does not support clarifiers in v1", self.peek().span)
             while True:
                 token = self.peek()
                 if token.kind == "RBRACKET":
@@ -371,7 +368,7 @@ class Parser:
             self.skip_layout()
             if self.check("LBRACKET"):
                 raise SyntaxError('Datatype clarifiers must use a single bracketed list like \'sep["/", "."]\'', self.peek().span)
-        self.validate_reserved_datatype_adornments(name, generic_args, clarifiers)
+        self.validate_reserved_datatype_adornments(name, generic_args)
         return TypeAnnotation(name=name, generic_args=generic_args, clarifiers=clarifiers, span=Span(start=start, end=self.previous().span.end))
 
     def parse_generic_argument(self, generic_depth: int) -> str:
@@ -419,14 +416,11 @@ class Parser:
         self,
         name: str,
         generic_args: list[str],
-        clarifiers: list[str | int | float],
     ) -> None:
         if name not in RESERVED_V1_DATATYPES:
             return
         if generic_args and name not in GENERIC_V1_DATATYPES:
             raise SyntaxError(f"Datatype '{name}' does not support generic arguments in v1", self.previous().span)
-        if clarifiers and name not in BRACKETED_V1_DATATYPES:
-            raise SyntaxError(f"Datatype '{name}' does not support clarifiers in v1", self.previous().span)
 
     def validate_binding_node_datatype(self, annotation: TypeAnnotation) -> None:
         if annotation.name != "node":

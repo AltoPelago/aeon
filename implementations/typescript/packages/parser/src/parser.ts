@@ -461,7 +461,7 @@ class Parser {
             }
         }
 
-        this.validateReservedDatatypeAdornments(name, genericArgs, clarifiers);
+        this.validateReservedDatatypeAdornments(name, genericArgs);
 
         const end = this.previous().span.end;
         return {
@@ -475,8 +475,7 @@ class Parser {
 
     private validateReservedDatatypeAdornments(
         name: string,
-        genericArgs: readonly string[],
-        clarifiers: readonly (string | number)[]
+        genericArgs: readonly string[]
     ): void {
         if (!RESERVED_V1_DATATYPES.has(name)) return;
 
@@ -489,14 +488,6 @@ class Parser {
             );
         }
 
-        if (clarifiers.length > 0 && !BRACKETED_V1_DATATYPES.has(name)) {
-            throw new SyntaxError(
-                `Datatype '${name}' does not support clarifiers in v1`,
-                this.previous().span,
-                null,
-                name
-            );
-        }
     }
 
     private validateBindingNodeGeneric(datatype: TypeAnnotation, value: Value): void {
@@ -1734,7 +1725,6 @@ class Parser {
 }
 
 const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity']);
-const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([

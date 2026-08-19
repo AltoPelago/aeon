@@ -217,7 +217,7 @@ test('default registry includes aeon.gp.profile.v1 alias', () => {
     assert.equal(registry.has('aeon.gp.profile.v1'), true);
 });
 
-test('aeon.gp.profile.v1 exposes GP collection, container, and capability metadata', () => {
+test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capability metadata', () => {
     const profile = createDefaultRegistry().get('aeon.gp.profile.v1');
 
     assert.equal(profile?.modeDefault, 'strict');
@@ -247,6 +247,30 @@ test('aeon.gp.profile.v1 exposes GP collection, container, and capability metada
             heterogeneous: true,
             uniqueAttributes: true,
             mixedContent: true,
+        },
+    });
+    assert.deepEqual(profile?.datatypeSemantics, {
+        radix: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'radix_base',
+        },
+        decimal: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'none',
+            equivalentTo: 'radix[10]',
+        },
+        sep: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+        },
+        separator: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+            aliasOf: 'sep',
+        },
+        kadot: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'none',
         },
     });
     assert.deepEqual(profile?.capabilities, {

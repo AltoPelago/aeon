@@ -342,19 +342,6 @@ impl<'a> TokenParser<'a> {
 
         if self.match_kind(TokenKind::LeftBracket) {
             self.skip_newlines();
-            if is_reserved_v1_datatype(&datatype_name)
-                && !matches!(datatype_name.as_str(), "sep" | "radix")
-            {
-                return Err(Diagnostic {
-                    code: String::from("SYNTAX_ERROR"),
-                    path: Some(String::from("$")),
-                    span: Some(self.peek().span),
-                    phase: None,
-                    message: format!(
-                        "Datatype `{datatype_name}` does not support clarifiers in v1"
-                    ),
-                });
-            }
             let mut clarifier_count = 0usize;
             loop {
                 self.skip_newlines();
@@ -1365,15 +1352,6 @@ fn validate_reserved_datatype_adornments(datatype: &str, span: Span) -> Result<(
             span: Some(span),
             phase: None,
             message: format!("Datatype `{base}` does not support generic arguments in v1"),
-        });
-    }
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
-        return Err(Diagnostic {
-            code: String::from("SYNTAX_ERROR"),
-            path: Some(String::from("$")),
-            span: Some(span),
-            phase: None,
-            message: format!("Datatype `{base}` does not support clarifiers in v1"),
         });
     }
     Ok(())

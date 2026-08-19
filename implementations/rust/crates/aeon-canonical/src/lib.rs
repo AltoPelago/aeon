@@ -1085,12 +1085,6 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         ));
     }
 
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
-        return Err(format!(
-            "Datatype `{base}` does not support clarifiers in v1"
-        ));
-    }
-
     Ok(())
 }
 
@@ -3028,18 +3022,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_adornments_during_canonicalization() {
+    fn rejects_meaningless_reserved_datatype_generics_during_canonicalization() {
         for source in [
             "a:n<string> = 3\n",
             "b:boolean<toggle> = true\n",
-            "b:string[333] = \"hello world\"\n",
-            "r:radix2[4] = %111\n",
         ] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
+    }
+
+    #[test]
+    fn preserves_reserved_datatype_clarifiers_during_canonicalization() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\na:n[10] = 22\nb:string[333] = \"hello world\"\nr:radix2[4] = %111\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("a:n[10] = 22"));
+        assert!(result.text.contains("b:string[333] = \"hello world\""));
+        assert!(result.text.contains("r:radix2[4] = %111"));
     }
 
     #[test]

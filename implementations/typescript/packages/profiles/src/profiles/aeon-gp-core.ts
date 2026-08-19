@@ -33,6 +33,30 @@ export const aeonGpCoreProfile: Profile = {
             mixedContent: true,
         },
     },
+    datatypeSemantics: {
+        radix: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'radix_base',
+        },
+        decimal: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'none',
+            equivalentTo: 'radix[10]',
+        },
+        sep: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+        },
+        separator: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+            aliasOf: 'sep',
+        },
+        kadot: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'none',
+        },
+    },
     capabilities: {
         references: true,
         clones: true,
