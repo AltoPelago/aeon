@@ -3645,7 +3645,7 @@ fn build_inspect_case_results(
         .iter()
         .enumerate()
         .map(|(index, snippet)| {
-            let compiled = compile(&apply_mode_to_snippet(snippet, mode), options);
+            let compiled = compile(&apply_mode_to_snippet(snippet, mode), options.clone());
             InspectCaseResult {
                 index: index + 1,
                 ok: compiled.errors.is_empty(),

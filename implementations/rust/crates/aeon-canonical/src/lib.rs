@@ -3023,10 +3023,7 @@ mod tests {
 
     #[test]
     fn rejects_meaningless_reserved_datatype_generics_during_canonicalization() {
-        for source in [
-            "a:n<string> = 3\n",
-            "b:boolean<toggle> = true\n",
-        ] {
+        for source in ["a:n<string> = 3\n", "b:boolean<toggle> = true\n"] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");

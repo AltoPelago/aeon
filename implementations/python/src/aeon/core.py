@@ -56,6 +56,7 @@ class CompileOptions:
     max_generic_depth: int = 1
     max_nesting_depth: int = 256
     datatype_policy: str | None = None
+    profile: str | None = None
     # Consumer-selected effective mode. When omitted, Core honors aeon:mode
     # declared in the document for backwards-compatible authoring flows.
     mode: str | None = None
@@ -188,8 +189,13 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors], warnings=warnings)
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
-    all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors]
-    if reference_errors and not opts.recovery:
+    profile_errors = (
+        validate_gp_datatype_clarifiers(resolved_bindings)
+        if uses_gp_profile(opts, parse_result.document)
+        else []
+    )
+    all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors, *profile_errors]
+    if (reference_errors or profile_errors) and not opts.recovery:
         return CompileResult(events=[], errors=all_errors, warnings=warnings)
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
@@ -300,6 +306,210 @@ def coerce_error(error: Exception) -> AeonError:
         return error
     zero = Position(line=1, column=1, offset=0)
     return SyntaxError(str(error) or error.__class__.__name__, Span(start=zero, end=zero))
+
+
+AEON_GP_PROFILE_ID = "aeon.gp.profile.v1"
+
+GP_DATATYPE_CLARIFIER_RULES = {
+    "decimal": "none",
+    "kadot": "none",
+    "radix": "radix_base",
+    "sep": "separator_chars",
+    "separator": "separator_chars",
+    "encoding": "encoding_name",
+    "inline": "encoding_name",
+    "embed": "encoding_name",
+}
+
+
+def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
+    if options.profile == AEON_GP_PROFILE_ID:
+        return True
+    if document.header is None:
+        return False
+    profile = document.header.fields.get("profile")
+    return isinstance(profile, StringLiteral) and profile.value == AEON_GP_PROFILE_ID
+
+
+def validate_gp_datatype_clarifiers(bindings: list[ResolvedBinding]) -> list[AeonError]:
+    errors: list[AeonError] = []
+    for binding in bindings:
+        if binding.key.startswith("aeon:") or binding.datatype is None:
+            continue
+        surface = parse_gp_datatype_surface(binding.datatype)
+        if surface is None:
+            continue
+        validate_gp_datatype_surface(surface, format_path(binding.path), binding.span, errors)
+    return errors
+
+
+def validate_gp_datatype_surface(
+    surface: dict[str, object],
+    path: str,
+    span: Span,
+    errors: list[AeonError],
+) -> None:
+    name = str(surface["name"])
+    clarifiers = surface.get("clarifiers")
+    if isinstance(clarifiers, list):
+        rule = GP_DATATYPE_CLARIFIER_RULES.get(name)
+        if rule == "radix_base":
+            valid = (
+                len(clarifiers) == 1
+                and isinstance(clarifiers[0], int)
+                and not isinstance(clarifiers[0], bool)
+                and 2 <= clarifiers[0] <= 64
+            )
+            if not valid:
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects exactly one integral radix-base clarifier from 2 to 64",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        elif rule == "separator_chars":
+            if not clarifiers or any(not isinstance(value, str) for value in clarifiers):
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects string separator-character clarifiers",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        elif rule == "encoding_name":
+            if len(clarifiers) != 1 or not isinstance(clarifiers[0], str):
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects exactly one string encoding-name clarifier",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        else:
+            errors.append(
+                AeonError(
+                    f"Profile does not allow clarifiers on datatype ':{name}'",
+                    span,
+                    "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+                    path,
+                )
+            )
+
+    for arg in surface["args"]:
+        validate_gp_datatype_surface(arg, path, span, errors)
+
+
+def parse_gp_datatype_surface(source: str) -> dict[str, object] | None:
+    text = source.strip()
+    match = re.match(r"[A-Za-z_][A-Za-z0-9_-]*", text)
+    if match is None:
+        return None
+    name = match.group(0)
+    index = skip_gp_whitespace(text, match.end())
+
+    args: list[dict[str, object]] = []
+    if index < len(text) and text[index] == "<":
+        end = find_gp_matching_delimiter(text, index, "<", ">")
+        if end is None:
+            return None
+        for part in split_gp_top_level(text[index + 1 : end], ","):
+            stripped = part.strip()
+            if stripped:
+                parsed = parse_gp_datatype_surface(stripped)
+                if parsed is None:
+                    return None
+                args.append(parsed)
+        index = skip_gp_whitespace(text, end + 1)
+
+    clarifiers: list[object] | None = None
+    if index < len(text) and text[index] == "[":
+        end = find_gp_matching_delimiter(text, index, "[", "]")
+        if end is None:
+            return None
+        try:
+            parsed = json.loads("[" + text[index + 1 : end] + "]")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, list):
+            return None
+        clarifiers = parsed
+        index = skip_gp_whitespace(text, end + 1)
+
+    if index != len(text):
+        return None
+
+    return {"name": name, "args": args, "clarifiers": clarifiers}
+
+
+def find_gp_matching_delimiter(source: str, start: int, open_char: str, close_char: str) -> int | None:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index in range(start, len(source)):
+        char = source[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+            continue
+        if char == open_char:
+            depth += 1
+        elif char == close_char:
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return None
+    return None
+
+
+def split_gp_top_level(source: str, delimiter: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    angle_depth = 0
+    square_depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(source):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+        elif char == "<":
+            angle_depth += 1
+        elif char == ">":
+            angle_depth = max(0, angle_depth - 1)
+        elif char == "[":
+            square_depth += 1
+        elif char == "]":
+            square_depth = max(0, square_depth - 1)
+        elif char == delimiter and angle_depth == 0 and square_depth == 0:
+            parts.append(source[start:index])
+            start = index + 1
+    parts.append(source[start:])
+    return parts
+
+
+def skip_gp_whitespace(source: str, index: int) -> int:
+    while index < len(source) and source[index].isspace():
+        index += 1
+    return index
 
 
 def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonError]]:

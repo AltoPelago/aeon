@@ -339,6 +339,32 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("string[333]", result.events[1]["datatype"])
         self.assertEqual("radix2[4]", result.events[2]["datatype"])
 
+    def test_gp_profile_rejects_disallowed_datatype_clarifiers(self) -> None:
+        result = compile_source('aeon:profile = "aeon.gp.profile.v1"\na:n[3] = 3')
+        self.assertEqual([], result.events)
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
+
+    def test_gp_profile_validates_radix_datatype_clarifiers(self) -> None:
+        result = compile_source('aeon:profile = "aeon.gp.profile.v1"\nb:radix["hello"] = %01')
+        self.assertEqual([], result.events)
+        self.assertIn(result.errors[0].code, {"PROFILE_DATATYPE_CLARIFIER_INVALID", "SYNTAX_ERROR"})
+
+    def test_gp_profile_allows_encoding_name_clarifiers(self) -> None:
+        for datatype in ("encoding", "inline", "embed"):
+            with self.subTest(datatype=datatype):
+                result = compile_source(f'aeon:profile = "aeon.gp.profile.v1"\ncode:{datatype}["base58"] = &FFF')
+                self.assertEqual([], result.errors)
+
+    def test_gp_profile_rejects_invalid_encoding_name_clarifiers(self) -> None:
+        result = compile_source('aeon:profile = "aeon.gp.profile.v1"\ncode:encoding[58] = &FFF')
+        self.assertEqual([], result.events)
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_INVALID"], [error.code for error in result.errors])
+
+    def test_gp_profile_option_enables_datatype_clarifier_validation(self) -> None:
+        result = compile_source("a:n[3] = 3", CompileOptions(profile="aeon.gp.profile.v1"))
+        self.assertEqual([], result.events)
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
+
     def test_reserved_object_aliases_allowed_in_strict_mode(self) -> None:
         for datatype in ("object", "obj", "envelope", "o"):
             with self.subTest(datatype=datatype):
