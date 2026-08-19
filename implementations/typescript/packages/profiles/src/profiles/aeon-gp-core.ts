@@ -1,5 +1,31 @@
 import type { Profile, CompileCtx } from '../types.js';
 import { compileWithCore } from './core-compile.js';
+import { validateDatatypeSemantics } from './datatype-semantics.js';
+
+const datatypeSemantics = {
+    radix: {
+        literalFamily: 'RadixLiteral',
+        clarifiers: 'radix_base',
+    },
+    decimal: {
+        literalFamily: 'RadixLiteral',
+        clarifiers: 'none',
+        equivalentTo: 'radix[10]',
+    },
+    sep: {
+        literalFamily: 'SeparatorLiteral',
+        clarifiers: 'separator_chars',
+    },
+    separator: {
+        literalFamily: 'SeparatorLiteral',
+        clarifiers: 'separator_chars',
+        aliasOf: 'sep',
+    },
+    kadot: {
+        literalFamily: 'SeparatorLiteral',
+        clarifiers: 'none',
+    },
+} as const;
 
 export const aeonGpCoreProfile: Profile = {
     id: 'aeon.gp.profile.v1',
@@ -33,33 +59,14 @@ export const aeonGpCoreProfile: Profile = {
             mixedContent: true,
         },
     },
-    datatypeSemantics: {
-        radix: {
-            literalFamily: 'RadixLiteral',
-            clarifiers: 'radix_base',
-        },
-        decimal: {
-            literalFamily: 'RadixLiteral',
-            clarifiers: 'none',
-            equivalentTo: 'radix[10]',
-        },
-        sep: {
-            literalFamily: 'SeparatorLiteral',
-            clarifiers: 'separator_chars',
-        },
-        separator: {
-            literalFamily: 'SeparatorLiteral',
-            clarifiers: 'separator_chars',
-            aliasOf: 'sep',
-        },
-        kadot: {
-            literalFamily: 'SeparatorLiteral',
-            clarifiers: 'none',
-        },
-    },
+    datatypeSemantics,
     capabilities: {
         references: true,
         clones: true,
     },
-    compile: (input, ctx: CompileCtx) => compileWithCore(input, ctx),
+    compile: (input, ctx: CompileCtx) => {
+        const aes = compileWithCore(input, ctx);
+        validateDatatypeSemantics(aes, datatypeSemantics, ctx);
+        return aes;
+    },
 };

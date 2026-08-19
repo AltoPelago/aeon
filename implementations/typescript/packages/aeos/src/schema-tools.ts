@@ -77,6 +77,13 @@ export interface SchemaEvolutionDiagnostic {
     readonly message: string;
 }
 
+export interface SchemaAeonProjection {
+    /** Illustrative AEON instance shape. It is not schema authority or validation evidence. */
+    readonly source: string;
+    readonly assumptions: readonly string[];
+    readonly omittedRules: readonly string[];
+}
+
 const INFERENCE_ASSUMPTIONS = Object.freeze([
     'Only bindings observed in this bootstrap document are represented.',
     'Observed bindings are marked required; optionality must be reviewed by the author.',
@@ -99,6 +106,167 @@ export function inferSchemaFromAeon(source: string, options: InferSchemaOptions 
         throw new SchemaInferenceError(`Bootstrap AEON did not compile: ${diagnostics.join('; ')}`, diagnostics);
     }
     return inferSchemaFromEvents(compiled.events, options.world === undefined ? {} : { world: options.world });
+}
+
+/**
+ * Projects a schema into one inspectable AEON instance shape. The schema remains
+ * authoritative; this deliberately cannot represent every valid value.
+ */
+export function projectSchemaToAeon(schema: SchemaV1): SchemaAeonProjection {
+    const root = projectionNode();
+    const omittedRules: string[] = [];
+    let includesOptional = false;
+    let expandsSelector = false;
+
+    const orderedRules = [...schema.rules].sort((left, right) => Number(left.selector !== undefined) - Number(right.selector !== undefined));
+    for (const rule of orderedRules) {
+        const address = parseAddress(rule.path ?? rule.selector!);
+        if (!address.ok || address.address.root.kind !== 'absolute') {
+            omittedRules.push(ruleAddress(rule));
+            continue;
+        }
+        let current = root;
+        let supported = true;
+        for (const selector of address.address.selectors) {
+            if (selector.type === 'member') {
+                current = childMember(current, selector.name);
+            } else if (selector.type === 'position') {
+                current = childPosition(current, selector.index);
+            } else if (selector.type === 'directExpansion') {
+                expandsSelector = true;
+                current = projectionContainerKind(current) === 'sequence'
+                    ? childPosition(current, 0)
+                    : childMember(current, 'example');
+            } else {
+                supported = false;
+                break;
+            }
+        }
+        if (!supported) {
+            omittedRules.push(ruleAddress(rule));
+            continue;
+        }
+        current.rule = rule;
+        if (rule.constraints.required !== true) includesOptional = true;
+    }
+
+    const assumptions = [
+        'Placeholder values illustrate representation shape; they are not guaranteed to satisfy business patterns or ranges.',
+        ...(includesOptional ? ['Optional declarations are included to make the available shape visible.'] : []),
+        ...(expandsSelector ? ["Each direct wildcard selector is represented by one member or item named 'example'."] : []),
+        ...(omittedRules.length > 0 ? ['Rules using filters, ranges, parent traversal, or other non-structural selectors are omitted.'] : []),
+    ];
+    return {
+        source: `${renderProjectionRoot(root)}\n`,
+        assumptions,
+        omittedRules,
+    };
+}
+
+export function projectSchemaSourceToAeon(source: string): SchemaAeonProjection {
+    return projectSchemaToAeon(parseSchemaSource(source));
+}
+
+interface ProjectionNode {
+    rule?: SchemaRule;
+    readonly members: Map<string, ProjectionNode>;
+    readonly positions: Map<number, ProjectionNode>;
+}
+
+function projectionNode(): ProjectionNode {
+    return { members: new Map(), positions: new Map() };
+}
+
+function childMember(parent: ProjectionNode, name: string): ProjectionNode {
+    const existing = parent.members.get(name);
+    if (existing !== undefined) return existing;
+    const child = projectionNode();
+    parent.members.set(name, child);
+    return child;
+}
+
+function childPosition(parent: ProjectionNode, index: number): ProjectionNode {
+    const existing = parent.positions.get(index);
+    if (existing !== undefined) return existing;
+    const child = projectionNode();
+    parent.positions.set(index, child);
+    return child;
+}
+
+function projectionContainerKind(node: ProjectionNode): 'object' | 'sequence' {
+    const type = node.rule?.constraints.type;
+    return type === 'ListNode' || type === 'ListLiteral' || type === 'TupleLiteral'
+        || node.rule?.constraints.type_is === 'list' || node.rule?.constraints.type_is === 'tuple'
+        ? 'sequence'
+        : 'object';
+}
+
+function renderProjectionRoot(root: ProjectionNode): string {
+    return [...root.members.entries()].map(([name, node]) => renderProjectionBinding(name, node, 0)).join('\n');
+}
+
+function renderProjectionBinding(name: string, node: ProjectionNode, indent: number): string {
+    const pad = '  '.repeat(indent);
+    return `${pad}${renderProjectionKey(name)}:${projectionDatatype(node)} = ${renderProjectionValue(node, indent)}`;
+}
+
+function renderProjectionValue(node: ProjectionNode, indent: number): string {
+    const type = node.rule?.constraints.type;
+    if (node.positions.size > 0 || type === 'ListNode' || type === 'ListLiteral' || type === 'TupleLiteral') {
+        const tuple = type === 'TupleLiteral' || node.rule?.constraints.type_is === 'tuple';
+        const open = tuple ? '(' : '[';
+        const close = tuple ? ')' : ']';
+        const maximum = Math.max(-1, ...node.positions.keys());
+        if (maximum < 0) return `${open}${close}`;
+        const items = Array.from({ length: maximum + 1 }, (_, index) => {
+            const item = node.positions.get(index);
+            return `${'  '.repeat(indent + 1)}${item === undefined ? '!notSet' : renderProjectionValue(item, indent + 1)}`;
+        });
+        return `${open}\n${items.join('\n')}\n${'  '.repeat(indent)}${close}`;
+    }
+    if (node.members.size > 0 || type === 'ObjectNode') {
+        if (node.members.size === 0) return '{}';
+        const entries = [...node.members.entries()].map(([name, child]) => renderProjectionBinding(name, child, indent + 1));
+        return `{\n${entries.join('\n')}\n${'  '.repeat(indent)}}`;
+    }
+    return projectionLiteral(node.rule?.constraints);
+}
+
+function projectionDatatype(node: ProjectionNode): string {
+    if (node.rule?.constraints.datatype !== undefined) return node.rule.constraints.datatype;
+    const type = node.rule?.constraints.type;
+    if (type === 'ObjectNode' || node.members.size > 0) return 'object';
+    if (type === 'TupleLiteral') return 'tuple';
+    if (type === 'ListNode' || type === 'ListLiteral' || node.positions.size > 0) return 'list';
+    return {
+        StringLiteral: 'string', NumberLiteral: 'number', BooleanLiteral: 'boolean', ToggleLiteral: 'toggle',
+        NullLiteral: 'null', SansaAddressLiteral: 'sansa',
+    }[type ?? ''] ?? 'value';
+}
+
+function projectionLiteral(constraints: ConstraintsV1 | undefined): string {
+    const effective = constraints?.any_of?.[0] === undefined ? constraints : { ...constraints, ...constraints.any_of[0], any_of: undefined };
+    switch (effective?.type) {
+        case 'StringLiteral': {
+            const minimum = Math.max(0, effective.min_length ?? 0);
+            const maximum = Math.max(minimum, effective.max_length ?? Math.max(7, minimum));
+            const length = Math.max(minimum, Math.min(7, maximum));
+            return JSON.stringify('example'.slice(0, length).padEnd(length, 'x'));
+        }
+        case 'NumberLiteral': return effective.min_value ?? '0';
+        case 'BooleanLiteral': return 'true';
+        case 'ToggleLiteral': return effective.toggle_pair === 'on_off' ? 'on' : 'yes';
+        case 'NullLiteral': return `!${effective.null_value ?? effective.null_values?.[0] ?? 'notSet'}`;
+        case 'SansaAddressLiteral': return '$';
+        case 'InfinityLiteral': return 'Infinity';
+        case 'NaNLiteral': return 'NaN';
+        case 'HexLiteral': return '#0';
+        default: return '!notSet';
+    }
+}
+
+function renderProjectionKey(key: string): string {
+    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : JSON.stringify(key);
 }
 
 export function inferSchemaFromEvents(

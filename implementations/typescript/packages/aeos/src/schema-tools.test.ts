@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
     diffSchemaSources,
     inferSchemaFromAeon,
+    projectSchemaSourceToAeon,
     SchemaInferenceError,
     validateSchemaEvolutionSources,
 } from './schema-tools.js';
@@ -66,6 +67,35 @@ contacts = [
 
     it('fails closed when bootstrap source is invalid', () => {
         assert.throws(() => inferSchemaFromAeon('broken = {'), SchemaInferenceError);
+    });
+
+    it('projects exact schema paths into an illustrative AEON document', () => {
+        const projection = projectSchemaSourceToAeon(`schema = { rules = [
+          { path:sansa = $.inventory, constraints = { required = true, type = "ObjectNode", datatype = "object" } }
+          { path:sansa = $.inventory.keyboard, constraints = { required = true, type = "ObjectNode", datatype = "object" } }
+          { path:sansa = $.inventory.keyboard.name, constraints = { required = true, type = "StringLiteral", datatype = "string" } }
+          { path:sansa = $.inventory.keyboard.quantity, constraints = { type = "NumberLiteral", datatype = "int32" } }
+        ] }`);
+
+        assert.strictEqual(projection.source, `inventory:object = {
+  keyboard:object = {
+    name:string = "example"
+    quantity:int32 = 0
+  }
+}\n`);
+        assert.ok(projection.assumptions.some((item) => item.startsWith('Optional declarations')));
+        assert.deepStrictEqual(projection.omittedRules, []);
+    });
+
+    it('represents direct wildcard selectors with one illustrative member', () => {
+        const projection = projectSchemaSourceToAeon(`schema = { rules = [
+          { path:sansa = $.tasks, constraints = { type = "ObjectNode", datatype = "object" } }
+          { selector:sansa = $.tasks.*, constraints = { type = "ObjectNode", datatype = "object" } }
+          { selector:sansa = $.tasks.*.title, constraints = { type = "StringLiteral", datatype = "string" } }
+        ] }`);
+
+        assert.match(projection.source, /example:object = \{\n    title:string = "example"/);
+        assert.ok(projection.assumptions.some((item) => item.includes('wildcard selector')));
     });
 
     it('reports settings, additions, removals, and constraint changes', () => {

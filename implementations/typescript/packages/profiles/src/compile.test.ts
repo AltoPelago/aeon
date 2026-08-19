@@ -290,3 +290,61 @@ test('default core profile parses introducer node syntax', () => {
     assert.equal(formatPath(result.aes[0]!.path), '$.view');
     assert.equal(formatPath(result.aes[1]!.path), '$.view[0]');
 });
+
+test('aeon.gp.profile.v1 rejects undeclared datatype clarifiers', () => {
+    for (const source of ['a:n[3] = 3', 'a:list<n[3]> = [3]']) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.a', source);
+    }
+});
+
+test('aeon.gp.profile.v1 rejects invalid radix clarifier shapes', () => {
+    for (const source of [
+        'b:radix["hello"] = %01',
+        'b:radix[2, 10] = %01',
+        'b:radix[2.5] = %01',
+        'b:radix[1] = %01',
+        'b:radix[65] = %01',
+    ]) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+            maxSeparatorDepth: 2,
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_INVALID', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.b', source);
+    }
+});
+
+test('aeon.gp.profile.v1 accepts declared datatype clarifier shapes', () => {
+    const result = compile('r:radix[16] = %01\ns:sep[".", ":"] = ^1.2:3', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        maxSeparatorDepth: 2,
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.deepEqual(result.aes.map((event) => event.datatype), ['radix[16]', 'sep[".", ":"]']);
+});
+
+test('core profile preserves clarifiers that GP profile rejects', () => {
+    const result = compile('a:n[3] = 3', {
+        profile: 'core',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.equal(result.aes[0]?.datatype, 'n[3]');
+});

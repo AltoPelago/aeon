@@ -37,6 +37,8 @@ export {
     diffSchemaSources,
     inferSchemaFromAeon,
     inferSchemaFromEvents,
+    projectSchemaSourceToAeon,
+    projectSchemaToAeon,
     SchemaInferenceError,
     validateSchemaEvolution,
     validateSchemaEvolutionSources,
@@ -44,6 +46,7 @@ export {
 export type {
     InferSchemaOptions,
     InferredSchemaCandidate,
+    SchemaAeonProjection,
     PossibleRuleMove,
     SchemaDiff,
     SchemaDiffChange,
