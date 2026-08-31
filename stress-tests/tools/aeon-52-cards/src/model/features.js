@@ -246,7 +246,7 @@ const valueFeatures = [
     generate() {
       const k = uniqueKey('sep');
       return {
-        text: `${k}:dim[x] = ^300x250`,
+        text: `${k}:dim["x"] = ^300x250`,
         expectPass: false,
         isBinding: true,
         metadata: { valueType: 'SeparatorLiteral', negative: true, reason: 'custom-separator-type-not-allowed' },
@@ -570,7 +570,7 @@ const typeAnnotationFeatures = [
     generate() {
       const k = uniqueKey('tp');
       return {
-        text: `${k}:dim[x] = ^100x200`,
+        text: `${k}:dim["x"] = ^100x200`,
         expectPass: false,
         isBinding: true,
         metadata: { typeKind: 'separator-spec', negative: true, reason: 'custom-separator-type-not-allowed' },

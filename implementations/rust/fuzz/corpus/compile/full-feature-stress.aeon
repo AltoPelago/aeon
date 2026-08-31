@@ -52,7 +52,7 @@ secondNumber = ~numbers[1]
 point:tuple<int32,int32> = (10, 20)
 coords:tuple<int32,int32> = (3, 4)
 
-size:dim[x] = ^1920x1080
+size:dim = ^1920x1080
 
 config = {
   port:int32 = 8080

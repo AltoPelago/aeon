@@ -141,7 +141,7 @@ node:node = <tag($.name)>
 ---
 tuple:tuple = ($.name)
 ---
-sep3 : sep [x] = ^1920x1080
+sep3 : sep ["x"] = ^1920x1080
 ---
 sep3  = ^1920x1080
 ---

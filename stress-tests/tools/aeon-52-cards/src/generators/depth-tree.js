@@ -800,7 +800,7 @@ function buildCoverageSnippet(featureId, index) {
         case 'type-separator-spec':
             return {
                 featureId,
-                text: `cov_type_sep_${suffix}:dim[x] = ^100x200`,
+                text: `cov_type_sep_${suffix}:dim["x"] = ^100x200`,
             };
         case 'type-multi-separator-spec':
             return {
