@@ -50,7 +50,7 @@ const cases = [
   { name: 'strict-untyped-expected-fail', binding: 'raw = true', expectPass: false },
   { name: 'separator-depth-default-fail', binding: 'line:sep["|", ">"] = ^one|two>three', compileOptions: { maxSeparatorDepth: 1 }, expectPass: false },
   { name: 'separator-depth-enabled-pass', binding: 'line:sep["|", ">"] = ^one|two>three', compileOptions: { maxSeparatorDepth: 8 }, expectPass: true, path: 'line', datatype: 'sep["|", ">"]' },
-  { name: 'separator-multi-literal-fail', binding: 'line:sep["|", ">"] = ^one|two>three;one|two>three;', compileOptions: { maxSeparatorDepth: 8 }, expectPass: false },
+  { name: 'separator-semicolon-payload-pass', binding: 'line:sep["|", ">"] = ^one|two>three;one|two>three;', compileOptions: { maxSeparatorDepth: 8 }, expectPass: true, path: 'line', datatype: 'sep["|", ">"]' },
   {
     name: 'attrs-before-datatype-pass',
     binding: 'doc@{id:string="a3",class:string="dark-mode"}:document = true',

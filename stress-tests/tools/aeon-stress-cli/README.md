@@ -61,7 +61,7 @@ Current baseline:
 Notable current policy assumptions:
 - strict mode defaults to `datatypePolicy: reserved_only`
 - custom datatype pass cases explicitly opt into `allow_custom`
-- separator chars `,`, `;`, `[` and `]` are invalid
+- separator clarifier chars `,`, `;`, `[` and `]` require quoting
 - nested object smoke cases use `:object`, not `:node`
 
 Findings docs:
