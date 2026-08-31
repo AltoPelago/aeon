@@ -51,6 +51,6 @@
   },
   "dependencies": {
     "@altopelago/aeon-lexer": "workspace:*",
-    "@altopelago/sansa": "0.9.1"
+    "@altopelago/sansa": "0.10.0"
   }
 }
