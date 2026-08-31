@@ -19,6 +19,7 @@ import {
     InvalidDateError,
     InvalidDateTimeError,
     UnterminatedBlockCommentError,
+    InvalidStructuralIdentityError,
 } from './errors.js';
 
 /**
@@ -127,6 +128,10 @@ function slashChannelClosingMarker(openMarker: string): string {
 
 function isSeparatorRawChar(c: string): boolean {
     return /[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]/.test(c);
+}
+
+function isStructuralIdentityChar(c: string): boolean {
+    return isLetter(c) || isDigit(c) || c === '-' || c === '_';
 }
 
 
@@ -325,6 +330,15 @@ export class Lexer {
                 this.scanString(c, start);
                 break;
 
+            // Structural identity (\identifier\)
+            case '\\':
+                if (this.hasStructuralIdentityTerminator()) {
+                    this.scanStructuralIdentity(start);
+                } else {
+                    this.addToken(TokenType.Symbol, c, start);
+                }
+                break;
+
             // Newline
             case '\n':
                 if (this.options.includeNewlines) {
@@ -406,6 +420,45 @@ export class Lexer {
         }
 
         this.errors.push(new UnterminatedStringError(delimiter, createSpan(start, this.currentPosition())));
+    }
+
+    private scanStructuralIdentity(start: Position): void {
+        let value = '';
+
+        while (!this.isAtEnd() && this.peek() !== '\\') {
+            const c = this.peek();
+            if (!isStructuralIdentityChar(c)) {
+                value += this.advance();
+                while (!this.isAtEnd() && this.peek() !== '\\') {
+                    value += this.advance();
+                }
+                if (!this.isAtEnd()) {
+                    value += this.advance();
+                }
+                this.errors.push(new InvalidStructuralIdentityError(`\\${value}`, createSpan(start, this.currentPosition())));
+                return;
+            }
+            value += this.advance();
+        }
+
+        if (value.length === 0) {
+            this.advance(); // consume the empty identity's closing \
+            this.errors.push(new InvalidStructuralIdentityError('\\\\', createSpan(start, this.currentPosition())));
+            return;
+        }
+
+        if (this.isAtEnd() || this.peek() !== '\\') {
+            this.errors.push(new InvalidStructuralIdentityError(`\\${value}`, createSpan(start, this.currentPosition())));
+            return;
+        }
+
+        this.advance(); // consume closing \
+        this.tokens.push(createToken(TokenType.StructuralIdentity, value, createSpan(start, this.currentPosition())));
+    }
+
+    private hasStructuralIdentityTerminator(): boolean {
+        const nextSlash = this.input.indexOf('\\', this.offset);
+        return nextSlash >= this.offset;
     }
 
     private scanEscapeSequence(_stringStart: Position): string | null {
@@ -732,7 +785,7 @@ export class Lexer {
                     value += this.advance();
                 }
             }
-            // ZRUT zone (& followed by zone id)
+            // WTC temporal reference (& followed by reference id)
             if (this.peek() === '&') {
                 value += this.advance();
                 let zone = '';
@@ -742,12 +795,13 @@ export class Lexer {
                     || this.peek() === '_'
                     || this.peek() === '-'
                     || this.peek() === '+'
+                    || this.peek() === '.'
                 ) {
                     const ch = this.advance();
                     value += ch;
                     zone += ch;
                 }
-                if (!isValidZrutZone(zone)) {
+                if (!isValidWtcReference(zone)) {
                     this.errors.push(new InvalidDateTimeError(value, createSpan(start, this.currentPosition())));
                     return;
                 }
@@ -1177,7 +1231,7 @@ function isValidDateTimeLiteral(value: string): boolean {
     if (ampIndex === -1) return false;
     const base = rest.slice(0, ampIndex);
     const zone = rest.slice(ampIndex + 1);
-    return zone.length > 0 && isValidZrutZone(zone) && (matchesDateTimeTime(base) || matchesDateTimeZonedTime(base));
+    return zone.length > 0 && isValidWtcReference(zone) && (matchesDateTimeTime(base) || matchesDateTimeZonedTime(base));
 }
 
 function matchesTimeCore(value: string, allowHourPrecisionMarker: boolean): boolean {
@@ -1276,13 +1330,13 @@ function isValidMinuteOrSecond(value: number): boolean {
     return value >= 0 && value <= 59;
 }
 
-function isValidZrutZone(zone: string): boolean {
-    if (zone.length === 0) return false;
-    if (zone.startsWith('/')) return false;
-    if (zone.endsWith('/')) return false;
-    if (zone.includes('//')) return false;
-    if (zone.includes('/*')) return false;
-    if (zone.includes('/[')) return false;
+function isValidWtcReference(reference: string): boolean {
+    if (reference.length === 0) return false;
+    if (reference.startsWith('/')) return false;
+    if (reference.endsWith('/')) return false;
+    if (reference.includes('//')) return false;
+    if (reference.includes('/*')) return false;
+    if (reference.includes('/[')) return false;
     return true;
 }
 

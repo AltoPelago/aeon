@@ -1121,6 +1121,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "toggle"
             | "hex"
             | "radix"
+            | "decimal"
             | "radix2"
             | "radix6"
             | "radix8"
@@ -1132,10 +1133,11 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "date"
             | "time"
             | "datetime"
-            | "zrut"
+            | "wtc"
             | "sep"
             | "kadot"
             | "tuple"
+            | "triple"
             | "list"
             | "object"
             | "obj"
@@ -1161,13 +1163,16 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
         "toggle" => Some(vec!["ToggleLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),
-        "radix" | "radix2" | "radix6" | "radix8" | "radix12" => Some(vec!["RadixLiteral"]),
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
+            Some(vec!["RadixLiteral"])
+        }
         "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
         "date" => Some(vec!["DateLiteral"]),
         "time" => Some(vec!["TimeLiteral"]),
-        "datetime" | "zrut" => Some(vec!["DateTimeLiteral"]),
+        "datetime" => Some(vec!["DateTimeLiteral"]),
+        "wtc" => Some(vec!["WTCDateTimeLiteral"]),
         "sep" | "kadot" => Some(vec!["SeparatorLiteral"]),
-        "tuple" => Some(vec!["TupleLiteral"]),
+        "tuple" | "triple" => Some(vec!["TupleLiteral"]),
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
         "node" => Some(vec!["NodeLiteral"]),
@@ -1184,18 +1189,6 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
             expected.join(" or ")
         );
     }
-    if custom_datatype_shape_is_invalid_for_both(datatype) {
-        return format!(
-            "Datatype/literal mismatch at '{}': datatype ':{datatype}' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got {actual_kind}",
-            path
-        );
-    }
-    if custom_datatype_constraints_conflict(datatype) {
-        return format!(
-            "Datatype/literal mismatch at '{}': datatype ':{datatype}' combines incompatible generic and bracket constraints, got {actual_kind}",
-            path
-        );
-    }
     if let Some(expected) = expected_kinds_for_custom_datatype(datatype) {
         return format!(
             "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
@@ -1210,60 +1203,11 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
 }
 
 fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
-    let mut expected = if datatype_has_generic_args(datatype) {
+    if datatype_has_generic_args(datatype) {
         Some(vec!["ListNode", "TupleLiteral"])
     } else {
         None
-    };
-
-    let Some(bracket_expected) = expected_kinds_for_custom_datatype_shape(datatype) else {
-        return expected;
-    };
-
-    match expected.as_mut() {
-        Some(existing) => {
-            let combined: Vec<&'static str> = existing
-                .iter()
-                .copied()
-                .filter(|kind| bracket_expected.contains(kind))
-                .collect();
-            if combined.is_empty() {
-                // Preserve an explicit "impossible constraints" signal for callers so
-                // they can emit a dedicated diagnostic instead of an empty expected list.
-                return Some(Vec::new());
-            }
-            Some(combined)
-        }
-        None => Some(bracket_expected),
     }
-}
-
-fn expected_kinds_for_custom_datatype_shape(datatype: &str) -> Option<Vec<&'static str>> {
-    let specs = datatype_bracket_specs(datatype);
-    if specs.is_empty() {
-        return None;
-    }
-
-    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
-    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
-
-    match (separator_ok, radix_ok) {
-        (true, true) => Some(vec!["SeparatorLiteral", "RadixLiteral"]),
-        (true, false) => Some(vec!["SeparatorLiteral"]),
-        (false, true) => Some(vec!["RadixLiteral"]),
-        (false, false) => None,
-    }
-}
-
-fn custom_datatype_shape_is_invalid_for_both(datatype: &str) -> bool {
-    let specs = datatype_bracket_specs(datatype);
-    if specs.is_empty() {
-        return false;
-    }
-
-    let separator_ok = specs.iter().all(|spec| is_valid_separator_spec(spec));
-    let radix_ok = specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]);
-    !separator_ok && !radix_ok
 }
 
 pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
@@ -1282,10 +1226,6 @@ pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
     }
 
     false
-}
-
-fn custom_datatype_constraints_conflict(datatype: &str) -> bool {
-    expected_kinds_for_custom_datatype(datatype).is_some_and(|expected| expected.is_empty())
 }
 
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
@@ -1314,7 +1254,7 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
         "toggle" => matches!(value, Value::ToggleLiteral { .. }),
         "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
-        "radix" | "radix2" | "radix6" | "radix8" | "radix12" => {
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
             matches!(value, Value::RadixLiteral { raw } if has_valid_radix_literal(raw))
         }
         "encoding" | "base64" | "embed" | "inline" => {
@@ -1322,11 +1262,11 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
         }
         "date" => matches!(value, Value::DateLiteral { .. }),
         "time" => matches!(value, Value::TimeLiteral { .. }),
-        "datetime" => matches!(value, Value::DateTimeLiteral { .. }),
-        "zrut" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
+        "datetime" => matches!(value, Value::DateTimeLiteral { raw } if !raw.contains('&')),
+        "wtc" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
         "sep" => matches!(value, Value::SeparatorLiteral { .. }),
         "kadot" => matches!(value, Value::SeparatorLiteral { .. }),
-        "tuple" => matches!(value, Value::TupleLiteral { .. }),
+        "tuple" | "triple" => matches!(value, Value::TupleLiteral { .. }),
         "list" => matches!(value, Value::ListNode { .. }),
         "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
         "node" => matches!(value, Value::NodeLiteral { .. }),
@@ -1336,22 +1276,8 @@ fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
             let expected = custom_expected.as_ref().expect("checked is_some");
             expected.contains(&value.value_kind())
         }
-        _ if matches!(value, Value::SeparatorLiteral { .. }) => {
-            custom_separator_specs_are_valid(datatype)
-        }
-        _ if matches!(value, Value::RadixLiteral { .. }) => custom_radix_specs_are_valid(datatype),
         _ => true,
     }
-}
-
-fn custom_separator_specs_are_valid(datatype: &str) -> bool {
-    let specs = datatype_bracket_specs(datatype);
-    specs.is_empty() || specs.iter().all(|spec| is_valid_separator_spec(spec))
-}
-
-fn custom_radix_specs_are_valid(datatype: &str) -> bool {
-    let specs = datatype_bracket_specs(datatype);
-    specs.is_empty() || (specs.len() == 1 && is_valid_custom_radix_base_spec(specs[0]))
 }
 
 fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
@@ -1382,59 +1308,7 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
             _ => {}
         }
     }
-    if datatype_base(datatype) == "radix" && !specs.is_empty() {
-        specs.remove(0);
-    }
     specs
-}
-
-fn is_valid_separator_spec(spec: &str) -> bool {
-    if spec.chars().count() != 1 {
-        return false;
-    }
-    let ch = spec.chars().next().unwrap_or_default();
-    is_allowed_separator_spec_char(ch)
-}
-
-fn is_allowed_separator_spec_char(ch: char) -> bool {
-    matches!(
-        ch,
-        'A'..='Z'
-            | 'a'..='z'
-            | '0'..='9'
-            | '!'
-            | '#'
-            | '$'
-            | '%'
-            | '&'
-            | '*'
-            | '+'
-            | '-'
-            | '.'
-            | ':'
-            | ';'
-            | '='
-            | '?'
-            | '@'
-            | '^'
-            | '_'
-            | '|'
-            | '~'
-            | '<'
-            | '>'
-    )
-}
-
-fn is_valid_custom_radix_base_spec(spec: &str) -> bool {
-    if spec.is_empty()
-        || (spec.starts_with('0') && spec != "0")
-        || !spec.chars().all(|ch| ch.is_ascii_digit())
-    {
-        return false;
-    }
-    spec.parse::<usize>()
-        .ok()
-        .is_some_and(|base| (2..=64).contains(&base))
 }
 
 #[cfg(test)]

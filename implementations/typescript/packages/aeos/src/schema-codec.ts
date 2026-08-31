@@ -7,7 +7,14 @@
 import { compile, type CompileOptions } from '@altopelago/aeon-core';
 import { finalizeJson, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import { parseAddress, renderAddress } from '@altopelago/sansa';
-import type { ConstraintsV1, ResourcePolicyV1, SchemaRule, SchemaV1 } from './types/schema.js';
+import type {
+    ConstraintsV1,
+    ResourcePolicyV1,
+    SchemaEvolutionKindV1,
+    SchemaEvolutionV1,
+    SchemaRule,
+    SchemaV1,
+} from './types/schema.js';
 
 type JsonLike = null | boolean | number | string | readonly JsonLike[] | { readonly [key: string]: JsonLike };
 type UnknownRecord = Record<string, unknown>;
@@ -51,12 +58,17 @@ export function normalizeSchemaObject(input: unknown): SchemaV1 {
     const rules = normalizeRules(root.rules);
     const schema: {
         rules: readonly SchemaRule[];
+        evolution?: readonly SchemaEvolutionV1[];
         world?: NonNullable<SchemaV1['world']>;
         reference_policy?: NonNullable<SchemaV1['reference_policy']>;
         attribute_policy?: NonNullable<SchemaV1['attribute_policy']>;
         datatype_rules?: NonNullable<SchemaV1['datatype_rules']>;
         resource_policy?: ResourcePolicyV1;
     } = { rules };
+
+    if (root.evolution !== undefined) {
+        schema.evolution = normalizeEvolution(root.evolution, rules);
+    }
 
     if (root.world !== undefined) {
         if (root.world !== 'open' && root.world !== 'closed') {
@@ -113,9 +125,24 @@ export function schemaToAeon(input: SchemaV1): string {
     if (schema.resource_policy !== undefined) {
         lines.push(`  resource_policy:object = ${renderAeonValue(schema.resource_policy as JsonLike, 2)}`);
     }
+    if (schema.evolution !== undefined) {
+        lines.push(`  evolution:list<object> = ${renderAeonValue(schema.evolution as unknown as JsonLike, 2)}`);
+    }
     lines.push('  rules:list<object> = [');
     for (const rule of schema.rules) {
         lines.push('    {');
+        if (rule.declaration_id !== undefined) {
+            lines.push(`      declaration_id:string = ${renderString(rule.declaration_id)}`);
+        }
+        if (rule.lineage_id !== undefined) {
+            lines.push(`      lineage_id:string = ${renderString(rule.lineage_id)}`);
+        }
+        if (rule.label !== undefined) {
+            lines.push(`      label:string = ${renderString(rule.label)}`);
+        }
+        if (rule.description !== undefined) {
+            lines.push(`      description:string = ${renderString(rule.description)}`);
+        }
         if (rule.path !== undefined) {
             lines.push(`      path:sansa = ${canonicalAddress(rule.path, 'path')}`);
         } else if (rule.selector !== undefined) {
@@ -144,16 +171,26 @@ function extractSchemaRoot(input: unknown): UnknownRecord {
 }
 
 function normalizeRules(value: unknown): readonly SchemaRule[] {
+    let rules: readonly SchemaRule[];
     if (Array.isArray(value)) {
-        return value.map((rule, index) => normalizeRule(rule, `rules[${index}]`));
+        rules = value.map((rule, index) => normalizeRule(rule, `rules[${index}]`));
+    } else if (isRecord(value)) {
+        rules = Object.entries(value).map(([path, constraints]) => normalizeRule({ path, constraints }, `rules.${path}`));
+    } else if (value === undefined) {
+        rules = [];
+    } else {
+        throw new SchemaCodecError("Schema field 'rules' must be a list or object");
     }
-    if (isRecord(value)) {
-        return Object.entries(value).map(([path, constraints]) => normalizeRule({ path, constraints }, `rules.${path}`));
+
+    const declarationIds = new Set<string>();
+    for (const rule of rules) {
+        if (rule.declaration_id === undefined) continue;
+        if (declarationIds.has(rule.declaration_id)) {
+            throw new SchemaCodecError(`Schema declaration_id '${rule.declaration_id}' must be unique`);
+        }
+        declarationIds.add(rule.declaration_id);
     }
-    if (value === undefined) {
-        return [];
-    }
-    throw new SchemaCodecError("Schema field 'rules' must be a list or object");
+    return rules;
 }
 
 function normalizeRule(input: unknown, label: string): SchemaRule {
@@ -162,6 +199,10 @@ function normalizeRule(input: unknown, label: string): SchemaRule {
     }
     const path = optionalString(input.path, `${label}.path`);
     const selector = optionalString(input.selector, `${label}.selector`);
+    const declarationId = optionalSchemaIdentity(input.declaration_id, `${label}.declaration_id`);
+    const lineageId = optionalSchemaIdentity(input.lineage_id, `${label}.lineage_id`);
+    const ruleLabel = optionalMetadataText(input.label, `${label}.label`, 160);
+    const description = optionalMetadataText(input.description, `${label}.description`, 4_000);
     if ((path === undefined) === (selector === undefined)) {
         throw new SchemaCodecError(`Schema rule ${label} must define exactly one of 'path' or 'selector'`);
     }
@@ -169,10 +210,104 @@ function normalizeRule(input: unknown, label: string): SchemaRule {
         throw new SchemaCodecError(`Schema rule ${label} must define an object 'constraints'`);
     }
     const constraints = normalizeConstraints(input.constraints, `${label}.constraints`);
+    const identity = {
+        ...(declarationId === undefined ? {} : { declaration_id: declarationId }),
+        ...(lineageId === undefined ? {} : { lineage_id: lineageId }),
+        ...(ruleLabel === undefined ? {} : { label: ruleLabel }),
+        ...(description === undefined ? {} : { description }),
+    };
     if (path !== undefined) {
-        return { path: canonicalAddress(path, 'path'), constraints };
+        return { ...identity, path: canonicalAddress(path, 'path'), constraints };
     }
-    return { selector: canonicalAddress(selector!, 'selector'), constraints };
+    return { ...identity, selector: canonicalAddress(selector!, 'selector'), constraints };
+}
+
+const EVOLUTION_KINDS: ReadonlySet<SchemaEvolutionKindV1> = new Set([
+    'add', 'remove', 'rename', 'move', 'constraint-change',
+    'datatype-change', 'split', 'merge', 'derive', 'replace',
+]);
+
+function normalizeEvolution(value: unknown, rules: readonly SchemaRule[]): readonly SchemaEvolutionV1[] {
+    if (!Array.isArray(value)) throw new SchemaCodecError("Schema field 'evolution' must be a list");
+    const declarationIds = new Set(rules.flatMap((rule) => rule.declaration_id === undefined ? [] : [rule.declaration_id]));
+    const changeIds = new Set<string>();
+    return value.map((entry, index) => {
+        const label = `evolution[${index}]`;
+        if (!isRecord(entry)) throw new SchemaCodecError(`${label} must be an object`);
+        const changeId = requiredSchemaIdentity(entry.change_id, `${label}.change_id`);
+        if (changeIds.has(changeId)) throw new SchemaCodecError(`Schema change_id '${changeId}' must be unique`);
+        changeIds.add(changeId);
+        const kind = optionalString(entry.kind, `${label}.kind`);
+        if (kind === undefined || !EVOLUTION_KINDS.has(kind as SchemaEvolutionKindV1)) {
+            throw new SchemaCodecError(`${label}.kind is not a supported schema evolution kind`);
+        }
+        const fromDeclarations = schemaIdentityList(entry.from_declarations, `${label}.from_declarations`);
+        const toDeclarations = schemaIdentityList(entry.to_declarations, `${label}.to_declarations`);
+        validateEvolutionCardinality(kind as SchemaEvolutionKindV1, fromDeclarations, toDeclarations, label);
+        for (const declarationId of toDeclarations) {
+            if (!declarationIds.has(declarationId)) {
+                throw new SchemaCodecError(`${label}.to_declarations references unknown target declaration '${declarationId}'`);
+            }
+        }
+        const fromContract = optionalSchemaIdentity(entry.from_contract, `${label}.from_contract`);
+        const transform = optionalSchemaIdentity(entry.transform, `${label}.transform`);
+        const note = optionalString(entry.note, `${label}.note`);
+        if (note !== undefined && note.length > 2000) throw new SchemaCodecError(`${label}.note must be at most 2000 characters`);
+        if (requiresTransform(kind as SchemaEvolutionKindV1) && transform === undefined) {
+            throw new SchemaCodecError(`${label}.transform is required for '${kind}' evolution`);
+        }
+        return {
+            change_id: changeId,
+            kind: kind as SchemaEvolutionKindV1,
+            from_declarations: fromDeclarations,
+            to_declarations: toDeclarations,
+            ...(fromContract === undefined ? {} : { from_contract: fromContract }),
+            ...(transform === undefined ? {} : { transform }),
+            ...(note === undefined ? {} : { note }),
+        };
+    });
+}
+
+function requiredSchemaIdentity(value: unknown, label: string): string {
+    const identity = optionalSchemaIdentity(value, label);
+    if (identity === undefined) throw new SchemaCodecError(`${label} must be a non-empty string`);
+    return identity;
+}
+
+function schemaIdentityList(value: unknown, label: string): readonly string[] {
+    if (!Array.isArray(value)) throw new SchemaCodecError(`${label} must be a list`);
+    const identities = value.map((item, index) => requiredSchemaIdentity(item, `${label}[${index}]`));
+    if (new Set(identities).size !== identities.length) throw new SchemaCodecError(`${label} must not contain duplicates`);
+    return identities;
+}
+
+function validateEvolutionCardinality(
+    kind: SchemaEvolutionKindV1,
+    fromDeclarations: readonly string[],
+    toDeclarations: readonly string[],
+    label: string,
+): void {
+    const exact = (from: number, to: number): boolean => fromDeclarations.length === from && toDeclarations.length === to;
+    const valid = kind === 'add' ? exact(0, 1)
+        : kind === 'remove' ? exact(1, 0)
+            : ['rename', 'move', 'constraint-change', 'datatype-change', 'derive', 'replace'].includes(kind) ? exact(1, 1)
+                : kind === 'split' ? fromDeclarations.length === 1 && toDeclarations.length >= 2
+                    : kind === 'merge' ? fromDeclarations.length >= 2 && toDeclarations.length === 1
+                        : false;
+    if (!valid) throw new SchemaCodecError(`${label} has invalid declaration cardinality for '${kind}' evolution`);
+}
+
+function requiresTransform(kind: SchemaEvolutionKindV1): boolean {
+    return ['datatype-change', 'split', 'merge', 'derive', 'replace'].includes(kind);
+}
+
+function optionalSchemaIdentity(value: unknown, label: string): string | undefined {
+    const identity = optionalString(value, label);
+    if (identity === undefined) return undefined;
+    if (identity.length > 512 || /[\u0000-\u001f\u007f]/.test(identity)) {
+        throw new SchemaCodecError(`${label} must be at most 512 characters and contain no control characters`);
+    }
+    return identity;
 }
 
 function canonicalAddress(value: string, role: 'path' | 'selector'): string {
@@ -299,6 +434,14 @@ function optionalString(value: unknown, label: string): string | undefined {
         throw new SchemaCodecError(`${label} must be a non-empty string`);
     }
     return value;
+}
+
+function optionalMetadataText(value: unknown, label: string, maximumLength: number): string | undefined {
+    const text = optionalString(value, label);
+    if (text !== undefined && (text.length === 0 || text.trim() !== text || text.length > maximumLength)) {
+        throw new SchemaCodecError(`${label} must be trimmed, non-empty, and contain at most ${maximumLength} characters`);
+    }
+    return text;
 }
 
 function isRecord(value: unknown): value is UnknownRecord {

@@ -8,8 +8,7 @@ describe('Datatype annotation formatting', () => {
             type: 'TypeAnnotation',
             name: 'int32',
             genericArgs: [],
-            radixBase: null,
-            separators: [],
+            clarifiers: [],
             span: {
                 start: { line: 1, column: 1, offset: 0 },
                 end: { line: 1, column: 1, offset: 0 },
@@ -17,32 +16,30 @@ describe('Datatype annotation formatting', () => {
         }), 'int32');
     });
 
-    it('formats datatype with generics and separators', () => {
+    it('formats datatype with generics and string clarifiers', () => {
         assert.strictEqual(formatDatatypeAnnotation({
             type: 'TypeAnnotation',
             name: 'tuple',
             genericArgs: ['int32', 'string'],
-            radixBase: null,
-            separators: ['|'],
+            clarifiers: ['|'],
             span: {
                 start: { line: 1, column: 1, offset: 0 },
                 end: { line: 1, column: 1, offset: 0 },
             },
-        }), 'tuple<int32, string>[|]');
+        }), 'tuple<int32, string>["|"]');
     });
 
-    it('formats repeated separator specs as distinct brackets', () => {
+    it('formats multiple clarifier values in one bracket', () => {
         assert.strictEqual(formatDatatypeAnnotation({
             type: 'TypeAnnotation',
             name: 'grid',
             genericArgs: [],
-            radixBase: null,
-            separators: ['|', '>'],
+            clarifiers: ['|', '>'],
             span: {
                 start: { line: 1, column: 1, offset: 0 },
                 end: { line: 1, column: 1, offset: 0 },
             },
-        }), 'grid[|][>]');
+        }), 'grid["|", ">"]');
     });
 
     it('formats radix datatype with bracket base metadata', () => {
@@ -50,8 +47,7 @@ describe('Datatype annotation formatting', () => {
             type: 'TypeAnnotation',
             name: 'radix',
             genericArgs: [],
-            radixBase: 10,
-            separators: [],
+            clarifiers: [10],
             span: {
                 start: { line: 1, column: 1, offset: 0 },
                 end: { line: 1, column: 1, offset: 0 },

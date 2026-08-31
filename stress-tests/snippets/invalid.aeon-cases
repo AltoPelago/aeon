@@ -224,11 +224,11 @@ dt:datetime = 2025-01-01T09:30z
 ---
 dt:datetime = 2025-01-01T09:+24:99
 ---
-dt:zrut = 2025-01-01T09:30Z&/
+dt:wtc = 2025-01-01T09:30Z&/
 ---
-dt:zrut = 2025-01-01T09:30Z&Europe//Brussels
+dt:wtc = 2025-01-01T09:30Z&Europe//Brussels
 ---
-dt:zrut = 2025-01-01T09:30Z&Europe/Belgium/
+dt:wtc = 2025-01-01T09:30Z&Europe/Belgium/
 ---
 ts:datetime = 2025-13-40T99:99:99
 ---
@@ -280,17 +280,17 @@ ratio:n = 3.14e-
 ---
 radix17:radix =%ABCDEFGHIJKLMNOPQR*STUVWXYZabcdefghijklmnopqrstuvwxyz1234567890=+/.+-==
 ---
-z1:zrut = 2025-01-01T00:00:00Z&/
+z1:wtc = 2025-01-01T00:00:00Z&/
 ---
-z2:zrut = 2025-01-01T00:00:00Z&a//a
+z2:wtc = 2025-01-01T00:00:00Z&a//a
 ---
-z4:zrut = 2025-01-01T00:00:00Z
+z4:wtc = 2025-01-01T00:00:00Z
 ---
-z5:zrut = 2025-01-01T00:00:00Z&a&
+z5:wtc = 2025-01-01T00:00:00Z&a&
 ---
-z5:zrut = 2025-01-01T00:00:00Z&&
+z5:wtc = 2025-01-01T00:00:00Z&&
 ---
-z5:zrut = 2025-01-01T00:00:00Z&&
+z5:wtc = 2025-01-01T00:00:00Z&&
 ---
 string009:string = ''''
 ---
@@ -372,5 +372,5 @@ a:node = <a, b, c, d>
 ---
 a:tuple<n> = (3)
 ---
-z5:zrut = 2025-01-01T00:00:00z&l
+z5:wtc = 2025-01-01T00:00:00z&l
 ---

@@ -15,7 +15,7 @@ pair:tuple<n> = (3,)
 ---
 node:node = <glyph>
 ---
-grid:sep[a] = ^1920x1080
+grid:sep["a"] = ^1920x1080
 ---
 stamp:datetime = 2025-01-01T09
 ---
@@ -23,7 +23,7 @@ top:infinity = Infinity
 ---
 bottom:infinity = -Infinity
 ---
-zone:zrut = 2025-01-01T00:00:00Z&l
+zone:wtc = 2025-01-01T00:00:00Z&l
 ---
 addr:sansa = $.inventory.items[2].sku
 ---
@@ -117,9 +117,9 @@ host@{ nested:object = { note:trimtick = >> `
   world
 ` } }:node = <box>
 ---
-s:sep[.] = ^0.34.22
+s:sep["."] = ^0.34.22
 ---
-s:sep[:] = ^0:0.0
+s:sep[":"] = ^0:0.0
 ---
 s:sep[2] = ^o2o2o
 ---

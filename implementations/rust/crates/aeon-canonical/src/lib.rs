@@ -892,7 +892,7 @@ fn looks_like_datetime(value: &str) -> bool {
         }
         if let Some((base, zone)) = rest.split_once('&') {
             return (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
-                && is_valid_zrut_zone(zone);
+                && is_valid_wtc_reference(zone);
         }
     }
     false
@@ -940,13 +940,13 @@ fn looks_like_zoned_time(value: &str) -> bool {
             .is_some_and(|(time, offset)| matches_time_core(time, true) && matches_offset(offset))
 }
 
-fn is_valid_zrut_zone(zone: &str) -> bool {
-    !zone.is_empty()
-        && !zone.starts_with('/')
-        && !zone.ends_with('/')
-        && !zone.contains("//")
-        && !zone.contains("/*")
-        && !zone.contains("/[")
+fn is_valid_wtc_reference(reference: &str) -> bool {
+    !reference.is_empty()
+        && !reference.starts_with('/')
+        && !reference.ends_with('/')
+        && !reference.contains("//")
+        && !reference.contains("/*")
+        && !reference.contains("/[")
 }
 
 fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
@@ -1077,7 +1077,7 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
     if datatype.contains('<')
         && !matches!(
             base,
-            "list" | "tuple" | "object" | "node" | "null" | "nan" | "infinity"
+            "list" | "tuple" | "triple" | "object" | "node" | "null" | "nan" | "infinity"
         )
     {
         return Err(format!(
@@ -1085,13 +1085,86 @@ fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
         ));
     }
 
-    if !datatype_bracket_specs(datatype).is_empty() && !matches!(base, "sep" | "radix") {
-        return Err(format!(
-            "Datatype `{base}` does not support bracket specifiers in v1"
+    Ok(())
+}
+
+fn validate_datatype_clarifiers(clarifiers: &[&str]) -> Result<(), String> {
+    if clarifiers.is_empty() {
+        return Ok(());
+    }
+    if clarifiers.len() > 1 {
+        return Err(String::from(
+            "Datatype clarifiers must use a single bracketed list like `sep[\"/\", \".\"]`",
+        ));
+    }
+    validate_clarifier_list(clarifiers[0])
+}
+
+fn validate_clarifier_list(payload: &str) -> Result<(), String> {
+    if payload.trim().is_empty() {
+        return Err(String::from(
+            "Datatype clarifier must contain at least one string or number",
         ));
     }
 
+    let mut values = 0usize;
+    let mut rest = payload.trim();
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            return Err(String::from("Expected clarifier value"));
+        }
+
+        let consumed = if matches!(rest.chars().next(), Some('"') | Some('\'')) {
+            parse_clarifier_string(rest)?
+        } else {
+            let end = rest.find(',').unwrap_or(rest.len());
+            let number = rest[..end].trim();
+            if !looks_like_number_literal(number) {
+                return Err(String::from("Expected clarifier value"));
+            }
+            end
+        };
+
+        values += 1;
+        rest = rest[consumed..].trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        if !rest.starts_with(',') {
+            return Err(String::from("Expected ',' between clarifier values"));
+        }
+        rest = &rest[1..];
+        if rest.trim().is_empty() {
+            return Err(String::from("Expected clarifier value"));
+        }
+    }
+
+    if values == 0 {
+        return Err(String::from(
+            "Datatype clarifier must contain at least one string or number",
+        ));
+    }
     Ok(())
+}
+
+fn parse_clarifier_string(raw: &str) -> Result<usize, String> {
+    let delimiter = raw.chars().next().unwrap_or('"');
+    let mut escaped = false;
+    for (index, ch) in raw.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == delimiter {
+            return Ok(index + ch.len_utf8());
+        }
+    }
+    Err(String::from("Unterminated clarifier string"))
 }
 
 fn validate_binding_node_datatype(datatype: &str) -> Result<(), String> {
@@ -1133,10 +1206,6 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
             }
             _ => {}
         }
-    }
-
-    if datatype_base(datatype) == "radix" && !specs.is_empty() {
-        specs.remove(0);
     }
 
     specs
@@ -1210,6 +1279,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "pointer"
             | "ptr"
             | "radix"
+            | "decimal"
             | "radix2"
             | "radix6"
             | "radix8"
@@ -1226,6 +1296,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "trimmed"
             | "trimtick"
             | "tuple"
+            | "triple"
             | "utc"
             | "xml"
             | "yaml"
@@ -1233,7 +1304,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "zone"
             | "zoned"
             | "zoned-datetime"
-            | "zrut"
+            | "wtc"
             | "zutc"
     )
 }
@@ -1711,7 +1782,7 @@ impl<'a> Parser<'a> {
                     || !datatype_bracket_specs(&parsed).is_empty()
                 {
                     return Err(self.syntax_error(
-                        "Node head datatypes must be simple labels or node<T> without separator specs",
+                        "Node head datatypes must be simple labels or node<T> without clarifiers",
                     ));
                 }
                 datatype = Some(parsed);
@@ -2022,6 +2093,9 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
         }
+        if let Err(message) = validate_datatype_clarifiers(&datatype_bracket_specs(&value)) {
+            return Err(self.syntax_error(&message));
+        }
         if let Err(message) = validate_reserved_datatype_adornments(&value) {
             return Err(self.syntax_error(&message));
         }
@@ -2296,17 +2370,17 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_datatype_spacing_separator_specs_and_number_forms() {
+    fn canonicalizes_datatype_spacing_clarifiers_and_number_forms() {
         let result = canonicalize(
             "aeon:mode = \"strict\"\n\
              a:tuple<int32,int32> = (1, 2)\n\
-             sep3 : sep [x] = ^1920x1080\n\
+             sep3 : sep [\"x\"] = ^1920x1080\n\
              n:number = 1_1_1.2_2e3_3\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[x] = ^1920x1080\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\na:tuple<int32, int32> = (1, 2)\nn:number = 111.22e33\nsep3:sep[\"x\"] = ^1920x1080\n"
         );
     }
 
@@ -2392,24 +2466,24 @@ mod tests {
     }
 
     #[test]
-    fn preserves_zrut_zone_casing_in_canonicalization() {
+    fn preserves_wtc_zone_casing_in_canonicalization() {
         let result = canonicalize(
-            "aeon:mode = \"strict\"\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n",
+            "aeon:mode = \"strict\"\nz5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nz5:zrut = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nz5:wtc = 2025-01-01T00:00:00Z&Europe/Belgium/Brussels\n"
         );
     }
 
     #[test]
     fn strips_trailing_comments_from_raw_literals_in_canonicalization() {
-        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[|] = ^aaa // comment\n");
+        let result = canonicalize("aeon:mode = \"strict\"\nfile4:sep[\"|\"] = ^aaa // comment\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[|] = ^aaa\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nfile4:sep[\"|\"] = ^aaa\n"
         );
     }
 
@@ -2645,14 +2719,14 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_multiline_separator_specs_and_generic_boundaries_in_strict_mode() {
+    fn canonicalizes_multiline_clarifiers_and_generic_boundaries_in_strict_mode() {
         let result = canonicalize(
             "aeon:mode = \"strict\"\n\
              size\n\
              :\n\
              sep\n\
              [\n\
-             x\n\
+             \"x\"\n\
              ]\n\
              = ^300x250\n\
              items\n\
@@ -2671,7 +2745,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[x] = ^300x250\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nitems:list<n> = [2, 3]\nsize:sep[\"x\"] = ^300x250\n"
         );
     }
 
@@ -2902,7 +2976,7 @@ mod tests {
     fn rejects_invalid_lowercase_t_temporal_literals_during_canonicalization() {
         for source in [
             "dt:datetime = 2007-01-02t10:10:25\n",
-            "z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+            "z:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
         ] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
@@ -2940,7 +3014,7 @@ mod tests {
     fn accepts_hour_precision_datetime_offsets_during_canonicalization() {
         for source in [
             "aeon:mode = \"strict\"\ndt5:datetime = 2025-01-01T09:+02:00\n",
-            "aeon:mode = \"strict\"\nzdt7:zrut = 2025-01-01T09:+02:00&Europe/Belgium/Brussels\n",
+            "aeon:mode = \"strict\"\nzdt7:wtc = 2025-01-01T09:+02:00&Europe/Belgium/Brussels\n",
         ] {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2948,13 +3022,29 @@ mod tests {
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_adornments_during_canonicalization() {
-        for source in [
-            "a:n<string> = 3\n",
-            "b:boolean<toggle> = true\n",
-            "b:string[333] = \"hello world\"\n",
-            "r:radix2[4] = %111\n",
-        ] {
+    fn rejects_meaningless_reserved_datatype_generics_during_canonicalization() {
+        for source in ["a:n<string> = 3\n", "b:boolean<toggle> = true\n"] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        }
+    }
+
+    #[test]
+    fn preserves_reserved_datatype_clarifiers_during_canonicalization() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\na:n[10] = 22\nb:string[333] = \"hello world\"\nr:radix2[4] = %111\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("a:n[10] = 22"));
+        assert!(result.text.contains("b:string[333] = \"hello world\""));
+        assert!(result.text.contains("r:radix2[4] = %111"));
+    }
+
+    #[test]
+    fn rejects_legacy_unquoted_and_repeated_clarifiers_during_canonicalization() {
+        for source in ["a:sep[x] = ^300x250\n", "b:sep[\"x\"][\"y\"] = ^300x200\n"] {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");

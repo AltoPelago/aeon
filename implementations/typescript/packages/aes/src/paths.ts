@@ -323,6 +323,7 @@ class PathResolver {
         const syntheticBinding: Binding = {
             type: 'Binding',
             key,
+            structuralId: value.type === 'TypedValue' ? value.structuralId : null,
             value: bindingValue,
             datatype,
             attributes,

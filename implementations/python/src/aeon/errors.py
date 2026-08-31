@@ -53,6 +53,8 @@ def infer_phase_label_from_code(code: str) -> str | None:
         return "Parsing"
     if code in {"HEADER_CONFLICT", "DUPLICATE_KEY", "DUPLICATE_CANONICAL_PATH", "DATATYPE_LITERAL_MISMATCH"}:
         return "Core Validation"
+    if code in {"PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "PROFILE_DATATYPE_CLARIFIER_INVALID"}:
+        return "Profile Validation"
     if code in {"MISSING_REFERENCE_TARGET", "FORWARD_REFERENCE", "SELF_REFERENCE", "ATTRIBUTE_DEPTH_EXCEEDED"}:
         return "Reference Validation"
     if code in {

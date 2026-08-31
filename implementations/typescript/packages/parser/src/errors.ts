@@ -121,6 +121,16 @@ export class DuplicateKeyError extends ParserError {
     }
 }
 
+export class DuplicateStructuralIdentityError extends ParserError {
+    readonly structuralId: string;
+
+    constructor(structuralId: string, span: Span) {
+        super(`Duplicate structural identity: '${structuralId}'`, span, 'DUPLICATE_STRUCTURAL_IDENTITY');
+        this.name = 'DuplicateStructuralIdentityError';
+        this.structuralId = structuralId;
+    }
+}
+
 /**
  * Profile error - feature requires profile that is not enabled
  */

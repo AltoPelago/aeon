@@ -75,7 +75,7 @@ STRING_LIKE_VALUE_TYPES = {
     "DateLiteral",
     "TimeLiteral",
     "DateTimeLiteral",
-    "ZRUTDateTimeLiteral",
+    "WTCDateTimeLiteral",
 }
 
 
@@ -665,8 +665,9 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
         if not isinstance(constraints, dict):
             continue
         expected_type = constraints.get("type")
+        expected_datatype = constraints.get("datatype")
         expected_container = constraints.get("type_is")
-        if expected_type is None and expected_container is None:
+        if expected_type is None and expected_datatype is None and expected_container is None:
             continue
         event = events.get(path)
         if event is None:
@@ -678,6 +679,9 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             ok = expected_container == "list" and actual_type in {"ListLiteral", "ListNode"} or expected_container == "tuple" and actual_type == "TupleLiteral"
             if not ok:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Container kind mismatch: expected {expected_container}, got {actual_type}", ERROR_CODES["wrong_container_kind"]))
+        if isinstance(expected_datatype, str) and event.get("datatype") != expected_datatype:
+            actual_datatype = event.get("datatype")
+            emit_error(ctx, create_diag(path, event.get("span"), f"Datatype mismatch: expected {expected_datatype}, got {actual_datatype if isinstance(actual_datatype, str) else 'none'}", ERROR_CODES["type_mismatch"]))
         if isinstance(expected_type, str):
             if not type_matches(expected_type, actual_type, constraints):
                 code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
@@ -1588,22 +1592,21 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
 def decode_separator_chars(datatype: str | None) -> list[str]:
     if not datatype:
         return []
-    match = re.search(r"\[([^\]]*)\]$", datatype)
+    if datatype_base(datatype) != "sep":
+        return []
+    match = re.fullmatch(r"sep\[(.*)\]", datatype.strip())
     if match is None:
         return []
     payload = match.group(1)
     if not payload:
         return []
-    separators: list[str] = []
-    index = 0
-    while index < len(payload):
-        separators.append(payload[index])
-        index += 1
-        if index < len(payload):
-            if payload[index] != ",":
-                return []
-            index += 1
-    return separators
+    try:
+        values = json.loads(f"[{payload}]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str) and len(value) == 1]
 
 
 def count_integer_digits(raw: str) -> int:
@@ -1630,7 +1633,7 @@ def is_string_like_literal(value_type: str) -> bool:
         "DateLiteral",
         "TimeLiteral",
         "DateTimeLiteral",
-        "ZRUTDateTimeLiteral",
+        "WTCDateTimeLiteral",
     }
 
 
@@ -1666,10 +1669,18 @@ def is_form_negative(raw: str) -> bool:
 def declared_radix_from_datatype(datatype: str | None) -> int | None:
     if datatype is None:
         return None
-    match = re.fullmatch(r"radix(?:\[(\d+)\]|(\d+))", datatype.strip(), re.IGNORECASE)
+    trimmed = datatype.strip()
+    if trimmed.lower() == "decimal":
+        return 10
+    lowered = trimmed.lower()
+    aliases = {"radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
+    if lowered in aliases:
+        return aliases[lowered]
+    match = re.fullmatch(r"radix\[(\d+)\]", trimmed, re.IGNORECASE)
     if match is None:
         return None
-    return int(match.group(1) or match.group(2))
+    base = int(match.group(1))
+    return base if 2 <= base <= 64 else None
 
 
 def first_invalid_radix_digit(raw: str, radix: int) -> str | None:

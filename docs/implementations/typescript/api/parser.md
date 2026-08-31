@@ -29,7 +29,7 @@ interface ParserOptions {
 - `maxAttributeDepth`
   Limits nesting depth for attribute heads. Default: `1`.
 - `maxSeparatorDepth`
-  Limits separator-spec depth in datatype annotations. Default: `1`.
+  Limits clarifier value depth in datatype annotations. Default: `1`.
 
 ## Return shape
 

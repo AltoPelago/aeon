@@ -119,9 +119,9 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('s:sep[2] = ^o2o2o', result.text)
 
     def test_canonicalizes_separator_payloads_without_trimming_raw_segments(self) -> None:
-        result = canonicalize('aeon:mode = "custom"\nparts:sep[|] = ^"hello world"|tail')
+        result = canonicalize('aeon:mode = "custom"\nparts:sep["|"] = ^"hello world"|tail')
         self.assertEqual([], result.errors)
-        self.assertIn('parts:sep[|] = ^"hello world"|tail', result.text)
+        self.assertIn('parts:sep["|"] = ^"hello world"|tail', result.text)
 
     def test_canonicalizes_multiline_generic_and_separator_boundaries(self) -> None:
         result = canonicalize(
@@ -130,7 +130,7 @@ class CanonicalTests(unittest.TestCase):
             ':\n'
             'sep\n'
             '[\n'
-            'x\n'
+            '"x"\n'
             ']\n'
             '= ^300x250\n'
             'items\n'
@@ -147,7 +147,7 @@ class CanonicalTests(unittest.TestCase):
             ']\n'
         )
         self.assertEqual([], result.errors)
-        self.assertIn('size:sep[x] = ^300x250', result.text)
+        self.assertIn('size:sep["x"] = ^300x250', result.text)
         self.assertIn('items:list<n> = [2, 3]', result.text)
 
     def test_scenarios_fixture_parses_in_python(self) -> None:

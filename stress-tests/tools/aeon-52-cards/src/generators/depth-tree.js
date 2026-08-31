@@ -800,12 +800,12 @@ function buildCoverageSnippet(featureId, index) {
         case 'type-separator-spec':
             return {
                 featureId,
-                text: `cov_type_sep_${suffix}:dim[x] = ^100x200`,
+                text: `cov_type_sep_${suffix}:dim["x"] = ^100x200`,
             };
         case 'type-multi-separator-spec':
             return {
                 featureId,
-                text: `cov_type_multisep_${suffix}:dim[x][y] = ^100x200y300`,
+                text: `cov_type_multisep_${suffix}:dim["x", "y"] = ^100x200y300`,
             };
         case 'number-invalid-underscore-leading':
             return {

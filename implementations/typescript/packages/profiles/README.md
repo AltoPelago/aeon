@@ -82,6 +82,15 @@ export interface ProfileCapabilities {
   references: boolean;
   clones: boolean;
 }
+
+export type DatatypeClarifierSemantics = 'none' | 'radix_base' | 'separator_chars' | 'encoding_name';
+
+export interface DatatypeSemantics {
+  literalFamily: string;
+  clarifiers: DatatypeClarifierSemantics;
+  aliasOf?: string;
+  equivalentTo?: string;
+}
 ```
 
 Processor contract:
@@ -100,6 +109,7 @@ export interface Profile {
   datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
   collections?: Readonly<Record<string, CollectionSemantics>>;
   containers?: Readonly<Record<string, ObjectContainerSemantics | NodeContainerSemantics>>;
+  datatypeSemantics?: Readonly<Record<string, DatatypeSemantics>>;
   capabilities?: ProfileCapabilities;
   compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
   processors?: readonly Processor[];
@@ -116,7 +126,7 @@ Built-in processors:
 
 Built-in profiles:
 - `core` — form-only AES output
-- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults, collection semantics for `list`/`tuple`, container semantics for `object`/`node`, and required processor capabilities
+- `aeon.gp.profile.v1` — AEON GP profile contract, including strict/reserved-only defaults, collection semantics for `list`/`tuple`, container semantics for `object`/`node`, closed datatype clarifier validation for radix, separator, and encoding families, and required processor capabilities
 - `json` — resolves references for JSON interoperability
 
 ## Tests

@@ -343,7 +343,7 @@ function runSeparatorLiteralEscapeStress() {
   const repeats = 4000;
   const chunk = 'A0|"0,0 / 0"|B0';
   const payload = Array.from({ length: repeats }, () => chunk).join('|');
-  const source = `line:sep[|] = ^${payload}`;
+  const source = `line:sep["|"] = ^${payload}`;
 
   try {
     const result = compile(source, { maxSeparatorDepth: 8 });

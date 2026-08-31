@@ -27,7 +27,7 @@ start:date = 2025-01-01
 alarm:string = "09:30:00"
 timestamp:datetime = 2025-01-01T00:00:00Z
 meeting:localDateTime = 2025-01-01T09:30:00
-zoned:zrut = 2025-01-01T00:00:00Z&Australia/Sydney
+zoned:wtc = 2025-01-01T00:00:00Z&Australia/Sydney
 
 user@{
   role = "admin"
@@ -52,7 +52,7 @@ secondNumber = ~numbers[1]
 point:tuple<int32,int32> = (10, 20)
 coords:tuple<int32,int32> = (3, 4)
 
-size:dim[x] = ^1920x1080
+size:dim = ^1920x1080
 
 config = {
   port:int32 = 8080

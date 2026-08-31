@@ -7,7 +7,7 @@ test('formats simple canonical datatype annotation', () => {
         type: 'TypeAnnotation',
         name: 'int32',
         genericArgs: [],
-        separators: [],
+        clarifiers: [],
         span: {
             start: { line: 1, column: 1, offset: 0 },
             end: { line: 1, column: 1, offset: 0 },
@@ -15,28 +15,28 @@ test('formats simple canonical datatype annotation', () => {
     }), ':int32');
 });
 
-test('formats generic canonical datatype annotation with separators', () => {
+test('formats generic canonical datatype annotation with string clarifiers', () => {
     assert.equal(formatDatatypeAnnotation({
         type: 'TypeAnnotation',
         name: 'tuple',
         genericArgs: ['int32', 'string'],
-        separators: ['|'],
+        clarifiers: ['|'],
         span: {
             start: { line: 1, column: 1, offset: 0 },
             end: { line: 1, column: 1, offset: 0 },
         },
-    }), ':tuple<int32, string>[|]');
+    }), ':tuple<int32, string>["|"]');
 });
 
-test('formats chained separator specs as repeated bracket segments', () => {
+test('formats multiple clarifier values in one bracket segment', () => {
     assert.equal(formatDatatypeAnnotation({
         type: 'TypeAnnotation',
         name: 'dim',
         genericArgs: [],
-        separators: ['x', 'y'],
+        clarifiers: ['x', 'y'],
         span: {
             start: { line: 1, column: 1, offset: 0 },
             end: { line: 1, column: 1, offset: 0 },
         },
-    }), ':dim[x][y]');
+    }), ':dim["x", "y"]');
 });

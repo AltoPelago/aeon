@@ -106,7 +106,7 @@ describe('validate()', () => {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'a' }] },
                     key: 'a',
                     value: { type: 'ObjectNode', bindings: [
-                        { key: 'ref', value: { type: 'CloneReference', path: ['b'], span: [1,2] }, attributes: [], span: [1,2], type: 'Binding' }
+                        { key: 'ref', structuralId: null, value: { type: 'CloneReference', path: ['b'], span: [1,2] }, attributes: [], span: [1,2], type: 'Binding' }
                     ], attributes: [], span: [1,2] },
                     span: [1, 2],
                 },
@@ -453,9 +453,9 @@ describe('validate()', () => {
                     span: [5, 6],
                 },
                 {
-                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'zrut' }] },
-                    key: 'zrut',
-                    value: { type: 'ZRUTDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'wtc' }] },
+                    key: 'wtc',
+                    value: { type: 'WTCDateTimeLiteral', value: '2026-05-25T12:34:56&local', raw: '@2026-05-25T12:34:56&local', span: [7, 8] },
                     span: [7, 8],
                 },
             ] as unknown as AES;
@@ -465,7 +465,7 @@ describe('validate()', () => {
                     { path: '$.date', constraints: { type: 'DateLiteral' } },
                     { path: '$.time', constraints: { type: 'TimeLiteral' } },
                     { path: '$.datetime', constraints: { type: 'DateTimeLiteral' } },
-                    { path: '$.zrut', constraints: { type: 'ZRUTDateTimeLiteral' } },
+                    { path: '$.wtc', constraints: { type: 'WTCDateTimeLiteral' } },
                 ],
             };
 
@@ -1568,6 +1568,33 @@ describe('validate()', () => {
         });
     });
 
+    describe('Phase 5: representation type', () => {
+        it('enforces exact datatypes on ordinary bindings', () => {
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.note', constraints: { type: 'StringLiteral', datatype: 'string' } },
+                ],
+            };
+            const event = (datatype: string): AES => [{
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'note' }] },
+                key: 'note',
+                datatype,
+                value: { type: 'StringLiteral', value: '$.random', raw: '$.random', span: [1, 9] },
+                span: [1, 9],
+            }] as unknown as AES;
+
+            assert.strictEqual(validate(event('string'), schema).ok, true);
+
+            const mismatched = validate(event('sansa'), schema);
+            assert.strictEqual(mismatched.ok, false);
+            assert.ok(mismatched.errors.some((error) =>
+                error.code === ErrorCodes.TYPE_MISMATCH
+                && error.path === '$.note'
+                && error.message.includes('expected string, got sansa')
+            ));
+        });
+    });
+
     describe('symbolic literal form constraints', () => {
         it('validates min and max digits for hex and radix literals while treating separators as string-like', () => {
             const aes: AES = [
@@ -1588,7 +1615,7 @@ describe('validate()', () => {
                 {
                     path: { segments: [{ type: 'root' }, { type: 'member', key: 'sep' }] },
                     key: 'sep',
-                    datatype: 'sep[|]',
+                    datatype: 'sep["|"]',
                     value: { type: 'SeparatorLiteral', value: '0|0|0', raw: '^0|0|0', span: [10, 16] },
                     span: [10, 16],
                 },
@@ -1734,6 +1761,25 @@ describe('validate()', () => {
             });
             assert.strictEqual(relaxed.ok, true);
         });
+
+        it('does not treat unsupported radix suffixes as declared radix aliases', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'custom' }] },
+                    key: 'custom',
+                    datatype: 'radix10',
+                    value: { type: 'RadixLiteral', value: '9', raw: '%9', span: [1, 3] },
+                    span: [1, 3],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [{ path: '$.custom', constraints: { type: 'RadixLiteral', radix: 10 } }],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.custom'));
+        });
     });
 
     describe('optional trailing separator delimiter policy', () => {
@@ -1742,7 +1788,7 @@ describe('validate()', () => {
             {
                 path: { segments: [{ type: 'root' }, { type: 'member', key: 'line' }] },
                 key: 'line',
-                datatype: 'sep[|]',
+                datatype: 'sep["|"]',
                 value: { type: 'SeparatorLiteral', value: '0|0|0|', raw: '^0|0|0|', span: [1, 8] },
                 span: [1, 8],
             },
@@ -2110,8 +2156,8 @@ describe('validate()', () => {
                     value: {
                         type: 'ObjectNode',
                         bindings: [
-                            { type: 'Binding', key: 'a', value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
-                            { type: 'Binding', key: 'b', value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
+                            { type: 'Binding', key: 'a', structuralId: null, value: { type: 'StringLiteral', value: 'a', raw: '"a"', span: [1, 2] }, attributes: [], span: [1, 2] },
+                            { type: 'Binding', key: 'b', structuralId: null, value: { type: 'StringLiteral', value: 'b', raw: '"b"', span: [3, 4] }, attributes: [], span: [3, 4] },
                         ],
                         attributes: [],
                         span: [0, 5],

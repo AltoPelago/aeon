@@ -33,6 +33,17 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
+    def test_datatype_constraint_requires_exact_label(self) -> None:
+        aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "datatype": "user-id", "value": {"type": "StringLiteral", "raw": '"U-1"', "value": "U-1"}, "span": [0, 1]}]
+        matching = validate(aes, {"rules": [{"path": "$.x", "constraints": {"datatype": "user-id"}}]})
+        self.assertTrue(matching["ok"])
+
+        mismatched = validate(aes, {"rules": [{"path": "$.x", "constraints": {"datatype": "product-id"}}]})
+        self.assertEqual(["type_mismatch"], [error["code"] for error in mismatched["errors"]])
+
+        missing = validate([{key: value for key, value in aes[0].items() if key != "datatype"}], {"rules": [{"path": "$.x", "constraints": {"datatype": "user-id"}}]})
+        self.assertEqual(["type_mismatch"], [error["code"] for error in missing["errors"]])
+
     def test_radix_constraint_for_radix_literals(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "bits"}]}, "key": "bits", "value": {"type": "RadixLiteral", "raw": "%1050", "value": "1050"}, "span": [28, 33]}]
         result = validate(aes, {"rules": [{"path": "$.bits", "constraints": {"type": "RadixLiteral", "radix": 2}}]})

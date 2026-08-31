@@ -40,6 +40,7 @@ export interface Header extends ASTNode {
 export interface Binding extends ASTNode {
     readonly type: 'Binding';
     readonly key: string;
+    readonly structuralId: string | null;
     readonly value: Value;
     readonly datatype: TypeAnnotation | null;
     readonly attributes: readonly Attribute[];
@@ -52,9 +53,10 @@ export interface TypeAnnotation extends ASTNode {
     readonly type: 'TypeAnnotation';
     readonly name: string;
     readonly genericArgs: readonly string[];
-    readonly radixBase?: number | null;
-    readonly separators: readonly string[];
+    readonly clarifiers: readonly ClarifierValue[];
 }
+
+export type ClarifierValue = string | number;
 
 /**
  * Attribute (@{...})
@@ -114,6 +116,7 @@ export type Value =
  */
 export interface TypedValue extends ASTNode {
     readonly type: 'TypedValue';
+    readonly structuralId: string | null;
     readonly datatype: TypeAnnotation | null;
     readonly attributes: readonly Attribute[];
     readonly value: Value;
@@ -242,7 +245,7 @@ export interface DateLiteral extends ASTNode {
 }
 
 /**
- * DateTime literal (including ZRUT)
+ * DateTime literal
  */
 export interface DateTimeLiteral extends ASTNode {
     readonly type: 'DateTimeLiteral';

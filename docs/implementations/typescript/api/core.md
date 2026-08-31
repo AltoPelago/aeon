@@ -44,7 +44,7 @@ interface CompileOptions {
 - `maxAttributeDepth`
   Limits reference/attribute path depth. Default: `1`.
 - `maxSeparatorDepth`
-  Limits separator-spec depth in datatype annotations. Default: `1`.
+  Limits clarifier value depth in datatype annotations. Default: `1`.
 - `emitAnnotations`
   Includes structured annotation records in the result. Default: `true`.
 - `datatypePolicy`

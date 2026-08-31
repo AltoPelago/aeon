@@ -58,6 +58,7 @@ test('materializeMatter builds addressable object and list nodes', () => {
             bindings: [{
               type: 'Binding',
               key: 'done',
+              structuralId: null,
               value: {
                 type: 'BooleanLiteral',
                 value: true,

@@ -144,13 +144,13 @@ function normalizeNode(node: ASTNode): object {
             };
         }
         case 'TypeAnnotation': {
-            const typeAnnotation = node as { type: 'TypeAnnotation'; name: string; genericArgs: readonly string[]; separators: readonly string[]; span: Span };
+            const typeAnnotation = node as { type: 'TypeAnnotation'; name: string; genericArgs: readonly string[]; clarifiers: readonly (string | number)[]; span: Span };
             return {
                 type: typeAnnotation.type,
                 span: normalizeSpan(typeAnnotation.span),
                 name: typeAnnotation.name,
                 genericArgs: [...typeAnnotation.genericArgs],
-                separators: [...typeAnnotation.separators],
+                clarifiers: [...typeAnnotation.clarifiers],
             };
         }
         case 'Attribute': {

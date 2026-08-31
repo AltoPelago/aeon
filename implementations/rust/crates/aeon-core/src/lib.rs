@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 
-use flatten::{flatten_document, flatten_validation_document};
+use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
@@ -172,7 +172,7 @@ pub enum BehaviorMode {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileOptions {
     pub recovery: bool,
     pub max_input_bytes: Option<usize>,
@@ -182,6 +182,7 @@ pub struct CompileOptions {
     pub max_generic_depth: usize,
     pub max_nesting_depth: usize,
     pub datatype_policy: Option<DatatypePolicy>,
+    pub profile: Option<String>,
     pub mode: Option<BehaviorMode>,
     pub shallow_event_values: bool,
     pub emit_binding_projections: bool,
@@ -200,6 +201,7 @@ impl Default for CompileOptions {
             max_generic_depth: 1,
             max_nesting_depth: 256,
             datatype_policy: None,
+            profile: None,
             mode: None,
             shallow_event_values: false,
             emit_binding_projections: true,
@@ -378,7 +380,13 @@ impl Value {
             Self::EncodingLiteral { .. } => "EncodingLiteral",
             Self::RadixLiteral { .. } => "RadixLiteral",
             Self::DateLiteral { .. } => "DateLiteral",
-            Self::DateTimeLiteral { .. } => "DateTimeLiteral",
+            Self::DateTimeLiteral { raw } => {
+                if raw.contains('&') {
+                    "WTCDateTimeLiteral"
+                } else {
+                    "DateTimeLiteral"
+                }
+            }
             Self::TimeLiteral { .. } => "TimeLiteral",
             Self::SansaAddressLiteral { .. } => "SansaAddressLiteral",
             Self::NodeLiteral { .. } => "NodeLiteral",
@@ -735,6 +743,13 @@ fn finalize_compile(
         options.max_generic_depth,
         &mut errors,
     );
+    if uses_gp_profile(options.profile.as_deref(), &bindings) {
+        validate_gp_datatype_clarifiers(
+            &flattened.events,
+            &flattened.rendered_event_paths,
+            &mut errors,
+        );
+    }
     validate_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
@@ -813,6 +828,9 @@ fn validate_only_compile(
         options.max_generic_depth,
         &mut errors,
     );
+    if uses_gp_profile(options.profile.as_deref(), &bindings) {
+        validate_gp_validation_datatype_clarifiers(&flattened.events, &mut errors);
+    }
     trace_compile("compile:validation_only:references");
     validate_reference_steps(
         &flattened.reference_steps,
@@ -835,6 +853,394 @@ fn validate_only_compile(
         bindings: Vec::new(),
         header: None,
     }
+}
+
+const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpDatatypeClarifierRule {
+    None,
+    RadixBase,
+    SeparatorChars,
+    EncodingName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GpClarifierValue {
+    String,
+    Number(String),
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GpDatatypeSurface {
+    name: String,
+    args: Vec<GpDatatypeSurface>,
+    clarifiers: Option<Vec<GpClarifierValue>>,
+}
+
+fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
+    if option_profile == Some(AEON_GP_PROFILE_ID) {
+        return true;
+    }
+    bindings.iter().any(|binding| {
+        binding.key == "aeon:profile"
+            && matches!(
+                &binding.value,
+                Value::StringLiteral { value, .. } if value == AEON_GP_PROFILE_ID
+            )
+    })
+}
+
+fn validate_gp_datatype_clarifiers(
+    events: &[AssignmentEvent],
+    rendered_paths: &[String],
+    errors: &mut Vec<Diagnostic>,
+) {
+    for (index, event) in events.iter().enumerate() {
+        let Some(datatype) = event.datatype.as_deref() else {
+            continue;
+        };
+        let Some(surface) = parse_gp_datatype_surface(datatype) else {
+            continue;
+        };
+        let rendered_path = rendered_paths
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| format_path(&event.path));
+        validate_gp_datatype_surface(&surface, &rendered_path, event.span, errors);
+    }
+}
+
+fn validate_gp_validation_datatype_clarifiers(
+    events: &[ValidationEvent],
+    errors: &mut Vec<Diagnostic>,
+) {
+    for event in events {
+        let Some(datatype) = event.datatype.as_deref() else {
+            continue;
+        };
+        let Some(surface) = parse_gp_datatype_surface(datatype) else {
+            continue;
+        };
+        validate_gp_datatype_surface(&surface, &event.path, event.span, errors);
+    }
+}
+
+fn validate_gp_datatype_surface(
+    datatype: &GpDatatypeSurface,
+    rendered_path: &str,
+    span: Span,
+    errors: &mut Vec<Diagnostic>,
+) {
+    if let Some(clarifiers) = &datatype.clarifiers {
+        match gp_datatype_clarifier_rule(&datatype.name) {
+            Some(GpDatatypeClarifierRule::RadixBase) => {
+                if !valid_radix_base_clarifiers(clarifiers) {
+                    errors.push(
+                        Diagnostic::new(
+                            "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                            format!(
+                                "Profile datatype ':{}' expects exactly one integral radix-base clarifier from 2 to 64",
+                                datatype.name
+                            ),
+                        )
+                        .at_path(rendered_path)
+                        .with_span(span),
+                    );
+                }
+            }
+            Some(GpDatatypeClarifierRule::SeparatorChars) => {
+                if clarifiers.is_empty()
+                    || clarifiers
+                        .iter()
+                        .any(|value| !matches!(value, GpClarifierValue::String))
+                {
+                    errors.push(
+                        Diagnostic::new(
+                            "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                            format!(
+                                "Profile datatype ':{}' expects string separator-character clarifiers",
+                                datatype.name
+                            ),
+                        )
+                        .at_path(rendered_path)
+                        .with_span(span),
+                    );
+                }
+            }
+            Some(GpDatatypeClarifierRule::EncodingName) => {
+                if clarifiers.len() != 1
+                    || !matches!(clarifiers.first(), Some(GpClarifierValue::String))
+                {
+                    errors.push(
+                        Diagnostic::new(
+                            "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                            format!(
+                                "Profile datatype ':{}' expects exactly one string encoding-name clarifier",
+                                datatype.name
+                            ),
+                        )
+                        .at_path(rendered_path)
+                        .with_span(span),
+                    );
+                }
+            }
+            Some(GpDatatypeClarifierRule::None) | None => {
+                errors.push(
+                    Diagnostic::new(
+                        "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+                        format!(
+                            "Profile does not allow clarifiers on datatype ':{}'",
+                            datatype.name
+                        ),
+                    )
+                    .at_path(rendered_path)
+                    .with_span(span),
+                );
+            }
+        }
+    }
+
+    for arg in &datatype.args {
+        validate_gp_datatype_surface(arg, rendered_path, span, errors);
+    }
+}
+
+fn gp_datatype_clarifier_rule(name: &str) -> Option<GpDatatypeClarifierRule> {
+    match name {
+        "decimal" | "kadot" => Some(GpDatatypeClarifierRule::None),
+        "radix" => Some(GpDatatypeClarifierRule::RadixBase),
+        "sep" | "separator" => Some(GpDatatypeClarifierRule::SeparatorChars),
+        "encoding" | "inline" | "embed" => Some(GpDatatypeClarifierRule::EncodingName),
+        _ => None,
+    }
+}
+
+fn valid_radix_base_clarifiers(clarifiers: &[GpClarifierValue]) -> bool {
+    let [GpClarifierValue::Number(raw)] = clarifiers else {
+        return false;
+    };
+    parse_gp_integer(raw).is_some_and(|value| (2..=64).contains(&value))
+}
+
+fn parse_gp_integer(raw: &str) -> Option<i64> {
+    let normalized = raw.replace('_', "");
+    let digits = normalized.strip_prefix('+').unwrap_or(&normalized);
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<i64>().ok()
+}
+
+fn parse_gp_datatype_surface(input: &str) -> Option<GpDatatypeSurface> {
+    let source = input.trim();
+    let (name, mut index) = parse_gp_datatype_name(source, 0)?;
+    index = skip_gp_whitespace(source, index);
+
+    let mut args = Vec::new();
+    if source[index..].starts_with('<') {
+        let end = find_gp_matching_delimiter(source, index, '<', '>')?;
+        let inner = &source[index + 1..end];
+        for part in split_gp_top_level(inner, ',') {
+            let part = part.trim();
+            if !part.is_empty() {
+                args.push(parse_gp_datatype_surface(part)?);
+            }
+        }
+        index = skip_gp_whitespace(source, end + 1);
+    }
+
+    let clarifiers = if source[index..].starts_with('[') {
+        let end = find_gp_matching_delimiter(source, index, '[', ']')?;
+        let values = parse_gp_clarifier_values(&source[index + 1..end])?;
+        index = skip_gp_whitespace(source, end + 1);
+        Some(values)
+    } else {
+        None
+    };
+
+    if index != source.len() {
+        return None;
+    }
+
+    Some(GpDatatypeSurface {
+        name,
+        args,
+        clarifiers,
+    })
+}
+
+fn parse_gp_datatype_name(source: &str, start: usize) -> Option<(String, usize)> {
+    let mut chars = source[start..].char_indices();
+    let (_, first) = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    let mut end = start + first.len_utf8();
+    for (offset, ch) in chars {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            end = start + offset + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    Some((source[start..end].to_owned(), end))
+}
+
+fn parse_gp_clarifier_values(input: &str) -> Option<Vec<GpClarifierValue>> {
+    let mut values = Vec::new();
+    let mut index = skip_gp_whitespace(input, 0);
+    if index == input.len() {
+        return Some(values);
+    }
+
+    while index < input.len() {
+        let (value, next_index) = parse_gp_clarifier_value(input, index)?;
+        values.push(value);
+        index = skip_gp_whitespace(input, next_index);
+        if index == input.len() {
+            break;
+        }
+        if input[index..].starts_with(',') {
+            index = skip_gp_whitespace(input, index + 1);
+            continue;
+        }
+        return None;
+    }
+
+    Some(values)
+}
+
+fn parse_gp_clarifier_value(input: &str, start: usize) -> Option<(GpClarifierValue, usize)> {
+    let ch = input[start..].chars().next()?;
+    if matches!(ch, '"' | '\'' | '`') {
+        let end = scan_gp_quoted(input, start, ch)?;
+        return Some((GpClarifierValue::String, end));
+    }
+
+    let mut end = start;
+    for (offset, ch) in input[start..].char_indices() {
+        if ch == ',' {
+            break;
+        }
+        end = start + offset + ch.len_utf8();
+    }
+    let raw = input[start..end].trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let is_number_like = raw
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || matches!(ch, '+' | '-' | '_' | '.' | 'e' | 'E'));
+    if is_number_like && raw.chars().any(|ch| ch.is_ascii_digit()) {
+        Some((GpClarifierValue::Number(raw.to_owned()), end))
+    } else {
+        Some((GpClarifierValue::Other, end))
+    }
+}
+
+fn scan_gp_quoted(input: &str, start: usize, quote: char) -> Option<usize> {
+    let mut escaped = false;
+    for (offset, ch) in input[start + quote.len_utf8()..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            return Some(start + quote.len_utf8() + offset + quote.len_utf8());
+        }
+    }
+    None
+}
+
+fn find_gp_matching_delimiter(
+    source: &str,
+    start: usize,
+    open: char,
+    close: char,
+) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quoted: Option<char> = None;
+    let mut escaped = false;
+    for (offset, ch) in source[start..].char_indices() {
+        if let Some(quote) = quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                quoted = None;
+            }
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quoted = Some(ch);
+            continue;
+        }
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(start + offset);
+            }
+        }
+    }
+    None
+}
+
+fn split_gp_top_level(input: &str, delimiter: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut angle_depth = 0usize;
+    let mut square_depth = 0usize;
+    let mut quoted: Option<char> = None;
+    let mut escaped = false;
+
+    for (offset, ch) in input.char_indices() {
+        if let Some(quote) = quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                quoted = None;
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' | '`' => quoted = Some(ch),
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '[' => square_depth += 1,
+            ']' => square_depth = square_depth.saturating_sub(1),
+            _ if ch == delimiter && angle_depth == 0 && square_depth == 0 => {
+                parts.push(&input[start..offset]);
+                start = offset + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(&input[start..]);
+    parts
+}
+
+fn skip_gp_whitespace(source: &str, mut index: usize) -> usize {
+    while index < source.len() {
+        let Some(ch) = source[index..].chars().next() else {
+            break;
+        };
+        if !ch.is_whitespace() {
+            break;
+        }
+        index += ch.len_utf8();
+    }
+    index
 }
 
 fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
@@ -1579,7 +1985,7 @@ mod tests {
                 "Invalid datetime literal: '2007-01-02t10:10:25'",
             ),
             (
-                "a:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
+                "a:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne\n",
                 "SYNTAX_ERROR",
                 "Invalid datetime literal: '2007-01-02t10:10:25Z&Australia/Melbourne'",
             ),
@@ -1605,7 +2011,7 @@ mod tests {
     fn rejects_lowercase_z_datetime_markers_as_syntax_errors() {
         for source in [
             "a:datetime = 2007-01-02T10:10:25z\n",
-            "a:zrut = 2007-01-02T10:10:25z&Australia/Melbourne\n",
+            "a:wtc = 2007-01-02T10:10:25z&Australia/Melbourne\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(
@@ -1625,17 +2031,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_malformed_zrut_zone_punctuation() {
+    fn rejects_malformed_wtc_reference_punctuation() {
         for source in [
-            "z:zrut = 2025-01-01T09Z&Europe*Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe#Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe[Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe;Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe=Brussels\n",
-            "z:zrut = 2025-01-01T09Z&Europe'Brussels\n",
-            "z:zrut = 2025-01-01T09Z&*\n",
-            "z:zrut = 2025-01-01T09Z&#\n",
-            "z:zrut = 2025-01-01T09Z&Europe/Brussels&Local\n",
+            "z:wtc = 2025-01-01T09Z&Europe*Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe#Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe[Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe;Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe=Brussels\n",
+            "z:wtc = 2025-01-01T09Z&Europe'Brussels\n",
+            "z:wtc = 2025-01-01T09Z&*\n",
+            "z:wtc = 2025-01-01T09Z&#\n",
+            "z:wtc = 2025-01-01T09Z&Europe/Brussels&Local\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(
@@ -1648,12 +2054,13 @@ mod tests {
     }
 
     #[test]
-    fn accepts_valid_zrut_zone_characters() {
+    fn accepts_valid_wtc_reference_characters() {
         for source in [
-            "z:zrut = 2025-01-01T09Z&America/Port-au-Prince\n",
-            "z:zrut = 2025-01-01T09Z&GB-Eire\n",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT-1\n",
-            "z:zrut = 2025-01-01T09Z&Etc/GMT+1\n",
+            "z:wtc = 2025-01-01T09Z&America/Port-au-Prince\n",
+            "z:wtc = 2025-01-01T09Z&GB-Eire\n",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT-1\n",
+            "z:wtc = 2025-01-01T09Z&Etc/GMT+1\n",
+            "z:wtc = 2035-01-01T09:00&-36.7590183/144.2826718\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -1965,18 +2372,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_reserved_comma_separator_datatypes() {
+    fn rejects_unquoted_comma_separator_clarifiers() {
         let result = compile("badSepType2:sep[,] = ^0,0,0,\n", CompileOptions::default());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR"
+                    && error.message.contains("Expected clarifier value"))
         );
     }
 
     #[test]
-    fn recovers_past_comma_split_separator_literals_to_report_separator_datatype_errors() {
+    fn recovers_past_old_separator_clarifiers_to_report_syntax_errors() {
         let result = compile(
             "badSepType1:matrix[,][;] = ^1,2,3;4,5,6\nbadSepType2:sep[,] = ^0,0,0,\n",
             CompileOptions::default(),
@@ -1985,25 +2393,25 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR")
         );
     }
 
     #[test]
-    fn rejects_reserved_slash_separator_datatypes() {
+    fn rejects_unquoted_slash_separator_clarifiers() {
         let result = compile("badSepType3:sep[/] = ^000.000\n", CompileOptions::default());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "SYNTAX_ERROR")
         );
     }
 
     #[test]
     fn accepts_reserved_angle_separator_datatypes() {
         let result = compile(
-            "a:sep[<] = ^a<b\nb:sep[>] = ^a>b\nc:sep[<] = ^a<b\nd:sep[>] = ^a>b\n",
+            "a:sep[\"<\"] = ^a<b\nb:sep[\">\"] = ^a>b\nc:sep[\"<\"] = ^a<b\nd:sep[\">\"] = ^a>b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2012,7 +2420,7 @@ mod tests {
     #[test]
     fn accepts_reserved_caret_separator_datatypes() {
         let result = compile(
-            "a:sep[^] = ^a^b\nb:sep[^] = ^a^b\n",
+            "a:sep[\"^\"] = ^a^b\nb:sep[\"^\"] = ^a^b\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2071,9 +2479,7 @@ mod tests {
         );
         assert!(result.errors.iter().any(|error| {
             error.code == "SYNTAX_ERROR"
-                && error
-                    .message
-                    .contains("Radix base must be an integer from 2 to 64")
+                && error.message.contains("must be `radix` or `radix[2..64]`")
         }));
         assert!(
             !result
@@ -2267,32 +2673,30 @@ mod tests {
     }
 
     #[test]
-    fn custom_mode_rejects_scalar_values_for_bracketed_custom_datatypes() {
+    fn custom_mode_allows_scalar_values_for_clarified_custom_datatypes() {
         let radix_like_result = compile(
             "aeon:mode = \"custom\"\nd:custom[3] = 3\n",
             CompileOptions::default(),
         );
         assert!(
-            radix_like_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            radix_like_result.errors.is_empty(),
+            "{:?}",
+            radix_like_result.errors
         );
 
         let separator_like_result = compile(
-            "aeon:mode = \"custom\"\ne:custom[.] = 3\n",
+            "aeon:mode = \"custom\"\ne:custom[\".\"] = 3\n",
             CompileOptions::default(),
         );
         assert!(
-            separator_like_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            separator_like_result.errors.is_empty(),
+            "{:?}",
+            separator_like_result.errors
         );
     }
 
     #[test]
-    fn custom_mode_keeps_valid_custom_separator_and_radix_bindings() {
+    fn custom_mode_preserves_custom_clarifier_bindings() {
         let radix_result = compile(
             "aeon:mode = \"custom\"\nf:custom[2] = %10101\n",
             CompileOptions::default(),
@@ -2300,7 +2704,7 @@ mod tests {
         assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
 
         let separator_result = compile(
-            "aeon:mode = \"custom\"\ng:custom[.] = ^1.1.1\n",
+            "aeon:mode = \"custom\"\ng:custom[\".\"] = ^1.1.1\n",
             CompileOptions::default(),
         );
         assert!(
@@ -2321,28 +2725,22 @@ mod tests {
     }
 
     #[test]
-    fn custom_mode_reports_incompatible_generic_and_bracket_constraints_clearly() {
+    fn custom_mode_allows_generic_custom_datatypes_with_clarifiers() {
         let result = compile(
-            "aeon:mode = \"custom\"\na:custom<custom>[.] = [2]\n",
+            "aeon:mode = \"custom\"\na:custom<custom>[\".\"] = [2]\n",
             CompileOptions::default(),
         );
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-        assert!(
-            result.errors[0]
-                .message
-                .contains("combines incompatible generic and bracket constraints")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
-    fn custom_mode_ignores_angle_brackets_inside_separator_specs() {
+    fn custom_mode_ignores_angle_brackets_inside_clarifiers() {
         assert!(datatype_has_generic_args("custom<custom>"));
-        assert!(!datatype_has_generic_args("custom[\"<\"][\">\"]"));
+        assert!(!datatype_has_generic_args("custom[\"<\",\">\"]"));
     }
 
     #[test]
-    fn custom_bracket_specs_reject_multi_digit_separator_case_but_allow_radix_case() {
+    fn custom_numeric_clarifiers_do_not_constrain_separator_or_radix_literals() {
         let separator_result = compile(
             "aeon:mode = \"strict\"\na:test[22] = ^300x200\n",
             CompileOptions {
@@ -2351,10 +2749,9 @@ mod tests {
             },
         );
         assert!(
-            separator_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
+            separator_result.errors.is_empty(),
+            "{:?}",
+            separator_result.errors
         );
 
         let radix_result = compile(
@@ -2368,9 +2765,9 @@ mod tests {
     }
 
     #[test]
-    fn custom_separator_style_specs_only_allow_separator_literals() {
+    fn custom_string_clarifiers_do_not_constrain_separator_or_radix_literals() {
         let separator_result = compile(
-            "aeon:mode = \"strict\"\na:custom[.] = ^300x200\n",
+            "aeon:mode = \"strict\"\na:custom[\".\"] = ^300x200\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
@@ -2383,22 +2780,17 @@ mod tests {
         );
 
         let radix_result = compile(
-            "aeon:mode = \"strict\"\nb:custom[.] = %0101\n",
+            "aeon:mode = \"strict\"\nb:custom[\".\"] = %0101\n",
             CompileOptions {
                 datatype_policy: Some(DatatypePolicy::AllowCustom),
                 ..CompileOptions::default()
             },
         );
-        assert!(
-            radix_result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
-        );
+        assert!(radix_result.errors.is_empty(), "{:?}", radix_result.errors);
     }
 
     #[test]
-    fn custom_bracket_specs_invalid_for_both_report_specific_message() {
+    fn custom_clarifier_values_outside_core_meaning_are_allowed() {
         let result = compile(
             "aeon:mode = \"strict\"\na:custom[222] = %222\n",
             CompileOptions {
@@ -2406,26 +2798,93 @@ mod tests {
                 ..CompileOptions::default()
             },
         );
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-        assert_eq!(
-            result.errors[0].message,
-            "Datatype/literal mismatch at '$.a': datatype ':custom[222]' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got RadixLiteral"
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_adornments() {
-        for source in [
-            "a:n<string> = 3\n",
-            "b:boolean<toggle> = true\n",
-            "b:string[333] = \"hello world\"\n",
-            "r:radix2[4] = %111\n",
-        ] {
+    fn rejects_meaningless_reserved_datatype_generics() {
+        for source in ["a:n<string> = 3\n", "b:boolean<toggle> = true\n"] {
             let result = compile(source, CompileOptions::default());
             assert!(!result.errors.is_empty(), "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
+    }
+
+    #[test]
+    fn preserves_reserved_datatype_clarifiers_without_core_meaning() {
+        let result = compile(
+            "aeon:mode = \"strict\"\na:n[10] = 22\nb:string[333] = \"hello world\"\nr:radix2[4] = %111\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("n[10]"));
+        assert_eq!(result.events[1].datatype.as_deref(), Some("string[333]"));
+        assert_eq!(result.events[2].datatype.as_deref(), Some("radix2[4]"));
+    }
+
+    #[test]
+    fn gp_profile_rejects_disallowed_datatype_clarifiers() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\na:n[3] = 3\n",
+            CompileOptions::default(),
+        );
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
+    }
+
+    #[test]
+    fn gp_profile_validates_radix_datatype_clarifiers() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nb:radix[\"hello\"] = %01\n",
+            CompileOptions::default(),
+        );
+        assert!(result.events.is_empty());
+        assert!(result.errors.iter().any(|error| {
+            error.code == "PROFILE_DATATYPE_CLARIFIER_INVALID" || error.code == "DATATYPE_SHAPE"
+        }));
+    }
+
+    #[test]
+    fn gp_profile_allows_encoding_name_clarifiers() {
+        for source in [
+            "aeon:profile = \"aeon.gp.profile.v1\"\ncode:encoding[\"base58\"] = &FFF\n",
+            "aeon:profile = \"aeon.gp.profile.v1\"\ncode:inline[\"base58\"] = &FFF\n",
+            "aeon:profile = \"aeon.gp.profile.v1\"\ncode:embed[\"base58\"] = &FFF\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn gp_profile_rejects_invalid_encoding_name_clarifiers() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\ncode:encoding[58] = &FFF\n",
+            CompileOptions::default(),
+        );
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "PROFILE_DATATYPE_CLARIFIER_INVALID");
+    }
+
+    #[test]
+    fn gp_profile_option_enables_datatype_clarifier_validation() {
+        let result = compile(
+            "a:n[3] = 3\n",
+            CompileOptions {
+                profile: Some(String::from("aeon.gp.profile.v1")),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.events.is_empty());
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
     }
 
     #[test]
@@ -2656,7 +3115,7 @@ mod tests {
     #[test]
     fn supports_comma_delimited_separator_literals() {
         let result = compile(
-            "obj = { sep10:sep[.] = ^93.2.3.3, sep11:sep[x] = ^800x600, sep12:sep[-] = ^2025-01-01 }\n",
+            "obj = { sep10:sep[\".\"] = ^93.2.3.3, sep11:sep[\"x\"] = ^800x600, sep12:sep[\"-\"] = ^2025-01-01 }\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -2794,8 +3253,8 @@ mod tests {
              d:date = 2025-12-12\n\
              t:time = 09:30:00Z\n\
              dt:datetime = 2025-01-01T09:30:00Z\n\
-             z:zrut = 2025-01-01T00:00:00Z&Australia/Sydney\n\
-             sep:sep[;] = ^a;b;c\n",
+             z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n\
+             sep:sep[\";\"] = ^a;b;c\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2805,7 +3264,7 @@ mod tests {
     #[test]
     fn separator_literals_accept_quoted_sections_in_payload() {
         let result = compile(
-            "a:sep[|] = ^\"hello world\"|\"this, [is] fine\"\n",
+            "a:sep[\"|\"] = ^\"hello world\"|\"this, [is] fine\"\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2814,21 +3273,21 @@ mod tests {
 
     #[test]
     fn separator_literals_reject_unterminated_quoted_sections() {
-        let result = compile("a:sep[|] = ^\"0;0\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^\"0;0\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "UNTERMINATED_STRING");
     }
 
     #[test]
     fn separator_literals_stop_before_comments_resume() {
-        let result = compile("a:sep[|] = ^aaa // d\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^aaa // d\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
     }
 
     #[test]
     fn separator_literals_reject_raw_slashes() {
-        let result = compile("a:sep[|] = ^root/main\n", CompileOptions::default());
+        let result = compile("a:sep[\"|\"] = ^root/main\n", CompileOptions::default());
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
     }

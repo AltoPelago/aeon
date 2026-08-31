@@ -84,6 +84,15 @@ export interface ProfileCapabilities {
     readonly clones: boolean;
 }
 
+export type DatatypeClarifierSemantics = 'none' | 'radix_base' | 'separator_chars' | 'encoding_name';
+
+export interface DatatypeSemantics {
+    readonly literalFamily: string;
+    readonly clarifiers: DatatypeClarifierSemantics;
+    readonly aliasOf?: string;
+    readonly equivalentTo?: string;
+}
+
 export interface Profile {
     readonly id: string;
     readonly version?: string;
@@ -91,6 +100,7 @@ export interface Profile {
     readonly datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
     readonly collections?: Readonly<Record<string, CollectionSemantics>>;
     readonly containers?: Readonly<Record<string, ContainerSemantics>>;
+    readonly datatypeSemantics?: Readonly<Record<string, DatatypeSemantics>>;
     readonly capabilities?: ProfileCapabilities;
     compile(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] | void;
     readonly processors?: readonly Processor[];

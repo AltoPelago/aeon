@@ -34,7 +34,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
     'DateLiteral': ['DateLiteral'],
     'TimeLiteral': ['TimeLiteral'],
     'DateTimeLiteral': ['DateTimeLiteral'],
-    'ZRUTDateTimeLiteral': ['ZRUTDateTimeLiteral'],
+    'WTCDateTimeLiteral': ['WTCDateTimeLiteral'],
     'ObjectNode': ['ObjectNode'],
     'ListNode': ['ListNode'],
     'ListLiteral': ['ListNode', 'ListLiteral'],
@@ -49,6 +49,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
 interface TypedValue {
     type: string;
     raw?: string;
+    datatype?: string;
     span: Span;
 }
 
@@ -69,9 +70,10 @@ export function checkTypes(
 ): void {
     for (const [path, rule] of ruleIndex) {
         const expectedType = rule.constraints.type;
+        const expectedDatatype = rule.constraints.datatype;
         const expectedContainer = (rule.constraints as any).type_is as 'list' | 'tuple' | undefined;
 
-        if (expectedType === undefined && expectedContainer === undefined) continue;
+        if (expectedType === undefined && expectedDatatype === undefined && expectedContainer === undefined) continue;
 
         const event = events.get(path);
         if (!event) continue; // Missing path handled by presence check
@@ -90,6 +92,15 @@ export function checkTypes(
                     ErrorCodes.WRONG_CONTAINER_KIND
                 ));
             }
+        }
+
+        if (expectedDatatype !== undefined && event.datatype !== expectedDatatype) {
+            emitError(ctx, createDiag(
+                path,
+                event.span,
+                `Datatype mismatch: expected ${expectedDatatype}, got ${event.datatype ?? 'none'}`,
+                ErrorCodes.TYPE_MISMATCH
+            ));
         }
 
         if (expectedType === undefined) continue;

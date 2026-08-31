@@ -8,7 +8,7 @@ Lanes:
   - built-in vs custom datatype policy (`reserved_only` vs `allow_custom`)
   - toggle literals
   - hex/radix/encoding/separator literals
-  - date/datetime/ZRUT
+  - date/datetime/WTC
   - tuples
   - separator depth gating (`maxSeparatorDepth`)
   - attribute ordering and typed attributes
@@ -61,7 +61,7 @@ Current baseline:
 Notable current policy assumptions:
 - strict mode defaults to `datatypePolicy: reserved_only`
 - custom datatype pass cases explicitly opt into `allow_custom`
-- separator chars `,`, `;`, `[` and `]` are invalid
+- separator clarifier chars `,`, `;`, `[` and `]` require quoting
 - nested object smoke cases use `:object`, not `:node`
 
 Findings docs:

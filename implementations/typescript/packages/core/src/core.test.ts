@@ -539,36 +539,36 @@ describe('Core - compile()', () => {
 
     describe('separator depth policy', () => {
         it('should enforce max_separator_depth by default', () => {
-            const result = compile('a:grid[|][x] = ^1|2x3');
+            const result = compile('a:grid["|", "x"] = ^1|2x3');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'SEPARATOR_DEPTH_EXCEEDED'));
         });
 
-        it('should allow chained separator specs when max_separator_depth is raised', () => {
-            const result = compile('a:grid[|][x] = ^1|2x3', { maxSeparatorDepth: 8 });
+        it('should allow clarifier lists when max_separator_depth is raised', () => {
+            const result = compile('a:grid["|", "x"] = ^1|2x3', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
         it('should accept raw separator payloads that stay within the whitelist', () => {
-            const result = compile('a:sep[|] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep["|"] = ^0|0|0;0|0', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
         it('should accept quoted separator segments with spaces and punctuation', () => {
-            const result = compile('a:sep[|] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep["|"] = ^"hello world"|"this, [is] fine"', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
 
         it('should reject unterminated quoted sections inside separator literal payload', () => {
-            const result = compile('a:sep[|] = ^"0;0', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep["|"] = ^"0;0', { maxSeparatorDepth: 8 });
             assert.ok(result.errors.some((e) => e.code === 'UNTERMINATED_STRING'));
         });
 
         it('should terminate raw separator payloads before comment syntax resumes', () => {
-            const result = compile('a:sep[|] = ^aaa // d', { maxSeparatorDepth: 8 });
+            const result = compile('a:sep["|"] = ^aaa // d', { maxSeparatorDepth: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
@@ -1037,20 +1037,28 @@ describe('Core - compile()', () => {
             assert.ok(tupleResult.events.length > 0);
         });
 
-        it('should reject scalar values for custom bracket specs in custom mode', () => {
+        it('should allow custom clarifiers without imposing literal family in custom mode', () => {
             const radixLikeResult = compile('aeon:mode = "custom"\nd:custom[3] = 3');
-            assert.ok(radixLikeResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(radixLikeResult.errors.length, 0);
 
-            const separatorLikeResult = compile('aeon:mode = "custom"\ne:custom[.] = 3');
-            assert.ok(separatorLikeResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            const separatorLikeResult = compile('aeon:mode = "custom"\ne:custom["."] = 3');
+            assert.strictEqual(separatorLikeResult.errors.length, 0);
         });
 
-        it('should allow valid custom separator and radix bindings in custom mode', () => {
+        it('should preserve clarifiers on reserved datatypes without imposing profile meaning', () => {
+            const result = compile('aeon:mode = "strict"\na:n[10] = 22');
+            const event = result.events.find((candidate) => candidate.normalizedPath === '$.a');
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(event?.datatype, 'n[10]');
+        });
+
+        it('should preserve custom clarifier bindings in custom mode', () => {
             const radixResult = compile('aeon:mode = "custom"\nf:custom[2] = %10101');
             assert.strictEqual(radixResult.errors.length, 0);
             assert.ok(radixResult.events.length > 0);
 
-            const separatorResult = compile('aeon:mode = "custom"\ng:custom[.] = ^1.1.1');
+            const separatorResult = compile('aeon:mode = "custom"\ng:custom["."] = ^1.1.1');
             assert.strictEqual(separatorResult.errors.length, 0);
             assert.ok(separatorResult.events.length > 0);
 
@@ -1059,7 +1067,7 @@ describe('Core - compile()', () => {
             assert.ok(ambiguousResult.events.length > 0);
         });
 
-        it('should allow single-digit custom bracket specs for both separator and radix literals', () => {
+        it('should allow numeric custom clarifiers for both separator and radix literals', () => {
             const separatorResult = compile('aeon:mode = "strict"\na:custom[2] = ^a2a', {
                 datatypePolicy: 'allow_custom',
             });
@@ -1073,11 +1081,12 @@ describe('Core - compile()', () => {
             assert.ok(radixResult.events.length > 0);
         });
 
-        it('should reject multi-digit custom bracket specs for separator literals while allowing radix literals', () => {
+        it('should allow multi-digit custom clarifiers for separator and radix literals', () => {
             const separatorResult = compile('aeon:mode = "strict"\na:test[22] = ^300x200', {
                 datatypePolicy: 'allow_custom',
             });
-            assert.ok(separatorResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(separatorResult.errors.length, 0);
+            assert.ok(separatorResult.events.length > 0);
 
             const radixResult = compile('aeon:mode = "strict"\nb:test[22] = %0101', {
                 datatypePolicy: 'allow_custom',
@@ -1086,29 +1095,26 @@ describe('Core - compile()', () => {
             assert.ok(radixResult.events.length > 0);
         });
 
-        it('should allow separator-style custom bracket specs only for separator literals', () => {
-            const separatorResult = compile('aeon:mode = "strict"\na:custom[.] = ^300x200', {
+        it('should allow string custom clarifiers for separator and radix literals', () => {
+            const separatorResult = compile('aeon:mode = "strict"\na:custom["."] = ^300x200', {
                 datatypePolicy: 'allow_custom',
             });
             assert.strictEqual(separatorResult.errors.length, 0);
             assert.ok(separatorResult.events.length > 0);
 
-            const radixResult = compile('aeon:mode = "strict"\nb:custom[.] = %0101', {
+            const radixResult = compile('aeon:mode = "strict"\nb:custom["."] = %0101', {
                 datatypePolicy: 'allow_custom',
             });
-            assert.ok(radixResult.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.strictEqual(radixResult.errors.length, 0);
+            assert.ok(radixResult.events.length > 0);
         });
 
-        it('should report custom bracket specs that are invalid for both separator and radix literals', () => {
+        it('should allow custom clarifier values outside core datatype meaning', () => {
             const result = compile('aeon:mode = "strict"\na:custom[222] = %222', {
                 datatypePolicy: 'allow_custom',
             });
-            assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.code, 'DATATYPE_LITERAL_MISMATCH');
-            assert.strictEqual(
-                result.errors[0]!.message,
-                "Datatype/literal mismatch at '$.a': datatype ':custom[222]' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got RadixLiteral"
-            );
+            assert.strictEqual(result.errors.length, 0);
+            assert.ok(result.events.length > 0);
         });
 
         it('should treat removed reserved aliases as custom datatypes in strict mode', () => {

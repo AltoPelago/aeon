@@ -220,6 +220,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                 {
                     type: 'Binding',
                     key: '$node',
+                    structuralId: null,
                     value: {
                         type: 'StringLiteral',
                         value: value.tag,
@@ -235,12 +236,14 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                     ? [{
                         type: 'Binding' as const,
                         key: '@',
+                        structuralId: null,
                         value: {
                             type: 'ObjectNode' as const,
                             bindings: value.attributes.flatMap((attribute) =>
                                 Array.from(attribute.entries.entries()).map(([key, entry]) => ({
                                     type: 'Binding' as const,
                                     key,
+                                    structuralId: null,
                                     value: entry.value,
                                     datatype: entry.datatype,
                                     attributes: [],
@@ -258,6 +261,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                 {
                     type: 'Binding',
                     key: '$children',
+                    structuralId: null,
                     value: {
                         type: 'ListNode',
                         elements: value.children,

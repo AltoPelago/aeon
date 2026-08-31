@@ -2,7 +2,7 @@
 
 Dependency-free Python implementation of the AEON Core v1 parser surface.
 
-Current package line: `0.11.0`.
+Current package line: `0.12.0`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 

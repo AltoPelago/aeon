@@ -131,30 +131,6 @@ export class DatatypeLiteralMismatchError extends ModeEnforcementError {
     }
 }
 
-export class InvalidCustomDatatypeBracketShapeError extends ModeEnforcementError {
-    constructor(span: Span, path: string, datatype: string, actualKind: string) {
-        super(
-            `Datatype/literal mismatch at '${path}': datatype ':${datatype}' has bracket specs incompatible with both SeparatorLiteral and RadixLiteral, got ${actualKind}`,
-            span,
-            'DATATYPE_LITERAL_MISMATCH',
-            path
-        );
-        this.name = 'InvalidCustomDatatypeBracketShapeError';
-    }
-}
-
-export class IncompatibleCustomDatatypeAdornmentsError extends ModeEnforcementError {
-    constructor(span: Span, path: string, datatype: string, actualKind: string) {
-        super(
-            `Datatype/literal mismatch at '${path}': datatype ':${datatype}' combines incompatible generic and bracket constraints, got ${actualKind}`,
-            span,
-            'DATATYPE_LITERAL_MISMATCH',
-            path
-        );
-        this.name = 'IncompatibleCustomDatatypeAdornmentsError';
-    }
-}
-
 /**
  * Error: Custom datatype is not permitted by typed-mode datatype policy
  */
@@ -314,32 +290,15 @@ export function enforceMode(
             ));
         }
         if (!expectedKinds) {
-            const customShape = classifyCustomDatatypeShape(event.datatype);
-            if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
-                errors.push(new InvalidCustomDatatypeBracketShapeError(
+            const customExpectedKinds = expectedKindsForCustomDatatype(event.datatype);
+            if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                errors.push(new DatatypeLiteralMismatchError(
                     event.span,
                     formatPath(event.path),
                     event.datatype,
-                    actualKind
+                    actualKind,
+                    customExpectedKinds
                 ));
-            } else {
-                const customExpectedKinds = expectedKindsForCustomDatatype(event.datatype, customShape);
-                if (customExpectedKinds && customExpectedKinds.length === 0) {
-                    errors.push(new IncompatibleCustomDatatypeAdornmentsError(
-                        event.span,
-                        formatPath(event.path),
-                        event.datatype,
-                        actualKind
-                    ));
-                } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                    errors.push(new DatatypeLiteralMismatchError(
-                        event.span,
-                        formatPath(event.path),
-                        event.datatype,
-                        actualKind,
-                        customExpectedKinds
-                    ));
-                }
             }
         }
         errors.push(...validateAnnotationEntries(
@@ -432,7 +391,7 @@ function resolvedValueKind(value: Value): string {
         return value.trimticks ? 'TrimtickStringLiteral' : 'StringLiteral';
     }
     if (value.type === 'DateTimeLiteral') {
-        return value.raw.includes('&') ? 'ZRUTDateTimeLiteral' : 'DateTimeLiteral';
+        return value.raw.includes('&') ? 'WTCDateTimeLiteral' : 'DateTimeLiteral';
     }
     if (value.type === 'SeparatorLiteral') {
         return 'SeparatorLiteral';
@@ -476,16 +435,9 @@ function validateAnonymousTypedValues(
                 } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
                 } else if (!expectedKinds) {
-                    const customShape = classifyCustomDatatypeShape(datatype);
-                    if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
-                        errors.push(new InvalidCustomDatatypeBracketShapeError(value.span, ownerPath, datatype, actualKind));
-                    } else {
-                        const customExpectedKinds = expectedKindsForCustomDatatype(datatype, customShape);
-                        if (customExpectedKinds && customExpectedKinds.length === 0) {
-                            errors.push(new IncompatibleCustomDatatypeAdornmentsError(value.span, ownerPath, datatype, actualKind));
-                        } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                            errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
-                        }
+                    const customExpectedKinds = expectedKindsForCustomDatatype(datatype);
+                    if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                        errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
                     }
                 }
             }
@@ -615,32 +567,15 @@ function validateAnnotationEntries(
                     ));
                 }
                 if (!expectedKinds) {
-                    const customShape = classifyCustomDatatypeShape(entry.datatype);
-                    if (customShape === 'invalid_both' && (actualKind === 'SeparatorLiteral' || actualKind === 'RadixLiteral')) {
-                        errors.push(new InvalidCustomDatatypeBracketShapeError(
+                    const customExpectedKinds = expectedKindsForCustomDatatype(entry.datatype);
+                    if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
+                        errors.push(new DatatypeLiteralMismatchError(
                             span,
                             attrPath,
                             entry.datatype,
-                            actualKind
+                            actualKind,
+                            customExpectedKinds
                         ));
-                    } else {
-                        const customExpectedKinds = expectedKindsForCustomDatatype(entry.datatype, customShape);
-                        if (customExpectedKinds && customExpectedKinds.length === 0) {
-                            errors.push(new IncompatibleCustomDatatypeAdornmentsError(
-                                span,
-                                attrPath,
-                                entry.datatype,
-                                actualKind
-                            ));
-                        } else if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                            errors.push(new DatatypeLiteralMismatchError(
-                                span,
-                                attrPath,
-                                entry.datatype,
-                                actualKind,
-                                customExpectedKinds
-                            ));
-                        }
                     }
                 }
             }
@@ -702,9 +637,10 @@ function validateNodeHeadDatatypes(
 function formatTypeAnnotation(datatype: NonNullable<Extract<Value, { type: 'NodeLiteral' }>['datatype']>): string {
     const name = datatype.name;
     const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-    const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-    const separators = datatype.separators.map((separator) => `[${separator}]`).join('');
-    return `${name}${generics}${radixBase}${separators}`;
+    const clarifiers = datatype.clarifiers.length > 0
+        ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+        : '';
+    return `${name}${generics}${clarifiers}`;
 }
 
 type ResolutionContext = {
@@ -879,10 +815,10 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'date') return ['DateLiteral'];
     if (base === 'time') return ['TimeLiteral'];
     if (base === 'datetime') return ['DateTimeLiteral'];
-    if (base === 'zrut') return ['ZRUTDateTimeLiteral'];
+    if (base === 'wtc') return ['WTCDateTimeLiteral'];
     if (SEPARATOR_TYPES.has(base)) return ['SeparatorLiteral'];
     if (base === 'sansa') return ['SansaAddressLiteral'];
-    if (base === 'tuple') return ['TupleLiteral'];
+    if (base === 'tuple' || base === 'triple') return ['TupleLiteral'];
     if (base === 'list') return ['ListNode'];
     if (OBJECT_TYPES.has(base)) return ['ObjectNode'];
     if (base === 'node') return ['NodeLiteral'];
@@ -928,92 +864,12 @@ export function datatypeHasGenericArgs(datatype: string): boolean {
     return false;
 }
 
-function expectedKindsForCustomDatatype(
-    datatype: string,
-    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both'
-): readonly string[] | null {
-    let expectedKinds: readonly string[] | null = null;
-
+function expectedKindsForCustomDatatype(datatype: string): readonly string[] | null {
     if (datatypeHasGenericArgs(datatype)) {
-        expectedKinds = ['ListNode', 'TupleLiteral'];
+        return ['ListNode', 'TupleLiteral'];
     }
 
-    const bracketKinds = expectedKindsForCustomDatatypeShape(customShape);
-    if (bracketKinds === null) {
-        return expectedKinds;
-    }
-    if (expectedKinds === null) {
-        return bracketKinds;
-    }
-
-    const combined = expectedKinds.filter((kind) => bracketKinds.includes(kind));
-    return combined;
-}
-
-function expectedKindsForCustomDatatypeShape(
-    customShape: 'none' | 'separator' | 'radix' | 'both' | 'invalid_both'
-): readonly string[] | null {
-    if (customShape === 'none' || customShape === 'invalid_both') return null;
-    if (customShape === 'both') return ['SeparatorLiteral', 'RadixLiteral'];
-    if (customShape === 'separator') return ['SeparatorLiteral'];
-    return ['RadixLiteral'];
-}
-
-function classifyCustomDatatypeShape(datatype: string): 'none' | 'separator' | 'radix' | 'both' | 'invalid_both' {
-    const specs = bracketSpecs(datatype);
-    if (specs.length === 0) return 'none';
-
-    const separatorOk = specs.every(isValidSeparatorSpec);
-    const radixOk = specs.length === 1 && isValidRadixBaseSpec(specs[0]!);
-
-    if (separatorOk && radixOk) return 'both';
-    if (separatorOk) return 'separator';
-    if (radixOk) return 'radix';
-    return 'invalid_both';
-}
-
-function bracketSpecs(datatype: string): string[] {
-    const specs: string[] = [];
-    let genericDepth = 0;
-    let bracketStart = -1;
-
-    for (let index = 0; index < datatype.length; index += 1) {
-        const char = datatype[index]!;
-        if (char === '<') {
-            genericDepth += 1;
-            continue;
-        }
-        if (char === '>') {
-            genericDepth = Math.max(0, genericDepth - 1);
-            continue;
-        }
-        if (genericDepth > 0) {
-            continue;
-        }
-        if (char === '[') {
-            bracketStart = index + 1;
-            continue;
-        }
-        if (char === ']' && bracketStart >= 0) {
-            specs.push(datatype.slice(bracketStart, index));
-            bracketStart = -1;
-        }
-    }
-
-    if (datatypeBase(datatype) === 'radix' && specs.length > 0) {
-        return specs.slice(1);
-    }
-    return specs;
-}
-
-function isValidSeparatorSpec(spec: string): boolean {
-    return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(spec);
-}
-
-function isValidRadixBaseSpec(spec: string): boolean {
-    if (!/^[1-9]\d*$/.test(spec)) return false;
-    const value = Number(spec);
-    return Number.isInteger(value) && value >= 2 && value <= 64;
+    return null;
 }
 
 const NUMERIC_TYPES = new Set([
@@ -1036,6 +892,7 @@ const NUMERIC_TYPES = new Set([
 
 const RADIX_TYPES = new Set([
     'radix',
+    'decimal',
     'radix2',
     'radix6',
     'radix8',

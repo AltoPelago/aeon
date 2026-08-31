@@ -28,6 +28,16 @@ export class UnexpectedCharacterError extends LexerError {
     }
 }
 
+export class InvalidStructuralIdentityError extends LexerError {
+    readonly raw: string;
+
+    constructor(raw: string, span: Span) {
+        super(`Invalid structural identity: '${raw}'`, span, 'INVALID_STRUCTURAL_IDENTITY');
+        this.name = 'InvalidStructuralIdentityError';
+        this.raw = raw;
+    }
+}
+
 /**
  * Unterminated string literal
  */

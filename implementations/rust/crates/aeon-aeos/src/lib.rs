@@ -318,7 +318,7 @@ fn is_string_like_value_type(value_type: &str) -> bool {
             | "DateLiteral"
             | "TimeLiteral"
             | "DateTimeLiteral"
-            | "ZRUTDateTimeLiteral"
+            | "WTCDateTimeLiteral"
     )
 }
 
@@ -1620,6 +1620,20 @@ fn check_types(
                     },
                 );
             }
+        }
+
+        if let Some(expected_datatype) = constraints.get("datatype").and_then(JsonValue::as_str)
+            && event.datatype.as_deref() != Some(expected_datatype)
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: String::from("type_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: event.span,
+                },
+            );
         }
 
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
@@ -3279,22 +3293,29 @@ fn is_string_like_literal(value_type: &str) -> bool {
             | "DateLiteral"
             | "TimeLiteral"
             | "DateTimeLiteral"
-            | "ZRUTDateTimeLiteral"
+            | "WTCDateTimeLiteral"
     )
 }
 
 fn declared_radix_from_datatype(datatype: Option<&str>) -> Option<usize> {
     let datatype = datatype?.trim().to_ascii_lowercase();
+    if datatype == "decimal" {
+        return Some(10);
+    }
     if let Some(inner) = datatype
         .strip_prefix("radix[")
         .and_then(|rest| rest.strip_suffix(']'))
     {
-        return inner.parse::<usize>().ok();
+        let base = inner.parse::<usize>().ok()?;
+        return (2..=64).contains(&base).then_some(base);
     }
-    datatype
-        .strip_prefix("radix")
-        .filter(|suffix| !suffix.is_empty())
-        .and_then(|suffix| suffix.parse::<usize>().ok())
+    match datatype.as_str() {
+        "radix2" => Some(2),
+        "radix6" => Some(6),
+        "radix8" => Some(8),
+        "radix12" => Some(12),
+        _ => None,
+    }
 }
 
 fn has_digit_form_constraints(constraints: &JsonValue) -> bool {
@@ -3411,20 +3432,25 @@ fn decode_separator_chars(datatype: Option<&str>) -> Vec<char> {
     let Some(datatype) = datatype else {
         return Vec::new();
     };
-    let mut chars = Vec::new();
-    let mut rest = datatype;
-    while let Some(start) = rest.find('[') {
-        let after = &rest[start + 1..];
-        let Some(end) = after.find(']') else {
-            break;
-        };
-        let inner = &after[..end];
-        if inner.chars().count() == 1 {
-            chars.extend(inner.chars());
-        }
-        rest = &after[end + 1..];
+    if datatype_base(datatype) != "sep" {
+        return Vec::new();
     }
-    chars
+    let Some(inner) = datatype
+        .trim()
+        .strip_prefix("sep[")
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return Vec::new();
+    };
+    let Ok(values) = serde_json::from_str::<Vec<JsonValue>>(&format!("[{inner}]")) else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(JsonValue::as_str)
+        .filter(|value| value.chars().count() == 1)
+        .flat_map(str::chars)
+        .collect()
 }
 
 fn format_canonical_path(path: &EventPath) -> String {
@@ -3562,6 +3588,33 @@ mod tests {
     }
 
     #[test]
+    fn datatype_constraint_requires_exact_label() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "id" } ] },
+              "key": "id",
+              "datatype": "user-id",
+              "value": { "type": "StringLiteral", "raw": "\"U-1\"", "value": "U-1" },
+              "span": [0, 1]
+            }
+          ],
+          "schema": {
+            "rules": [
+              { "path": "$.id", "constraints": { "datatype": "product-id" } }
+            ]
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(envelope.errors.iter().any(|error| {
+            error.path.as_deref() == Some("$.id") && error.code == "type_mismatch"
+        }));
+    }
+
+    #[test]
     fn validates_radix_constraint_for_radix_literals() {
         let payload = r#"{
           "aes": [
@@ -3588,6 +3641,23 @@ mod tests {
         assert!(envelope.errors.iter().any(|error| {
             error.path.as_deref() == Some("$.bits") && error.code == "numeric_form_violation"
         }));
+    }
+
+    #[test]
+    fn datatype_helpers_decode_clarifier_lists() {
+        assert_eq!(declared_radix_from_datatype(Some("decimal")), Some(10));
+        assert_eq!(declared_radix_from_datatype(Some("radix[12]")), Some(12));
+        assert_eq!(declared_radix_from_datatype(Some("radix[65]")), None);
+        assert_eq!(declared_radix_from_datatype(Some("radix12")), Some(12));
+        assert_eq!(declared_radix_from_datatype(Some("radix65")), None);
+        assert_eq!(
+            decode_separator_chars(Some("sep[\"|\", \".\"]")),
+            vec!['|', '.']
+        );
+        assert_eq!(
+            decode_separator_chars(Some("custom[\"|\"]")),
+            Vec::<char>::new()
+        );
     }
 
     #[test]

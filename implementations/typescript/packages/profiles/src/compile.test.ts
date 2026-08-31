@@ -217,7 +217,7 @@ test('default registry includes aeon.gp.profile.v1 alias', () => {
     assert.equal(registry.has('aeon.gp.profile.v1'), true);
 });
 
-test('aeon.gp.profile.v1 exposes GP collection, container, and capability metadata', () => {
+test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capability metadata', () => {
     const profile = createDefaultRegistry().get('aeon.gp.profile.v1');
 
     assert.equal(profile?.modeDefault, 'strict');
@@ -249,6 +249,42 @@ test('aeon.gp.profile.v1 exposes GP collection, container, and capability metada
             mixedContent: true,
         },
     });
+    assert.deepEqual(profile?.datatypeSemantics, {
+        radix: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'radix_base',
+        },
+        decimal: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'none',
+            equivalentTo: 'radix[10]',
+        },
+        sep: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+        },
+        separator: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'separator_chars',
+            aliasOf: 'sep',
+        },
+        kadot: {
+            literalFamily: 'SeparatorLiteral',
+            clarifiers: 'none',
+        },
+        encoding: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
+        inline: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
+        embed: {
+            literalFamily: 'EncodingLiteral',
+            clarifiers: 'encoding_name',
+        },
+    });
     assert.deepEqual(profile?.capabilities, {
         references: true,
         clones: true,
@@ -265,4 +301,88 @@ test('default core profile parses introducer node syntax', () => {
     assert.equal(result.aes.length, 2);
     assert.equal(formatPath(result.aes[0]!.path), '$.view');
     assert.equal(formatPath(result.aes[1]!.path), '$.view[0]');
+});
+
+test('aeon.gp.profile.v1 rejects undeclared datatype clarifiers', () => {
+    for (const source of ['a:n[3] = 3', 'a:list<n[3]> = [3]']) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.a', source);
+    }
+});
+
+test('aeon.gp.profile.v1 rejects invalid radix clarifier shapes', () => {
+    for (const source of [
+        'b:radix["hello"] = %01',
+        'b:radix[2, 10] = %01',
+        'b:radix[2.5] = %01',
+        'b:radix[1] = %01',
+        'b:radix[65] = %01',
+    ]) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+            maxSeparatorDepth: 2,
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_INVALID', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.b', source);
+    }
+});
+
+test('aeon.gp.profile.v1 rejects invalid encoding clarifier shapes', () => {
+    for (const source of [
+        'code:encoding[58] = &FFF',
+        'code:encoding["base58", "z"] = &FFF',
+        'code:inline[58] = &FFF',
+        'code:embed["base58", "z"] = &FFF',
+    ]) {
+        const result = compile(source, {
+            profile: 'aeon.gp.profile.v1',
+            registry: createDefaultRegistry(),
+            mode: 'strict',
+            maxSeparatorDepth: 2,
+        });
+
+        assert.equal(result.aes.length, 0, source);
+        assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_INVALID', source);
+        assert.equal(result.meta?.errors?.[0]?.path, '$.code', source);
+    }
+});
+
+test('aeon.gp.profile.v1 accepts declared datatype clarifier shapes', () => {
+    const result = compile('r:radix[16] = %01\ns:sep[".", ":"] = ^1.2:3\ncode:encoding["base58"] = &FFF\ninline:inline["base58"] = &FFF\nembed:embed["base58"] = &FFF', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        maxSeparatorDepth: 2,
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.deepEqual(result.aes.map((event) => event.datatype), [
+        'radix[16]',
+        'sep[".", ":"]',
+        'encoding["base58"]',
+        'inline["base58"]',
+        'embed["base58"]',
+    ]);
+});
+
+test('core profile preserves clarifiers that GP profile rejects', () => {
+    const result = compile('a:n[3] = 3', {
+        profile: 'core',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.equal(result.aes[0]?.datatype, 'n[3]');
 });

@@ -7,8 +7,8 @@ contextual:sansa = ?.name
 rich:sansa = $.items.*#text%stringLiteral.("item?*").**
 
 quotedQualifierArgument:sansa = $.inventory:csv[","]
-unquotedQualifierArgument:sansa = $.field:sep[.]
-externalQualifier:sansa = $.value:type<type>[arg]
+unquotedQualifierArgument:sansa = $.field:sep["."]
+externalQualifier:sansa = $.value:type<type>["arg"]
 chainedQualifierParameters:sansa = $.path:tuple<x><y>
 
 beforeBlockComment:sansa = $.name/* block */

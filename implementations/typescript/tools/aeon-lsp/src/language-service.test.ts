@@ -70,6 +70,14 @@ test('hover reports datatype annotations', () => {
     assert.match(hoverTextValue(hover), /tuple<int32, int32>/);
 });
 
+test('hover reports datatype clarifiers', () => {
+    const text = 'version:sep["."] = ^1.2.3\n';
+    const hover = getHover(text, { line: 0, character: 10 });
+    assert.ok(hover);
+    assert.match(hoverTextValue(hover), /sep\["\."\]/);
+    assert.match(hoverTextValue(hover), /Clarifiers: "\."/);
+});
+
 test('hover reports reference targets', () => {
     const text = 'config = { host = "localhost" }\nserver = ~config.host\n';
     const hover = getHover(text, { line: 1, character: 11 });

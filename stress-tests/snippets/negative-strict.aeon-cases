@@ -99,11 +99,11 @@ dt:datetime = 2025-01-01T09:30z
 ---
 dt:datetime = 2025-01-01T09:+24:99
 ---
-dt:zrut = 2025-01-01T09:30Z&/
+dt:wtc = 2025-01-01T09:30Z&/
 ---
-dt:zrut = 2025-01-01T09:30Z&Europe//Brussels
+dt:wtc = 2025-01-01T09:30Z&Europe//Brussels
 ---
-dt:zrut = 2025-01-01T09:30Z&Europe/Belgium/
+dt:wtc = 2025-01-01T09:30Z&Europe/Belgium/
 ---
 ts:datetime = 2025-13-40T99:99:99
 ---
@@ -113,22 +113,22 @@ bad:date = 2025-13-40
 ---
 bad:date = 2025-02-29
 ---
-z4:zrut = 2025-01-01T00:00:00Z
+z4:wtc = 2025-01-01T00:00:00Z
 ---
-z5:zrut = 2025-01-01T00:00:00z&l
+z5:wtc = 2025-01-01T00:00:00z&l
 ---
-z5:zrut = 2025-01-01T00:00:00
+z5:wtc = 2025-01-01T00:00:00
 ---
-z5:zrut = 2025-01-01T00:00:00&
+z5:wtc = 2025-01-01T00:00:00&
 ---
-z5:zrut = 2025-01-01T00:00:00Z&europe/
+z5:wtc = 2025-01-01T00:00:00Z&europe/
 ---
-z5:zrut = 2025-01-01T00:00:00Z&/
+z5:wtc = 2025-01-01T00:00:00Z&/
 ---
 /* comment ambiguity */
-z5:zrut = 2025-01-01T00:00:00Z&//
+z5:wtc = 2025-01-01T00:00:00Z&//
 ---
-z5:zrut = 2025-01-01T00:00:00Z&/*comment*/
+z5:wtc = 2025-01-01T00:00:00Z&/*comment*/
 ---
 c:trimtick = `
     helloo
@@ -322,9 +322,9 @@ l:Tuple = ( 2, 3, 4 )
 ---
 n:Node = <a>
 ---
-z:zrut = 2007-01-02t10:10:25Z&Australia/Melbourne
+z:wtc = 2007-01-02t10:10:25Z&Australia/Melbourne
 ---
-z:zrut = 2007-01-02T10:10:25z&Australia/Melbourne
+z:wtc = 2007-01-02T10:10:25z&Australia/Melbourne
 ---
 dt:datetime = 2007-01-02t10:10:25
 ---

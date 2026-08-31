@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-runtime",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Runtime binding helpers for generated AEON TypeScript types.",
   "license": "MIT",
   "type": "module",

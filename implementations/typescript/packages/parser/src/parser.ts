@@ -38,7 +38,7 @@ import {
     ParserError,
     SyntaxError,
     DuplicateKeyError,
-    InvalidSeparatorCharError,
+    DuplicateStructuralIdentityError,
     SeparatorDepthExceededError,
     GenericDepthExceededError,
     AttributeDepthExceededError,
@@ -80,6 +80,7 @@ class Parser {
     private currentNestingDepth: number = 0;
     private current: number = 0;
     private readonly errors: ParserError[] = [];
+    private readonly structuralIdentities = new Map<string, Span>();
 
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
@@ -242,6 +243,7 @@ class Parser {
                 bindings.push({
                     type: 'Binding',
                     key: fieldName,
+                    structuralId: null,
                     value,
                     datatype: null,
                     attributes: [],
@@ -295,6 +297,8 @@ class Parser {
         const keyToken = this.advance();
         const key = this.keyFromToken(keyToken);
 
+        const structuralId = this.parseOptionalStructuralIdentity();
+
         // Parse optional attributes @{...}
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
@@ -337,6 +341,7 @@ class Parser {
         return {
             type: 'Binding',
             key,
+            structuralId,
             value,
             datatype,
             attributes,
@@ -415,8 +420,7 @@ class Parser {
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
         const genericArgs: string[] = [];
-        let radixBase: number | null = null;
-        const separators: string[] = [];
+        const clarifiers: (string | number)[] = [];
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
@@ -439,58 +443,39 @@ class Parser {
             this.consume(TokenType.RightAngle, "Expected '>' to close generic arguments");
         }
 
-        // Parse repeated separator specifiers: [x][,][;]
-        while (this.check(TokenType.LeftBracket)) {
+        // Parse optional clarifier: [value1, value2, ...]
+        if (this.check(TokenType.LeftBracket)) {
             this.advance(); // consume [
-            if (RESERVED_V1_DATATYPES.has(name) && !BRACKETED_V1_DATATYPES.has(name)) {
-                throw new SyntaxError(
-                    `Datatype '${name}' does not support bracket specifiers in v1`,
-                    this.peek().span,
-                    null,
-                    name
-                );
+            clarifiers.push(...this.parseClarifierValues());
+            this.consume(TokenType.RightBracket, "Expected ']' to close datatype clarifier");
+            if (clarifiers.length > this.maxSeparatorDepth) {
+                throw new SeparatorDepthExceededError(clarifiers.length, this.maxSeparatorDepth, this.previous().span);
             }
-            if (name === 'radix' && radixBase === null) {
-                radixBase = this.parseRadixBaseSpecifier();
-                this.consume(TokenType.RightBracket, "Expected ']' to close radix base spec");
-                continue;
-            }
-            if (name === 'radix') {
+            if (this.check(TokenType.LeftBracket)) {
                 throw new SyntaxError(
-                    "Radix datatype allows exactly one base bracket like 'radix[10]'",
+                    "Datatype clarifiers must use a single bracketed list like 'sep[\"/\", \".\"]'",
                     this.peek().span,
-                    'radix[10]',
+                    'sep["/", "."]',
                     this.peek().value
                 );
             }
-            const spec = RESERVED_V1_DATATYPES.has(name)
-                ? this.parseSeparatorCharacter()
-                : this.parseCustomBracketSpecifier();
-            separators.push(spec);
-            this.consume(TokenType.RightBracket, "Expected ']' to close separator spec");
-            if (separators.length > this.maxSeparatorDepth) {
-                throw new SeparatorDepthExceededError(separators.length, this.maxSeparatorDepth, this.previous().span);
-            }
         }
 
-        this.validateReservedDatatypeAdornments(name, genericArgs, radixBase, separators);
+        this.validateReservedDatatypeAdornments(name, genericArgs);
 
         const end = this.previous().span.end;
         return {
             type: 'TypeAnnotation',
             name,
             genericArgs,
-            radixBase,
-            separators,
+            clarifiers,
             span: createSpan(start, end),
         };
     }
 
     private validateReservedDatatypeAdornments(
         name: string,
-        genericArgs: readonly string[],
-        radixBase: number | null,
-        separators: readonly string[]
+        genericArgs: readonly string[]
     ): void {
         if (!RESERVED_V1_DATATYPES.has(name)) return;
 
@@ -503,14 +488,6 @@ class Parser {
             );
         }
 
-        if ((radixBase !== null || separators.length > 0) && !BRACKETED_V1_DATATYPES.has(name)) {
-            throw new SyntaxError(
-                `Datatype '${name}' does not support bracket specifiers in v1`,
-                this.previous().span,
-                null,
-                name
-            );
-        }
     }
 
     private validateBindingNodeGeneric(datatype: TypeAnnotation, value: Value): void {
@@ -553,41 +530,46 @@ class Parser {
 
     private formatTypeAnnotation(type: TypeAnnotation): string {
         const generics = type.genericArgs.length > 0 ? `<${type.genericArgs.join(', ')}>` : '';
-        const radixBase = type.radixBase != null ? `[${type.radixBase}]` : '';
-        const separators = type.separators.map((separator) => `[${separator}]`).join('');
-        return `${type.name}${generics}${radixBase}${separators}`;
+        const clarifiers = type.clarifiers.length > 0
+            ? `[${type.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+            : '';
+        return `${type.name}${generics}${clarifiers}`;
     }
 
-    private parseRadixBaseSpecifier(): number {
+    private parseClarifierValues(): (string | number)[] {
         if (this.check(TokenType.RightBracket)) {
             throw new SyntaxError(
-                'Radix base must be an integer from 2 to 64',
+                'Datatype clarifier must contain at least one string or number',
                 this.peek().span,
-                'integer from 2 to 64',
+                'string or number',
                 this.peek().value
             );
         }
-        const token = this.consume(TokenType.Number, 'Expected radix base');
-        const raw = token.value.replace(/_/g, '');
-        if (!/^(0|[1-9]\d*)$/.test(raw) || raw !== token.value) {
-            throw new SyntaxError(
-                'Radix base must be a base-10 integer without leading zeroes',
-                token.span,
-                'integer from 2 to 64',
-                token.value
-            );
-        }
 
-        const base = Number(raw);
-        if (!Number.isInteger(base) || base < 2 || base > 64) {
-            throw new SyntaxError(
-                'Radix base must be an integer from 2 to 64',
-                token.span,
-                'integer from 2 to 64',
-                token.value
-            );
+        const values = [this.parseClarifierValue()];
+        while (this.check(TokenType.Comma)) {
+            this.advance();
+            values.push(this.parseClarifierValue());
         }
-        return base;
+        return values;
+    }
+
+    private parseClarifierValue(): string | number {
+        const token = this.peek();
+        if (token.type === TokenType.String) {
+            this.advance();
+            return token.value;
+        }
+        if (token.type === TokenType.Number) {
+            this.advance();
+            return Number(token.value.replace(/_/g, ''));
+        }
+        throw new SyntaxError(
+            'Expected clarifier value',
+            token.span,
+            'string or number',
+            token.value
+        );
     }
 
     // ============================================
@@ -623,11 +605,12 @@ class Parser {
     }
 
     private parseContainerValue(): Value {
-        if (!this.check(TokenType.Colon) && !this.check(TokenType.At)) {
+        if (!this.check(TokenType.StructuralIdentity) && !this.check(TokenType.Colon) && !this.check(TokenType.At)) {
             return this.parseValue();
         }
 
         const start = this.peek().span.start;
+        const structuralId = this.parseOptionalStructuralIdentity();
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
@@ -652,6 +635,7 @@ class Parser {
 
         return {
             type: 'TypedValue',
+            structuralId,
             datatype,
             attributes,
             value,
@@ -769,9 +753,9 @@ class Parser {
                     this.formatTypeAnnotation(datatype)
                 );
             }
-            if (datatype.radixBase !== null || datatype.separators.length > 0) {
+            if (datatype.clarifiers.length > 0) {
                 throw new SyntaxError(
-                    'Node head datatypes must not use bracket specs',
+                    'Node head datatypes must not use clarifiers',
                     datatype.span,
                     'node head datatype',
                     this.formatTypeAnnotation(datatype)
@@ -1522,6 +1506,21 @@ class Parser {
         throw new SyntaxError(message, this.peek().span, type, this.peek().value);
     }
 
+    private parseOptionalStructuralIdentity(): string | null {
+        if (!this.check(TokenType.StructuralIdentity)) {
+            return null;
+        }
+
+        const token = this.advance();
+        const structuralId = token.value;
+        if (this.structuralIdentities.has(structuralId)) {
+            this.errors.push(new DuplicateStructuralIdentityError(structuralId, token.span));
+        } else {
+            this.structuralIdentities.set(structuralId, token.span);
+        }
+        return structuralId;
+    }
+
     private keyFromToken(token: Token): string {
         if (token.type === TokenType.String && token.quote === '`') {
             throw new SyntaxError(
@@ -1664,181 +1663,6 @@ class Parser {
         return this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted path keys must not be empty');
     }
 
-    private parseSeparatorCharacter(): string {
-        const token = this.peek();
-        if (
-            token.type === TokenType.Identifier
-            || token.type === TokenType.Number
-            || token.type === TokenType.String
-            || token.type === TokenType.Symbol
-        ) {
-            this.advance();
-            if (token.value.length !== 1) {
-                throw new InvalidSeparatorCharError(token.value, token.span);
-            }
-            const char = token.value;
-            if (!isAllowedSeparatorSpecChar(char)) {
-                throw new InvalidSeparatorCharError(char, token.span);
-            }
-            return char;
-        }
-
-        let char: string;
-
-        switch (token.type) {
-            case TokenType.Comma:
-                char = ',';
-                break;
-            case TokenType.Semicolon:
-                char = ';';
-                break;
-            case TokenType.Colon:
-                char = ':';
-                break;
-            case TokenType.Dot:
-                char = '.';
-                break;
-            case TokenType.At:
-                char = '@';
-                break;
-            case TokenType.Hash:
-                char = '#';
-                break;
-            case TokenType.Dollar:
-                char = '$';
-                break;
-            case TokenType.Percent:
-                char = '%';
-                break;
-            case TokenType.Ampersand:
-                char = '&';
-                break;
-            case TokenType.Caret:
-                char = '^';
-                break;
-            case TokenType.Equals:
-                char = '=';
-                break;
-            case TokenType.LeftAngle:
-                char = '<';
-                break;
-            case TokenType.RightAngle:
-                char = '>';
-                break;
-            case TokenType.Tilde:
-                char = '~';
-                break;
-            case TokenType.LeftBracket:
-                char = '[';
-                break;
-            case TokenType.RightBracket:
-                char = ']';
-                break;
-            default:
-                throw new SyntaxError(
-                    'Expected separator character',
-                    token.span,
-                    'single separator character',
-                    token.value
-                );
-        }
-
-        this.advance();
-
-        if (char.length !== 1) {
-            throw new SyntaxError(
-                'Separator datatype bracket specs must contain exactly one character',
-                token.span,
-                'single separator character',
-                token.value
-            );
-        }
-        if (!isAllowedSeparatorSpecChar(char)) {
-            throw new InvalidSeparatorCharError(char, token.span);
-        }
-
-        return char;
-    }
-
-    private parseCustomBracketSpecifier(): string {
-        const token = this.peek();
-        let value: string;
-
-        switch (token.type) {
-            case TokenType.Identifier:
-            case TokenType.Number:
-            case TokenType.String:
-            case TokenType.Symbol:
-                value = token.value;
-                break;
-            case TokenType.Comma:
-                value = ',';
-                break;
-            case TokenType.Semicolon:
-                value = ';';
-                break;
-            case TokenType.Colon:
-                value = ':';
-                break;
-            case TokenType.Dot:
-                value = '.';
-                break;
-            case TokenType.At:
-                value = '@';
-                break;
-            case TokenType.Hash:
-                value = '#';
-                break;
-            case TokenType.Dollar:
-                value = '$';
-                break;
-            case TokenType.Percent:
-                value = '%';
-                break;
-            case TokenType.Ampersand:
-                value = '&';
-                break;
-            case TokenType.Caret:
-                value = '^';
-                break;
-            case TokenType.Equals:
-                value = '=';
-                break;
-            case TokenType.LeftAngle:
-                value = '<';
-                break;
-            case TokenType.RightAngle:
-                value = '>';
-                break;
-            case TokenType.Tilde:
-                value = '~';
-                break;
-            case TokenType.LeftBracket:
-                value = '[';
-                break;
-            case TokenType.RightBracket:
-                throw new SyntaxError(
-                    'Expected separator character',
-                    token.span,
-                    'separator or radix bracket spec',
-                    token.value
-                );
-            default:
-                throw new SyntaxError(
-                    'Expected separator character',
-                    token.span,
-                    'separator or radix bracket spec',
-                    token.value
-                );
-        }
-
-        this.advance();
-        if (value === '[') {
-            throw new InvalidSeparatorCharError(value, token.span);
-        }
-        return value;
-    }
-
     private synchronize(): void {
         this.advance();
 
@@ -1900,12 +1724,7 @@ class Parser {
     }
 }
 
-function isAllowedSeparatorSpecChar(char: string): boolean {
-    return /^[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]$/.test(char);
-}
-
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'object', 'node', 'null', 'nan', 'infinity']);
-const BRACKETED_V1_DATATYPES = new Set(['sep', 'radix']);
+const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
 const RESERVED_V1_DATATYPES = new Set([
@@ -1913,12 +1732,12 @@ const RESERVED_V1_DATATYPES = new Set([
     'uint', 'uint8', 'uint16', 'uint32', 'uint64',
     'float', 'float32', 'float64',
     'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
-    'hex', 'date', 'time', 'datetime', 'zrut',
+    'hex', 'date', 'time', 'datetime', 'wtc',
     'encoding', 'base64', 'embed', 'inline',
-    'radix', 'radix2', 'radix6', 'radix8', 'radix12',
+    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12',
     'sep', 'kadot',
     'sansa',
-    'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
+    'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 
 /**

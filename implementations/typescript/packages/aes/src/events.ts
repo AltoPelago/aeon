@@ -23,6 +23,8 @@ export interface AssignmentEvent {
     readonly normalizedPath?: string;
     /** Local key name (e.g., "host") */
     readonly key: string;
+    /** Optional structural occurrence identity from the source binding. */
+    readonly structuralId?: string | null;
     /** Original AST value node - NOT evaluated or transformed */
     readonly value: Value;
     /** Source location of the binding */
@@ -132,6 +134,7 @@ function createEvent(cb: CanonicalBinding): AssignmentEvent {
         path: cb.path,
         normalizedPath: formatNormalizedPath(cb.path),
         key: binding.key,
+        ...(binding.structuralId !== null ? { structuralId: binding.structuralId } : {}),
         value: binding.value,
         span: cb.span,
     };

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import field, fields, is_dataclass
+import json
 import re
 
 from ._compat import dataclass
@@ -33,8 +34,6 @@ from .errors import (
     DatatypeLiteralMismatchError,
     DuplicateCanonicalPathError,
     ForwardReferenceError,
-    InvalidCustomDatatypeBracketShapeError,
-    IncompatibleCustomDatatypeAdornmentsError,
     InvalidNodeHeadDatatypeError,
     MissingReferenceTargetError,
     SelfReferenceError,
@@ -57,6 +56,7 @@ class CompileOptions:
     max_generic_depth: int = 1
     max_nesting_depth: int = 256
     datatype_policy: str | None = None
+    profile: str | None = None
     # Consumer-selected effective mode. When omitted, Core honors aeon:mode
     # declared in the document for backwards-compatible authoring flows.
     mode: str | None = None
@@ -107,8 +107,9 @@ RESERVED_KIND_MAP = {
     "date": ("DateLiteral",),
     "time": ("TimeLiteral",),
     "datetime": ("DateTimeLiteral",),
-    "zrut": ("ZRUTDateTimeLiteral",),
+    "wtc": ("WTCDateTimeLiteral",),
     "tuple": ("TupleLiteral",),
+    "triple": ("TupleLiteral",),
     "list": ("ListNode",),
     "object": ("ObjectNode",),
     "obj": ("ObjectNode",),
@@ -122,6 +123,7 @@ RESERVED_KIND_MAP = {
     "embed": ("EncodingLiteral",),
     "inline": ("EncodingLiteral",),
     "radix": ("RadixLiteral",),
+    "decimal": ("RadixLiteral",),
     "radix2": ("RadixLiteral",),
     "radix6": ("RadixLiteral",),
     "radix8": ("RadixLiteral",),
@@ -187,8 +189,13 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors], warnings=warnings)
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
-    all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors]
-    if reference_errors and not opts.recovery:
+    profile_errors = (
+        validate_gp_datatype_clarifiers(resolved_bindings)
+        if uses_gp_profile(opts, parse_result.document)
+        else []
+    )
+    all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors, *profile_errors]
+    if (reference_errors or profile_errors) and not opts.recovery:
         return CompileResult(events=[], errors=all_errors, warnings=warnings)
 
     internal_events = [resolved_binding_to_event(binding, include_annotations=True) for binding in resolved_bindings]
@@ -299,6 +306,210 @@ def coerce_error(error: Exception) -> AeonError:
         return error
     zero = Position(line=1, column=1, offset=0)
     return SyntaxError(str(error) or error.__class__.__name__, Span(start=zero, end=zero))
+
+
+AEON_GP_PROFILE_ID = "aeon.gp.profile.v1"
+
+GP_DATATYPE_CLARIFIER_RULES = {
+    "decimal": "none",
+    "kadot": "none",
+    "radix": "radix_base",
+    "sep": "separator_chars",
+    "separator": "separator_chars",
+    "encoding": "encoding_name",
+    "inline": "encoding_name",
+    "embed": "encoding_name",
+}
+
+
+def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
+    if options.profile == AEON_GP_PROFILE_ID:
+        return True
+    if document.header is None:
+        return False
+    profile = document.header.fields.get("profile")
+    return isinstance(profile, StringLiteral) and profile.value == AEON_GP_PROFILE_ID
+
+
+def validate_gp_datatype_clarifiers(bindings: list[ResolvedBinding]) -> list[AeonError]:
+    errors: list[AeonError] = []
+    for binding in bindings:
+        if binding.key.startswith("aeon:") or binding.datatype is None:
+            continue
+        surface = parse_gp_datatype_surface(binding.datatype)
+        if surface is None:
+            continue
+        validate_gp_datatype_surface(surface, format_path(binding.path), binding.span, errors)
+    return errors
+
+
+def validate_gp_datatype_surface(
+    surface: dict[str, object],
+    path: str,
+    span: Span,
+    errors: list[AeonError],
+) -> None:
+    name = str(surface["name"])
+    clarifiers = surface.get("clarifiers")
+    if isinstance(clarifiers, list):
+        rule = GP_DATATYPE_CLARIFIER_RULES.get(name)
+        if rule == "radix_base":
+            valid = (
+                len(clarifiers) == 1
+                and isinstance(clarifiers[0], int)
+                and not isinstance(clarifiers[0], bool)
+                and 2 <= clarifiers[0] <= 64
+            )
+            if not valid:
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects exactly one integral radix-base clarifier from 2 to 64",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        elif rule == "separator_chars":
+            if not clarifiers or any(not isinstance(value, str) for value in clarifiers):
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects string separator-character clarifiers",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        elif rule == "encoding_name":
+            if len(clarifiers) != 1 or not isinstance(clarifiers[0], str):
+                errors.append(
+                    AeonError(
+                        f"Profile datatype ':{name}' expects exactly one string encoding-name clarifier",
+                        span,
+                        "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                        path,
+                    )
+                )
+        else:
+            errors.append(
+                AeonError(
+                    f"Profile does not allow clarifiers on datatype ':{name}'",
+                    span,
+                    "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+                    path,
+                )
+            )
+
+    for arg in surface["args"]:
+        validate_gp_datatype_surface(arg, path, span, errors)
+
+
+def parse_gp_datatype_surface(source: str) -> dict[str, object] | None:
+    text = source.strip()
+    match = re.match(r"[A-Za-z_][A-Za-z0-9_-]*", text)
+    if match is None:
+        return None
+    name = match.group(0)
+    index = skip_gp_whitespace(text, match.end())
+
+    args: list[dict[str, object]] = []
+    if index < len(text) and text[index] == "<":
+        end = find_gp_matching_delimiter(text, index, "<", ">")
+        if end is None:
+            return None
+        for part in split_gp_top_level(text[index + 1 : end], ","):
+            stripped = part.strip()
+            if stripped:
+                parsed = parse_gp_datatype_surface(stripped)
+                if parsed is None:
+                    return None
+                args.append(parsed)
+        index = skip_gp_whitespace(text, end + 1)
+
+    clarifiers: list[object] | None = None
+    if index < len(text) and text[index] == "[":
+        end = find_gp_matching_delimiter(text, index, "[", "]")
+        if end is None:
+            return None
+        try:
+            parsed = json.loads("[" + text[index + 1 : end] + "]")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, list):
+            return None
+        clarifiers = parsed
+        index = skip_gp_whitespace(text, end + 1)
+
+    if index != len(text):
+        return None
+
+    return {"name": name, "args": args, "clarifiers": clarifiers}
+
+
+def find_gp_matching_delimiter(source: str, start: int, open_char: str, close_char: str) -> int | None:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index in range(start, len(source)):
+        char = source[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+            continue
+        if char == open_char:
+            depth += 1
+        elif char == close_char:
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return None
+    return None
+
+
+def split_gp_top_level(source: str, delimiter: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    angle_depth = 0
+    square_depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(source):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+        elif char == "<":
+            angle_depth += 1
+        elif char == ">":
+            angle_depth = max(0, angle_depth - 1)
+        elif char == "[":
+            square_depth += 1
+        elif char == "]":
+            square_depth = max(0, square_depth - 1)
+        elif char == delimiter and angle_depth == 0 and square_depth == 0:
+            parts.append(source[start:index])
+            start = index + 1
+    parts.append(source[start:])
+    return parts
+
+
+def skip_gp_whitespace(source: str, index: int) -> int:
+    while index < len(source) and source[index].isspace():
+        index += 1
+    return index
 
 
 def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonError]]:
@@ -552,30 +763,7 @@ def enforce_mode(
             )
             continue
         if expected is None:
-            custom_shape = classify_custom_datatype_shape(binding.datatype)
-            if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
-                errors.append(
-                    InvalidCustomDatatypeBracketShapeError(
-                        format_path(binding.path),
-                        binding.datatype,
-                        actual_kind,
-                        binding.span,
-                    )
-                )
-            else:
-                custom_expected = expected_kinds_for_custom_datatype(binding.datatype, custom_shape)
-                if custom_expected == ():
-                    errors.append(
-                        IncompatibleCustomDatatypeAdornmentsError(
-                            format_path(binding.path),
-                            binding.datatype,
-                            actual_kind,
-                            binding.span,
-                        )
-                    )
-                    expected = None
-                elif custom_expected is not None:
-                    expected = custom_expected
+            expected = expected_kinds_for_custom_datatype(binding.datatype)
         if expected is not None and actual_kind not in expected:
             errors.append(
                 DatatypeLiteralMismatchError(
@@ -626,15 +814,9 @@ def validate_anonymous_typed_values(
                 elif expected is not None and actual_kind not in expected:
                     errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, expected, value.span or span))
                 elif expected is None:
-                    custom_shape = classify_custom_datatype_shape(datatype)
-                    if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
-                        errors.append(InvalidCustomDatatypeBracketShapeError(owner_path, datatype, actual_kind, value.span or span))
-                    else:
-                        custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
-                        if custom_expected == ():
-                            errors.append(IncompatibleCustomDatatypeAdornmentsError(owner_path, datatype, actual_kind, value.span or span))
-                        elif custom_expected is not None and actual_kind not in custom_expected:
-                            errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, custom_expected, value.span or span))
+                    custom_expected = expected_kinds_for_custom_datatype(datatype)
+                    if custom_expected is not None and actual_kind not in custom_expected:
+                        errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, custom_expected, value.span or span))
         if value.value is not None:
             errors.extend(validate_anonymous_typed_values(value.value, owner_path, span, lookup, mode, effective_policy))
         return errors
@@ -760,17 +942,7 @@ def validate_annotation_entries(
                 if value is not None and hasattr(value, "type"):
                     actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
                     if expected is None:
-                        custom_shape = classify_custom_datatype_shape(datatype)
-                        if custom_shape == "invalid_both" and actual_kind in {"SeparatorLiteral", "RadixLiteral"}:
-                            errors.append(InvalidCustomDatatypeBracketShapeError(attr_path, datatype, actual_kind, span))
-                            expected = None
-                        else:
-                            custom_expected = expected_kinds_for_custom_datatype(datatype, custom_shape)
-                            if custom_expected == ():
-                                errors.append(IncompatibleCustomDatatypeAdornmentsError(attr_path, datatype, actual_kind, span))
-                                expected = None
-                            elif custom_expected is not None:
-                                expected = custom_expected
+                        expected = expected_kinds_for_custom_datatype(datatype)
                     if expected is not None and actual_kind not in expected:
                         errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
         value = entry.get("value")
@@ -1019,52 +1191,10 @@ def expected_kinds_for_reserved_datatype(datatype: str) -> tuple[str, ...] | Non
     return RESERVED_KIND_MAP.get(base)
 
 
-def expected_kinds_for_custom_datatype(datatype: str, custom_shape: str) -> tuple[str, ...] | None:
-    expected: tuple[str, ...] | None = None
+def expected_kinds_for_custom_datatype(datatype: str) -> tuple[str, ...] | None:
     if datatype_has_generic_args(datatype):
-        expected = ("ListNode", "TupleLiteral")
-
-    bracket_expected = expected_kinds_for_custom_datatype_shape(custom_shape)
-    if bracket_expected is None:
-        return expected
-    if expected is None:
-        return bracket_expected
-
-    combined = tuple(kind for kind in expected if kind in bracket_expected)
-    if not combined:
-        # Preserve an explicit "impossible constraints" signal for callers so
-        # they can emit a dedicated diagnostic instead of an empty expected list.
-        return ()
-    return combined
-
-
-def expected_kinds_for_custom_datatype_shape(
-    custom_shape: str,
-) -> tuple[str, ...] | None:
-    if custom_shape in {"none", "invalid_both"}:
-        return None
-    if custom_shape == "both":
-        return ("SeparatorLiteral", "RadixLiteral")
-    if custom_shape == "separator":
-        return ("SeparatorLiteral",)
-    return ("RadixLiteral",)
-
-
-def classify_custom_datatype_shape(datatype: str) -> str:
-    specs = datatype_bracket_specs(datatype)
-    if not specs:
-        return "none"
-
-    separator_ok = all(is_valid_separator_spec(spec) for spec in specs)
-    radix_ok = len(specs) == 1 and is_valid_custom_radix_base_spec(specs[0])
-
-    if separator_ok and radix_ok:
-        return "both"
-    if separator_ok:
-        return "separator"
-    if radix_ok:
-        return "radix"
-    return "invalid_both"
+        return ("ListNode", "TupleLiteral")
+    return None
 
 
 def datatype_base(datatype: str) -> str:
@@ -1117,19 +1247,7 @@ def datatype_bracket_specs(datatype: str) -> list[str]:
             specs.append(datatype[bracket_start:index])
             bracket_start = -1
 
-    if datatype_base(datatype) == "radix" and specs:
-        return specs[1:]
     return specs
-
-
-def is_valid_separator_spec(spec: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", spec))
-
-
-def is_valid_custom_radix_base_spec(spec: str) -> bool:
-    if not spec or not re.fullmatch(r"[1-9]\d*", spec):
-        return False
-    return 2 <= int(spec) <= 64
 
 
 def value_kind(value: Value) -> str:
@@ -1137,7 +1255,7 @@ def value_kind(value: Value) -> str:
     if isinstance(value, StringLiteral):
         return "TrimtickStringLiteral" if value.trimticks is not None else "StringLiteral"
     if isinstance(value, DateTimeLiteral):
-        return "ZRUTDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
+        return "WTCDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
     if isinstance(value, SeparatorLiteral):
         return "SeparatorLiteral"
     if isinstance(value, HexLiteral):
@@ -1218,9 +1336,16 @@ def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     generic = ""
     if datatype.generic_args:
         generic = "<" + ", ".join(datatype.generic_args) + ">"
-    radix = f"[{datatype.radix_base}]" if datatype.radix_base is not None else ""
-    separators = "".join(f"[{item}]" for item in datatype.separators)
-    return f"{name}{generic}{radix}{separators}"
+    clarifiers = ""
+    if datatype.clarifiers:
+        clarifiers = "[" + ", ".join(format_clarifier(value) for value in datatype.clarifiers) + "]"
+    return f"{name}{generic}{clarifiers}"
+
+
+def format_clarifier(value: str | int | float) -> str:
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
@@ -1231,8 +1356,7 @@ def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object
         "type": "TypeAnnotation",
         "name": name,
         "genericArgs": datatype.generic_args,
-        "radixBase": datatype.radix_base,
-        "separators": datatype.separators,
+        "clarifiers": datatype.clarifiers,
         "span": datatype.span.to_json(),
     }
 

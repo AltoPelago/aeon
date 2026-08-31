@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeos-core",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "AEOS schema validation runtime and CLI for AEON documents.",
   "license": "MIT",
   "type": "module",
@@ -45,7 +45,7 @@
   "dependencies": {
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
-    "@altopelago/sansa": "0.9.1"
+    "@altopelago/sansa": "0.10.0"
   },
   "publishConfig": {
     "access": "public"

@@ -17,6 +17,7 @@ import { checkTypes } from './rules/typeCheck.js';
 import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
+import { datatypeBase, declaredRadixFromDatatype, parseClarifierValues } from './util/datatypes.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 import {
     parseAddress,
@@ -44,7 +45,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     DateLiteral: ['DateLiteral'],
     TimeLiteral: ['TimeLiteral'],
     DateTimeLiteral: ['DateTimeLiteral'],
-    ZRUTDateTimeLiteral: ['ZRUTDateTimeLiteral'],
+    WTCDateTimeLiteral: ['WTCDateTimeLiteral'],
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
@@ -186,7 +187,7 @@ const STRING_LIKE_VALUE_TYPES = new Set([
     'DateLiteral',
     'TimeLiteral',
     'DateTimeLiteral',
-    'ZRUTDateTimeLiteral',
+    'WTCDateTimeLiteral',
 ]);
 
 function stringLikePayloadLength(event: Pick<EventInfo, 'type' | 'raw' | 'value'>): number | null {
@@ -345,22 +346,8 @@ export function validate(
 
     function decodeSeparatorChars(datatype: string | undefined): string[] {
         if (!datatype) return [];
-        const match = datatype.match(/\[([^\]]*)\]$/);
-        if (!match) return [];
-        const payload = match[1] ?? '';
-        if (payload.length === 0) return [];
-
-        const separators: string[] = [];
-        let i = 0;
-        while (i < payload.length) {
-            separators.push(payload[i]!);
-            i += 1;
-            if (i < payload.length) {
-                if (payload[i] !== ',') return [];
-                i += 1;
-            }
-        }
-        return separators;
+        if (datatypeBase(datatype).toLowerCase() !== 'sep') return [];
+        return parseClarifierValues(datatype).filter((value): value is string => typeof value === 'string');
     }
 
     // Phase 2 — Baseline invariants
@@ -1375,15 +1362,6 @@ function validateAttributeEntry(
     }
 }
 
-function datatypeBase(datatype: string): string {
-    const genericIdx = datatype.indexOf('<');
-    const separatorIdx = datatype.indexOf('[');
-    const endIdx = [genericIdx, separatorIdx]
-        .filter((idx) => idx >= 0)
-        .reduce((min, idx) => Math.min(min, idx), datatype.length);
-    return datatype.slice(0, endIdx);
-}
-
 function mergeDatatypeRuleConstraints(
     constraints: ConstraintsV1,
     datatype: string | undefined,
@@ -1543,14 +1521,6 @@ function radixConstraintMatches(datatype: string | undefined, raw: string, const
     return firstInvalidRadixDigit(raw, constraints.radix) === null;
 }
 
-function declaredRadixFromDatatype(datatype: string | undefined): number | null {
-    if (datatype === undefined) return null;
-    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(datatype.trim());
-    if (!match) return null;
-    const value = Number(match[1] ?? match[2]);
-    return Number.isInteger(value) && value >= 0 ? value : null;
-}
-
 function isStringType(type: string): boolean {
     return type === 'StringLiteral'
         || type === 'TrimtickLiteral'
@@ -1562,7 +1532,7 @@ function isStringType(type: string): boolean {
         || type === 'DateLiteral'
         || type === 'TimeLiteral'
         || type === 'DateTimeLiteral'
-        || type === 'ZRUTDateTimeLiteral';
+        || type === 'WTCDateTimeLiteral';
 }
 
 function countFormDigits(type: string, raw: string): number {
