@@ -68,6 +68,13 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens.filter(t => t.type !== TokenType.EOF).length, 0);
             assert.strictEqual(result.errors[0]?.code, 'INVALID_STRUCTURAL_IDENTITY');
         });
+
+        it('should reject empty structural identities', () => {
+            const result = tokenize('\\\\');
+            assert.strictEqual(result.tokens.filter(t => t.type !== TokenType.EOF).length, 0);
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]?.code, 'INVALID_STRUCTURAL_IDENTITY');
+        });
     });
 
     describe('identifiers and keywords', () => {
@@ -920,13 +927,14 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[1]!.value, '/');
         });
 
-        it('should stop before raw backslashes', () => {
+        it('should stop before raw backslashes and reject an empty structural identity', () => {
             const result = tokenize('^aaa\\\\bbb');
             assert.strictEqual(result.tokens[0]!.type, TokenType.SeparatorLiteral);
             assert.strictEqual(result.tokens[0]!.value, '^aaa');
-            assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(result.tokens[1]!.type, TokenType.Symbol);
-            assert.strictEqual(result.tokens[1]!.value, '\\');
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]?.code, 'INVALID_STRUCTURAL_IDENTITY');
+            assert.strictEqual(result.tokens[1]!.type, TokenType.Identifier);
+            assert.strictEqual(result.tokens[1]!.value, 'bbb');
         });
 
         it('should reject empty raw payloads before line comments', () => {

@@ -17,6 +17,7 @@ import { checkTypes } from './rules/typeCheck.js';
 import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
+import { datatypeBase, declaredRadixFromDatatype, parseClarifierValues } from './util/datatypes.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 import {
     parseAddress,
@@ -1361,15 +1362,6 @@ function validateAttributeEntry(
     }
 }
 
-function datatypeBase(datatype: string): string {
-    const genericIdx = datatype.indexOf('<');
-    const separatorIdx = datatype.indexOf('[');
-    const endIdx = [genericIdx, separatorIdx]
-        .filter((idx) => idx >= 0)
-        .reduce((min, idx) => Math.min(min, idx), datatype.length);
-    return datatype.slice(0, endIdx);
-}
-
 function mergeDatatypeRuleConstraints(
     constraints: ConstraintsV1,
     datatype: string | undefined,
@@ -1527,32 +1519,6 @@ function radixConstraintMatches(datatype: string | undefined, raw: string, const
     if (declaredRadix === null && constraints.allow_unspecified_radix !== true) return false;
     if (declaredRadix !== null && declaredRadix !== constraints.radix) return false;
     return firstInvalidRadixDigit(raw, constraints.radix) === null;
-}
-
-function declaredRadixFromDatatype(datatype: string | undefined): number | null {
-    if (datatype === undefined) return null;
-    const trimmed = datatype.trim();
-    if (trimmed.toLowerCase() === 'decimal') return 10;
-    const alias = /^radix(2|6|8|12)$/i.exec(trimmed);
-    if (alias) return Number(alias[1]);
-    if (datatypeBase(trimmed).toLowerCase() !== 'radix') return null;
-    const values = parseClarifierValues(trimmed);
-    if (values.length !== 1 || typeof values[0] !== 'number') return null;
-    const value = values[0];
-    return Number.isInteger(value) && value >= 2 && value <= 64 ? value : null;
-}
-
-function parseClarifierValues(datatype: string): (string | number)[] {
-    const start = datatype.indexOf('[');
-    if (start < 0 || !datatype.endsWith(']')) return [];
-    const payload = datatype.slice(start + 1, -1);
-    try {
-        const parsed = JSON.parse(`[${payload}]`) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
-    } catch {
-        return [];
-    }
 }
 
 function isStringType(type: string): boolean {

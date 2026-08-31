@@ -1761,6 +1761,25 @@ describe('validate()', () => {
             });
             assert.strictEqual(relaxed.ok, true);
         });
+
+        it('does not treat unsupported radix suffixes as declared radix aliases', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'custom' }] },
+                    key: 'custom',
+                    datatype: 'radix10',
+                    value: { type: 'RadixLiteral', value: '9', raw: '%9', span: [1, 3] },
+                    span: [1, 3],
+                },
+            ] as unknown as AES;
+
+            const result = validate(aes, {
+                rules: [{ path: '$.custom', constraints: { type: 'RadixLiteral', radix: 10 } }],
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.custom'));
+        });
     });
 
     describe('optional trailing separator delimiter policy', () => {

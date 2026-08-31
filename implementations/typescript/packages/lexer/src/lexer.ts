@@ -441,7 +441,13 @@ export class Lexer {
             value += this.advance();
         }
 
-        if (value.length === 0 || this.isAtEnd() || this.peek() !== '\\') {
+        if (value.length === 0) {
+            this.advance(); // consume the empty identity's closing \
+            this.errors.push(new InvalidStructuralIdentityError('\\\\', createSpan(start, this.currentPosition())));
+            return;
+        }
+
+        if (this.isAtEnd() || this.peek() !== '\\') {
             this.errors.push(new InvalidStructuralIdentityError(`\\${value}`, createSpan(start, this.currentPosition())));
             return;
         }
@@ -452,7 +458,7 @@ export class Lexer {
 
     private hasStructuralIdentityTerminator(): boolean {
         const nextSlash = this.input.indexOf('\\', this.offset);
-        return nextSlash > this.offset;
+        return nextSlash >= this.offset;
     }
 
     private scanEscapeSequence(_stringStart: Position): string | null {

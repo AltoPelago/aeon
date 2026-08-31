@@ -10,6 +10,7 @@ import { ErrorCodes } from '../diag/codes.js';
 import type { Span } from '../types/spans.js';
 import type { RuleIndex } from './schemaIndex.js';
 import { countIntegerDigits, isNegative } from '../util/digits.js';
+import { declaredRadixFromDatatype } from '../util/datatypes.js';
 
 /**
  * Event value with type, raw representation, and span
@@ -174,16 +175,6 @@ function countFormDigits(type: string, raw: string): number {
         }
     }
     return count;
-}
-
-function declaredRadixFromDatatype(datatype: string | undefined): number | null {
-    if (datatype === undefined) return null;
-    const trimmed = datatype.trim();
-    if (trimmed.toLowerCase() === 'decimal') return 10;
-    const match = /^radix(?:\[(\d+)\]|(\d+))$/i.exec(trimmed);
-    if (!match) return null;
-    const value = Number(match[1] ?? match[2]);
-    return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isFormNegative(raw: string): boolean {
