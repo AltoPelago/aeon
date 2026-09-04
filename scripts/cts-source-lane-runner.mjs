@@ -93,6 +93,14 @@ function normalizeAesEvents(events) {
     .filter((e) => !isNodeChildProjection(e, eventByPath))
     .map((e) => ({
     path: normalizePath(String(e?.path ?? '')),
+    identity:
+      typeof e?.identity === 'string'
+        ? e.identity
+        : typeof e?.structuralId === 'string'
+          ? e.structuralId
+          : typeof e?.structural_id === 'string'
+            ? e.structural_id
+            : null,
     datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
     value_kind: typeof e?.value?.type === 'string' ? e.value.type : null,
     reference:
