@@ -13,8 +13,9 @@ use aeon_aeos::{
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode,
-    PathSegment, ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
+    NullLiteralMode, PathSegment, ReferenceSegment, VERSION, Value, compile, format_path,
+    normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -176,12 +177,14 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
     let recovery = args.iter().any(|arg| arg == "--recovery");
+    let effective_mode = resolve_behavior_mode(args)
+        .map_err(|message| format!("Error: {message}\n{INSPECT_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = flag_value(args, "--datatype-policy");
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
@@ -268,6 +271,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             max_separator_depth,
             max_generic_depth,
             max_nesting_depth,
+            mode: effective_mode,
             ..CompileOptions::default()
         },
     );
@@ -320,7 +324,13 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                     recovery,
                     include_annotations,
                     annotations_only,
-                    mode: header_field_value(result.header.as_ref(), "mode")
+                    mode: effective_mode
+                        .map(|mode| match mode {
+                            BehaviorMode::Transport => String::from("transport"),
+                            BehaviorMode::Strict => String::from("strict"),
+                            BehaviorMode::Custom => String::from("custom"),
+                        })
+                        .or_else(|| header_field_value(result.header.as_ref(), "mode"))
                         .unwrap_or_else(|| String::from("transport")),
                     version: header_field_value(result.header.as_ref(), "version"),
                     profile: header_field_value(result.header.as_ref(), "profile"),
@@ -457,6 +467,8 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
     let mode = resolve_finalize_mode(args)
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
+    let compile_mode = resolve_behavior_mode(args)
+        .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), false)
         .map_err(|_| {
             format!(
@@ -500,6 +512,7 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
             recovery: args.iter().any(|arg| arg == "--recovery"),
             datatype_policy,
             max_input_bytes,
+            mode: compile_mode,
             ..CompileOptions::default()
         },
     );
@@ -1033,6 +1046,8 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     }
     let mode =
         resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
+    let compile_mode =
+        resolve_behavior_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), rich)
         .map_err(|_| {
@@ -1127,6 +1142,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             recovery,
             datatype_policy: compile_datatype_policy,
             max_input_bytes,
+            mode: compile_mode,
             ..CompileOptions::default()
         },
     );
@@ -1570,6 +1586,23 @@ fn resolve_integrity_mode(args: &[String]) -> Result<&'static str, String> {
         return Err(String::from("Cannot use both --strict and --loose"));
     }
     Ok(if loose { "loose" } else { "strict" })
+}
+
+fn resolve_behavior_mode(args: &[String]) -> Result<Option<BehaviorMode>, String> {
+    let strict = args.iter().any(|arg| arg == "--strict");
+    let transport = args
+        .iter()
+        .any(|arg| arg == "--transport" || arg == "--loose");
+    if strict && transport {
+        return Err(String::from("Cannot use both --strict and --transport"));
+    }
+    Ok(if strict {
+        Some(BehaviorMode::Strict)
+    } else if transport {
+        Some(BehaviorMode::Transport)
+    } else {
+        None
+    })
 }
 
 fn sign_string_payload(payload: &str, private_key_pem: &str) -> Result<String, String> {
@@ -2593,6 +2626,10 @@ fn render_events(events: &[AssignmentEvent]) -> String {
         out.push_str(&escape_json(&path));
         out.push_str("\",\"key\":\"");
         out.push_str(&escape_json(&event.key));
+        if let Some(structural_id) = &event.structural_id {
+            out.push_str("\",\"structuralId\":\"");
+            out.push_str(&escape_json(structural_id));
+        }
         out.push_str("\",\"datatype\":");
         out.push_str(&datatype);
         out.push_str(",\"span\":");
@@ -2654,7 +2691,10 @@ fn inspect_declared_contracts_json(
 fn render_value_json_string(value: &Value) -> String {
     match value {
         Value::TypedValue {
-            datatype, value, ..
+            structural_id,
+            datatype,
+            value,
+            ..
         } => {
             let datatype_json = datatype
                 .as_ref()
@@ -2666,7 +2706,11 @@ fn render_value_json_string(value: &Value) -> String {
                 })
                 .unwrap_or_else(|| String::from("null"));
             format!(
-                "{{\"type\":\"TypedValue\",\"datatype\":{},\"value\":{}}}",
+                "{{\"type\":\"TypedValue\",\"structuralId\":{},\"datatype\":{},\"value\":{}}}",
+                structural_id
+                    .as_ref()
+                    .map(|value| format!("\"{}\"", escape_json(value)))
+                    .unwrap_or_else(|| String::from("null")),
                 datatype_json,
                 render_value_json_string(value)
             )
@@ -3103,7 +3147,8 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "UNEXPECTED_CHARACTER"
         | "UNTERMINATED_BLOCK_COMMENT"
         | "UNTERMINATED_STRING"
-        | "UNTERMINATED_TRIMTICK" => Some("Lexical Analysis"),
+        | "UNTERMINATED_TRIMTICK"
+        | "INVALID_STRUCTURAL_IDENTITY" => Some("Lexical Analysis"),
         "SYNTAX_ERROR"
         | "INVALID_DATE"
         | "INVALID_TIME"
@@ -3114,6 +3159,7 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "HEADER_CONFLICT"
         | "DUPLICATE_KEY"
         | "DUPLICATE_CANONICAL_PATH"
+        | "DUPLICATE_STRUCTURAL_IDENTITY"
         | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
         "MISSING_REFERENCE_TARGET"
         | "FORWARD_REFERENCE"
@@ -3293,6 +3339,7 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             annotations: event
                 .annotations

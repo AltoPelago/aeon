@@ -15,6 +15,12 @@ from aeon.lexer import tokenize
 
 
 class CanonicalTests(unittest.TestCase):
+    def test_canonical_preserves_structural_identity_in_head_position(self) -> None:
+        result = canonicalize('items = [\\B2\\@{source = "user"}:string = "green"]\nage\\A1\\:int32 = 42')
+        self.assertEqual([], result.errors)
+        self.assertIn('age\\A1\\:int32 = 42', result.text)
+        self.assertIn('\\B2\\@{source = "user"}:string = "green"', result.text)
+
     def test_canonicalizes_quoted_reference_paths(self) -> None:
         result = canonicalize('a@{"x.y" = 1} = 2\nb = ~["a.b"].@.["x.y"].["z w"]')
         self.assertEqual([], result.errors)

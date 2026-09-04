@@ -227,6 +227,7 @@ pub enum NullLiteralMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     TypedValue {
+        structural_id: Option<String>,
         datatype: Option<String>,
         attributes: BTreeMap<String, AttributeValue>,
         attribute_order: Vec<String>,
@@ -475,6 +476,7 @@ impl AttributeValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binding {
     pub key: String,
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub attributes: BTreeMap<String, AttributeValue>,
     pub attribute_order: Vec<String>,
@@ -486,6 +488,7 @@ pub struct Binding {
 pub struct AssignmentEvent {
     pub path: CanonicalPath,
     pub key: String,
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub annotations: BTreeMap<String, AttributeValue>,
     pub value: Value,
@@ -609,6 +612,7 @@ pub fn benchmark_validation_phases(
         &flattened.events,
         &event_lookup,
         &lowered,
+        options.mode,
         options.datatype_policy,
         options.max_separator_depth,
         options.max_generic_depth,
@@ -738,6 +742,7 @@ fn finalize_compile(
         &flattened.rendered_event_paths,
         &indexes.event_lookup,
         &bindings,
+        options.mode,
         options.datatype_policy,
         options.max_separator_depth,
         options.max_generic_depth,
@@ -823,6 +828,7 @@ fn validate_only_compile(
         &flattened.events,
         &event_lookup,
         &bindings,
+        options.mode,
         options.datatype_policy,
         options.max_separator_depth,
         options.max_generic_depth,
@@ -1415,6 +1421,33 @@ mod tests {
         assert_eq!(result.bindings[0].path, "$.a");
         assert_eq!(result.bindings[0].datatype.as_deref(), Some("number"));
         assert_eq!(result.events[0].value.value_kind(), "NumberLiteral");
+    }
+
+    #[test]
+    fn preserves_structural_identity_on_binding_and_anonymous_events() {
+        let result = compile(
+            "age\\A1\\@{source = \"user\"}:int32 = 42\nitems = [\\B2\\ = \"red\", \\C3\\:string = \"green\"]",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].structural_id.as_deref(), Some("A1"));
+        assert_eq!(result.events[2].structural_id.as_deref(), Some("B2"));
+        assert_eq!(result.events[3].structural_id.as_deref(), Some("C3"));
+    }
+
+    #[test]
+    fn rejects_duplicate_and_malformed_structural_identity() {
+        let duplicate = compile("a\\A1\\ = 1\nb = [\\A1\\ = 2]", CompileOptions::default());
+        assert_eq!(duplicate.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
+
+        let malformed = compile("a\\bad.id\\ = 1", CompileOptions::default());
+        assert_eq!(malformed.errors[0].code, "INVALID_STRUCTURAL_IDENTITY");
+
+        let misplaced = compile(
+            "a@{source = \"user\"}\\A1\\:int32 = 1",
+            CompileOptions::default(),
+        );
+        assert_eq!(misplaced.errors[0].code, "SYNTAX_ERROR");
     }
 
     #[test]

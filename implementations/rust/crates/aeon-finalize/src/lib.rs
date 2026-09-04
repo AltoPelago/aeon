@@ -295,9 +295,13 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
         Value::TypedValue {
-            datatype, value, ..
+            structural_id,
+            datatype,
+            value,
+            ..
         } => json!({
             "type": "TypedValue",
+            "structuralId": structural_id,
             "datatype": datatype.as_ref().map(|name| json!({
                 "type": "TypeAnnotation",
                 "name": canonical_datatype_name(name),
@@ -2125,6 +2129,19 @@ mod tests {
     }
 
     #[test]
+    fn surfaced_typed_value_ast_preserves_structural_identity() {
+        let result = compile("items = [\\A1\\ = \"red\"]\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let parent = result
+            .events
+            .iter()
+            .find(|event| format_path(&event.path) == "$.items")
+            .expect("items event");
+        let ast = value_to_ast_json(&parent.value);
+        assert_eq!(ast["elements"][0]["structuralId"], "A1");
+    }
+
+    #[test]
     fn resolves_clone_references_into_json_values() {
         let source = "source = 99\ncopy = ~source\n";
         let result = compile(source, CompileOptions::default());
@@ -2311,6 +2328,7 @@ mod tests {
         let events = vec![AssignmentEvent {
             path: aeon_core::CanonicalPath::root().member("a"),
             key: String::from("a"),
+            structural_id: None,
             datatype: Some(String::from("list")),
             annotations: BTreeMap::new(),
             value: Value::ListNode {

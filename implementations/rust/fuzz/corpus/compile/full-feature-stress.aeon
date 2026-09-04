@@ -27,7 +27,7 @@ start:date = 2025-01-01
 alarm:string = "09:30:00"
 timestamp:datetime = 2025-01-01T00:00:00Z
 meeting:localDateTime = 2025-01-01T09:30:00
-zoned:zrut = 2025-01-01T00:00:00Z&Australia/Sydney
+zoned:wtc = 2025-01-01T00:00:00Z&Australia/Sydney
 
 user@{
   role = "admin"

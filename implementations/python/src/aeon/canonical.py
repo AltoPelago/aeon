@@ -102,7 +102,8 @@ def render_header(header: Header | None) -> list[str]:
 
 def render_binding(binding: Binding, indent: int) -> list[str]:
     prefix = " " * indent
-    key = f"{format_binding_key(binding.key)}{render_attributes(binding.attributes)}{render_type(binding.datatype)}"
+    identity = f"\\{binding.structural_id}\\" if binding.structural_id is not None else ""
+    key = f"{format_binding_key(binding.key)}{identity}{render_attributes(binding.attributes)}{render_type(binding.datatype)}"
 
     if isinstance(binding.value, ObjectNode):
         lines = [f"{prefix}{key} = {{"]
@@ -165,7 +166,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
 
     if isinstance(value, TypedValue):
         rendered = render_value(value.value, indent, inline_only) if value.value is not None else [""]
-        head = f"{render_attributes(value.attributes)}{render_type(value.datatype)}"
+        identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+        head = f"{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
         if not rendered:
             return [f"{head} = "]
         return [f"{head} = {rendered[0]}", *rendered[1:]]

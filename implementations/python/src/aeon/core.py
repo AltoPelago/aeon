@@ -93,6 +93,7 @@ class ResolvedBinding:
     span: Span
     datatype: str | None
     annotations: dict[str, dict[str, object]] | None
+    structural_id: str | None
 
 
 RESERVED_KIND_MAP = {
@@ -555,6 +556,7 @@ def resolve_binding(
             span=binding.span,
             datatype=format_datatype(binding.datatype),
             annotations=build_annotations(binding.attributes),
+            structural_id=binding.structural_id,
         )
     )
     resolve_value(binding.value, path, bindings, errors, seen)
@@ -591,6 +593,7 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     span=element.span,
                     datatype=element_datatype,
                     annotations=element_annotations,
+                    structural_id=element.structural_id if isinstance(element, TypedValue) else None,
                 )
             )
             resolve_value(element_value, element_path, bindings, errors, seen)
@@ -614,6 +617,7 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     span=child.span,
                     datatype=child_datatype,
                     annotations=child_annotations,
+                    structural_id=child.structural_id if isinstance(child, TypedValue) else None,
                 )
             )
             resolve_value(child_value, child_path, bindings, errors, seen)
@@ -646,6 +650,8 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     }
     if include_annotations and binding.annotations is not None:
         event["annotations"] = annotations_to_json(binding.annotations)
+    if binding.structural_id is not None:
+        event["structuralId"] = binding.structural_id
     return event
 
 def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -672,6 +678,8 @@ def value_to_json(value: Value) -> dict[str, object]:
                 payload[key] = raw.to_json() if raw is not None else None
             elif key == "datatype":
                 payload[key] = type_annotation_to_json(raw)
+            elif key == "structural_id":
+                payload["structuralId"] = raw
             elif key == "attributes":
                 payload[key] = [attribute_to_json(item) for item in raw]
             elif key == "trimticks":
@@ -694,6 +702,7 @@ def binding_to_json(binding: Binding) -> dict[str, object]:
     return {
         "type": "Binding",
         "key": binding.key,
+        "structuralId": binding.structural_id,
         "datatype": type_annotation_to_json(binding.datatype),
         "attributes": [attribute_to_json(item) for item in binding.attributes],
         "value": value_to_json(binding.value),

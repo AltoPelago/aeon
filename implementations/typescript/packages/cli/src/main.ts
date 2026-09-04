@@ -1352,6 +1352,7 @@ function outputJSON(
         events: Array<{
             path: string;
             key: string;
+            structuralId?: string | null;
             datatype: string | null;
             span: Span;
             value: unknown;
@@ -1368,6 +1369,7 @@ function outputJSON(
         events: visibleEvents.map(event => ({
             path: formatPath(event.path),
             key: event.key,
+            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
             datatype: event.datatype ?? null,
             span: event.span,
             // Preserve AST-like shape (no coercion/inference)
@@ -3043,6 +3045,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'UNTERMINATED_BLOCK_COMMENT':
         case 'UNTERMINATED_STRING':
         case 'UNTERMINATED_TRIMTICK':
+        case 'INVALID_STRUCTURAL_IDENTITY':
             return 'Lexical Analysis';
         case 'SYNTAX_ERROR':
         case 'INVALID_DATE':
@@ -3055,6 +3058,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'HEADER_CONFLICT':
         case 'DUPLICATE_KEY':
         case 'DUPLICATE_CANONICAL_PATH':
+        case 'DUPLICATE_STRUCTURAL_IDENTITY':
         case 'DATATYPE_LITERAL_MISMATCH':
             return 'Core Validation';
         case 'MISSING_REFERENCE_TARGET':

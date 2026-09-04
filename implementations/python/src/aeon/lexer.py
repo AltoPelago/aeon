@@ -9,6 +9,7 @@ from .errors import (
     InvalidDateTimeError,
     InvalidEscapeError,
     InvalidNumberError,
+    InvalidStructuralIdentityError,
     InvalidTimeError,
     SyntaxError,
     UnterminatedStringError,
@@ -165,6 +166,13 @@ class Lexer:
             self.scan_string(start, char)
             return
 
+        if char == "\\":
+            if self.source.find("\\", self.offset) >= self.offset:
+                self.scan_structural_identity(start)
+            else:
+                self.add_token("SYMBOL", char, start)
+            return
+
         if char == "/":
             if self.match("/"):
                 self.scan_line_comment()
@@ -198,6 +206,32 @@ class Lexer:
             return
 
         self.add_token("SYMBOL", char, start)
+
+    def scan_structural_identity(self, start: Position) -> None:
+        value = ""
+        while not self.is_at_end() and self.peek() != "\\":
+            char = self.peek()
+            if not (char.isascii() and (char.isalnum() or char in {"-", "_"})):
+                value += self.advance()
+                while not self.is_at_end() and self.peek() != "\\":
+                    value += self.advance()
+                if not self.is_at_end():
+                    value += self.advance()
+                self.errors.append(InvalidStructuralIdentityError(f"\\{value}", self.make_span(start)))
+                return
+            value += self.advance()
+
+        if not value:
+            self.advance()
+            self.errors.append(InvalidStructuralIdentityError("\\\\", self.make_span(start)))
+            return
+
+        if self.is_at_end():
+            self.errors.append(InvalidStructuralIdentityError(f"\\{value}", self.make_span(start)))
+            return
+
+        self.advance()
+        self.add_token("STRUCTURAL_IDENTITY", value, start)
 
     def scan_sansa_address_literal(self, start: Position) -> None:
         depth_stack: list[str] = []

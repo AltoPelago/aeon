@@ -21,6 +21,15 @@ repositories.
   form enforcement for declared radix constraints.
 - Added WTC temporal-reference support for geographic coordinate payloads such
   as `2035-01-01T09:00&-36.7590183/144.2826718`.
+- Added structural identity parsing, validation, canonical preservation, and AES
+  metadata support to the Rust, Python, and PHP implementations, with shared CTS
+  coverage for named and anonymous heads, invalid forms, and duplicates.
+
+### Fixed
+
+- Applied explicit Rust CLI transport/strict mode overrides during Core datatype
+  validation, including fail-closed rejection of the retired `zrut` datatype in
+  strict mode.
 
 ## 0.11.0 - 2026-07-24
 

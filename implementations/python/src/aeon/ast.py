@@ -35,6 +35,7 @@ class Binding:
     datatype: TypeAnnotation | None
     attributes: list[Attribute]
     span: Span
+    structural_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -220,6 +221,7 @@ class TypedValue:
     attributes: list[Attribute] = field(default_factory=list)
     value: "Value" | None = None
     span: Span | None = None
+    structural_id: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

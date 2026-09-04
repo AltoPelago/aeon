@@ -297,12 +297,16 @@ fn events_json(
 
     if scope != "header" {
         output.extend(events.iter().map(|event| {
-            json!({
+            let mut event_json = json!({
                 "path": format_path(&event.path),
                 "key": event.key,
                 "datatype": event.datatype,
                 "valueType": value_type_name(&event.value),
-            })
+            });
+            if let Some(structural_id) = &event.structural_id {
+                event_json["structuralId"] = json!(structural_id);
+            }
+            event_json
         }));
     }
 
@@ -320,12 +324,14 @@ fn value_type_name(value: &Value) -> &'static str {
 fn value_json(value: &Value) -> JsonValue {
     match value {
         Value::TypedValue {
+            structural_id,
             datatype,
             attributes,
             value,
             ..
         } => json!({
             "type": "TypedValue",
+            "structuralId": structural_id,
             "datatype": datatype,
             "attributes": attributes_json(attributes),
             "value": value_json(value),

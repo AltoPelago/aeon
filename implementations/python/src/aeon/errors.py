@@ -36,7 +36,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         return "Core Validation"
     if code == "UNSAFE_MAX_NESTING_DEPTH":
         return "Input Validation"
-    if code in {"UNEXPECTED_CHARACTER", "UNTERMINATED_BLOCK_COMMENT", "UNTERMINATED_STRING", "UNTERMINATED_TRIMTICK"}:
+    if code in {"UNEXPECTED_CHARACTER", "UNTERMINATED_BLOCK_COMMENT", "UNTERMINATED_STRING", "UNTERMINATED_TRIMTICK", "INVALID_STRUCTURAL_IDENTITY"}:
         return "Lexical Analysis"
     if code in {
         "SYNTAX_ERROR",
@@ -51,7 +51,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "GENERIC_DEPTH_EXCEEDED",
     }:
         return "Parsing"
-    if code in {"HEADER_CONFLICT", "DUPLICATE_KEY", "DUPLICATE_CANONICAL_PATH", "DATATYPE_LITERAL_MISMATCH"}:
+    if code in {"HEADER_CONFLICT", "DUPLICATE_KEY", "DUPLICATE_CANONICAL_PATH", "DUPLICATE_STRUCTURAL_IDENTITY", "DATATYPE_LITERAL_MISMATCH"}:
         return "Core Validation"
     if code in {"PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "PROFILE_DATATYPE_CLARIFIER_INVALID"}:
         return "Profile Validation"
@@ -73,6 +73,24 @@ def infer_phase_label_from_code(code: str) -> str | None:
 class SyntaxError(AeonError):
     def __init__(self, message: str, span: Span, path: str | None = None) -> None:
         super().__init__(message=message, span=span, code="SYNTAX_ERROR", path=path)
+
+
+class InvalidStructuralIdentityError(AeonError):
+    def __init__(self, raw: str, span: Span) -> None:
+        super().__init__(
+            message=f"Invalid structural identity: '{raw}'",
+            span=span,
+            code="INVALID_STRUCTURAL_IDENTITY",
+        )
+
+
+class DuplicateStructuralIdentityError(AeonError):
+    def __init__(self, structural_id: str, span: Span) -> None:
+        super().__init__(
+            message=f"Duplicate structural identity: '{structural_id}'",
+            span=span,
+            code="DUPLICATE_STRUCTURAL_IDENTITY",
+        )
 
 
 class InvalidEscapeError(AeonError):

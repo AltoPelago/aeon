@@ -533,6 +533,8 @@ pub struct SchemaRule {
 pub struct AesEvent {
     pub path: EventPath,
     pub key: String,
+    #[serde(default, rename = "structuralId")]
+    pub structural_id: Option<String>,
     #[serde(default)]
     pub datatype: Option<String>,
     #[serde(default)]
@@ -3926,6 +3928,7 @@ mod tests {
                     ],
                 },
                 key: String::from("a"),
+                structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -3973,6 +3976,7 @@ mod tests {
                     ],
                 },
                 key: String::from("a"),
+                structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -4101,6 +4105,7 @@ mod tests {
                     ],
                 },
                 key: String::from("postcode"),
+                structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -4155,6 +4160,7 @@ mod tests {
                         ],
                     },
                     key: String::from("source"),
+                    structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
@@ -4183,6 +4189,7 @@ mod tests {
                         ],
                     },
                     key: String::from("postcode"),
+                    structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
@@ -4234,6 +4241,7 @@ mod tests {
                     ],
                 },
                 key: String::from("postcode"),
+                structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -4285,6 +4293,7 @@ mod tests {
                         ],
                     },
                     key: String::from("page"),
+                    structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
@@ -4318,6 +4327,7 @@ mod tests {
                         ],
                     },
                     key: String::from("0"),
+                    structural_id: None,
                     datatype: Some(String::from("int32")),
                     annotations: BTreeMap::new(),
                     value: EventValue {
@@ -4382,6 +4392,7 @@ mod tests {
                     ],
                 },
                 key: String::from("0"),
+                structural_id: None,
                 datatype: Some(String::from("int32")),
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -4434,6 +4445,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations: BTreeMap::new(),
                 value: EventValue {
@@ -4523,6 +4535,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations,
                 value: EventValue {
@@ -4608,6 +4621,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations,
                 value: EventValue {

@@ -396,12 +396,13 @@ pub(crate) fn validate_datatypes(
     rendered_event_paths: &[String],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
+    effective_mode: Option<BehaviorMode>,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mode = extract_behavior_mode(bindings);
+    let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         if event.key.starts_with("aeon:") {
@@ -495,12 +496,13 @@ pub(crate) fn validate_datatypes_light(
     events: &[ValidationEvent],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
+    effective_mode: Option<BehaviorMode>,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mode = extract_behavior_mode(bindings);
+    let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for event in events {
         if let Some(datatype) = &event.datatype {

@@ -24,6 +24,7 @@ pub enum TokenKind {
     Percent,
     Ampersand,
     Semicolon,
+    StructuralIdentity,
     SansaAddressLiteral,
     String,
     Number,
@@ -191,6 +192,13 @@ impl<'a> Lexer<'a> {
             }
             '@' => self.push_token(TokenKind::At, "@", start, None, None),
             ';' => self.push_token(TokenKind::Semicolon, ";", start, None, None),
+            '\\' => {
+                if self.input[self.offset..].contains('\\') {
+                    self.scan_structural_identity(start);
+                } else {
+                    self.push_token(TokenKind::Symbol, "\\", start, None, None);
+                }
+            }
             '~' => {
                 if self.match_char('>') {
                     self.push_token(TokenKind::TildeArrow, "~>", start, None, None);
@@ -259,6 +267,60 @@ impl<'a> Lexer<'a> {
                 },
             }),
         }
+    }
+
+    fn scan_structural_identity(&mut self, start: Position) {
+        let mut value = String::new();
+        while !self.is_at_end() && self.peek() != '\\' {
+            let ch = self.peek();
+            if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
+                value.push(self.advance());
+                while !self.is_at_end() && self.peek() != '\\' {
+                    value.push(self.advance());
+                }
+                if !self.is_at_end() {
+                    value.push(self.advance());
+                }
+                self.push_error(LexError {
+                    code: String::from("INVALID_STRUCTURAL_IDENTITY"),
+                    message: format!("Invalid structural identity: '\\{value}'"),
+                    span: Span {
+                        start,
+                        end: self.current_position(),
+                    },
+                });
+                return;
+            }
+            value.push(self.advance());
+        }
+
+        if value.is_empty() {
+            self.advance();
+            self.push_error(LexError {
+                code: String::from("INVALID_STRUCTURAL_IDENTITY"),
+                message: String::from("Invalid structural identity: '\\\\'"),
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            });
+            return;
+        }
+
+        if self.is_at_end() {
+            self.push_error(LexError {
+                code: String::from("INVALID_STRUCTURAL_IDENTITY"),
+                message: format!("Invalid structural identity: '\\{value}'"),
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            });
+            return;
+        }
+
+        self.advance();
+        self.push_token(TokenKind::StructuralIdentity, &value, start, None, None);
     }
 
     fn scan_identifier(&mut self, start: Position) {

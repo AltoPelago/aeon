@@ -13,6 +13,30 @@ from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
 
 
 class CoreCompileTests(unittest.TestCase):
+    def test_structural_identity_is_preserved_on_binding_and_anonymous_events(self) -> None:
+        result = compile_source(
+            'age\\A1\\@{source = "user"}:int32 = 42\n'
+            'items = [\\B2\\ = "red", \\C3\\:string = "green"]'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("A1", by_path["$.age"]["structuralId"])
+        self.assertEqual("B2", by_path["$.items[0]"]["structuralId"])
+        self.assertEqual("C3", by_path["$.items[1]"]["structuralId"])
+        parent_value = by_path["$.items"]["value"]
+        self.assertEqual("B2", parent_value["elements"][0]["structuralId"])
+        self.assertNotIn("structural_id", parent_value["elements"][0])
+
+    def test_structural_identity_must_be_document_unique(self) -> None:
+        result = compile_source('a\\A1\\ = 1\nb = [\\A1\\ = 2]')
+        self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
+
+    def test_structural_identity_rejects_invalid_characters_and_wrong_order(self) -> None:
+        invalid = compile_source('a\\bad.id\\ = 1')
+        self.assertEqual(["INVALID_STRUCTURAL_IDENTITY"], [error.code for error in invalid.errors])
+        misplaced = compile_source('a@{source = "user"}\\A1\\:int32 = 1')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in misplaced.errors])
+
     def test_simple_strict_parse(self) -> None:
         result = compile_source("a:number = 1")
         self.assertEqual([], result.errors)

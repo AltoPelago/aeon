@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
 use crate::sansa::parse_address as parse_sansa_address;
@@ -112,6 +112,7 @@ struct TokenParser<'a> {
     max_attribute_depth: usize,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    structural_identities: HashSet<String>,
 }
 
 impl<'a> TokenParser<'a> {
@@ -130,6 +131,7 @@ impl<'a> TokenParser<'a> {
             max_attribute_depth,
             max_separator_depth,
             max_generic_depth,
+            structural_identities: HashSet::new(),
         }
     }
 
@@ -188,6 +190,8 @@ impl<'a> TokenParser<'a> {
         let start = self.peek().span.start;
         let key = self.parse_key()?;
         self.skip_newlines();
+        let structural_id = self.parse_optional_structural_identity()?;
+        self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
         if self.check(TokenKind::At) {
@@ -224,6 +228,7 @@ impl<'a> TokenParser<'a> {
         let end = self.previous().span.end;
         Ok(Binding {
             key,
+            structural_id,
             datatype,
             attributes,
             attribute_order,
@@ -449,9 +454,14 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if !self.check(TokenKind::Colon) && !self.check(TokenKind::At) {
+        if !self.check(TokenKind::StructuralIdentity)
+            && !self.check(TokenKind::Colon)
+            && !self.check(TokenKind::At)
+        {
             return self.parse_value();
         }
+        let structural_id = self.parse_optional_structural_identity()?;
+        self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
         if self.check(TokenKind::At) {
@@ -483,11 +493,29 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let value = self.parse_value()?;
         Ok(Value::TypedValue {
+            structural_id,
             datatype,
             attributes,
             attribute_order,
             value: Box::new(value),
         })
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
+        if !self.check(TokenKind::StructuralIdentity) {
+            return Ok(None);
+        }
+        let token = self.advance();
+        let structural_id = token.text.clone();
+        if !self.structural_identities.insert(structural_id.clone()) {
+            return Err(Diagnostic::new(
+                "DUPLICATE_STRUCTURAL_IDENTITY",
+                format!("Duplicate structural identity: '{structural_id}'"),
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(Some(structural_id))
     }
 
     fn projected_opening_container_depth(&self) -> Option<usize> {

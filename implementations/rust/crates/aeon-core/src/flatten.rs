@@ -51,6 +51,13 @@ fn typed_datatype(value: &Value) -> Option<String> {
     }
 }
 
+fn typed_structural_id(value: &Value) -> Option<String> {
+    match value {
+        Value::TypedValue { structural_id, .. } => structural_id.clone(),
+        _ => None,
+    }
+}
+
 fn typed_annotations(value: &Value) -> BTreeMap<String, AttributeValue> {
     match value {
         Value::TypedValue { attributes, .. } => attributes.clone(),
@@ -489,6 +496,7 @@ fn flatten_bindings(
             events.push(AssignmentEvent {
                 path: path.clone(),
                 key: binding.key.clone(),
+                structural_id: binding.structural_id.clone(),
                 datatype: binding.datatype.clone(),
                 annotations: if include_event_annotations {
                     binding.attributes.clone()
@@ -525,6 +533,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
@@ -569,6 +578,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
@@ -627,6 +637,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: child_path.clone(),
                         key: index.to_string(),
+                        structural_id: typed_structural_id(child),
                         datatype: typed_datatype(child),
                         annotations: typed_annotations(child),
                         value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
@@ -702,6 +713,7 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: item_path.clone(),
                     key: index.to_string(),
+                    structural_id: typed_structural_id(item),
                     datatype: typed_datatype(item),
                     annotations: typed_annotations(item),
                     value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
@@ -746,6 +758,7 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: child_path.clone(),
                     key: index.to_string(),
+                    structural_id: typed_structural_id(child),
                     datatype: typed_datatype(child),
                     annotations: typed_annotations(child),
                     value: clone_event_value(unwrap_typed_value(child), shallow_event_values),

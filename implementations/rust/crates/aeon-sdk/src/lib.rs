@@ -522,6 +522,7 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             value: core_value_to_aeos(&event.value),
             annotations: BTreeMap::new(),

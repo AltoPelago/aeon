@@ -41,6 +41,7 @@ from .ast import (
 from .errors import (
     AeonError,
     AttributeDepthExceededError,
+    DuplicateStructuralIdentityError,
     GenericDepthExceededError,
     HeaderConflictError,
     InvalidSeparatorCharError,
@@ -109,6 +110,7 @@ class Parser:
         self.current_nesting_depth = 0
         self.errors: list[Exception] = []
         self.deferred_errors: list[Exception] = []
+        self.structural_identities: set[str] = set()
 
     def skip_layout(self) -> None:
         while self.check("NEWLINE"):
@@ -259,6 +261,8 @@ class Parser:
         key_token = self.consume_key_token("Expected binding key")
         key = self.key_from_token(key_token)
         self.skip_layout()
+        structural_id = self.parse_optional_structural_identity()
+        self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
@@ -278,7 +282,7 @@ class Parser:
         end = self.previous().span.end
         if self.check("AT"):
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
-        return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end))
+        return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end), structural_id=structural_id)
 
     def parse_attribute(self, depth: int) -> Attribute:
         if depth > self.max_attribute_depth:
@@ -549,9 +553,11 @@ class Parser:
                 self.current_nesting_depth -= 1
 
     def parse_anonymous_value(self) -> Value:
-        if not self.check("COLON") and not self.check("AT"):
+        if not self.check("STRUCTURAL_IDENTITY") and not self.check("COLON") and not self.check("AT"):
             return self.parse_value()
         start = self.peek().span.start
+        structural_id = self.parse_optional_structural_identity()
+        self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
@@ -573,7 +579,18 @@ class Parser:
             attributes=attributes,
             value=value,
             span=Span(start=start, end=value.span.end if value.span else self.previous().span.end),
+            structural_id=structural_id,
         )
+
+    def parse_optional_structural_identity(self) -> str | None:
+        if not self.check("STRUCTURAL_IDENTITY"):
+            return None
+        token = self.advance()
+        structural_id = token.value
+        if structural_id in self.structural_identities:
+            raise DuplicateStructuralIdentityError(structural_id, token.span)
+        self.structural_identities.add(structural_id)
+        return structural_id
 
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start

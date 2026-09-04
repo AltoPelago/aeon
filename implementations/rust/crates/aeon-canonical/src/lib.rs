@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
 
@@ -13,6 +13,7 @@ pub struct CanonicalResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Binding {
     key: String,
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     value: Value,
@@ -35,11 +36,8 @@ struct NodeValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Value {
-    Typed {
-        datatype: String,
-        value: Box<Value>,
-    },
     Attributed {
+        structural_id: Option<String>,
         attributes: BTreeMap<String, AttributeEntry>,
         datatype: Option<String>,
         value: Box<Value>,
@@ -125,6 +123,7 @@ fn split_header(bindings: Vec<Binding>) -> Result<(Vec<Binding>, Vec<Binding>), 
             }
             shorthand_header.push(Binding {
                 key: String::from(key),
+                structural_id: binding.structural_id,
                 datatype: binding.datatype,
                 attributes: binding.attributes,
                 value: binding.value,
@@ -199,9 +198,10 @@ fn render_document(mut header: Vec<Binding>, mut body: Vec<Binding>) -> String {
 fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let left = format!(
-        "{}{}{}{}",
+        "{}{}{}{}{}",
         prefix,
         render_key(&binding.key),
+        render_structural_identity(binding.structural_id.as_deref()),
         render_attributes(&binding.attributes),
         render_datatype(binding.datatype.as_deref())
     );
@@ -273,28 +273,16 @@ fn render_sequence(
 fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     match value {
-        Value::Typed { datatype, value } => {
-            let rendered = render_value_multiline(value, indent);
-            if let Some((first, rest)) = rendered.split_first() {
-                let first = first.strip_prefix(&prefix).unwrap_or(first);
-                let mut lines = vec![format!(
-                    "{prefix}:{} = {first}",
-                    normalize_datatype(datatype)
-                )];
-                lines.extend(rest.iter().cloned());
-                lines
-            } else {
-                vec![format!("{prefix}:{} = ", normalize_datatype(datatype))]
-            }
-        }
         Value::Attributed {
+            structural_id,
             attributes,
             datatype,
             value,
         } => {
             let rendered = render_value_multiline(value, indent);
             let head = format!(
-                "{}{}",
+                "{}{}{}",
+                render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
                 render_datatype(datatype.as_deref())
             );
@@ -445,20 +433,15 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 
 fn render_value_inline(value: &Value) -> String {
     match value {
-        Value::Typed { datatype, value } => {
-            format!(
-                ":{} = {}",
-                normalize_datatype(datatype),
-                render_value_inline(value)
-            )
-        }
         Value::Attributed {
+            structural_id,
             attributes,
             datatype,
             value,
         } => {
             format!(
-                "{}{} = {}",
+                "{}{}{} = {}",
+                render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
                 render_datatype(datatype.as_deref()),
                 render_value_inline(value)
@@ -483,8 +466,9 @@ fn render_value_inline(value: &Value) -> String {
                     .iter()
                     .map(|binding| {
                         format!(
-                            "{}{}{} = {}",
+                            "{}{}{}{} = {}",
                             render_key(&binding.key),
+                            render_structural_identity(binding.structural_id.as_deref()),
                             render_attributes(&binding.attributes),
                             render_datatype(binding.datatype.as_deref()),
                             render_value_inline(&binding.value)
@@ -548,9 +532,15 @@ fn render_datatype(datatype: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
+fn render_structural_identity(structural_id: Option<&str>) -> String {
+    structural_id
+        .map(|value| format!("\\{value}\\"))
+        .unwrap_or_default()
+}
+
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_scalar(value),
+        Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -559,7 +549,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_value(value),
+        Value::Attributed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -1419,6 +1409,7 @@ impl Binding {
     fn scalar(key: &str, value: Value) -> Self {
         Self {
             key: String::from(key),
+            structural_id: None,
             datatype: None,
             attributes: BTreeMap::new(),
             value,
@@ -1429,6 +1420,7 @@ impl Binding {
 struct Parser<'a> {
     source: &'a [u8],
     index: usize,
+    structural_identities: HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -1436,6 +1428,7 @@ impl<'a> Parser<'a> {
         Self {
             source: source.as_bytes(),
             index: 0,
+            structural_identities: HashSet::new(),
         }
     }
 
@@ -1451,6 +1444,8 @@ impl<'a> Parser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let key = self.parse_key()?;
+        self.skip_ws(true);
+        let structural_id = self.parse_optional_structural_identity()?;
         self.skip_ws(true);
         let attributes = if self.peek() == Some('@') {
             self.parse_attribute_block()?
@@ -1477,6 +1472,7 @@ impl<'a> Parser<'a> {
         let value = self.parse_value()?;
         Ok(Binding {
             key,
+            structural_id,
             datatype,
             attributes,
             value,
@@ -1489,7 +1485,7 @@ impl<'a> Parser<'a> {
             return self.parse_quoted_string();
         }
         let key = self.parse_identifier_like(&[
-            ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
+            '\\', ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
         ])?;
         if key == "aeon" {
             let before_separator = self.index;
@@ -1626,47 +1622,98 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if self.peek() == Some('@') {
-            let attributes = self.parse_attribute_block()?;
-            self.skip_ws(true);
-            let datatype = if self.peek() == Some(':') {
-                self.index += 1;
-                self.skip_ws(true);
-                let parsed = self.parse_datatype_like()?;
-                validate_binding_node_datatype(&parsed)
-                    .map_err(|message| self.syntax_error(&message))?;
-                Some(parsed)
-            } else {
-                None
-            };
-            self.skip_ws(true);
-            self.expect_char_message(
-                '=',
-                "Expected '=' after anonymous attribute/type annotation",
-            )?;
-            self.skip_ws(true);
-            let value = self.parse_value()?;
-            return Ok(Value::Attributed {
-                attributes,
-                datatype,
-                value: Box::new(value),
-            });
-        }
-        if self.peek() != Some(':') {
+        if !matches!(self.peek(), Some('\\' | '@' | ':')) {
             return self.parse_value();
         }
-        self.index += 1;
+        let structural_id = self.parse_optional_structural_identity()?;
         self.skip_ws(true);
-        let datatype = self.parse_datatype_like()?;
-        validate_binding_node_datatype(&datatype).map_err(|message| self.syntax_error(&message))?;
+        let attributes = if self.peek() == Some('@') {
+            self.parse_attribute_block()?
+        } else {
+            BTreeMap::new()
+        };
         self.skip_ws(true);
-        self.expect_char_message('=', "Expected '=' after anonymous type annotation")?;
+        let datatype = if self.peek() == Some(':') {
+            self.index += 1;
+            self.skip_ws(true);
+            let parsed = self.parse_datatype_like()?;
+            validate_binding_node_datatype(&parsed)
+                .map_err(|message| self.syntax_error(&message))?;
+            Some(parsed)
+        } else {
+            None
+        };
+        self.skip_ws(true);
+        self.expect_char_message('=', "Expected '=' after anonymous value head")?;
         self.skip_ws(true);
         let value = self.parse_value()?;
-        Ok(Value::Typed {
+        Ok(Value::Attributed {
+            structural_id,
+            attributes,
             datatype,
             value: Box::new(value),
         })
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
+        if self.peek() != Some('\\') {
+            return Ok(None);
+        }
+        let start = self.index;
+        self.index += 1;
+        let value_start = self.index;
+        while let Some(ch) = self.peek() {
+            if ch == '\\' {
+                break;
+            }
+            if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
+                while let Some(next) = self.peek() {
+                    self.index += 1;
+                    if next == '\\' {
+                        break;
+                    }
+                }
+                let mut diagnostic =
+                    Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
+                        .at_path("$");
+                diagnostic.span = Some(Span {
+                    start: self.position_at(start),
+                    end: self.position_at(self.index),
+                });
+                return Err(diagnostic);
+            }
+            self.index += 1;
+        }
+        if self.peek() != Some('\\') || self.index == value_start {
+            if self.peek() == Some('\\') {
+                self.index += 1;
+            }
+            let mut diagnostic =
+                Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
+                    .at_path("$");
+            diagnostic.span = Some(Span {
+                start: self.position_at(start),
+                end: self.position_at(self.index),
+            });
+            return Err(diagnostic);
+        }
+        let structural_id = std::str::from_utf8(&self.source[value_start..self.index])
+            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
+            .to_owned();
+        self.index += 1;
+        if !self.structural_identities.insert(structural_id.clone()) {
+            let mut diagnostic = Diagnostic::new(
+                "DUPLICATE_STRUCTURAL_IDENTITY",
+                format!("Duplicate structural identity: '{structural_id}'"),
+            )
+            .at_path("$");
+            diagnostic.span = Some(Span {
+                start: self.position_at(start),
+                end: self.position_at(self.index),
+            });
+            return Err(diagnostic);
+        }
+        Ok(Some(structural_id))
     }
 
     fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
@@ -2310,6 +2357,26 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_structural_identity_in_canonical_head_position() {
+        let result = canonicalize(
+            "items = [\\B2\\@{source = \"user\"}:string = \"green\"]\nage\\A1\\:int32 = 42",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("age\\A1\\:int32 = 42"));
+        assert!(
+            result
+                .text
+                .contains("\\B2\\@{source = \"user\"}:string = \"green\"")
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_structural_identity_during_canonicalization() {
+        let result = canonicalize("a\\A1\\ = 1\nb = [\\A1\\ = 2]");
+        assert_eq!(result.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
+    }
 
     #[test]
     fn normalizes_line_endings_and_trailing_newline() {
