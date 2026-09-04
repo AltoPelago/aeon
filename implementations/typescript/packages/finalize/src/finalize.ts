@@ -60,6 +60,7 @@ export function finalizeMap(
 
         const entry: FinalizedEntry = {
             path,
+            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
             value: event.value,
             span: event.span,
             ...(event.datatype ? { datatype: event.datatype } : {}),

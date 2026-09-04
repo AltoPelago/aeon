@@ -65,6 +65,24 @@ test('readAeonChecked throws on compile/finalize errors and indexes events by ca
   assert.equal(result.eventsByPath.get('$.version')?.datatype, 'number');
 });
 
+test('readAeonChecked preserves structural identities on its public AES surface', () => {
+  const source = String.raw`aeon:mode = "loose"
+value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\(\CHILD\:string = "text")>`;
+  const result = readAeonChecked(source, {
+    finalize: { mode: 'loose' },
+  });
+  const event = result.eventsByPath.get('$.value');
+
+  assert.equal(event?.structuralId, 'ROOT');
+  assert.equal(event?.annotations?.get('source')?.structuralId, 'META');
+  assert.equal(event?.value.type, 'NodeLiteral');
+  if (event?.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+  assert.equal(event.value.structuralId, 'HEAD');
+  assert.equal(event.value.children[0]?.type, 'TypedValue');
+  if (event.value.children[0]?.type !== 'TypedValue') assert.fail('Expected headed child');
+  assert.equal(event.value.children[0].structuralId, 'CHILD');
+});
+
 test('indexEventsByPath uses canonical formatted paths', () => {
   const source = [
     'aeon:mode = "loose"',

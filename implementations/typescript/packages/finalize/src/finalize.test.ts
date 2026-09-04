@@ -7,7 +7,7 @@ import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string) {
     const tokens = tokenize(input).tokens;
-    const ast = parse(tokens);
+    const ast = parse(tokens, { maxAttributeDepth: 8 });
     if (!ast.document) throw new Error('Parse failed');
     const resolved = resolvePaths(ast.document);
     const emitted = emitEvents(resolved, { recovery: true });
@@ -32,6 +32,17 @@ describe('Finalization (Map)', () => {
         assert.strictEqual(result.document.entries.size, 2);
         assert.ok(result.document.entries.has('$.a'));
         assert.ok(result.document.entries.has('$.b'));
+    });
+
+    it('preserves structural identities on entries and nested annotations', () => {
+        const events = compileToEvents(String.raw`value\ROOT\@{source\META\@{detail\DETAIL\ = "nested"}:string = "user"} = 1`);
+        const result = finalizeMap(events);
+        const entry = result.document.entries.get('$.value');
+
+        assert.strictEqual(entry?.structuralId, 'ROOT');
+        assert.strictEqual(entry?.annotations?.get('source')?.structuralId, 'META');
+        assert.strictEqual(entry?.annotations?.get('source')?.datatype, 'string');
+        assert.strictEqual(entry?.annotations?.get('source')?.annotations?.get('detail')?.structuralId, 'DETAIL');
     });
 
     it('strict mode records duplicate path errors', () => {

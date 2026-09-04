@@ -44,6 +44,30 @@ describe('Finalization (Node)', () => {
         assert.strictEqual(node?.annotations?.get('lang')?.value.type, 'StringLiteral');
     });
 
+    it('preserves every structural identity location in node materialization', () => {
+        const events = compileToEvents(String.raw`root\ROOT\@{meta\META\ = "x"} = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>`);
+        const result = finalizeNode(events);
+        const root = result.document.root.entries.get('root');
+
+        assert.ok(root);
+        assert.strictEqual(root.structuralId, 'ROOT');
+        assert.strictEqual(root.annotations?.get('meta')?.structuralId, 'META');
+        assert.strictEqual(root.type, 'Object');
+        if (root.type !== 'Object') assert.fail('Expected node literal object projection');
+        assert.strictEqual(root.entries.get('$node')?.structuralId, 'HEAD');
+
+        const attributes = root.entries.get('@');
+        assert.strictEqual(attributes?.type, 'Object');
+        if (attributes?.type !== 'Object') assert.fail('Expected node attribute projection');
+        assert.strictEqual(attributes.entries.get('role')?.structuralId, 'ROLE');
+
+        const children = root.entries.get('$children');
+        assert.strictEqual(children?.type, 'List');
+        if (children?.type !== 'List') assert.fail('Expected node children projection');
+        assert.strictEqual(children.items[0]?.structuralId, 'CHILD');
+        assert.strictEqual(children.items[0]?.datatype, 'string');
+    });
+
     it('materializes time literals as scalar time nodes', () => {
         const events = compileToEvents('opens = 09:30:00Z');
         const result = finalizeNode(events);

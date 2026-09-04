@@ -108,6 +108,7 @@ export interface FinalizedMap {
 
 export interface FinalizedEntry {
   readonly path: string;
+  readonly structuralId?: string | null;
   readonly value: Value;
   readonly span: Span;
   readonly datatype?: string;
@@ -119,8 +120,8 @@ export interface FinalizedEntry {
 
 - Strict mode records duplicate paths as errors.
 - Loose mode records duplicate paths as warnings and keeps the first entry.
-- Map/node finalization preserves symbolic references; JSON finalization may materialize clone references and linked JSON may materialize pointer aliases.
-- JSON output converts AEON values into JSON-compatible primitives and containers.
+- Map/node finalization preserves structural identities and symbolic references.
+- JSON finalization is a semantic materialization: it converts AEON values into JSON-compatible primitives and containers and intentionally omits structural identities. It may materialize clone references, while linked JSON may also materialize pointer aliases. Use map, node, or AES output when occurrence identity must be retained.
 - References (`~` / `~>`) emit diagnostics and are preserved as string tokens.
 - `finalizeJson(...)` materializes clone references into concrete JSON values and can enforce `maxMaterializedWeight` and `maxReferenceDepth` to fail closed on clone-amplification growth.
 - `finalizeLinkedJson(...)` is the opt-in live materialization variant for `~>` pointer aliases.

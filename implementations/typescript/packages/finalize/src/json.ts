@@ -711,7 +711,11 @@ function buildAnnotationEntries(
     const result = new Map<string, AttributeEntry>();
     for (const attribute of attributes) {
         for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = { value: entry.value };
+            const mapped: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
+                value: entry.value,
+                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
+            };
             const nested = buildAnnotationEntries(entry.attributes);
             if (nested) {
                 (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;

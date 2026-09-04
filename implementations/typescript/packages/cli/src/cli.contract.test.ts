@@ -146,9 +146,11 @@ function toCliJson(result: CompileResult) {
         events: visibleEvents.map(event => ({
             path: formatPath(event.path),
             key: event.key,
+            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
             datatype: event.datatype ?? null,
             span: event.span,
             value: jsonSafe(event.value),
+            ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
         })),
         errors: result.errors.map(error => ({
             code: (error as { code?: string }).code,
@@ -195,7 +197,8 @@ function toFinalizeMapCliJson(result: CompileResult, options: FinalizeOptions = 
     const meta = mergeDiagnostics(finalized, result.errors);
     const entries = Array.from(finalized.document.entries.values()).map(entry => ({
         path: entry.path,
-        value: entry.value,
+        ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
+        value: jsonSafe(entry.value),
         span: entry.span,
         ...(entry.datatype ? { datatype: entry.datatype } : {}),
         ...(entry.annotations ? { annotations: mapAnnotations(entry.annotations) } : {}),
@@ -330,12 +333,21 @@ function toDiagnosticFromError(error: AEONError) {
     };
 }
 
-function mapAnnotations(annotations: ReadonlyMap<string, { value: unknown; datatype?: string }>) {
-    const entries: Record<string, { value: unknown; datatype?: string }> = {};
+type SerializableAnnotationEntry = {
+    structuralId?: string | null;
+    value: unknown;
+    datatype?: string;
+    annotations?: ReadonlyMap<string, SerializableAnnotationEntry>;
+};
+
+function mapAnnotations(annotations: ReadonlyMap<string, SerializableAnnotationEntry>) {
+    const entries: Record<string, Record<string, unknown>> = {};
     for (const [key, value] of annotations.entries()) {
         entries[key] = {
-            value: value.value,
+            ...(value.structuralId !== undefined ? { structuralId: value.structuralId } : {}),
+            value: jsonSafe(value.value),
             ...(value.datatype ? { datatype: value.datatype } : {}),
+            ...(value.annotations ? { annotations: mapAnnotations(value.annotations) } : {}),
         };
     }
     return entries;
@@ -749,6 +761,30 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(node?.attributes?.[0]?.entries?.class?.value?.value, 'dark');
         });
 
+        it('preserves structural identities and binding annotations', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-identity-'));
+            const file = path.join(dir, 'identity.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                events: Array<{
+                    structuralId?: string;
+                    annotations?: Record<string, { structuralId?: string }>;
+                    value: { structuralId?: string };
+                }>;
+            };
+            assert.strictEqual(parsed.events[0]?.structuralId, 'ROOT');
+            assert.strictEqual(parsed.events[0]?.annotations?.source?.structuralId, 'META');
+            assert.strictEqual(parsed.events[0]?.value.structuralId, 'HEAD');
+        });
+
         it('supports --sort-annotations with annotations-only JSON output', async () => {
             const { code, stdout, stderr } = await runCli([
                 'inspect',
@@ -959,6 +995,32 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(stderr, '');
             const parsed = JSON.parse(stdout);
             assert.deepStrictEqual(parsed, expected);
+        });
+
+        it('preserves structural identities in map output', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-finalize-identity-'));
+            const file = path.join(dir, 'identity.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['finalize', file, '--map']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                document: {
+                    entries: Array<{
+                        structuralId?: string;
+                        annotations?: Record<string, { structuralId?: string }>;
+                        value: { structuralId?: string };
+                    }>;
+                };
+            };
+            assert.strictEqual(parsed.document.entries[0]?.structuralId, 'ROOT');
+            assert.strictEqual(parsed.document.entries[0]?.annotations?.source?.structuralId, 'META');
+            assert.strictEqual(parsed.document.entries[0]?.value.structuralId, 'HEAD');
         });
     });
 

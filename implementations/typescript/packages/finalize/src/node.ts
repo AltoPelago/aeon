@@ -52,6 +52,7 @@ type NodeContext = {
 
 type NodeMeta = {
     span: Span;
+    structuralId?: string | null;
     datatype?: string;
     annotations?: ReadonlyMap<string, AnnotationEntry>;
 };
@@ -136,6 +137,7 @@ function payloadEntriesToNode(
         }
         const meta: NodeMeta = {
             span: event.span,
+            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
             ...(event.datatype ? { datatype: event.datatype } : {}),
             ...(event.annotations ? { annotations: event.annotations } : {}),
         };
@@ -172,8 +174,16 @@ function isTopLevel(path: AssignmentEvent['path']): boolean {
 
 function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: string, projection: ProjectionState): FinalizedNode {
     switch (value.type) {
-        case 'TypedValue':
-            return valueToNode(value.value, meta, ctx, path, projection);
+        case 'TypedValue': {
+            const annotations = buildAnnotations(value.attributes);
+            const typedMeta: NodeMeta = {
+                ...meta,
+                ...(value.structuralId !== null ? { structuralId: value.structuralId } : {}),
+                ...(value.datatype ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
+                ...(annotations.size > 0 ? { annotations } : {}),
+            };
+            return valueToNode(value.value, typedMeta, ctx, path, projection);
+        }
         case 'StringLiteral':
             return scalarNode('String', value.value, value.raw, meta);
         case 'NumberLiteral':
@@ -220,7 +230,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                 {
                     type: 'Binding',
                     key: '$node',
-                    structuralId: null,
+                    structuralId: value.structuralId,
                     value: {
                         type: 'StringLiteral',
                         value: value.tag,
@@ -243,10 +253,10 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                                 Array.from(attribute.entries.entries()).map(([key, entry]) => ({
                                     type: 'Binding' as const,
                                     key,
-                                    structuralId: null,
+                                    structuralId: entry.structuralId,
                                     value: entry.value,
                                     datatype: entry.datatype,
-                                    attributes: [],
+                                    attributes: entry.attributes,
                                     span: entry.value.span,
                                 }))
                             ),
@@ -289,6 +299,7 @@ function scalarNode(
         value,
         raw,
         span: meta.span,
+        ...(meta.structuralId !== undefined ? { structuralId: meta.structuralId } : {}),
         ...(meta.datatype ? { datatype: meta.datatype } : {}),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
     };
@@ -317,6 +328,7 @@ function referenceNode(
         path: refPath,
         token,
         span: meta.span,
+        ...(meta.structuralId !== undefined ? { structuralId: meta.structuralId } : {}),
         ...(meta.datatype ? { datatype: meta.datatype } : {}),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
     };
@@ -355,6 +367,7 @@ function objectNode(
         const bindingAnnotations = buildAnnotations(binding.attributes);
         const bindingMeta: NodeMeta = {
             span: binding.span,
+            ...(binding.structuralId !== null ? { structuralId: binding.structuralId } : {}),
             ...(binding.datatype ? { datatype: formatDatatypeAnnotation(binding.datatype) } : {}),
             ...(bindingAnnotations.size > 0 ? { annotations: bindingAnnotations } : {}),
         };
@@ -364,6 +377,7 @@ function objectNode(
         type: 'Object',
         entries,
         span: meta.span,
+        ...(meta.structuralId !== undefined ? { structuralId: meta.structuralId } : {}),
         ...(meta.datatype ? { datatype: meta.datatype } : {}),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
     };
@@ -391,6 +405,7 @@ function listNode(
         type: 'List',
         items,
         span: meta.span,
+        ...(meta.structuralId !== undefined ? { structuralId: meta.structuralId } : {}),
         ...(meta.datatype ? { datatype: meta.datatype } : {}),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
     };
@@ -400,9 +415,12 @@ function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string,
     const result = new Map<string, AnnotationEntry>();
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
+            const nested = buildAnnotations(entry.attributes);
             result.set(key, {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
                 value: entry.value,
                 ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
+                ...(nested.size > 0 ? { annotations: nested } : {}),
             });
         }
     }

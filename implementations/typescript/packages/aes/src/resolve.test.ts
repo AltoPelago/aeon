@@ -23,6 +23,25 @@ describe('Reference Resolution (Resolved AES)', () => {
         assert.strictEqual((result.aes[1]!.value as any).raw, '1');
     });
 
+    it('does not duplicate structural identities when materializing clones', () => {
+        const events = compileToEvents(String.raw`original\ORIGINAL\@{meta\META\ = "x"} = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>
+copy\COPY\ = ~original`);
+        const result = resolveRefs(events, { mode: 'strict' });
+        const original = result.aes.find((event) => event.key === 'original');
+        const copy = result.aes.find((event) => event.key === 'copy');
+
+        assert.strictEqual(original?.structuralId, 'ORIGINAL');
+        assert.strictEqual(original?.annotations?.get('meta')?.structuralId, 'META');
+        assert.strictEqual(copy?.structuralId, 'COPY');
+        assert.strictEqual(copy?.value.type, 'NodeLiteral');
+        if (copy?.value.type !== 'NodeLiteral') assert.fail('Expected cloned NodeLiteral');
+        assert.strictEqual(copy.value.structuralId, null);
+        assert.strictEqual(copy.value.attributes[0]?.entries.get('role')?.structuralId, null);
+        assert.strictEqual(copy.value.children[0]?.type, 'TypedValue');
+        if (copy.value.children[0]?.type !== 'TypedValue') assert.fail('Expected headed child');
+        assert.strictEqual(copy.value.children[0].structuralId, null);
+    });
+
     it('preserves pointer references', () => {
         const events = compileToEvents('a = 1\nb = ~>a');
         const result = resolveRefs(events, { mode: 'strict' });

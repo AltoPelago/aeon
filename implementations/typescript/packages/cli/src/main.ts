@@ -1356,6 +1356,7 @@ function outputJSON(
             datatype: string | null;
             span: Span;
             value: unknown;
+            annotations?: unknown;
         }>;
         errors: Array<{
             code: string | undefined;
@@ -1374,6 +1375,7 @@ function outputJSON(
             span: event.span,
             // Preserve AST-like shape (no coercion/inference)
             value: jsonSafe(event.value),
+            ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
         })),
         errors: result.errors.map(error => ({
             code: (error as { code?: string }).code,
@@ -1512,19 +1514,29 @@ function finalizeMapOutput(result: CompileResult, options: FinalizeOptions) {
 function entryToJson(entry: FinalizedEntry) {
     return {
         path: entry.path,
-        value: entry.value,
+        ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
+        value: jsonSafe(entry.value),
         span: entry.span,
         ...(entry.datatype ? { datatype: entry.datatype } : {}),
         ...(entry.annotations ? { annotations: mapAnnotations(entry.annotations) } : {}),
     };
 }
 
-function mapAnnotations(annotations: ReadonlyMap<string, { value: unknown; datatype?: string }>) {
-    const entries: Record<string, { value: unknown; datatype?: string }> = {};
+type SerializableAnnotationEntry = {
+    structuralId?: string | null;
+    value: unknown;
+    datatype?: string;
+    annotations?: ReadonlyMap<string, SerializableAnnotationEntry>;
+};
+
+function mapAnnotations(annotations: ReadonlyMap<string, SerializableAnnotationEntry>) {
+    const entries: Record<string, Record<string, unknown>> = {};
     for (const [key, value] of annotations.entries()) {
         entries[key] = {
-            value: value.value,
+            ...(value.structuralId !== undefined ? { structuralId: value.structuralId } : {}),
+            value: jsonSafe(value.value),
             ...(value.datatype ? { datatype: value.datatype } : {}),
+            ...(value.annotations ? { annotations: mapAnnotations(value.annotations) } : {}),
         };
     }
     return entries;
