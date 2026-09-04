@@ -2505,20 +2505,28 @@ mod tests {
     }
 
     #[test]
-    fn rejects_oversized_radix_base_with_specific_radix_base_error() {
+    fn accepts_numeric_radix_clarifiers_for_downstream_validation() {
         let result = compile(
-            "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
+            "a:radix[.2] = %2\nb:radix[1] = %2\nc:radix[65] = %2\nd:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
             CompileOptions::default(),
         );
-        assert!(result.errors.iter().any(|error| {
-            error.code == "SYNTAX_ERROR"
-                && error.message.contains("must be `radix` or `radix[2..64]`")
-        }));
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("radix[0.2]"));
+        assert_eq!(result.events[1].datatype.as_deref(), Some("radix[1]"));
+        assert_eq!(result.events[2].datatype.as_deref(), Some("radix[65]"));
+    }
+
+    #[test]
+    fn rejects_invalid_numeric_datatype_clarifiers() {
+        let result = compile("a:radix[03] = %2\n", CompileOptions::default());
+        assert!(result.events.is_empty());
         assert!(
-            !result
+            result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "INVALID_NUMBER"),
+            "{:?}",
+            result.errors
         );
     }
 

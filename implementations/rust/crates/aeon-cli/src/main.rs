@@ -1376,10 +1376,9 @@ fn cts_adapter() -> Result<ExitCode, String> {
 
 fn default_contract_registry_path() -> String {
     specs_repo_root()
+        .join("resources")
         .join("contracts")
         .join("v1")
-        .join("drafts")
-        .join("artifacts")
         .join("registry.json")
         .to_string_lossy()
         .into_owned()

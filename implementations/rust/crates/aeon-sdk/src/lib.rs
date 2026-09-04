@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn validates_schema_when_provided() {
-        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[.] = ^1.1.0\n  daytime:string = \"Hello, Sun\"\n  farewell:string = \"Sayonara, Sun\"\n  sunsetHour:number = 18\n  cooldownHours:number = 3\n}\n";
+        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[\".\"] = ^1.1.0\n  daytime:string = \"Hello, Sun\"\n  farewell:string = \"Sayonara, Sun\"\n  sunsetHour:number = 18\n  cooldownHours:number = 3\n}\n";
         let loaded = load_str::<FarewellDoc>(
             source,
             LoadOptions {
@@ -831,7 +831,7 @@ mod tests {
 
     #[test]
     fn returns_schema_errors_when_schema_fails() {
-        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[.] = ^1.1.0\n}\n";
+        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[\".\"] = ^1.1.0\n}\n";
         let error = load_str::<FarewellDoc>(
             source,
             LoadOptions {

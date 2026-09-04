@@ -1895,7 +1895,7 @@ impl<'a> AnnotationParser<'a> {
         let start = self.scanner.position();
         self.scanner.bump();
         let colon_end = self.scanner.position();
-        self.skip_trivia(false);
+        self.skip_trivia(true);
         let datatype_start = self.scanner.position();
         let mut brackets = 0usize;
         let mut angles = 0usize;
@@ -2400,6 +2400,18 @@ mod tests {
         assert_eq!(records.len(), 3);
         assert!(records.iter().all(
             |record| matches!(record.target, AnnotationTarget::Path { ref path } if path == "$.[\"aeon:version\"]")
+        ));
+    }
+
+    #[test]
+    fn tokenized_structured_header_trivia_targets_typed_header_fields() {
+        let records = extract_annotations(
+            "aeon\n:\nheader /# gap #/= {\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\napp:string = \"ok\"",
+        );
+        assert_eq!(records.len(), 1);
+        assert!(matches!(
+            records[0].target,
+            AnnotationTarget::Path { ref path } if path == "$.[\"aeon:mode\"]"
         ));
     }
 }

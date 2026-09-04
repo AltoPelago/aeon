@@ -352,7 +352,32 @@ impl<'a> TokenParser<'a> {
                 self.skip_newlines();
                 let token = self.peek().clone();
                 match token.kind {
-                    TokenKind::Number | TokenKind::String => {
+                    TokenKind::Number => {
+                        if !is_valid_number_literal(&token.text) {
+                            return Err(Diagnostic {
+                                code: String::from("INVALID_NUMBER"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!("Number literal `{}` is not valid", token.text),
+                            });
+                        }
+                        self.advance();
+                        clarifier_count += 1;
+                        if clarifier_count > self.max_separator_depth {
+                            return Err(Diagnostic {
+                                code: String::from("SEPARATOR_DEPTH_EXCEEDED"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!(
+                                    "Clarifier value count {clarifier_count} exceeds max_separator_depth {}",
+                                    self.max_separator_depth
+                                ),
+                            });
+                        }
+                    }
+                    TokenKind::String => {
                         self.advance();
                         clarifier_count += 1;
                         if clarifier_count > self.max_separator_depth {
@@ -397,8 +422,14 @@ impl<'a> TokenParser<'a> {
 
         let datatype = self.tokens[start..self.current]
             .iter()
-            .map(|token| token.text.as_str())
-            .collect::<String>()
+            .fold(String::new(), |mut datatype, token| {
+                if token.kind == TokenKind::Number {
+                    datatype.push_str(&crate::normalize_number_literal(&token.text));
+                } else {
+                    datatype.push_str(&token.text);
+                }
+                datatype
+            })
             .chars()
             .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
             .collect::<String>();
