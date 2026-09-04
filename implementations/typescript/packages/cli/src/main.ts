@@ -57,7 +57,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
 import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
-import { projectPortableNodeEvents } from '@altopelago/aeon-aes';
+import { projectPortableEvents } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -1369,7 +1369,7 @@ function outputJSON(
         annotations?: NonNullable<CompileResult['annotations']>;
     } = {
         events: options.portableAes
-            ? [...projectPortableNodeEvents(visibleEvents)]
+            ? [...projectPortableEvents(visibleEvents)]
             : visibleEvents.map(event => ({
                 path: formatPath(event.path),
                 key: event.key,
