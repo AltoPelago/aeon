@@ -86,6 +86,8 @@ impl SansaParseError {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SansaResolveBinding {
     pub address: Option<String>,
+    /// Opaque structural occurrence identity supplied by the host namespace.
+    pub identity: Option<String>,
     pub name: Option<String>,
     pub key: Option<String>,
     pub index: Option<usize>,
@@ -1299,6 +1301,26 @@ mod tests {
             )),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn preserves_identity_as_metadata_without_using_it_for_paths() {
+        let child = SansaResolveBinding {
+            address: Some(String::from("$.item")),
+            identity: Some(String::from("ITEM")),
+            name: Some(String::from("item")),
+            ..SansaResolveBinding::default()
+        };
+        let namespace = SansaResolveNamespace::new(SansaResolveBinding {
+            address: Some(String::from("$")),
+            children: vec![child],
+            ..SansaResolveBinding::default()
+        });
+
+        let result = resolve_address("$.item", &namespace, &SansaResolveOptions::default());
+        assert!(result.ok);
+        assert_eq!(result.bindings[0].address.as_deref(), Some("$.item"));
+        assert_eq!(result.bindings[0].identity.as_deref(), Some("ITEM"));
     }
 
     #[test]

@@ -222,6 +222,66 @@ test('materializeMatter supports node literals for structural templates', () => 
   assert.match(result.document?.serialize() ?? '', /page = <main@\{class = "shell"\}/);
 });
 
+test('materializeMatter preserves identities as SANSA-visible occurrence metadata', () => {
+  const aes: readonly AssignmentEvent[] = [{
+    path: { segments: [{ type: 'root' }, { type: 'member', key: 'page' }] },
+    key: 'page',
+    structuralId: 'ROOT',
+    value: {
+      type: 'NodeLiteral',
+      tag: 'main',
+      structuralId: 'HEAD',
+      attributes: [{
+        type: 'Attribute',
+        entries: new Map([['role', {
+          structuralId: 'ROLE',
+          value: {
+            type: 'StringLiteral',
+            value: 'button',
+            raw: '"button"',
+            delimiter: '"',
+            span: span(),
+          },
+          datatype: null,
+          attributes: [],
+        }]]),
+        span: span(),
+      }],
+      datatype: null,
+      children: [{
+        type: 'TypedValue',
+        structuralId: 'CHILD',
+        datatype: null,
+        attributes: [],
+        value: {
+          type: 'StringLiteral',
+          value: 'text',
+          raw: '"text"',
+          delimiter: '"',
+          span: span(),
+        },
+        span: span(),
+      }],
+      span: span(),
+    },
+    span: span(),
+  }];
+
+  const result = materializeMatter({ aes });
+  const page = result.document?.at('$.page');
+  const child = result.document?.at('$.page[0]');
+  const selected = result.document?.resolve('$.page[0]');
+
+  assert.ok(page?.kind === 'node');
+  assert.equal(page.structuralId, 'ROOT');
+  assert.equal(page.headStructuralId, 'HEAD');
+  assert.equal(page.attributeEntries().get('role')?.structuralId, 'ROLE');
+  assert.equal(child?.structuralId, 'CHILD');
+  assert.equal(selected?.ok, true);
+  if (selected?.ok) assert.strictEqual(selected.nodes[0], child);
+  assert.equal(selected?.nodes[0]?.address, '$.page[0]');
+});
+
 function span() {
   return {
     start: { line: 1, column: 1, offset: 0 },
