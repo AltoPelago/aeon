@@ -19,8 +19,8 @@ pub struct PortableAesEvent {
 
 /// Project legacy Rust assignment events into the portable flat AES shape.
 ///
-/// Node values become a value-less `node` event followed by a synthetic
-/// `node-head` event. Each crossed node boundary inserts the head index into
+/// Node values become a value-less `NodeLiteral` event followed by a synthetic
+/// `NodeHead` event. Each crossed node boundary inserts the head index into
 /// descendant and reference paths. Attributes are emitted as ordinary events
 /// in source preorder beneath their owner's `.@` address space.
 #[must_use]
@@ -62,7 +62,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
             let head_path = format!("{translated_path_text}[0]");
             projected.push(PortableAesEvent {
                 path: head_path.clone(),
-                kind: "node-head",
+                kind: "NodeHead",
                 identity: structural_id.clone(),
                 datatype: datatype.clone(),
                 value: Some(tag.clone()),
@@ -138,9 +138,12 @@ fn project_attribute_value(
     projected: &mut Vec<PortableAesEvent>,
     node_source_paths: &HashSet<String>,
 ) {
-    let (kind, value) = entry.value.as_ref().map_or(("object", None), |raw_value| {
-        project_value(unwrap_typed_value(raw_value), node_source_paths)
-    });
+    let (kind, value) = entry
+        .value
+        .as_ref()
+        .map_or(("ObjectNode", None), |raw_value| {
+            project_value(unwrap_typed_value(raw_value), node_source_paths)
+        });
     projected.push(PortableAesEvent {
         path: path.clone(),
         kind,
@@ -248,7 +251,7 @@ fn project_value_children(
             let head_path = format!("{path}[0]");
             projected.push(PortableAesEvent {
                 path: head_path.clone(),
-                kind: "node-head",
+                kind: "NodeHead",
                 identity: structural_id.clone(),
                 datatype: datatype.clone(),
                 value: Some(tag.clone()),
@@ -342,35 +345,48 @@ fn project_value(
 ) -> (&'static str, Option<String>) {
     match value {
         Value::TypedValue { value, .. } => project_value(value, node_source_paths),
-        Value::StringLiteral { value, .. } => ("string", Some(value.clone())),
-        Value::NumberLiteral { raw } => ("number", Some(normalize_number_literal(raw))),
-        Value::InfinityLiteral { raw, .. } => ("infinity", Some(raw.clone())),
-        Value::NaNLiteral { raw, .. } => ("nan", Some(raw.clone())),
-        Value::NullLiteral { value, .. } => ("null", Some(value.clone())),
-        Value::BooleanLiteral { raw } => ("boolean", Some(raw.clone())),
-        Value::ToggleLiteral { raw } => ("toggle", Some(raw.clone())),
-        Value::HexLiteral { raw } => ("hex", Some(raw.trim_start_matches('#').to_owned())),
-        Value::RadixLiteral { raw } => ("radix", Some(raw.trim_start_matches('%').to_owned())),
-        Value::EncodingLiteral { raw } => {
-            ("encoding", Some(raw.trim_start_matches('&').to_owned()))
+        Value::StringLiteral { value, .. } => ("StringLiteral", Some(value.clone())),
+        Value::NumberLiteral { raw } => ("NumberLiteral", Some(normalize_number_literal(raw))),
+        Value::InfinityLiteral { raw, .. } => ("InfinityLiteral", Some(raw.clone())),
+        Value::NaNLiteral { raw, .. } => ("NaNLiteral", Some(raw.clone())),
+        Value::NullLiteral { value, .. } => ("NullLiteral", Some(value.clone())),
+        Value::BooleanLiteral { raw } => ("BooleanLiteral", Some(raw.clone())),
+        Value::ToggleLiteral { raw } => ("ToggleLiteral", Some(raw.clone())),
+        Value::HexLiteral { raw } => ("HexLiteral", Some(raw.trim_start_matches('#').to_owned())),
+        Value::RadixLiteral { raw } => {
+            ("RadixLiteral", Some(raw.trim_start_matches('%').to_owned()))
         }
-        Value::SeparatorLiteral { raw } => {
-            ("separator", Some(raw.trim_start_matches('^').to_owned()))
+        Value::EncodingLiteral { raw } => (
+            "EncodingLiteral",
+            Some(raw.trim_start_matches('&').to_owned()),
+        ),
+        Value::SeparatorLiteral { raw } => (
+            "SeparatorLiteral",
+            Some(raw.trim_start_matches('^').to_owned()),
+        ),
+        Value::SansaAddressLiteral { canonical, .. } => {
+            ("SansaAddressLiteral", Some(canonical.clone()))
         }
-        Value::SansaAddressLiteral { canonical, .. } => ("sansa-address", Some(canonical.clone())),
-        Value::DateLiteral { raw } => ("date", Some(raw.clone())),
-        Value::TimeLiteral { raw } => ("time", Some(raw.clone())),
-        Value::DateTimeLiteral { raw } => ("datetime", Some(raw.clone())),
-        Value::ObjectNode { .. } => ("object", None),
-        Value::ListNode { .. } => ("list", None),
-        Value::TupleLiteral { .. } => ("tuple", None),
-        Value::NodeLiteral { .. } => ("node", None),
+        Value::DateLiteral { raw } => ("DateLiteral", Some(raw.clone())),
+        Value::TimeLiteral { raw } => ("TimeLiteral", Some(raw.clone())),
+        Value::DateTimeLiteral { raw } => (
+            if raw.contains('&') {
+                "WTCDateTimeLiteral"
+            } else {
+                "DateTimeLiteral"
+            },
+            Some(raw.clone()),
+        ),
+        Value::ObjectNode { .. } => ("ObjectNode", None),
+        Value::ListNode { .. } => ("ListNode", None),
+        Value::TupleLiteral { .. } => ("TupleLiteral", None),
+        Value::NodeLiteral { .. } => ("NodeLiteral", None),
         Value::CloneReference { segments, .. } => (
-            "clone-reference",
+            "CloneReference",
             Some(translate_reference_target(segments, node_source_paths)),
         ),
         Value::PointerReference { segments, .. } => (
-            "pointer-reference",
+            "PointerReference",
             Some(translate_reference_target(segments, node_source_paths)),
         ),
     }
@@ -501,14 +517,21 @@ mod tests {
         assert_eq!(
             shapes(&events),
             vec![
-                ("$.a", "node", Some("BINDING")),
-                ("$.a[0]", "node-head", Some("HEAD")),
-                ("$.a[0][0]", "string", Some("CHILD")),
+                ("$.a", "NodeLiteral", Some("BINDING")),
+                ("$.a[0]", "NodeHead", Some("HEAD")),
+                ("$.a[0][0]", "StringLiteral", Some("CHILD")),
             ]
         );
         assert_eq!(events[0].value, None);
         assert_eq!(events[1].value.as_deref(), Some("tag"));
         assert_eq!(events[1].span, None);
+    }
+
+    #[test]
+    fn distinguishes_datetime_and_wtc_representation_kinds() {
+        let events = project("ordinary = 2025-01-01T09:30Z\nworld = 2025-01-01T09:30&local");
+        assert_eq!(events[0].kind, "DateTimeLiteral");
+        assert_eq!(events[1].kind, "WTCDateTimeLiteral");
     }
 
     #[test]
@@ -521,11 +544,11 @@ mod tests {
         assert_eq!(
             &paths[..5],
             &[
-                ("$.a", "node"),
-                ("$.a[0]", "node-head"),
-                ("$.a[0][0]", "node"),
-                ("$.a[0][0][0]", "node-head"),
-                ("$.a[0][0][0][0]", "string"),
+                ("$.a", "NodeLiteral"),
+                ("$.a[0]", "NodeHead"),
+                ("$.a[0][0]", "NodeLiteral"),
+                ("$.a[0][0][0]", "NodeHead"),
+                ("$.a[0][0][0][0]", "StringLiteral"),
             ]
         );
         assert_eq!(events[5].value.as_deref(), Some("$.a[0][0]"));
@@ -540,14 +563,14 @@ mod tests {
         assert_eq!(
             shapes(&events),
             vec![
-                ("$.a", "node", Some("ROOT")),
-                ("$.a.@.x", "object", Some("X")),
-                ("$.a.@.x.@.deep", "number", Some("D")),
-                ("$.a.@.x.b", "number", Some("B")),
-                ("$.a[0]", "node-head", Some("HEAD")),
-                ("$.a[0].@.role", "string", Some("R")),
-                ("$.a[0][0]", "string", Some("CHILD")),
-                ("$.a[0][0].@.unit", "string", Some("U")),
+                ("$.a", "NodeLiteral", Some("ROOT")),
+                ("$.a.@.x", "ObjectNode", Some("X")),
+                ("$.a.@.x.@.deep", "NumberLiteral", Some("D")),
+                ("$.a.@.x.b", "NumberLiteral", Some("B")),
+                ("$.a[0]", "NodeHead", Some("HEAD")),
+                ("$.a[0].@.role", "StringLiteral", Some("R")),
+                ("$.a[0][0]", "StringLiteral", Some("CHILD")),
+                ("$.a[0][0].@.unit", "StringLiteral", Some("U")),
             ]
         );
     }

@@ -44,7 +44,7 @@ def project_portable_events(events: Iterable[dict[str, object]]) -> list[Portabl
             projected.append(
                 compact_event(
                     path=head_path,
-                    kind="node-head",
+                    kind="NodeHead",
                     identity=optional_string(value.get("structuralId")),
                     datatype=format_datatype(value.get("datatype")),
                     value=optional_string(value.get("tag")),
@@ -215,7 +215,7 @@ def project_value_children(
         projected.append(
             compact_event(
                 path=head_path,
-                kind="node-head",
+                kind="NodeHead",
                 identity=optional_string(value.get("structuralId")),
                 datatype=format_datatype(value.get("datatype")),
                 value=optional_string(value.get("tag")),
@@ -296,47 +296,49 @@ def project_anonymous_tree(
 def project_value(value: object, node_source_paths: set[str]) -> tuple[str, str | None]:
     value = unwrap_typed_value(value)
     if not isinstance(value, dict):
-        return "null", None
+        return "NullLiteral", None
     kind = value_type(value)
     scalar_kinds = {
-        "StringLiteral": "string",
-        "InfinityLiteral": "infinity",
-        "NaNLiteral": "nan",
-        "NullLiteral": "null",
-        "ToggleLiteral": "toggle",
-        "HexLiteral": "hex",
-        "RadixLiteral": "radix",
-        "EncodingLiteral": "encoding",
-        "SeparatorLiteral": "separator",
-        "DateLiteral": "date",
-        "TimeLiteral": "time",
-        "DateTimeLiteral": "datetime",
-        "WTCDateTimeLiteral": "datetime",
+        "StringLiteral": "StringLiteral",
+        "InfinityLiteral": "InfinityLiteral",
+        "NaNLiteral": "NaNLiteral",
+        "NullLiteral": "NullLiteral",
+        "ToggleLiteral": "ToggleLiteral",
+        "HexLiteral": "HexLiteral",
+        "RadixLiteral": "RadixLiteral",
+        "EncodingLiteral": "EncodingLiteral",
+        "SeparatorLiteral": "SeparatorLiteral",
+        "DateLiteral": "DateLiteral",
+        "TimeLiteral": "TimeLiteral",
+        "WTCDateTimeLiteral": "WTCDateTimeLiteral",
     }
     if kind == "NumberLiteral":
         raw = value.get("raw")
         source = raw if isinstance(raw, str) else stringify_value(value.get("value")) or ""
-        return "number", normalize_number_literal(source)
+        return "NumberLiteral", normalize_number_literal(source)
+    if kind == "DateTimeLiteral":
+        payload = stringify_value(value.get("value"))
+        return ("WTCDateTimeLiteral" if payload is not None and "&" in payload else "DateTimeLiteral"), payload
     if kind in scalar_kinds:
         return scalar_kinds[kind], stringify_value(value.get("value"))
     if kind == "BooleanLiteral":
         raw = value.get("value")
-        return "boolean", "true" if raw is True else "false"
+        return "BooleanLiteral", "true" if raw is True else "false"
     if kind == "SansaAddressLiteral":
-        return "sansa-address", optional_string(value.get("canonical"))
+        return "SansaAddressLiteral", optional_string(value.get("canonical"))
     if kind == "ObjectNode":
-        return "object", None
+        return "ObjectNode", None
     if kind == "ListNode":
-        return "list", None
+        return "ListNode", None
     if kind == "TupleLiteral":
-        return "tuple", None
+        return "TupleLiteral", None
     if kind == "NodeLiteral":
-        return "node", None
+        return "NodeLiteral", None
     if kind == "CloneReference":
-        return "clone-reference", translate_reference_target(value.get("path"), node_source_paths)
+        return "CloneReference", translate_reference_target(value.get("path"), node_source_paths)
     if kind == "PointerReference":
-        return "pointer-reference", translate_reference_target(value.get("path"), node_source_paths)
-    return kind or "null", stringify_value(value.get("value"))
+        return "PointerReference", translate_reference_target(value.get("path"), node_source_paths)
+    return kind or "NullLiteral", stringify_value(value.get("value"))
 
 
 def unwrap_typed_value(value: object) -> object:

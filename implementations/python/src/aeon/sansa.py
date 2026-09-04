@@ -422,7 +422,7 @@ def matches_representation_kind(namespace: dict[str, object], binding: object, e
     actual = representation_kind(binding) if callable(representation_kind) else None
     if actual is None and isinstance(binding, dict):
         actual = binding.get("representationKind", binding.get("kind", binding.get("type")))
-    return isinstance(actual, str) and lower_first(actual) == expected
+    return isinstance(actual, str) and (actual == expected or lower_first(actual) == expected)
 
 
 def resolve_error(code: str, message: str, selector_index: int | None = None) -> dict[str, object]:
@@ -503,7 +503,7 @@ class AddressParser:
                 continue
             if char == "%":
                 self.index += 1
-                selectors.append({"type": "representationKindFilter", "name": self.parse_representation_kind_name()})
+                selectors.append({"type": "representationKindFilter", "name": self.parse_identifier("representation kind filter")})
                 continue
             if is_layout(char):
                 self.fail("Whitespace is not allowed inside a SANSA address", "SANSA_UNEXPECTED_WHITESPACE")
@@ -649,17 +649,6 @@ class AddressParser:
         self.index += 1
         while is_identifier_continue(self.peek()):
             self.index += 1
-        return self.input[start:self.index]
-
-    def parse_representation_kind_name(self) -> str:
-        context = "representation kind filter"
-        start = self.index
-        self.parse_identifier(context)
-        while self.match("-"):
-            if not is_identifier_continue(self.peek()):
-                self.fail(f"Expected {context}", "SANSA_EXPECTED_IDENTIFIER")
-            while is_identifier_continue(self.peek()):
-                self.index += 1
         return self.input[start:self.index]
 
     def parse_quoted_payload(self) -> str:

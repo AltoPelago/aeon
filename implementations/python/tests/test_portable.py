@@ -26,9 +26,9 @@ class PortableProjectionTests(unittest.TestCase):
         events = self.project(r'a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>')
         self.assertEqual(
             [
-                ("$.a", "node", "BINDING"),
-                ("$.a[0]", "node-head", "HEAD"),
-                ("$.a[0][0]", "string", "CHILD"),
+                ("$.a", "NodeLiteral", "BINDING"),
+                ("$.a[0]", "NodeHead", "HEAD"),
+                ("$.a[0][0]", "StringLiteral", "CHILD"),
             ],
             self.shapes(events),
         )
@@ -40,11 +40,11 @@ class PortableProjectionTests(unittest.TestCase):
         events = self.project('a = <outer(<inner("leaf")>)>\ncopy = ~a[0]\nalias = ~>a[0]')
         self.assertEqual(
             [
-                ("$.a", "node"),
-                ("$.a[0]", "node-head"),
-                ("$.a[0][0]", "node"),
-                ("$.a[0][0][0]", "node-head"),
-                ("$.a[0][0][0][0]", "string"),
+                ("$.a", "NodeLiteral"),
+                ("$.a[0]", "NodeHead"),
+                ("$.a[0][0]", "NodeLiteral"),
+                ("$.a[0][0][0]", "NodeHead"),
+                ("$.a[0][0][0][0]", "StringLiteral"),
             ],
             [(event["path"], event["kind"]) for event in events[:5]],
         )
@@ -66,14 +66,14 @@ class PortableProjectionTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                ("$.a", "node", "ROOT"),
-                ("$.a.@.x", "object", "X"),
-                ("$.a.@.x.@.deep", "number", "D"),
-                ("$.a.@.x.b", "number", "B"),
-                ("$.a[0]", "node-head", "HEAD"),
-                ("$.a[0].@.role", "string", "R"),
-                ("$.a[0][0]", "string", "CHILD"),
-                ("$.a[0][0].@.unit", "string", "U"),
+                ("$.a", "NodeLiteral", "ROOT"),
+                ("$.a.@.x", "ObjectNode", "X"),
+                ("$.a.@.x.@.deep", "NumberLiteral", "D"),
+                ("$.a.@.x.b", "NumberLiteral", "B"),
+                ("$.a[0]", "NodeHead", "HEAD"),
+                ("$.a[0].@.role", "StringLiteral", "R"),
+                ("$.a[0][0]", "StringLiteral", "CHILD"),
+                ("$.a[0][0].@.unit", "StringLiteral", "U"),
             ],
             self.shapes(events),
         )
@@ -106,6 +106,13 @@ class PortableProjectionTests(unittest.TestCase):
         self.assertEqual(
             ["$.a", "$.a.@.z", "$.a.@.a"],
             [event["path"] for event in events],
+        )
+
+    def test_distinguishes_datetime_and_wtc_representation_kinds(self) -> None:
+        events = self.project("ordinary = 2025-01-01T09:30Z\nworld = 2025-01-01T09:30&local")
+        self.assertEqual(
+            ["DateTimeLiteral", "WTCDateTimeLiteral"],
+            [event["kind"] for event in events],
         )
 
 

@@ -21,9 +21,9 @@ describe('portable AES projection', () => {
         assert.deepStrictEqual(
             events.map(({ path, kind, identity }) => ({ path, kind, identity: identity ?? null })),
             [
-                { path: '$.a', kind: 'node', identity: 'BINDING' },
-                { path: '$.a[0]', kind: 'node-head', identity: 'HEAD' },
-                { path: '$.a[0][0]', kind: 'string', identity: 'CHILD' },
+                { path: '$.a', kind: 'NodeLiteral', identity: 'BINDING' },
+                { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD' },
+                { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD' },
             ],
         );
         assert.strictEqual(events[0]?.value, undefined);
@@ -37,11 +37,11 @@ describe('portable AES projection', () => {
         assert.deepStrictEqual(
             events.map(({ path, kind }) => ({ path, kind })),
             [
-                { path: '$.a', kind: 'node' },
-                { path: '$.a[0]', kind: 'node-head' },
-                { path: '$.a[0][0]', kind: 'node' },
-                { path: '$.a[0][0][0]', kind: 'node-head' },
-                { path: '$.a[0][0][0][0]', kind: 'string' },
+                { path: '$.a', kind: 'NodeLiteral' },
+                { path: '$.a[0]', kind: 'NodeHead' },
+                { path: '$.a[0][0]', kind: 'NodeLiteral' },
+                { path: '$.a[0][0][0]', kind: 'NodeHead' },
+                { path: '$.a[0][0][0][0]', kind: 'StringLiteral' },
             ],
         );
     });
@@ -59,14 +59,14 @@ describe('portable AES projection', () => {
         assert.deepStrictEqual(
             events.map(({ path, kind, identity }) => ({ path, kind, identity: identity ?? null })),
             [
-                { path: '$.a', kind: 'node', identity: 'ROOT' },
-                { path: '$.a.@.x', kind: 'object', identity: 'X' },
-                { path: '$.a.@.x.@.deep', kind: 'number', identity: 'D' },
-                { path: '$.a.@.x.b', kind: 'number', identity: 'B' },
-                { path: '$.a[0]', kind: 'node-head', identity: 'HEAD' },
-                { path: '$.a[0].@.role', kind: 'string', identity: 'R' },
-                { path: '$.a[0][0]', kind: 'string', identity: 'CHILD' },
-                { path: '$.a[0][0].@.unit', kind: 'string', identity: 'U' },
+                { path: '$.a', kind: 'NodeLiteral', identity: 'ROOT' },
+                { path: '$.a.@.x', kind: 'ObjectNode', identity: 'X' },
+                { path: '$.a.@.x.@.deep', kind: 'NumberLiteral', identity: 'D' },
+                { path: '$.a.@.x.b', kind: 'NumberLiteral', identity: 'B' },
+                { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD' },
+                { path: '$.a[0].@.role', kind: 'StringLiteral', identity: 'R' },
+                { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD' },
+                { path: '$.a[0][0].@.unit', kind: 'StringLiteral', identity: 'U' },
             ],
         );
     });
@@ -75,10 +75,10 @@ describe('portable AES projection', () => {
         const events = project(String.raw`a@{x = <inner\HEAD\(\CHILD\ = "value")>} = 1`);
 
         assert.deepStrictEqual(events.map(({ path, kind }) => ({ path, kind })), [
-            { path: '$.a', kind: 'number' },
-            { path: '$.a.@.x', kind: 'node' },
-            { path: '$.a.@.x[0]', kind: 'node-head' },
-            { path: '$.a.@.x[0][0]', kind: 'string' },
+            { path: '$.a', kind: 'NumberLiteral' },
+            { path: '$.a.@.x', kind: 'NodeLiteral' },
+            { path: '$.a.@.x[0]', kind: 'NodeHead' },
+            { path: '$.a.@.x[0][0]', kind: 'StringLiteral' },
         ]);
     });
 
@@ -89,6 +89,15 @@ describe('portable AES projection', () => {
             '$.a',
             '$.a.@.["x.y"]',
             '$.a.@.["x.y"].["deep key"]',
+        ]);
+    });
+
+    it('keeps ordinary and world-time-context date-times as distinct kinds', () => {
+        const events = project('ordinary = 2025-01-01T09:30Z\nworld = 2025-01-01T09:30&local');
+
+        assert.deepStrictEqual(events.map(({ path, kind }) => ({ path, kind })), [
+            { path: '$.ordinary', kind: 'DateTimeLiteral' },
+            { path: '$.world', kind: 'WTCDateTimeLiteral' },
         ]);
     });
 });

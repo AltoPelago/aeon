@@ -547,7 +547,7 @@ fn matches_representation_kind(binding: &SansaResolveBinding, expected: &str) ->
         .as_deref()
         .or(binding.kind.as_deref())
         .or(binding.value_type.as_deref());
-    actual.is_some_and(|actual| lower_first(actual) == expected)
+    actual.is_some_and(|actual| actual == expected || lower_first(actual) == expected)
 }
 
 fn resolve_error(
@@ -683,7 +683,7 @@ impl<'a> AddressParser<'a> {
                 Some('%') => {
                     self.advance();
                     selectors.push(SansaSelector::RepresentationKindFilter {
-                        name: self.parse_representation_kind_name()?,
+                        name: self.parse_identifier("representation kind filter")?,
                     });
                 }
                 Some(ch) if is_layout(ch) => {
@@ -928,21 +928,6 @@ impl<'a> AddressParser<'a> {
         self.advance();
         while self.peek().is_some_and(is_identifier_continue) {
             self.advance();
-        }
-        Ok(self.input[start..self.index].to_owned())
-    }
-
-    fn parse_representation_kind_name(&mut self) -> Result<String, SansaParseError> {
-        let context = "representation kind filter";
-        let start = self.index;
-        self.parse_identifier(context)?;
-        while self.match_char('-') {
-            if !self.peek().is_some_and(is_identifier_continue) {
-                self.fail(format!("Expected {context}"), "SANSA_EXPECTED_IDENTIFIER")?;
-            }
-            while self.peek().is_some_and(is_identifier_continue) {
-                self.advance();
-            }
         }
         Ok(self.input[start..self.index].to_owned())
     }
@@ -1339,12 +1324,12 @@ mod tests {
     }
 
     #[test]
-    fn navigates_portable_node_heads_and_hyphenated_kind_filters() {
+    fn navigates_portable_node_heads_with_pascal_case_kind_filters() {
         assert_eq!(
-            parse_address("$.document[0]%node-head")
+            parse_address("$.document[0]%NodeHead")
                 .expect("parse")
                 .canonical,
-            "$.document[0]%node-head"
+            "$.document[0]%NodeHead"
         );
 
         let mut nested_text = binding(
@@ -1352,7 +1337,7 @@ mod tests {
             None,
             Some(0),
             None,
-            Some("string"),
+            Some("StringLiteral"),
             vec![],
         );
         nested_text.parent = Some(Box::new(binding(
@@ -1360,7 +1345,7 @@ mod tests {
             None,
             Some(0),
             None,
-            Some("node-head"),
+            Some("NodeHead"),
             vec![],
         )));
         let mut nested_head = binding(
@@ -1368,7 +1353,7 @@ mod tests {
             None,
             Some(0),
             None,
-            Some("node-head"),
+            Some("NodeHead"),
             vec![nested_text],
         );
         nested_head.parent = Some(Box::new(binding(
@@ -1376,7 +1361,7 @@ mod tests {
             None,
             Some(1),
             None,
-            Some("node"),
+            Some("NodeLiteral"),
             vec![],
         )));
         let mut nested_node = binding(
@@ -1384,7 +1369,7 @@ mod tests {
             None,
             Some(1),
             None,
-            Some("node"),
+            Some("NodeLiteral"),
             vec![nested_head],
         );
         nested_node.parent = Some(Box::new(binding(
@@ -1392,7 +1377,7 @@ mod tests {
             None,
             Some(0),
             None,
-            Some("node-head"),
+            Some("NodeHead"),
             vec![],
         )));
         let outer_head = binding(
@@ -1400,14 +1385,14 @@ mod tests {
             None,
             Some(0),
             None,
-            Some("node-head"),
+            Some("NodeHead"),
             vec![
                 binding(
                     "$.document[0][0]",
                     None,
                     Some(0),
                     None,
-                    Some("string"),
+                    Some("StringLiteral"),
                     vec![],
                 ),
                 nested_node,
@@ -1418,13 +1403,13 @@ mod tests {
             None,
             None,
             None,
-            Some("object"),
+            Some("ObjectNode"),
             vec![binding(
                 "$.document",
                 Some("document"),
                 None,
                 None,
-                Some("node"),
+                Some("NodeLiteral"),
                 vec![outer_head],
             )],
         ));
@@ -1432,7 +1417,7 @@ mod tests {
 
         assert_eq!(
             resolved_addresses(&resolve_address(
-                "$.document.**%node-head",
+                "$.document.**%NodeHead",
                 &namespace,
                 &SansaResolveOptions::default()
             )),
@@ -1440,7 +1425,7 @@ mod tests {
         );
         assert_eq!(
             resolved_addresses(&resolve_address(
-                "$.document[0][1].^%node-head",
+                "$.document[0][1].^%NodeHead",
                 &namespace,
                 &SansaResolveOptions::default()
             )),

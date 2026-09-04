@@ -5,28 +5,29 @@ import type { AssignmentEvent, AttributeEntry } from './events.js';
 import { formatPath, type CanonicalPath, type PathSegment } from './paths.js';
 
 export type PortableAesKind =
-    | 'string'
-    | 'number'
-    | 'infinity'
-    | 'nan'
-    | 'null'
-    | 'boolean'
-    | 'toggle'
-    | 'hex'
-    | 'radix'
-    | 'encoding'
-    | 'separator'
-    | 'sansa-address'
-    | 'date'
-    | 'time'
-    | 'datetime'
-    | 'object'
-    | 'list'
-    | 'tuple'
-    | 'node'
-    | 'node-head'
-    | 'clone-reference'
-    | 'pointer-reference';
+    | 'StringLiteral'
+    | 'NumberLiteral'
+    | 'InfinityLiteral'
+    | 'NaNLiteral'
+    | 'NullLiteral'
+    | 'BooleanLiteral'
+    | 'ToggleLiteral'
+    | 'HexLiteral'
+    | 'RadixLiteral'
+    | 'EncodingLiteral'
+    | 'SeparatorLiteral'
+    | 'SansaAddressLiteral'
+    | 'DateLiteral'
+    | 'TimeLiteral'
+    | 'DateTimeLiteral'
+    | 'WTCDateTimeLiteral'
+    | 'ObjectNode'
+    | 'ListNode'
+    | 'TupleLiteral'
+    | 'NodeLiteral'
+    | 'NodeHead'
+    | 'CloneReference'
+    | 'PointerReference';
 
 /**
  * Encoding-neutral AES event shape used by the portable projection work.
@@ -43,8 +44,8 @@ export interface PortableAesEvent {
 /**
  * Project legacy TypeScript AssignmentEvents into the portable flat shape.
  *
- * Every NodeLiteral becomes a value-less `node` event followed by one
- * synthetic `node-head` event. Source child paths gain the node-head index,
+ * Every NodeLiteral becomes a value-less `NodeLiteral` event followed by one
+ * synthetic `NodeHead` event. Source child paths gain the NodeHead index,
  * recursively, while ordinary member/list/tuple paths remain unchanged.
  * Binding, anonymous-head, and node-head attributes are emitted as ordinary
  * events beneath their owning path's `.@` address space.
@@ -68,7 +69,7 @@ export function projectPortableEvents(events: readonly AssignmentEvent[]): reado
             const headPath = `${translatedPathText}[0]`;
             projected.push({
                 path: headPath,
-                kind: 'node-head',
+                kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
                 ...(value.datatype !== null ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
                 value: value.tag,
@@ -172,7 +173,7 @@ function projectValueTree(
             const headPath = `${path}[0]`;
             projected.push({
                 path: headPath,
-                kind: 'node-head',
+                kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
                 ...(value.datatype !== null ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
                 value: value.tag,
@@ -284,47 +285,47 @@ function projectValue(
         case 'TypedValue':
             return projectValue(value.value, nodeSourcePaths);
         case 'StringLiteral':
-            return { kind: 'string', value: value.value };
+            return { kind: 'StringLiteral', value: value.value };
         case 'NumberLiteral':
-            return { kind: 'number', value: value.value };
+            return { kind: 'NumberLiteral', value: value.value };
         case 'InfinityLiteral':
-            return { kind: 'infinity', value: value.value };
+            return { kind: 'InfinityLiteral', value: value.value };
         case 'NaNLiteral':
-            return { kind: 'nan', value: value.value };
+            return { kind: 'NaNLiteral', value: value.value };
         case 'NullLiteral':
-            return { kind: 'null', value: value.value };
+            return { kind: 'NullLiteral', value: value.value };
         case 'BooleanLiteral':
-            return { kind: 'boolean', value: String(value.value) };
+            return { kind: 'BooleanLiteral', value: String(value.value) };
         case 'ToggleLiteral':
-            return { kind: 'toggle', value: value.value };
+            return { kind: 'ToggleLiteral', value: value.value };
         case 'HexLiteral':
-            return { kind: 'hex', value: value.value };
+            return { kind: 'HexLiteral', value: value.value };
         case 'RadixLiteral':
-            return { kind: 'radix', value: value.value };
+            return { kind: 'RadixLiteral', value: value.value };
         case 'EncodingLiteral':
-            return { kind: 'encoding', value: value.value };
+            return { kind: 'EncodingLiteral', value: value.value };
         case 'SeparatorLiteral':
-            return { kind: 'separator', value: value.value };
+            return { kind: 'SeparatorLiteral', value: value.value };
         case 'SansaAddressLiteral':
-            return { kind: 'sansa-address', value: value.canonical };
+            return { kind: 'SansaAddressLiteral', value: value.canonical };
         case 'DateLiteral':
-            return { kind: 'date', value: value.value };
+            return { kind: 'DateLiteral', value: value.value };
         case 'TimeLiteral':
-            return { kind: 'time', value: value.value };
+            return { kind: 'TimeLiteral', value: value.value };
         case 'DateTimeLiteral':
-            return { kind: 'datetime', value: value.value };
+            return { kind: value.raw.includes('&') ? 'WTCDateTimeLiteral' : 'DateTimeLiteral', value: value.value };
         case 'ObjectNode':
-            return { kind: 'object' };
+            return { kind: 'ObjectNode' };
         case 'ListNode':
-            return { kind: 'list' };
+            return { kind: 'ListNode' };
         case 'TupleLiteral':
-            return { kind: 'tuple' };
+            return { kind: 'TupleLiteral' };
         case 'NodeLiteral':
-            return { kind: 'node' };
+            return { kind: 'NodeLiteral' };
         case 'CloneReference':
-            return { kind: 'clone-reference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
+            return { kind: 'CloneReference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
         case 'PointerReference':
-            return { kind: 'pointer-reference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
+            return { kind: 'PointerReference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
     }
 }
 

@@ -808,9 +808,9 @@ describe('AEON CLI output contract', () => {
                     value: value ?? null,
                 })),
                 [
-                    { path: '$.a', kind: 'node', identity: 'ROOT', value: null },
-                    { path: '$.a[0]', kind: 'node-head', identity: 'HEAD', value: 'tag' },
-                    { path: '$.a[0][0]', kind: 'string', identity: 'CHILD', value: 'value' },
+                    { path: '$.a', kind: 'NodeLiteral', identity: 'ROOT', value: null },
+                    { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD', value: 'tag' },
+                    { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD', value: 'value' },
                 ],
             );
         });

@@ -13,12 +13,12 @@ from aeon.sansa import parse_address, resolve_address
 
 
 class SansaResolveTests(unittest.TestCase):
-    def test_parses_hyphenated_representation_kind_filter(self) -> None:
-        parsed = parse_address("$.document[0]%node-head")
+    def test_parses_pascal_case_representation_kind_filter(self) -> None:
+        parsed = parse_address("$.document[0]%NodeHead")
 
         self.assertTrue(parsed["ok"])
-        self.assertEqual("$.document[0]%node-head", parsed["address"]["canonical"])
-        self.assertEqual("node-head", parsed["address"]["selectors"][-1]["name"])
+        self.assertEqual("$.document[0]%NodeHead", parsed["address"]["canonical"])
+        self.assertEqual("NodeHead", parsed["address"]["selectors"][-1]["name"])
 
     def test_preserves_identity_as_metadata_without_using_it_for_paths(self) -> None:
         child = {
@@ -44,40 +44,40 @@ class SansaResolveTests(unittest.TestCase):
         nested_text = {
             "address": "$.document[0][1][0][0]",
             "index": 0,
-            "representationKind": "string",
+            "representationKind": "StringLiteral",
             "children": [],
         }
         nested_head = {
             "address": "$.document[0][1][0]",
             "index": 0,
-            "representationKind": "node-head",
+            "representationKind": "NodeHead",
             "children": [nested_text],
         }
         nested_node = {
             "address": "$.document[0][1]",
             "index": 1,
-            "representationKind": "node",
+            "representationKind": "NodeLiteral",
             "children": [nested_head],
         }
         text = {
             "address": "$.document[0][0]",
             "index": 0,
-            "representationKind": "string",
+            "representationKind": "StringLiteral",
             "children": [],
         }
         head = {
             "address": "$.document[0]",
             "index": 0,
-            "representationKind": "node-head",
+            "representationKind": "NodeHead",
             "children": [text, nested_node],
         }
         document = {
             "address": "$.document",
             "name": "document",
-            "representationKind": "node",
+            "representationKind": "NodeLiteral",
             "children": [head],
         }
-        root = {"address": "$", "representationKind": "object", "children": [document]}
+        root = {"address": "$", "representationKind": "ObjectNode", "children": [document]}
         head["parent"] = document
         text["parent"] = head
         nested_node["parent"] = head
@@ -91,11 +91,11 @@ class SansaResolveTests(unittest.TestCase):
 
         self.assertEqual(
             ["$.document[0]", "$.document[0][1][0]"],
-            [binding["address"] for binding in resolve_address("$.document.**%node-head", namespace)["bindings"]],
+            [binding["address"] for binding in resolve_address("$.document.**%NodeHead", namespace)["bindings"]],
         )
         self.assertEqual(
             ["$.document[0]"],
-            [binding["address"] for binding in resolve_address("$.document[0][1].^%node-head", namespace)["bindings"]],
+            [binding["address"] for binding in resolve_address("$.document[0][1].^%NodeHead", namespace)["bindings"]],
         )
         self.assertEqual([], resolve_address("$.document[1]", namespace)["bindings"])
 
