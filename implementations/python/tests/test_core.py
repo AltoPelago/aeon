@@ -31,6 +31,17 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('a\\A1\\ = 1\nb = [\\A1\\ = 2]')
         self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
 
+    def test_structural_identity_is_preserved_on_attribute_entry_and_node_heads(self) -> None:
+        result = compile_source('value@{source\\META\\:string = "user"} = <tag\\HEAD\\>')
+        self.assertEqual([], result.errors)
+        event = result.internal_events[0]
+        self.assertEqual("META", event["annotations"]["source"]["structuralId"])
+        self.assertEqual("HEAD", event["value"]["structuralId"])
+
+    def test_structural_identity_must_be_unique_across_attribute_and_node_heads(self) -> None:
+        result = compile_source('value@{source\\same\\ = "user"} = <tag\\same\\>')
+        self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
+
     def test_structural_identity_rejects_invalid_characters_and_wrong_order(self) -> None:
         invalid = compile_source('a\\bad.id\\ = 1')
         self.assertEqual(["INVALID_STRUCTURAL_IDENTITY"], [error.code for error in invalid.errors])

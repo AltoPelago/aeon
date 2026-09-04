@@ -426,6 +426,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
             datatype,
             children,
@@ -433,6 +434,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             "type": "NodeLiteral",
             "raw": raw,
             "tag": tag,
+            "structuralId": structural_id,
             "datatype": datatype.as_ref().map(|name| json!({ "type": "TypeAnnotation", "name": canonical_datatype_name(name) })),
             "attributes": attributes.iter().map(attribute_entries_to_ast_json).collect::<Vec<_>>(),
             "children": children.iter().map(value_to_ast_json).collect::<Vec<_>>(),
@@ -1265,6 +1267,13 @@ fn attribute_entries_to_ast_json(entries: &BTreeMap<String, AttributeValue>) -> 
 
 fn attribute_entry_to_ast_json(entry: &AttributeValue) -> JsonValue {
     let mut object = Map::new();
+    object.insert(
+        String::from("structuralId"),
+        entry
+            .structural_id
+            .as_ref()
+            .map_or(JsonValue::Null, |value| JsonValue::String(value.clone())),
+    );
     object.insert(
         String::from("datatype"),
         entry
@@ -2139,6 +2148,21 @@ mod tests {
             .expect("items event");
         let ast = value_to_ast_json(&parent.value);
         assert_eq!(ast["elements"][0]["structuralId"], "A1");
+    }
+
+    #[test]
+    fn surfaced_node_and_attribute_ast_preserves_structural_identity() {
+        let result = compile(
+            "value = <tag\\HEAD\\@{source\\META\\ = \"user\"}>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let ast = value_to_ast_json(&result.events[0].value);
+        assert_eq!(ast["structuralId"], "HEAD");
+        assert_eq!(
+            ast["attributes"][0]["entries"]["source"]["structuralId"],
+            "META"
+        );
     }
 
     #[test]

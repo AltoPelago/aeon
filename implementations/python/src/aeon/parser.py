@@ -301,6 +301,8 @@ class Parser:
             if key in entries:
                 raise AeonError(message=f"Duplicate key: '{key}'", span=key_token.span, code="DUPLICATE_KEY")
             self.skip_layout()
+            structural_id = self.parse_optional_structural_identity()
+            self.skip_layout()
             attributes: list[Attribute] = []
             if self.check("AT"):
                 attributes.append(self.parse_attribute(depth + 1))
@@ -317,7 +319,7 @@ class Parser:
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
             value = self.parse_value()
-            entries[key] = AttributeEntry(value=value, datatype=datatype, attributes=attributes)
+            entries[key] = AttributeEntry(value=value, datatype=datatype, attributes=attributes, structural_id=structural_id)
             self.consume_member_delimiter("RBRACE", "Expected attribute delimiter")
         end = self.consume("RBRACE", "Expected '}' to close attribute").span.end
         return Attribute(entries=entries, span=Span(start=start, end=end))
@@ -597,6 +599,8 @@ class Parser:
         self.skip_layout()
         tag = self.key_from_token(self.consume_key_token("Expected node tag after '<'"))
         self.skip_layout()
+        structural_id = self.parse_optional_structural_identity()
+        self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
@@ -614,7 +618,7 @@ class Parser:
         children: list[Value] = []
         if self.check("RANGLE"):
             end = self.advance().span.end
-            return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end))
+            return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end), structural_id=structural_id)
         self.consume("LPAREN", "Expected '(' or '>' after node tag")
         self.skip_layout()
         while not self.check("RPAREN"):
@@ -623,7 +627,7 @@ class Parser:
         self.consume("RPAREN", "Expected ')' to close node children")
         self.skip_layout()
         end = self.consume("RANGLE", "Expected '>' after node children").span.end
-        return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end))
+        return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end), structural_id=structural_id)
 
     def parse_object(self) -> ObjectNode:
         start = self.consume("LBRACE", "Expected '{'").span.start

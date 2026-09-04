@@ -63,6 +63,19 @@ def main() -> int:
             ],
         ),
         LaneCommand(
+            name="canonical",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("canonical", "v1", "canonical-cts.v1.json"),
+                "--lane",
+                "canonical",
+            ],
+        ),
+        LaneCommand(
             name="finalize",
             command=[
                 "node",
@@ -143,7 +156,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core aes finalize inspect finalize-map sansa annotations aeos", file=sys.stderr)
+            print("Valid lanes: core aes canonical finalize inspect finalize-map sansa annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
 

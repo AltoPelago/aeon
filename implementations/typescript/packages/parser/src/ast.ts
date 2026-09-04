@@ -70,6 +70,7 @@ export interface Attribute extends ASTNode {
  * Attribute value (may have its own type annotation)
  */
 export interface AttributeValue {
+    readonly structuralId: string | null;
     readonly value: Value;
     readonly datatype: TypeAnnotation | null;
     readonly attributes: readonly Attribute[];
@@ -296,6 +297,7 @@ export interface TupleLiteral extends ASTNode {
 export interface NodeLiteral extends ASTNode {
     readonly type: 'NodeLiteral';
     readonly tag: string;
+    readonly structuralId: string | null;
     readonly attributes: readonly Attribute[];
     readonly datatype: TypeAnnotation | null;
     readonly children: readonly Value[];

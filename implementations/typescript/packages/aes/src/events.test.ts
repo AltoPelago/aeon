@@ -61,6 +61,16 @@ describe('Assignment Event Emission', () => {
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events[0]!.structuralId, 'A1');
         });
+
+        it('should preserve structural identity on attribute-entry and node AST surfaces', () => {
+            const result = emit(String.raw`a@{source\META\ = "user"} = <tag\HEAD\>`);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.events[0]!.annotations?.get('source')?.structuralId, 'META');
+            assert.strictEqual(result.events[0]!.value.type, 'NodeLiteral');
+            if (result.events[0]!.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(result.events[0]!.value.structuralId, 'HEAD');
+        });
     });
 
     describe('headers', () => {

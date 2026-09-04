@@ -4,6 +4,14 @@ import { canonicalize, emitFromObject } from './index.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 
+test('preserves structural identities on attribute-entry and node heads', () => {
+    const result = canonicalize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`);
+
+    assert.deepEqual(result.errors, []);
+    assert.match(result.text, /source\\META\\:string = "user"/);
+    assert.match(result.text, /<tag\\HEAD\\>/);
+});
+
 test('canonicalizes default header', () => {
     const result = canonicalize('a = 1');
     assert.equal(result.errors.length, 0);

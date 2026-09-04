@@ -21,6 +21,7 @@ struct Binding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AttributeEntry {
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     value: Value,
@@ -29,6 +30,7 @@ struct AttributeEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NodeValue {
     tag: String,
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     children: Vec<Value>,
@@ -348,8 +350,9 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
 fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let head = format!(
-        "<{}{}{}",
+        "<{}{}{}{}",
         render_key(&node.tag),
+        render_structural_identity(node.structural_id.as_deref()),
         render_attributes(&node.attributes),
         render_datatype(node.datatype.as_deref())
     );
@@ -418,8 +421,9 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
         .iter()
         .map(|(key, entry)| {
             format!(
-                "{}{}{} = {}",
+                "{}{}{}{} = {}",
                 render_key(key),
+                render_structural_identity(entry.structural_id.as_deref()),
                 render_attributes(&entry.attributes),
                 render_datatype(entry.datatype.as_deref()),
                 render_value_inline(&entry.value)
@@ -1513,6 +1517,8 @@ impl<'a> Parser<'a> {
         while self.peek() != Some('}') {
             let key = self.parse_key()?;
             self.skip_ws(true);
+            let structural_id = self.parse_optional_structural_identity()?;
+            self.skip_ws(true);
             let nested = if self.peek() == Some('@') {
                 self.parse_attribute_block()?
             } else {
@@ -1539,6 +1545,7 @@ impl<'a> Parser<'a> {
             entries.insert(
                 key,
                 AttributeEntry {
+                    structural_id,
                     datatype,
                     attributes: nested,
                     value,
@@ -1814,6 +1821,8 @@ impl<'a> Parser<'a> {
         self.expect_char('<')?;
         self.skip_ws(true);
         let tag = self.parse_key()?;
+        self.skip_ws(true);
+        let structural_id = self.parse_optional_structural_identity()?;
         let mut datatype = None;
         let mut attributes = BTreeMap::new();
         loop {
@@ -1855,6 +1864,7 @@ impl<'a> Parser<'a> {
         self.expect_char('>')?;
         Ok(Value::Node(NodeValue {
             tag,
+            structural_id,
             datatype,
             attributes,
             children,
@@ -2371,6 +2381,14 @@ mod tests {
                 .text
                 .contains("\\B2\\@{source = \"user\"}:string = \"green\"")
         );
+    }
+
+    #[test]
+    fn preserves_attribute_entry_and_node_head_structural_identity() {
+        let result = canonicalize("value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("source\\META\\:string = \"user\""));
+        assert!(result.text.contains("<tag\\HEAD\\>"));
     }
 
     #[test]

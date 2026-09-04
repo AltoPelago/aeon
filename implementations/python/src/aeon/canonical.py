@@ -242,7 +242,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
 
 def render_node_value(value: NodeLiteral, indent: int, inline_only: bool) -> list[str]:
     prefix = " " * indent
-    head = f"<{value.tag}{render_attributes(value.attributes)}{render_type(value.datatype)}"
+    identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+    head = f"<{value.tag}{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
     simple = all(is_simple_value(child) for child in value.children)
 
     if not value.children:
@@ -274,8 +275,9 @@ def render_attributes(attributes: list[Attribute]) -> str:
 
     rendered = []
     for key, entry in sorted(merged_entries.items(), key=lambda item: item[0]):
+        identity = f"\\{entry.structural_id}\\" if entry.structural_id is not None else ""
         rendered.append(
-            f"{format_binding_key(key)}{render_attributes(entry.attributes)}{render_type(entry.datatype)} = {render_value_inline(entry.value)}"
+            f"{format_binding_key(key)}{identity}{render_attributes(entry.attributes)}{render_type(entry.datatype)} = {render_value_inline(entry.value)}"
         )
     return f"@{{{', '.join(rendered)}}}"
 
@@ -347,7 +349,8 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, TupleLiteral):
         return "(" + ", ".join(render_compact_inline_value(element) for element in value.elements) + ")"
     if isinstance(value, NodeLiteral):
-        head = f"<{value.tag}{render_attributes(value.attributes)}{render_type(value.datatype)}"
+        identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+        head = f"<{value.tag}{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
         if not value.children:
             return f"{head}>"
         return f"{head}({', '.join(render_compact_inline_value(child) for child in value.children)})>"

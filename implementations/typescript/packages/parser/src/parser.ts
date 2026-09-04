@@ -370,6 +370,7 @@ class Parser {
                     attrKeyToken.value
                 );
             }
+            const structuralId = this.parseOptionalStructuralIdentity();
             const attributes: Attribute[] = [];
             if (this.check(TokenType.At)) {
                 attributes.push(this.parseAttribute(depth + 1));
@@ -396,7 +397,7 @@ class Parser {
             if (entries.has(attrKey)) {
                 this.errors.push(new DuplicateKeyError(attrKey, attrKeyToken.span));
             }
-            entries.set(attrKey, { value: attrValue, datatype: attrDatatype, attributes });
+            entries.set(attrKey, { structuralId, value: attrValue, datatype: attrDatatype, attributes });
 
             if (!this.check(TokenType.RightBrace)) {
                 this.consumeSeparatorOrLineBreak(TokenType.RightBrace, 'Expected \',\' or newline between attribute entries');
@@ -727,6 +728,7 @@ class Parser {
         const start = this.peek().span.start;
         this.consume(TokenType.LeftAngle, "Expected '<' to start node literal");
         const tag = this.parseNodeTag();
+        const structuralId = this.parseOptionalStructuralIdentity();
 
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
@@ -770,6 +772,7 @@ class Parser {
             return {
                 type: 'NodeLiteral',
                 tag,
+                structuralId,
                 attributes,
                 datatype,
                 children,
@@ -792,6 +795,7 @@ class Parser {
         return {
             type: 'NodeLiteral',
             tag,
+            structuralId,
             attributes,
             datatype,
             children,

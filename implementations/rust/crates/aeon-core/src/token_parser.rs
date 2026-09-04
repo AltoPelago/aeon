@@ -1029,6 +1029,8 @@ impl<'a> TokenParser<'a> {
         self.consume(TokenKind::LeftAngle, "Expected `<`")?;
         self.skip_newlines();
         let tag = self.parse_node_tag()?;
+        self.skip_newlines();
+        let structural_id = self.parse_optional_structural_identity()?;
 
         let mut attributes = Vec::new();
         self.skip_newlines();
@@ -1064,6 +1066,7 @@ impl<'a> TokenParser<'a> {
             return Ok(Value::NodeLiteral {
                 raw,
                 tag,
+                structural_id,
                 attributes,
                 datatype,
                 children,
@@ -1081,6 +1084,7 @@ impl<'a> TokenParser<'a> {
         Ok(Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
             datatype,
             children,
@@ -1121,6 +1125,7 @@ impl<'a> TokenParser<'a> {
             return Ok(AttributeValue::with_parts(
                 None,
                 None,
+                None,
                 BTreeMap::new(),
                 Vec::new(),
                 members,
@@ -1129,6 +1134,7 @@ impl<'a> TokenParser<'a> {
         }
         let value = self.parse_value()?;
         Ok(AttributeValue::with_parts(
+            None,
             None,
             Some(value),
             BTreeMap::new(),
@@ -1197,6 +1203,8 @@ impl<'a> TokenParser<'a> {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }
             self.skip_newlines();
+            let structural_id = self.parse_optional_structural_identity()?;
+            self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
             let mut nested_attr_order = Vec::new();
@@ -1236,6 +1244,7 @@ impl<'a> TokenParser<'a> {
             members.insert(
                 key.clone(),
                 AttributeValue::with_parts(
+                    structural_id,
                     datatype,
                     value.value,
                     nested_attrs,

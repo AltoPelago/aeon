@@ -171,10 +171,12 @@ test('materializeMatter supports node literals for structural templates', () => 
     value: {
       type: 'NodeLiteral',
       tag: 'main',
+      structuralId: null,
       attributes: [{
         type: 'Attribute',
         entries: new Map([
           ['class', {
+            structuralId: null,
             value: {
               type: 'StringLiteral',
               value: 'shell',
@@ -192,6 +194,7 @@ test('materializeMatter supports node literals for structural templates', () => 
       children: [{
         type: 'NodeLiteral',
         tag: 'h1',
+        structuralId: null,
         attributes: [],
         datatype: null,
         children: [{

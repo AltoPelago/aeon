@@ -370,7 +370,7 @@ function renderNodeValue(
     opts: { inlineOnly: boolean }
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -422,7 +422,7 @@ function renderAttributes(attributes: readonly Attribute[]): string {
         const nestedAttributes = renderAttributes(value.attributes);
         const type = value.datatype ? renderType(value.datatype) : '';
         const formatted = renderValueInline(value.value);
-        return `${formatBindingKey(key)}${nestedAttributes}${type} = ${formatted}`;
+        return `${formatBindingKey(key)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
     });
     return `@{${rendered.join(', ')}}`;
 }
@@ -482,7 +482,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }

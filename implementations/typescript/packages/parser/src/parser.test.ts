@@ -216,6 +216,25 @@ describe('Parser', () => {
             assert.strictEqual(value.elements[1]!.datatype?.name, 'string');
         });
 
+        it('should preserve structural identities on attribute-entry and node heads', () => {
+            const tokens = tokenize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const binding = result.document!.bindings[0]!;
+            assert.strictEqual(binding.attributes[0]!.entries.get('source')!.structuralId, 'META');
+            assert.strictEqual(binding.value.type, 'NodeLiteral');
+            if (binding.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(binding.value.structuralId, 'HEAD');
+        });
+
+        it('should reject duplicate structural identities across attribute-entry and node heads', () => {
+            const tokens = tokenize(String.raw`value@{source\same\ = "user"} = <tag\same\>`).tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.some(error => error.code === 'DUPLICATE_STRUCTURAL_IDENTITY'));
+        });
+
         it('should reject duplicate structural identities document-wide', () => {
             const tokens = tokenize(String.raw`a\A1\ = 1
 b = [\A1\ = 2]`).tokens;

@@ -39,6 +39,7 @@ export interface AssignmentEvent {
  * Attribute entry
  */
 export interface AttributeEntry {
+    readonly structuralId?: string | null;
     readonly value: Value;
     readonly datatype?: string;
     readonly annotations?: ReadonlyMap<string, AttributeEntry>;
@@ -162,6 +163,7 @@ function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string,
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
             const attrEntry: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
                 value: entry.value,
             };
             if (entry.datatype) {

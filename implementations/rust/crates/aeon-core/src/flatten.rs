@@ -804,12 +804,14 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
             datatype,
             ..
         } => Value::NodeLiteral {
             raw: raw.clone(),
             tag: tag.clone(),
+            structural_id: structural_id.clone(),
             attributes: attributes.clone(),
             datatype: datatype.clone(),
             children: Vec::new(),
@@ -860,6 +862,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::NodeLiteral { .. } => Value::NodeLiteral {
             raw: String::new(),
             tag: String::new(),
+            structural_id: None,
             attributes: Vec::new(),
             datatype: None,
             children: Vec::new(),

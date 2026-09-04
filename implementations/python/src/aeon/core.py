@@ -632,6 +632,7 @@ def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object
             mapped = {
                 "value": entry.value,
                 "datatype": format_datatype(entry.datatype),
+                "structuralId": entry.structural_id,
             }
             nested = build_annotations(entry.attributes)
             if nested is not None:
@@ -655,13 +656,18 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     return event
 
 def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
-    return {
-        key: {
+    result: dict[str, dict[str, object]] = {}
+    for key, entry in annotations.items():
+        mapped = {
             "value": value_to_json(entry["value"]),
             "datatype": entry["datatype"],
+            "structuralId": entry["structuralId"],
         }
-        for key, entry in annotations.items()
-    }
+        nested = entry.get("annotations")
+        if isinstance(nested, dict):
+            mapped["annotations"] = annotations_to_json(nested)
+        result[key] = mapped
+    return result
 
 
 def value_to_json(value: Value) -> dict[str, object]:
@@ -715,6 +721,7 @@ def attribute_to_json(attribute: Attribute) -> dict[str, object]:
         "type": "Attribute",
         "entries": {
             key: {
+                "structuralId": entry.structural_id,
                 "datatype": type_annotation_to_json(entry.datatype),
                 "attributes": [attribute_to_json(item) for item in entry.attributes],
                 "value": value_to_json(entry.value),

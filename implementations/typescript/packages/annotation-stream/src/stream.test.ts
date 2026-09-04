@@ -181,6 +181,7 @@ describe('annotation stream', () => {
                 value: {
                     type: 'NodeLiteral',
                     tag: 'tag',
+                    structuralId: null,
                     attributes: [],
                     datatype: null,
                     children: [],

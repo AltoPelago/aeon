@@ -21,6 +21,12 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('age\\A1\\:int32 = 42', result.text)
         self.assertIn('\\B2\\@{source = "user"}:string = "green"', result.text)
 
+    def test_canonical_preserves_attribute_entry_and_node_head_identity(self) -> None:
+        result = canonicalize('value@{source\\META\\:string = "user"} = <tag\\HEAD\\>')
+        self.assertEqual([], result.errors)
+        self.assertIn('source\\META\\:string = "user"', result.text)
+        self.assertIn('<tag\\HEAD\\>', result.text)
+
     def test_canonicalizes_quoted_reference_paths(self) -> None:
         result = canonicalize('a@{"x.y" = 1} = 2\nb = ~["a.b"].@.["x.y"].["z w"]')
         self.assertEqual([], result.errors)

@@ -290,6 +290,7 @@ pub enum Value {
     NodeLiteral {
         raw: String,
         tag: String,
+        structural_id: Option<String>,
         attributes: Vec<BTreeMap<String, AttributeValue>>,
         datatype: Option<String>,
         children: Vec<Value>,
@@ -402,6 +403,7 @@ impl Value {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttributeValue {
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub value: Option<Value>,
     pub nested_attrs: BTreeMap<String, AttributeValue>,
@@ -414,6 +416,7 @@ impl AttributeValue {
     #[must_use]
     pub fn leaf() -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
@@ -429,6 +432,7 @@ impl AttributeValue {
         nested_attr_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs,
@@ -444,6 +448,7 @@ impl AttributeValue {
         object_member_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
@@ -455,6 +460,7 @@ impl AttributeValue {
 
     #[must_use]
     pub fn with_parts(
+        structural_id: Option<String>,
         datatype: Option<String>,
         value: Option<Value>,
         nested_attrs: BTreeMap<String, AttributeValue>,
@@ -463,6 +469,7 @@ impl AttributeValue {
         object_member_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id,
             datatype,
             value,
             nested_attrs,
@@ -1433,6 +1440,36 @@ mod tests {
         assert_eq!(result.events[0].structural_id.as_deref(), Some("A1"));
         assert_eq!(result.events[2].structural_id.as_deref(), Some("B2"));
         assert_eq!(result.events[3].structural_id.as_deref(), Some("C3"));
+    }
+
+    #[test]
+    fn preserves_structural_identity_on_attribute_entry_and_node_heads() {
+        let result = compile(
+            "value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.events[0].annotations["source"]
+                .structural_id
+                .as_deref(),
+            Some("META")
+        );
+        match &result.events[0].value {
+            Value::NodeLiteral { structural_id, .. } => {
+                assert_eq!(structural_id.as_deref(), Some("HEAD"));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_identity_across_attribute_and_node_heads() {
+        let result = compile(
+            "value@{source\\same\\ = \"user\"} = <tag\\same\\>",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
     }
 
     #[test]
