@@ -14,8 +14,8 @@ use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    NullLiteralMode, PathSegment, ReferenceSegment, VERSION, Value, compile, format_path,
-    normalize_number_literal,
+    NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION, Value, compile,
+    format_path, normalize_number_literal, project_portable_events,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -177,8 +177,9 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
+    let portable_aes = args.iter().any(|arg| arg == "--portable-aes");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
@@ -233,6 +234,12 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
         )
     })?;
+
+    if portable_aes && !json_output {
+        return Err(format!(
+            "Error: --portable-aes requires --json\n{INSPECT_USAGE}"
+        ));
+    }
 
     let file = find_file(
         args,
@@ -297,7 +304,14 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                 header_field_value(result.header.as_ref(), "schema"),
             );
             println!("{{");
-            println!("  \"events\": {},", render_events(&result.events));
+            println!(
+                "  \"events\": {},",
+                if portable_aes {
+                    render_portable_events(&project_portable_events(&result.events))
+                } else {
+                    render_events(&result.events)
+                }
+            );
             println!("  \"errors\": {},", render_errors(&result.errors));
             println!("  \"warnings\": {}", render_errors(&result.warnings));
             if let Some(contracts) = declared_contracts {
@@ -2354,7 +2368,7 @@ fn print_help() {
     );
     println!("  doctor [--json] [--contract-registry <registry.json>]");
     println!(
-        "  inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+        "  inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
@@ -2639,6 +2653,54 @@ fn render_events(events: &[AssignmentEvent]) -> String {
     }
     out.push(']');
     out
+}
+
+fn render_portable_events(events: &[PortableAesEvent]) -> String {
+    let items = events
+        .iter()
+        .map(|event| {
+            let mut object = Map::new();
+            object.insert(String::from("path"), JsonValue::String(event.path.clone()));
+            object.insert(
+                String::from("kind"),
+                JsonValue::String(event.kind.to_owned()),
+            );
+            if let Some(identity) = &event.identity {
+                object.insert(
+                    String::from("identity"),
+                    JsonValue::String(identity.clone()),
+                );
+            }
+            if let Some(datatype) = &event.datatype {
+                object.insert(
+                    String::from("datatype"),
+                    JsonValue::String(datatype.clone()),
+                );
+            }
+            if let Some(value) = &event.value {
+                object.insert(String::from("value"), JsonValue::String(value.clone()));
+            }
+            if let Some(span) = &event.span {
+                object.insert(
+                    String::from("span"),
+                    json!({
+                        "start": {
+                            "line": span.start.line,
+                            "column": span.start.column,
+                            "offset": span.start.offset,
+                        },
+                        "end": {
+                            "line": span.end.line,
+                            "column": span.end.column,
+                            "offset": span.end.offset,
+                        },
+                    }),
+                );
+            }
+            JsonValue::Object(object)
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&items).unwrap_or_else(|_| String::from("[]"))
 }
 
 fn render_errors(errors: &[Diagnostic]) -> String {
@@ -4731,6 +4793,17 @@ mod tests {
     }
 
     #[test]
+    fn inspect_portable_aes_requires_json() {
+        let result = run(vec![
+            String::from("aeon-rust"),
+            String::from("inspect"),
+            String::from("--portable-aes"),
+        ])
+        .expect_err("portable AES requires JSON output");
+        assert!(result.contains("Error: --portable-aes requires --json"));
+    }
+
+    #[test]
     fn inspect_cases_reports_usage_for_missing_mode() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -5035,6 +5108,34 @@ mod tests {
             "errors": []
         });
         assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn inspect_json_renders_portable_expanded_node_projection() {
+        let result = compile(
+            r#"a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>"#,
+            CompileOptions::default(),
+        );
+        let rendered = render_portable_events(&project_portable_events(&result.events));
+        let events: JsonValue = serde_json::from_str(&rendered).expect("portable events JSON");
+        assert_eq!(
+            events
+                .as_array()
+                .expect("events array")
+                .iter()
+                .map(|event| json!({
+                    "path": event["path"],
+                    "kind": event["kind"],
+                    "identity": event.get("identity").cloned().unwrap_or(JsonValue::Null),
+                    "value": event.get("value").cloned().unwrap_or(JsonValue::Null),
+                }))
+                .collect::<Vec<_>>(),
+            vec![
+                json!({ "path": "$.a", "kind": "node", "identity": "ROOT", "value": null }),
+                json!({ "path": "$.a[0]", "kind": "node-head", "identity": "HEAD", "value": "tag" }),
+                json!({ "path": "$.a[0][0]", "kind": "string", "identity": "CHILD", "value": "value" }),
+            ]
+        );
     }
 
     #[test]

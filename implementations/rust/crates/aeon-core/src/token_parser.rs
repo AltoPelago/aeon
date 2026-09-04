@@ -1033,10 +1033,12 @@ impl<'a> TokenParser<'a> {
         let structural_id = self.parse_optional_structural_identity()?;
 
         let mut attributes = Vec::new();
+        let mut attribute_order = Vec::new();
         self.skip_newlines();
         if self.check(TokenKind::At) {
-            let (attribute_map, _) = self.parse_attribute_block(1)?;
+            let (attribute_map, parsed_order) = self.parse_attribute_block(1)?;
             attributes.push(attribute_map);
+            attribute_order = parsed_order;
             self.skip_newlines();
             if self.check(TokenKind::At) {
                 return Err(self.error_at_current(
@@ -1068,6 +1070,7 @@ impl<'a> TokenParser<'a> {
                 tag,
                 structural_id,
                 attributes,
+                attribute_order,
                 datatype,
                 children,
             });
@@ -1086,6 +1089,7 @@ impl<'a> TokenParser<'a> {
             tag,
             structural_id,
             attributes,
+            attribute_order,
             datatype,
             children,
         })

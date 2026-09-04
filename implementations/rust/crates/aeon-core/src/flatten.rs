@@ -65,6 +65,15 @@ fn typed_annotations(value: &Value) -> BTreeMap<String, AttributeValue> {
     }
 }
 
+fn typed_annotation_order(value: &Value) -> Vec<String> {
+    match value {
+        Value::TypedValue {
+            attribute_order, ..
+        } => attribute_order.clone(),
+        _ => Vec::new(),
+    }
+}
+
 fn unwrap_typed_value(value: &Value) -> &Value {
     match value {
         Value::TypedValue { value, .. } => value,
@@ -503,6 +512,11 @@ fn flatten_bindings(
                 } else {
                     BTreeMap::new()
                 },
+                annotation_order: if include_event_annotations {
+                    binding.attribute_order.clone()
+                } else {
+                    Vec::new()
+                },
                 value: clone_event_value(&binding.value, shallow_event_values),
                 span: binding.span,
             });
@@ -536,6 +550,7 @@ fn flatten_bindings(
                         structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
+                        annotation_order: typed_annotation_order(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
@@ -581,6 +596,7 @@ fn flatten_bindings(
                         structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
+                        annotation_order: typed_annotation_order(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
@@ -640,6 +656,7 @@ fn flatten_bindings(
                         structural_id: typed_structural_id(child),
                         datatype: typed_datatype(child),
                         annotations: typed_annotations(child),
+                        annotation_order: typed_annotation_order(child),
                         value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                         span: binding.span,
                     });
@@ -716,6 +733,7 @@ fn flatten_container_item(
                     structural_id: typed_structural_id(item),
                     datatype: typed_datatype(item),
                     annotations: typed_annotations(item),
+                    annotation_order: typed_annotation_order(item),
                     value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                     span,
                 });
@@ -761,6 +779,7 @@ fn flatten_container_item(
                     structural_id: typed_structural_id(child),
                     datatype: typed_datatype(child),
                     annotations: typed_annotations(child),
+                    annotation_order: typed_annotation_order(child),
                     value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                     span,
                 });
@@ -806,6 +825,7 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
             tag,
             structural_id,
             attributes,
+            attribute_order,
             datatype,
             ..
         } => Value::NodeLiteral {
@@ -813,6 +833,7 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
             tag: tag.clone(),
             structural_id: structural_id.clone(),
             attributes: attributes.clone(),
+            attribute_order: attribute_order.clone(),
             datatype: datatype.clone(),
             children: Vec::new(),
         },
@@ -864,6 +885,7 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
             tag: String::new(),
             structural_id: None,
             attributes: Vec::new(),
+            attribute_order: Vec::new(),
             datatype: None,
             children: Vec::new(),
         },

@@ -4,6 +4,7 @@ mod flatten;
 mod header;
 mod lexer;
 mod pathing;
+mod portable;
 mod sansa;
 mod temporal;
 mod token_parser;
@@ -17,6 +18,7 @@ use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
+pub use portable::{PortableAesEvent, project_portable_events};
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
     SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
@@ -292,6 +294,7 @@ pub enum Value {
         tag: String,
         structural_id: Option<String>,
         attributes: Vec<BTreeMap<String, AttributeValue>>,
+        attribute_order: Vec<String>,
         datatype: Option<String>,
         children: Vec<Value>,
     },
@@ -498,6 +501,7 @@ pub struct AssignmentEvent {
     pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub annotations: BTreeMap<String, AttributeValue>,
+    pub annotation_order: Vec<String>,
     pub value: Value,
     pub span: Span,
 }

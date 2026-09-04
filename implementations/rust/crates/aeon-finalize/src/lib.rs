@@ -430,6 +430,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
             attributes,
             datatype,
             children,
+            ..
         } => json!({
             "type": "NodeLiteral",
             "raw": raw,
@@ -2355,6 +2356,7 @@ mod tests {
             structural_id: None,
             datatype: Some(String::from("list")),
             annotations: BTreeMap::new(),
+            annotation_order: Vec::new(),
             value: Value::ListNode {
                 items: vec![Value::CloneReference {
                     segments: vec![ReferenceSegment::Key(String::from("a"))],
