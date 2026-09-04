@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     command = args[0]
     if command in {"version", "--version", "-v"}:
-        print("aeon-python 0.12.0")
+        print("aeon-python 0.12.1")
         return 0
     if command == "fmt":
         return fmt(args[1:])

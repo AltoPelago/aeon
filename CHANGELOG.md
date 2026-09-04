@@ -6,6 +6,34 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.12.1 - 2026-09-05
+
+### Added
+
+- Added explicit portable AES projections for TypeScript, Rust, and Python,
+  including value-less `NodeLiteral` containers, indexed `NodeHead` events,
+  recursively flattened attributes and descendants, and structure-aware
+  reference-target translation.
+- Added portable AES inspect output and contract tests across the TypeScript,
+  Rust, and Python CLI surfaces.
+
+### Changed
+
+- Standardized portable AES `kind` values on the normative AEON representation
+  names, including `StringLiteral`, `ObjectNode`, `NodeLiteral`, `NodeHead`,
+  `CloneReference`, and `WTCDateTimeLiteral`.
+- Updated TypeScript SANSA consumers to require the prepared
+  `@altopelago/sansa@0.10.1` patch release.
+
+### Fixed
+
+- Preserved structural identities across node and attribute AST surfaces,
+  matter resolution, debug and JSON projections, and clone materialization.
+- Kept identity as occurrence metadata rather than path identity.
+- Enforced exact lowercase `local` for the reserved WTC resolver-local
+  reference while preserving authored case for named references.
+- Aligned datatype-clarifier parsing across the implementation surfaces.
+
 ## 0.12.0 - 2026-08-10
 
 ### Breaking
