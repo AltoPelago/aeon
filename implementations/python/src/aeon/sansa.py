@@ -503,7 +503,7 @@ class AddressParser:
                 continue
             if char == "%":
                 self.index += 1
-                selectors.append({"type": "representationKindFilter", "name": self.parse_identifier("representation kind filter")})
+                selectors.append({"type": "representationKindFilter", "name": self.parse_representation_kind_name()})
                 continue
             if is_layout(char):
                 self.fail("Whitespace is not allowed inside a SANSA address", "SANSA_UNEXPECTED_WHITESPACE")
@@ -649,6 +649,17 @@ class AddressParser:
         self.index += 1
         while is_identifier_continue(self.peek()):
             self.index += 1
+        return self.input[start:self.index]
+
+    def parse_representation_kind_name(self) -> str:
+        context = "representation kind filter"
+        start = self.index
+        self.parse_identifier(context)
+        while self.match("-"):
+            if not is_identifier_continue(self.peek()):
+                self.fail(f"Expected {context}", "SANSA_EXPECTED_IDENTIFIER")
+            while is_identifier_continue(self.peek()):
+                self.index += 1
         return self.input[start:self.index]
 
     def parse_quoted_payload(self) -> str:

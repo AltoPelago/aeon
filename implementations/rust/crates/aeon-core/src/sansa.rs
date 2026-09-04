@@ -683,7 +683,7 @@ impl<'a> AddressParser<'a> {
                 Some('%') => {
                     self.advance();
                     selectors.push(SansaSelector::RepresentationKindFilter {
-                        name: self.parse_identifier("representation kind filter")?,
+                        name: self.parse_representation_kind_name()?,
                     });
                 }
                 Some(ch) if is_layout(ch) => {
@@ -928,6 +928,21 @@ impl<'a> AddressParser<'a> {
         self.advance();
         while self.peek().is_some_and(is_identifier_continue) {
             self.advance();
+        }
+        Ok(self.input[start..self.index].to_owned())
+    }
+
+    fn parse_representation_kind_name(&mut self) -> Result<String, SansaParseError> {
+        let context = "representation kind filter";
+        let start = self.index;
+        self.parse_identifier(context)?;
+        while self.match_char('-') {
+            if !self.peek().is_some_and(is_identifier_continue) {
+                self.fail(format!("Expected {context}"), "SANSA_EXPECTED_IDENTIFIER")?;
+            }
+            while self.peek().is_some_and(is_identifier_continue) {
+                self.advance();
+            }
         }
         Ok(self.input[start..self.index].to_owned())
     }
@@ -1321,6 +1336,124 @@ mod tests {
         assert!(result.ok);
         assert_eq!(result.bindings[0].address.as_deref(), Some("$.item"));
         assert_eq!(result.bindings[0].identity.as_deref(), Some("ITEM"));
+    }
+
+    #[test]
+    fn navigates_portable_node_heads_and_hyphenated_kind_filters() {
+        assert_eq!(
+            parse_address("$.document[0]%node-head")
+                .expect("parse")
+                .canonical,
+            "$.document[0]%node-head"
+        );
+
+        let mut nested_text = binding(
+            "$.document[0][1][0][0]",
+            None,
+            Some(0),
+            None,
+            Some("string"),
+            vec![],
+        );
+        nested_text.parent = Some(Box::new(binding(
+            "$.document[0][1][0]",
+            None,
+            Some(0),
+            None,
+            Some("node-head"),
+            vec![],
+        )));
+        let mut nested_head = binding(
+            "$.document[0][1][0]",
+            None,
+            Some(0),
+            None,
+            Some("node-head"),
+            vec![nested_text],
+        );
+        nested_head.parent = Some(Box::new(binding(
+            "$.document[0][1]",
+            None,
+            Some(1),
+            None,
+            Some("node"),
+            vec![],
+        )));
+        let mut nested_node = binding(
+            "$.document[0][1]",
+            None,
+            Some(1),
+            None,
+            Some("node"),
+            vec![nested_head],
+        );
+        nested_node.parent = Some(Box::new(binding(
+            "$.document[0]",
+            None,
+            Some(0),
+            None,
+            Some("node-head"),
+            vec![],
+        )));
+        let outer_head = binding(
+            "$.document[0]",
+            None,
+            Some(0),
+            None,
+            Some("node-head"),
+            vec![
+                binding(
+                    "$.document[0][0]",
+                    None,
+                    Some(0),
+                    None,
+                    Some("string"),
+                    vec![],
+                ),
+                nested_node,
+            ],
+        );
+        let mut namespace = SansaResolveNamespace::new(binding(
+            "$",
+            None,
+            None,
+            None,
+            Some("object"),
+            vec![binding(
+                "$.document",
+                Some("document"),
+                None,
+                None,
+                Some("node"),
+                vec![outer_head],
+            )],
+        ));
+        namespace.supports_parent_traversal = true;
+
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document.**%node-head",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.document[0]", "$.document[0][1][0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document[0][1].^%node-head",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.document[0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document[1]",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
