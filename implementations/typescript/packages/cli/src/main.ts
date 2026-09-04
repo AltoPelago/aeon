@@ -16,6 +16,7 @@
  * 
  * Flags:
  * - --json         Output as JSON (inspect/finalize/integrity)
+ * - --portable-aes Emit the in-progress portable flat AES projection (inspect JSON only)
  * - --contract-registry Trusted contract registry JSON path (doctor/bind)
  * - --write        Write formatted output back to file (fmt only)
  * - --annotations  Include annotation stream records in inspect/bind output
@@ -56,6 +57,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
 import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { projectPortableNodeEvents } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -169,6 +171,7 @@ Options:
   --write            Write formatted output back to file (fmt only)
   --contract-registry Trusted contract registry JSON path (doctor/bind)
   --json             Output as JSON (inspect/finalize)
+  --portable-aes     Emit portable flat AES node projection (inspect JSON only)
     --annotations      Include annotation stream records in inspect/bind output
     --annotations-only Output only annotation stream records in inspect output
     --sort-annotations Sort annotation records deterministically before output (inspect/bind)
@@ -375,9 +378,10 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
+    const portableAes = args.includes('--portable-aes');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
      const includeAnnotations = args.includes('--annotations');
@@ -393,6 +397,11 @@ function inspect(args: string[]): void {
 
     if (!file) {
         console.error('Error: No file specified');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (portableAes && !jsonOutput) {
+        console.error('Error: --portable-aes requires --json');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -450,7 +459,7 @@ function inspect(args: string[]): void {
     const mode = headerInfo.mode;
 
     if (jsonOutput) {
-        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations }, headerInfo);
+        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations, portableAes }, headerInfo);
     } else {
         outputMarkdown(file, result, {
             recovery,
@@ -1337,7 +1346,7 @@ function integritySign(args: string[]): void {
  */
 function outputJSON(
     result: CompileResult,
-    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean },
+    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean },
     headerInfo?: HeaderInfo,
 ): void {
     const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
@@ -1349,15 +1358,7 @@ function outputJSON(
         return;
     }
     const output: {
-        events: Array<{
-            path: string;
-            key: string;
-            structuralId?: string | null;
-            datatype: string | null;
-            span: Span;
-            value: unknown;
-            annotations?: unknown;
-        }>;
+        events: unknown[];
         errors: Array<{
             code: string | undefined;
             path: string;
@@ -1367,16 +1368,18 @@ function outputJSON(
         }>;
         annotations?: NonNullable<CompileResult['annotations']>;
     } = {
-        events: visibleEvents.map(event => ({
-            path: formatPath(event.path),
-            key: event.key,
-            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
-            datatype: event.datatype ?? null,
-            span: event.span,
-            // Preserve AST-like shape (no coercion/inference)
-            value: jsonSafe(event.value),
-            ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
-        })),
+        events: options.portableAes
+            ? [...projectPortableNodeEvents(visibleEvents)]
+            : visibleEvents.map(event => ({
+                path: formatPath(event.path),
+                key: event.key,
+                ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
+                datatype: event.datatype ?? null,
+                span: event.span,
+                // Preserve AST-like shape (no coercion/inference)
+                value: jsonSafe(event.value),
+                ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
+            })),
         errors: result.errors.map(error => ({
             code: (error as { code?: string }).code,
             path: getErrorPath(error) ?? '$',

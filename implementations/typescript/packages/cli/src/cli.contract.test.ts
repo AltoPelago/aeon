@@ -785,6 +785,36 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(parsed.events[0]?.value.structuralId, 'HEAD');
         });
 
+        it('emits the portable expanded node projection on explicit request', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-portable-node-'));
+            const file = path.join(dir, 'portable-node.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json', '--portable-aes', '--transport']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                events: Array<{ path: string; kind: string; identity?: string; value?: string }>;
+            };
+            assert.deepStrictEqual(
+                parsed.events.map(({ path, kind, identity, value }) => ({
+                    path,
+                    kind,
+                    identity: identity ?? null,
+                    value: value ?? null,
+                })),
+                [
+                    { path: '$.a', kind: 'node', identity: 'ROOT', value: null },
+                    { path: '$.a[0]', kind: 'node-head', identity: 'HEAD', value: 'tag' },
+                    { path: '$.a[0][0]', kind: 'string', identity: 'CHILD', value: 'value' },
+                ],
+            );
+        });
+
         it('supports --sort-annotations with annotations-only JSON output', async () => {
             const { code, stdout, stderr } = await runCli([
                 'inspect',

@@ -297,7 +297,7 @@ function sortObjectKeys(value) {
   );
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents }) {
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -308,6 +308,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   if (mode === 'transport') args.push('--transport');
   else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
+  if (portableAes) args.push('--portable-aes');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
@@ -504,6 +505,7 @@ async function main() {
       const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
+      const portableAes = Boolean(test.input?.options?.portable_aes);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
@@ -557,6 +559,7 @@ async function main() {
           mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
+          portableAes,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
@@ -581,6 +584,7 @@ async function main() {
           mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
+          portableAes,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
