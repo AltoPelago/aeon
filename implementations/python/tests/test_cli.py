@@ -14,6 +14,58 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_inspect_emits_portable_expanded_node_projection_on_explicit_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "portable-node.aeon"
+            fixture.write_text(r'a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>' + "\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "inspect",
+                    str(fixture),
+                    "--json",
+                    "--portable-aes",
+                    "--transport",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("", result.stderr)
+        events = json.loads(result.stdout)["events"]
+        self.assertEqual(
+            [
+                {"path": "$.a", "kind": "node", "identity": "ROOT", "value": None},
+                {"path": "$.a[0]", "kind": "node-head", "identity": "HEAD", "value": "tag"},
+                {"path": "$.a[0][0]", "kind": "string", "identity": "CHILD", "value": "value"},
+            ],
+            [
+                {
+                    "path": event["path"],
+                    "kind": event["kind"],
+                    "identity": event.get("identity"),
+                    "value": event.get("value"),
+                }
+                for event in events
+            ],
+        )
+
+    def test_inspect_portable_aes_requires_json(self) -> None:
+        result = subprocess.run(
+            [
+                str(ROOT / "bin" / "aeon-python"),
+                "inspect",
+                "--portable-aes",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--portable-aes requires --json", result.stderr)
+
     def test_inspect_json_returns_deterministic_shape_for_valid_fixture(self) -> None:
         fixture = ROOT / ".." / "typescript" / "packages" / "cli" / "tests" / "fixtures" / "valid.aeon"
         result = subprocess.run(

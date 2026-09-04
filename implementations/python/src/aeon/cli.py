@@ -9,6 +9,7 @@ from .annotations import build_annotation_stream, sort_annotation_records
 from .canonical import canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
+from .portable import project_portable_events
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +51,7 @@ def cts_validate() -> int:
 
 def inspect(args: list[str]) -> int:
     json_output = "--json" in args
+    portable_aes = "--portable-aes" in args
     recovery = "--recovery" in args
     annotations_only = "--annotations-only" in args
     include_annotations = "--annotations" in args or annotations_only
@@ -86,6 +88,9 @@ def inspect(args: list[str]) -> int:
     if max_events is None and "--max-events" in args:
         print("Error: Invalid value for --max-events (expected a non-negative integer)", file=sys.stderr)
         return 2
+    if portable_aes and not json_output:
+        print("Error: --portable-aes requires --json", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
         print("Error: No file specified", file=sys.stderr)
@@ -116,7 +121,7 @@ def inspect(args: list[str]) -> int:
             print(json.dumps({"annotations": annotations}, indent=2))
             return 0
         payload = {
-            "events": result.events,
+            "events": project_portable_events(result.events) if portable_aes else result.events,
             "errors": [error.to_json() for error in result.errors],
         }
         if include_annotations:
@@ -282,7 +287,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 
