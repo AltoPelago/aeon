@@ -932,6 +932,7 @@ fn looks_like_zoned_time(value: &str) -> bool {
 
 fn is_valid_wtc_reference(reference: &str) -> bool {
     !reference.is_empty()
+        && (reference == "local" || !reference.eq_ignore_ascii_case("local"))
         && !reference.starts_with('/')
         && !reference.ends_with('/')
         && !reference.contains("//")

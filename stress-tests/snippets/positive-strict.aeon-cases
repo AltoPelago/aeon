@@ -64,7 +64,7 @@ zdt6:wtc = 2025-01-01T09:30+02:00&Europe/Belgium/Brussels
 ---
 zdt7:wtc = 2025-01-01T09:+02:00&Europe/Belgium/Brussels
 ---
-zdt8:wtc = 2025-01-01T09:30Z&Local
+zdt8:wtc = 2025-01-01T09:30Z&local
 ---
 good:date = 2024-02-29
 ---

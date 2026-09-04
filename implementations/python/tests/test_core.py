@@ -497,6 +497,12 @@ class CoreCompileTests(unittest.TestCase):
                 result = compile_source(source)
                 self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
 
+    def test_wtc_requires_exact_lowercase_local_reference(self) -> None:
+        for reference in ("Local", "LOCAL"):
+            with self.subTest(reference=reference):
+                result = compile_source(f"z:wtc = 2025-01-01T09Z&{reference}")
+                self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
+
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
         result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')
         self.assertEqual(["INVALID_NODE_HEAD_DATATYPE"], [error.code for error in result.errors])

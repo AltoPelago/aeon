@@ -673,6 +673,7 @@ class Lexer:
     def is_valid_wtc_reference(reference: str) -> bool:
         return (
             bool(reference)
+            and (reference == "local" or reference.lower() != "local")
             and not reference.startswith("/")
             and not reference.endswith("/")
             and "//" not in reference

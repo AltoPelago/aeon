@@ -1332,6 +1332,7 @@ function isValidMinuteOrSecond(value: number): boolean {
 
 function isValidWtcReference(reference: string): boolean {
     if (reference.length === 0) return false;
+    if (reference.toLowerCase() === 'local' && reference !== 'local') return false;
     if (reference.startsWith('/')) return false;
     if (reference.endsWith('/')) return false;
     if (reference.includes('//')) return false;
