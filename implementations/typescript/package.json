@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"bootstrap": "pnpm install && pnpm build",
+		"bench:telex": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/bench-telex-vs-json.mjs",
 		"build": "pnpm -r --filter './packages/**' --filter './tools/**' build",
 		"typecheck": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"test": "pnpm -r --filter './packages/**' --filter './tools/**' test",

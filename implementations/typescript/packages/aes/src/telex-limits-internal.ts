@@ -14,6 +14,8 @@ export const DEFAULT_TELEX_LIMITS = Object.freeze({
   maxDatatypeComponents: 64,
 });
 
+const NORMALIZED_DATATYPE_LIMITS = new WeakSet();
+
 /**
  * Normalize the integer-only limits consumed by the Telex codec. Limits-file
  * inheritance and custom-null resolution belong to the trusted configuration
@@ -55,7 +57,10 @@ export function normalizeTelexLimits(options = {}) {
 
 /** Normalize the datatype-only helper surface, including its v0 aliases. */
 export function normalizeDatatypeLimits(options = {}) {
-  return Object.freeze({
+  if (options !== null && typeof options === 'object' && NORMALIZED_DATATYPE_LIMITS.has(options)) {
+    return options;
+  }
+  const normalized = Object.freeze({
     maxGenericDepth: limit(options, 'maxGenericDepth', options.maxDepth ?? DEFAULT_TELEX_LIMITS.maxGenericDepth),
     maxGenericArguments: limit(options, 'maxGenericArguments', DEFAULT_TELEX_LIMITS.maxGenericArguments),
     maxClarifierValues: limit(options, 'maxClarifierValues', DEFAULT_TELEX_LIMITS.maxClarifierValues),
@@ -65,6 +70,8 @@ export function normalizeDatatypeLimits(options = {}) {
       options.maxItems ?? DEFAULT_TELEX_LIMITS.maxDatatypeComponents,
     ),
   });
+  NORMALIZED_DATATYPE_LIMITS.add(normalized);
+  return normalized;
 }
 
 function limit(source, name, fallback) {
@@ -74,4 +81,3 @@ function limit(source, name, fallback) {
   }
   return value;
 }
-

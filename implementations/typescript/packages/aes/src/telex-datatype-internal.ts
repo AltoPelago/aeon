@@ -13,7 +13,11 @@ export function parseDatatypeDescriptor(input, options = {}) {
   if (typeof input !== 'string') {
     throw new TypeError('Datatype descriptor must be a string');
   }
-  const parser = new DatatypeParser(input, options);
+  const limits = normalizeDatatypeLimits(options);
+  if (DATATYPE_NAME.test(input) && limits.maxDatatypeComponents >= 1) {
+    return { datatype: input, generics: [], clarifiers: [] };
+  }
+  const parser = new DatatypeParser(input, limits);
   const descriptor = parser.parseDescriptor(0);
   parser.skipWhitespace();
   if (!parser.atEnd()) parser.fail('Unexpected trailing datatype syntax');
@@ -25,8 +29,25 @@ export function parseDatatypeDescriptor(input, options = {}) {
  * datatype descriptor.
  */
 export function formatDatatypeDescriptor(descriptor, options = {}) {
-  assertDatatypeDescriptor(descriptor, options);
+  const limits = normalizeDatatypeLimits(options);
+  if (isSimpleDatatypeDescriptor(descriptor) && limits.maxDatatypeComponents >= 1) {
+    return descriptor.datatype;
+  }
+  assertDatatypeDescriptor(descriptor, limits);
   return formatCheckedDatatypeDescriptor(descriptor);
+}
+
+function isSimpleDatatypeDescriptor(descriptor) {
+  return descriptor !== null
+    && typeof descriptor === 'object'
+    && !Array.isArray(descriptor)
+    && typeof descriptor.datatype === 'string'
+    && DATATYPE_NAME.test(descriptor.datatype)
+    && Array.isArray(descriptor.generics)
+    && descriptor.generics.length === 0
+    && Array.isArray(descriptor.clarifiers)
+    && descriptor.clarifiers.length === 0
+    && hasExactKeys(descriptor, ['datatype', 'generics', 'clarifiers']);
 }
 
 function formatCheckedDatatypeDescriptor(descriptor) {
@@ -339,4 +360,3 @@ function datatypeValidationError(message, code, counter, observed, limit) {
 function limitMessage(counter, observed, limit) {
   return `${counter} observed value ${observed} exceeds configured limit ${limit}`;
 }
-

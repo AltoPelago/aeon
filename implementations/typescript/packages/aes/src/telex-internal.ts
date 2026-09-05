@@ -1,14 +1,18 @@
 // @ts-nocheck
 // Kept behaviorally aligned with the published Telex v0 reference codec.
 const UTF8_ENCODER = new TextEncoder();
-const utf8ByteLength = (value: string): number => UTF8_ENCODER.encode(value).byteLength;
+const ASCII_ONLY = /^[\x00-\x7F]*$/u;
+const PAYLOAD_REQUIRES_ESCAPING = /[\\\u0000-\u001F\u007F\uD800-\uDFFF]/u;
+const utf8ByteLength = (value: string): number => (
+  ASCII_ONLY.test(value) ? value.length : UTF8_ENCODER.encode(value).byteLength
+);
 
 import {
   assertDatatypeDescriptor,
   formatDatatypeDescriptor,
   parseDatatypeDescriptor,
 } from './telex-datatype-internal.js';
-import { normalizeTelexLimits } from './telex-limits-internal.js';
+import { normalizeDatatypeLimits, normalizeTelexLimits } from './telex-limits-internal.js';
 
 export { DEFAULT_TELEX_LIMITS, normalizeTelexLimits } from './telex-limits-internal.js';
 
@@ -94,7 +98,12 @@ export function parseTelex(input, options = {}) {
     throw new TypeError('Telex input must be a string');
   }
   const limits = normalizeTelexLimits(options);
-  assertPhysicalTelexInput(input, limits);
+  assertTelexLimit('max_input_bytes', utf8ByteLength(input), limits.maxInputBytes);
+  const lines = input.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const physical = lines[index].endsWith('\r') ? lines[index].slice(0, -1) : lines[index];
+    assertTelexLimit('max_line_bytes', utf8ByteLength(physical), limits.maxLineBytes, index + 1);
+  }
   if (input.startsWith('\uFEFF')) {
     throw new TelexSyntaxError('UTF-8 byte-order marks are not allowed', 1, 'TELEX_BOM');
   }
@@ -103,9 +112,12 @@ export function parseTelex(input, options = {}) {
   }
 
   const canonicalLineEndings = !input.includes('\r\n');
-  const normalized = input.replaceAll('\r\n', '\n');
-  const hasFinalLf = normalized.endsWith('\n');
-  const lines = normalized.split('\n');
+  const hasFinalLf = input.endsWith('\n');
+  if (!canonicalLineEndings) {
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index].endsWith('\r')) lines[index] = lines[index].slice(0, -1);
+    }
+  }
   if (hasFinalLf) lines.pop();
 
   if (lines[0] !== VERSION_LINE) {
@@ -190,6 +202,7 @@ export function parseTelex(input, options = {}) {
   eventStart += 1;
 
   const records = [];
+  const datatypeLimits = normalizeDatatypeLimits(limits);
   let record = null;
   let datatypeLine;
   let datatypeComponentLine;
@@ -209,9 +222,9 @@ export function parseTelex(input, options = {}) {
           record,
           datatypeLine,
           datatypeComponentLine,
-          limits,
+          datatypeLimits,
         );
-        canonical &&= decoded.canonical && hasCanonicalFieldOrder(Object.fromEntries(record));
+        canonical &&= decoded.canonical && hasCanonicalFieldOrder(record);
         records.push(decoded.record);
         record = null;
         datatypeLine = undefined;
@@ -254,9 +267,9 @@ export function parseTelex(input, options = {}) {
       record,
       datatypeLine,
       datatypeComponentLine,
-      limits,
+      datatypeLimits,
     );
-    canonical &&= decoded.canonical && hasCanonicalFieldOrder(Object.fromEntries(record));
+    canonical &&= decoded.canonical && hasCanonicalFieldOrder(record);
     records.push(decoded.record);
   }
   if (separatorWidth > 0) canonical = false;
@@ -285,24 +298,32 @@ export function encodeTelex(records, options = {}) {
   if (projection !== undefined && (typeof projection !== 'string' || projection.length === 0)) {
     throw new TypeError('Telex projection must be a non-empty string');
   }
-  let header = VERSION_LINE;
+  const headerLines = [VERSION_LINE];
+  assertTelexLimit('max_line_bytes', VERSION_LINE.length, limits.maxLineBytes, 1);
   let decodedPayloadBytes = 0;
   if (profile !== undefined) {
     decodedPayloadBytes = addDecodedPayloadBytes(decodedPayloadBytes, profile, limits);
-    header += `\n${PROFILE_FIELD}=${encodePayload(profile)}`;
+    const line = `${PROFILE_FIELD}=${encodePayload(profile)}`;
+    assertTelexLimit('max_line_bytes', utf8ByteLength(line), limits.maxLineBytes, headerLines.length + 1);
+    headerLines.push(line);
   }
   if (projection !== undefined) {
     decodedPayloadBytes = addDecodedPayloadBytes(decodedPayloadBytes, projection, limits);
-    header += `\n${PROJECTION_FIELD}=${encodePayload(projection)}`;
+    const line = `${PROJECTION_FIELD}=${encodePayload(projection)}`;
+    assertTelexLimit('max_line_bytes', utf8ByteLength(line), limits.maxLineBytes, headerLines.length + 1);
+    headerLines.push(line);
   }
   if (records.length === 0) {
-    const output = `${header}\n`;
-    assertPhysicalTelexInput(output, limits);
+    const output = `${headerLines.join('\n')}\n`;
+    assertTelexLimit('max_input_bytes', utf8ByteLength(output), limits.maxInputBytes);
     return output;
   }
 
-  const stanzas = records.map((record, recordIndex) => {
-    const entries = encodeWireRecord(record, recordIndex, limits);
+  const datatypeLimits = normalizeDatatypeLimits(limits);
+  const stanzas = new Array(records.length);
+  let lineNumber = headerLines.length + 2;
+  for (let recordIndex = 0; recordIndex < records.length; recordIndex += 1) {
+    const entries = encodeWireRecord(records[recordIndex], recordIndex, datatypeLimits);
     if (entries.length === 0) {
       throw new TypeError(`Telex record ${recordIndex + 1} must not be empty`);
     }
@@ -314,12 +335,21 @@ export function encodeTelex(records, options = {}) {
       if (typeof value !== 'string') throw new TypeError(`Telex field ${field} must have a string payload`);
       decodedPayloadBytes = addDecodedPayloadBytes(decodedPayloadBytes, value, limits);
     }
-    entries.sort(compareTelexFields);
-    return entries.map(([field, value]) => `${field}=${encodePayload(value)}`).join('\n');
-  });
+    if (!hasCanonicalEntryOrder(entries)) entries.sort(compareTelexFields);
+    const lines = new Array(entries.length);
+    for (let index = 0; index < entries.length; index += 1) {
+      const [field, value] = entries[index];
+      const line = `${field}=${encodePayload(value)}`;
+      assertTelexLimit('max_line_bytes', utf8ByteLength(line), limits.maxLineBytes, lineNumber);
+      lines[index] = line;
+      lineNumber += 1;
+    }
+    stanzas[recordIndex] = lines.join('\n');
+    lineNumber += 1;
+  }
 
-  const output = `${header}\n\n${stanzas.join('\n\n')}\n`;
-  assertPhysicalTelexInput(output, limits);
+  const output = `${headerLines.join('\n')}\n\n${stanzas.join('\n\n')}\n`;
+  assertTelexLimit('max_input_bytes', utf8ByteLength(output), limits.maxInputBytes);
   return output;
 }
 
@@ -888,15 +918,6 @@ function limitDiagnostic(counter, observed, limit, context = {}) {
   );
 }
 
-function assertPhysicalTelexInput(input, limits) {
-  assertTelexLimit('max_input_bytes', utf8ByteLength(input), limits.maxInputBytes);
-  const lines = input.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const physical = lines[index].endsWith('\r') ? lines[index].slice(0, -1) : lines[index];
-    assertTelexLimit('max_line_bytes', utf8ByteLength(physical), limits.maxLineBytes, index + 1);
-  }
-}
-
 function decodePayloadBounded(payload, lineNumber, limits, state) {
   const decoded = decodePayload(payload, lineNumber);
   state.decodedPayloadBytes = addDecodedPayloadBytes(state.decodedPayloadBytes, decoded.value, limits, lineNumber);
@@ -924,6 +945,10 @@ function limitMessage(counter, observed, limit) {
 }
 
 function compareTelexFields([left], [right]) {
+  return compareTelexFieldNames(left, right);
+}
+
+function compareTelexFieldNames(left, right) {
   const leftRank = TELEX_FIELD_ORDER.get(left);
   const rightRank = TELEX_FIELD_ORDER.get(right);
   if (leftRank !== undefined || rightRank !== undefined) {
@@ -935,9 +960,20 @@ function compareTelexFields([left], [right]) {
 }
 
 function hasCanonicalFieldOrder(record) {
-  const entries = Object.entries(record);
-  const sorted = [...entries].sort(compareTelexFields);
-  return entries.every(([field], index) => field === sorted[index][0]);
+  const fields = record instanceof Map ? record.keys() : Object.keys(record);
+  let previous;
+  for (const field of fields) {
+    if (previous !== undefined && compareTelexFieldNames(previous, field) > 0) return false;
+    previous = field;
+  }
+  return true;
+}
+
+function hasCanonicalEntryOrder(entries) {
+  for (let index = 1; index < entries.length; index += 1) {
+    if (compareTelexFieldNames(entries[index - 1][0], entries[index][0]) > 0) return false;
+  }
+  return true;
 }
 
 function decodeWireRecord(fields, datatypeLine, datatypeComponentLine, datatypeLimits) {
@@ -981,10 +1017,9 @@ function encodeWireRecord(source, recordIndex, datatypeLimits) {
     throw new TypeError(`Telex record ${recordIndex + 1} must be an object or Map`);
   }
   const logicalEntries = source instanceof Map ? [...source.entries()] : Object.entries(source);
-  const logical = new Map(logicalEntries);
-  const hasDatatype = logical.has('datatype');
-  const hasGenerics = logical.has('generics');
-  const hasClarifiers = logical.has('clarifiers');
+  const hasDatatype = source instanceof Map ? source.has('datatype') : Object.hasOwn(source, 'datatype');
+  const hasGenerics = source instanceof Map ? source.has('generics') : Object.hasOwn(source, 'generics');
+  const hasClarifiers = source instanceof Map ? source.has('clarifiers') : Object.hasOwn(source, 'clarifiers');
   if (!hasDatatype && (hasGenerics || hasClarifiers)) {
     throw new TypeError(`Telex record ${recordIndex + 1} has datatype components without datatype`);
   }
@@ -995,9 +1030,9 @@ function encodeWireRecord(source, recordIndex, datatypeLimits) {
   let wireDatatype;
   if (hasDatatype) {
     const descriptor = {
-      datatype: logical.get('datatype'),
-      generics: logical.get('generics'),
-      clarifiers: logical.get('clarifiers'),
+      datatype: source instanceof Map ? source.get('datatype') : source.datatype,
+      generics: source instanceof Map ? source.get('generics') : source.generics,
+      clarifiers: source instanceof Map ? source.get('clarifiers') : source.clarifiers,
     };
     wireDatatype = formatDatatypeDescriptor(descriptor, datatypeLimits);
   }
@@ -1103,6 +1138,9 @@ function hasLoneSurrogate(value) {
 }
 
 function decodePayload(payload, lineNumber) {
+  if (!PAYLOAD_REQUIRES_ESCAPING.test(payload)) {
+    return { value: payload, canonical: true };
+  }
   let value = '';
   let canonical = true;
   for (let index = 0; index < payload.length; index += 1) {
@@ -1171,6 +1209,7 @@ function decodePayload(payload, lineNumber) {
 }
 
 function encodePayload(payload) {
+  if (!PAYLOAD_REQUIRES_ESCAPING.test(payload)) return payload;
   let encoded = '';
   for (const character of payload) {
     const scalar = character.codePointAt(0);

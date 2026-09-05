@@ -44,6 +44,29 @@ describe('telex.aes v0', () => {
         assert.equal(encodeTelex(parsed.records), 'telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n');
     });
 
+    it('enforces datatype component limits for simple descriptors', () => {
+        const source = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\ndatatype=int\nvalue=42\n';
+        assert.throws(
+            () => parseTelex(source, { maxDatatypeComponents: 0 }),
+            (error: unknown) => error instanceof Error
+                && 'code' in error
+                && error.code === 'TELEX_DATATYPE_LIMIT',
+        );
+        assert.throws(
+            () => encodeTelex([{
+                path: '$.answer',
+                kind: 'NumberLiteral',
+                datatype: 'int',
+                generics: [],
+                clarifiers: [],
+                value: '42',
+            }], { maxDatatypeComponents: 0 }),
+            (error: unknown) => error instanceof Error
+                && 'code' in error
+                && error.code === 'AES_DATATYPE_LIMIT',
+        );
+    });
+
     it('projects AEON into records that can be encoded directly', () => {
         const document = parse(tokenize('items:list<int> = [2, 3]').tokens).document;
         assert.ok(document);
