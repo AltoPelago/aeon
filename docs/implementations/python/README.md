@@ -29,6 +29,9 @@ The package’s top-level supported import surface is currently:
 
 - `CompileOptions`
 - `CompileResult`
+- `AeonicLimitsV1`
+- `load_aeonic_limits`
+- `aeon_compile_limits`
 - `FinalizeOptions`
 - `FilePreambleInfo`
 - `HostDirective`
@@ -61,6 +64,17 @@ Canonical formatting:
 
 - module: `aeon.canonical`
 - primary entry point: `canonicalize(source) -> CanonicalResult`
+
+Limits and policy:
+
+- module: `aeon.limits`
+- `load_aeonic_limits(source)` validates the closed
+  `altopelago.aeonic-limits.v1` format under its fixed bootstrap policy
+- `aeon_compile_limits(limits)` returns the normalized AEON compiler subset
+- `inspect --limits-file <path>` applies the selected file; explicit CLI
+  limits take precedence
+- `max_clarifier_values` and `max_value_nesting_depth` are canonical; the old
+  separator and nesting names remain compatibility aliases
 
 AEOS validation:
 
