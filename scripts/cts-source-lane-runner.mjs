@@ -723,6 +723,12 @@ async function main() {
         failCount += 1;
         console.log(`❌ ${test.id}: FAIL`);
         for (const failure of failures) console.log(`   - ${failure}`);
+        if (errors.length > 0) {
+          console.log(`   - actual errors: ${errors.map((error) => `${error.code}@${error.path ?? '$'}`).join(', ')}`);
+        }
+        if (args.lane === 'core' && failures.some((failure) => failure.startsWith('bindings'))) {
+          console.log(`   - actual bindings: ${result.bindings.map((binding) => `${binding.path}:${binding.datatype ?? '-'}`).join(', ')}`);
+        }
       } else {
         pass += 1;
         console.log(`✅ ${test.id}: PASS`);
