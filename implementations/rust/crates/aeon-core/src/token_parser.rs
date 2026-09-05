@@ -30,8 +30,10 @@ pub(crate) fn parse_document_from_tokens(
     input: &str,
     max_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
@@ -53,8 +55,10 @@ pub(crate) fn parse_document_from_tokens(
         &lexed.tokens,
         max_nesting_depth,
         max_attribute_depth,
-        max_separator_depth,
+        max_clarifier_values,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
     .parse_document()
 }
@@ -68,8 +72,10 @@ pub(crate) fn parse_document_from_tokens_recovery(
     input: &str,
     max_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> ParseRecoveryResult {
     let lexed = tokenize(
         input,
@@ -98,8 +104,10 @@ pub(crate) fn parse_document_from_tokens_recovery(
         &lexed.tokens,
         max_nesting_depth,
         max_attribute_depth,
-        max_separator_depth,
+        max_clarifier_values,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
     .parse_document_recovery()
 }
@@ -110,8 +118,10 @@ struct TokenParser<'a> {
     max_nesting_depth: usize,
     current_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
     structural_identities: HashSet<String>,
 }
 
@@ -120,8 +130,10 @@ impl<'a> TokenParser<'a> {
         tokens: &'a [Token],
         max_nesting_depth: usize,
         max_attribute_depth: usize,
-        max_separator_depth: usize,
+        max_clarifier_values: usize,
         max_generic_depth: usize,
+        max_generic_arguments: usize,
+        max_datatype_components: usize,
     ) -> Self {
         Self {
             tokens,
@@ -129,8 +141,10 @@ impl<'a> TokenParser<'a> {
             max_nesting_depth,
             current_nesting_depth: 0,
             max_attribute_depth,
-            max_separator_depth,
+            max_clarifier_values,
             max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
             structural_identities: HashSet::new(),
         }
     }
@@ -276,10 +290,15 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_simple_datatype(&mut self) -> Result<String, Diagnostic> {
-        self.parse_datatype_annotation(0)
+        let mut component_count = 0;
+        self.parse_datatype_annotation(0, &mut component_count)
     }
 
-    fn parse_datatype_annotation(&mut self, generic_depth: usize) -> Result<String, Diagnostic> {
+    fn parse_datatype_annotation(
+        &mut self,
+        generic_depth: usize,
+        component_count: &mut usize,
+    ) -> Result<String, Diagnostic> {
         if generic_depth > self.max_generic_depth {
             return Err(Diagnostic {
                 code: String::from("GENERIC_DEPTH_EXCEEDED"),
@@ -292,6 +311,7 @@ impl<'a> TokenParser<'a> {
                 ),
             });
         }
+        self.count_datatype_component(component_count, self.peek().span)?;
 
         let start = self.current;
         if self.peek().kind == TokenKind::String {
@@ -322,17 +342,32 @@ impl<'a> TokenParser<'a> {
                 });
             }
             self.skip_newlines();
+            let mut generic_count = 0usize;
             loop {
                 match self.peek().kind {
                     TokenKind::Identifier => {
-                        self.parse_datatype_annotation(generic_depth + 1)?;
+                        self.parse_datatype_annotation(generic_depth + 1, component_count)?;
                     }
                     TokenKind::Number => {
-                        self.advance();
+                        let span = self.advance().span;
+                        self.count_datatype_component(component_count, span)?;
                     }
                     _ => {
                         return Err(self.error_at_current("Expected generic argument"));
                     }
+                }
+                generic_count += 1;
+                if generic_count > self.max_generic_arguments {
+                    return Err(Diagnostic {
+                        code: String::from("GENERIC_ARGUMENTS_EXCEEDED"),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message: format!(
+                            "Generic argument count {generic_count} exceeds max_generic_arguments {}",
+                            self.max_generic_arguments
+                        ),
+                    });
                 }
 
                 self.skip_newlines();
@@ -364,34 +399,36 @@ impl<'a> TokenParser<'a> {
                         }
                         self.advance();
                         clarifier_count += 1;
-                        if clarifier_count > self.max_separator_depth {
+                        if clarifier_count > self.max_clarifier_values {
                             return Err(Diagnostic {
-                                code: String::from("SEPARATOR_DEPTH_EXCEEDED"),
+                                code: String::from("CLARIFIER_VALUES_EXCEEDED"),
                                 path: Some(String::from("$")),
                                 span: Some(token.span),
                                 phase: None,
                                 message: format!(
-                                    "Clarifier value count {clarifier_count} exceeds max_separator_depth {}",
-                                    self.max_separator_depth
+                                    "Clarifier value count {clarifier_count} exceeds max_clarifier_values {}",
+                                    self.max_clarifier_values
                                 ),
                             });
                         }
+                        self.count_datatype_component(component_count, token.span)?;
                     }
                     TokenKind::String => {
                         self.advance();
                         clarifier_count += 1;
-                        if clarifier_count > self.max_separator_depth {
+                        if clarifier_count > self.max_clarifier_values {
                             return Err(Diagnostic {
-                                code: String::from("SEPARATOR_DEPTH_EXCEEDED"),
+                                code: String::from("CLARIFIER_VALUES_EXCEEDED"),
                                 path: Some(String::from("$")),
                                 span: Some(token.span),
                                 phase: None,
                                 message: format!(
-                                    "Clarifier value count {clarifier_count} exceeds max_separator_depth {}",
-                                    self.max_separator_depth
+                                    "Clarifier value count {clarifier_count} exceeds max_clarifier_values {}",
+                                    self.max_clarifier_values
                                 ),
                             });
                         }
+                        self.count_datatype_component(component_count, token.span)?;
                     }
                     TokenKind::RightBracket if clarifier_count == 0 => {
                         return Err(self.error_at_current(
@@ -435,6 +472,27 @@ impl<'a> TokenParser<'a> {
             .collect::<String>();
         validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
         Ok(datatype)
+    }
+
+    fn count_datatype_component(
+        &self,
+        component_count: &mut usize,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        *component_count += 1;
+        if *component_count > self.max_datatype_components {
+            return Err(Diagnostic {
+                code: String::from("DATATYPE_COMPONENTS_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Datatype component count {} exceeds max_datatype_components {}",
+                    *component_count, self.max_datatype_components
+                ),
+            });
+        }
+        Ok(())
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -1803,7 +1861,7 @@ mod tests {
     use crate::{TrimtickMetadata, Value};
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
-        parse_document_from_tokens(input, 256, 1, 1, 1)
+        parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
     }
 
     #[test]
@@ -1896,7 +1954,7 @@ group:object = {
 
     #[test]
     fn rejects_repeated_attribute_heads_on_attribute_entries_from_tokens() {
-        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1)
+        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1, 32, 64)
             .expect_err("repeated attribute entry heads should fail");
         assert_eq!(error.code, "SYNTAX_ERROR");
     }
@@ -2295,8 +2353,8 @@ group:object = {
     #[test]
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
-        let error =
-            parse_document_from_tokens(&source, 256, 1, 1, 1).expect_err("expected nesting error");
+        let error = parse_document_from_tokens(&source, 256, 1, 1, 1, 32, 64)
+            .expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
         assert!(error.message.contains("max_nesting_depth 256"));
     }
@@ -2304,8 +2362,8 @@ group:object = {
     #[test]
     fn honors_configured_generic_depth_limit() {
         let source = "v:tuple<tuple<number>> = ((1))\n";
-        let bindings =
-            parse_document_from_tokens(source, 256, 1, 1, 2).expect("expected generic depth pass");
+        let bindings = parse_document_from_tokens(source, 256, 1, 1, 2, 32, 64)
+            .expect("expected generic depth pass");
         assert_eq!(
             bindings[0].datatype.as_deref(),
             Some("tuple<tuple<number>>")
@@ -2315,8 +2373,8 @@ group:object = {
     #[test]
     fn reports_generic_depth_without_off_by_one_message() {
         let source = "v:tuple<tuple<number>> = ((1))\n";
-        let error =
-            parse_document_from_tokens(source, 256, 1, 1, 1).expect_err("expected depth error");
+        let error = parse_document_from_tokens(source, 256, 1, 1, 1, 32, 64)
+            .expect_err("expected depth error");
         assert_eq!(error.code, "GENERIC_DEPTH_EXCEEDED");
         assert_eq!(error.message, "Generic depth 2 exceeds max_generic_depth 1");
     }

@@ -19,10 +19,16 @@ struct ProcessOptions {
     max_input_bytes: usize,
     #[serde(default = "default_depth")]
     max_separator_depth: usize,
+    #[serde(default)]
+    max_clarifier_values: Option<usize>,
     #[serde(default = "default_depth")]
     max_attribute_depth: usize,
     #[serde(default = "default_depth")]
     max_generic_depth: usize,
+    #[serde(default = "default_max_generic_arguments")]
+    max_generic_arguments: usize,
+    #[serde(default = "default_max_datatype_components")]
+    max_datatype_components: usize,
     #[serde(default)]
     materialization_mode: String,
     #[serde(default = "default_finalize_scope")]
@@ -43,6 +49,14 @@ const fn default_depth() -> usize {
     1
 }
 
+const fn default_max_generic_arguments() -> usize {
+    32
+}
+
+const fn default_max_datatype_components() -> usize {
+    64
+}
+
 const fn default_max_input_bytes() -> usize {
     1 << 20
 }
@@ -58,8 +72,11 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
             validation_mode: default_validation_mode(),
             max_input_bytes: default_max_input_bytes(),
             max_separator_depth: default_depth(),
+            max_clarifier_values: None,
             max_attribute_depth: default_depth(),
             max_generic_depth: default_depth(),
+            max_generic_arguments: default_max_generic_arguments(),
+            max_datatype_components: default_max_datatype_components(),
             materialization_mode: String::from("all"),
             finalize_scope: default_finalize_scope(),
             include_paths: Vec::new(),
@@ -168,8 +185,11 @@ fn compile_options(options: &ProcessOptions) -> CompileOptions {
         recovery: true,
         max_input_bytes: Some(options.max_input_bytes),
         max_separator_depth: options.max_separator_depth,
+        max_clarifier_values: options.max_clarifier_values,
         max_attribute_depth: options.max_attribute_depth,
         max_generic_depth: options.max_generic_depth,
+        max_generic_arguments: options.max_generic_arguments,
+        max_datatype_components: options.max_datatype_components,
         datatype_policy: match options.validation_mode.as_str() {
             "strict" => Some(DatatypePolicy::ReservedOnly),
             "custom" => Some(DatatypePolicy::AllowCustom),

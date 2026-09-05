@@ -3,8 +3,10 @@
 mod flatten;
 mod header;
 mod lexer;
+mod limits;
 mod pathing;
 mod portable;
+mod resource_limits;
 mod sansa;
 mod temporal;
 mod token_parser;
@@ -36,6 +38,12 @@ pub use lexer::{
     CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
     ReservedCommentSubtype, Token, TokenKind, tokenize,
 };
+pub use limits::{
+    AEONIC_LIMITS_ID, AEONIC_LIMITS_VERSION, AeonCompileLimits, AeonFormatLimits, AeonicLimitsV1,
+    LIMITS_BOOTSTRAP, LimitSetting, LimitsBootstrap, LimitsDiagnostic, ProcessingLimits,
+    StructureLimits, TelexFormatLimits, TransportLimits, aeon_compile_limits, load_aeonic_limits,
+};
+use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::parse_document_from_tokens_recovery;
 #[cfg(test)]
 use validation::datatype_has_generic_args;
@@ -180,9 +188,27 @@ pub struct CompileOptions {
     pub max_input_bytes: Option<usize>,
     pub max_events: Option<usize>,
     pub max_attribute_depth: usize,
+    /// Canonical clarifier-value limit. When absent, `max_separator_depth`
+    /// remains a backwards-compatible alias.
+    pub max_clarifier_values: Option<usize>,
+    /// Deprecated compatibility alias; prefer `max_clarifier_values`.
     pub max_separator_depth: usize,
     pub max_generic_depth: usize,
+    pub max_generic_arguments: usize,
+    pub max_datatype_components: usize,
+    /// Canonical logical container-depth limit. When absent,
+    /// `max_nesting_depth` remains a backwards-compatible alias.
+    pub max_value_nesting_depth: Option<usize>,
+    /// Deprecated compatibility alias; prefer `max_value_nesting_depth`.
     pub max_nesting_depth: usize,
+    pub max_path_depth: usize,
+    pub max_string_codepoints: usize,
+    pub max_key_segment_codepoints: usize,
+    pub max_list_items: usize,
+    pub max_tuple_items: usize,
+    pub max_path_characters: usize,
+    pub max_numeric_literal_characters: usize,
+    pub max_structured_comment_characters: usize,
     pub datatype_policy: Option<DatatypePolicy>,
     pub profile: Option<String>,
     pub mode: Option<BehaviorMode>,
@@ -199,9 +225,21 @@ impl Default for CompileOptions {
             max_input_bytes: None,
             max_events: None,
             max_attribute_depth: 1,
+            max_clarifier_values: None,
             max_separator_depth: 1,
             max_generic_depth: 1,
+            max_generic_arguments: 32,
+            max_datatype_components: 64,
+            max_value_nesting_depth: None,
             max_nesting_depth: 256,
+            max_path_depth: 1024,
+            max_string_codepoints: 1_048_576,
+            max_key_segment_codepoints: 1024,
+            max_list_items: 65_536,
+            max_tuple_items: 65_536,
+            max_path_characters: 8192,
+            max_numeric_literal_characters: 1024,
+            max_structured_comment_characters: 1_048_576,
             datatype_policy: None,
             profile: None,
             mode: None,
@@ -210,6 +248,20 @@ impl Default for CompileOptions {
             include_header: true,
             include_event_annotations: true,
         }
+    }
+}
+
+impl CompileOptions {
+    #[must_use]
+    pub fn effective_max_clarifier_values(&self) -> usize {
+        self.max_clarifier_values
+            .unwrap_or(self.max_separator_depth)
+    }
+
+    #[must_use]
+    pub fn effective_max_value_nesting_depth(&self) -> usize {
+        self.max_value_nesting_depth
+            .unwrap_or(self.max_nesting_depth)
     }
 }
 
@@ -541,16 +593,12 @@ pub struct PhaseTiming {
 #[must_use]
 pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile("compile:start");
-    let source = strip_leading_bom(input);
-    let source = strip_preamble(&source);
     let warnings = compile_portability_warnings(&options);
-    trace_compile(format!("compile:normalized bytes={}", source.len()));
-
     if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = source.len();
+        let actual_bytes = input.len();
         if actual_bytes > max_bytes {
             return CompileResult {
-                source,
+                source: strip_preamble(&strip_leading_bom(input)),
                 events: Vec::new(),
                 errors: vec![Diagnostic {
                     code: String::from("INPUT_SIZE_EXCEEDED"),
@@ -568,18 +616,34 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
+    let source = strip_leading_bom(input);
+    let source = strip_preamble(&source);
+    trace_compile(format!("compile:normalized bytes={}", source.len()));
+
     let parsed = parse_document_from_tokens_recovery(
         &source,
-        options.max_nesting_depth,
+        options.effective_max_value_nesting_depth(),
         options.max_attribute_depth,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        options.max_generic_arguments,
+        options.max_datatype_components,
     );
     if !parsed.errors.is_empty() {
         return CompileResult {
             source,
             events: Vec::new(),
             errors: parsed.errors,
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
+    }
+    if let Some(error) = validate_source_resource_limits(input, &parsed.bindings, &options) {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![error],
             warnings,
             bindings: Vec::new(),
             header: None,
@@ -597,10 +661,12 @@ pub fn benchmark_validation_phases(
     let parse_start = std::time::Instant::now();
     let parsed = parse_document_tokens(
         &source,
-        options.max_nesting_depth,
+        options.effective_max_value_nesting_depth(),
         options.max_attribute_depth,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        options.max_generic_arguments,
+        options.max_datatype_components,
     )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
@@ -625,7 +691,7 @@ pub fn benchmark_validation_phases(
         &lowered,
         options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut datatype_errors,
     );
@@ -658,12 +724,15 @@ pub fn benchmark_validation_phases(
 
 pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
+    let defaults = CompileOptions::default();
     token_parser::parse_document_from_tokens(
         &source,
-        CompileOptions::default().max_nesting_depth,
-        CompileOptions::default().max_attribute_depth,
-        CompileOptions::default().max_separator_depth,
-        CompileOptions::default().max_generic_depth,
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
     )
     .map(|_| ())
 }
@@ -674,6 +743,8 @@ fn parse_document_tokens(
     max_attribute_depth: usize,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
     token_parser::parse_document_from_tokens(
         source,
@@ -681,6 +752,8 @@ fn parse_document_tokens(
         max_attribute_depth,
         max_separator_depth,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
 }
 
@@ -725,6 +798,9 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
+    if let Some(error) = validate_event_path_limits(&flattened.events, &options) {
+        errors.push(error);
+    }
     if let Some(max_events) = options.max_events {
         if flattened.events.len() > max_events {
             return CompileResult {
@@ -755,7 +831,7 @@ fn finalize_compile(
         &bindings,
         options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut errors,
     );
@@ -841,7 +917,7 @@ fn validate_only_compile(
         &bindings,
         options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut errors,
     );
@@ -1274,10 +1350,10 @@ fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     warn_if_above(
         &mut warnings,
         "AEON_NON_PORTABLE_POLICY_DEPTH",
-        "max_separator_depth",
-        options.max_separator_depth,
+        "max_clarifier_values",
+        options.effective_max_clarifier_values(),
         8,
-        defaults.max_separator_depth,
+        defaults.effective_max_clarifier_values(),
     );
     warn_if_above(
         &mut warnings,
@@ -1290,10 +1366,10 @@ fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     warn_if_above(
         &mut warnings,
         "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
-        "max_nesting_depth",
-        options.max_nesting_depth,
+        "max_value_nesting_depth",
+        options.effective_max_value_nesting_depth(),
         64,
-        defaults.max_nesting_depth,
+        defaults.effective_max_value_nesting_depth(),
     );
     if let Some(max_events) = options.max_events {
         warn_if_above(
@@ -1362,6 +1438,19 @@ mod tests {
 
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
+    }
+
+    #[test]
+    fn input_byte_limit_includes_the_utf8_bom() {
+        let result = compile(
+            "\u{feff}a=1",
+            CompileOptions {
+                max_input_bytes: Some(3),
+                ..CompileOptions::default()
+            },
+        );
+
         assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
     }
 

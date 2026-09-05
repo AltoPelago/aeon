@@ -415,7 +415,7 @@ pub(crate) fn validate_datatypes(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => path.as_str(),
                 };
@@ -515,7 +515,7 @@ pub(crate) fn validate_datatypes_light(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => event.path.as_str(),
                 };
@@ -976,8 +976,8 @@ fn validate_datatype_shape(
     }
     if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
-            "SEPARATOR_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds separator depth limit"),
+            "CLARIFIER_VALUES_EXCEEDED",
+            format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
     if generic_depth(datatype) > max_generic_depth {
@@ -1014,8 +1014,8 @@ fn validate_datatype_shape_light(
     }
     if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
-            "SEPARATOR_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds separator depth limit"),
+            "CLARIFIER_VALUES_EXCEEDED",
+            format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
     if generic_depth(datatype) > max_generic_depth {
@@ -1534,7 +1534,7 @@ fn validate_attribute_datatype_map(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => attr_path.as_str(),
                 };

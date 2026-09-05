@@ -14,8 +14,9 @@ use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION, Value, compile,
-    format_path, normalize_number_literal, project_portable_events,
+    NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION, Value,
+    aeon_compile_limits, compile, format_path, load_aeonic_limits, normalize_number_literal,
+    project_portable_events,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -177,7 +178,7 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
     let portable_aes = args.iter().any(|arg| arg == "--portable-aes");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
@@ -188,52 +189,128 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         .map_err(|message| format!("Error: {message}\n{INSPECT_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = flag_value(args, "--datatype-policy");
-    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
-        String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
-    })?;
-    let max_events = optional_numeric_flag_value(args, "--max-events").map_err(|_| {
-        String::from("Error: Invalid value for --max-events (expected a non-negative integer)")
-    })?;
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let policy_limits = if let Some(path) = limits_file.as_deref() {
+        let limits_source = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+        let limits = load_aeonic_limits(&limits_source).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        Some(
+            aeon_compile_limits(&limits)
+                .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?,
+        )
+    } else {
+        None
+    };
+    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-input-bytes (expected a non-negative integer)",
+            )
+        })?
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .and_then(|limits| limits.max_input_bytes)
+        });
+    let max_events = optional_numeric_flag_value(args, "--max-events")
+        .map_err(|_| {
+            String::from("Error: Invalid value for --max-events (expected a non-negative integer)")
+        })?
+        .or_else(|| policy_limits.as_ref().and_then(|limits| limits.max_events));
     let max_attribute_depth = numeric_flag_value(
         args,
         "--max-attribute-depth",
-        CompileOptions::default().max_attribute_depth,
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_attribute_depth, |limits| {
+                limits.max_attribute_depth
+            }),
     )
     .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(
-        args,
-        "--max-separator-depth",
-        CompileOptions::default().max_separator_depth,
-    )
-    .map_err(|_| {
-        String::from(
-            "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
-        )
-    })?;
+    let max_separator_depth =
+        optional_numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
+            )
+        })?;
+    let max_clarifier_values = optional_numeric_flag_value(args, "--max-clarifier-values")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-clarifier-values (expected a non-negative integer)",
+            )
+        })?
+        .or(max_separator_depth)
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .map(|limits| limits.max_clarifier_values)
+        });
     let max_generic_depth = numeric_flag_value(
         args,
         "--max-generic-depth",
-        CompileOptions::default().max_generic_depth,
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_generic_depth, |limits| {
+                limits.max_generic_depth
+            }),
     )
     .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(
+    let max_generic_arguments = numeric_flag_value(
         args,
-        "--max-nesting-depth",
-        CompileOptions::default().max_nesting_depth,
+        "--max-generic-arguments",
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_generic_arguments, |limits| {
+                limits.max_generic_arguments
+            }),
     )
     .map_err(|_| {
         String::from(
-            "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+            "Error: Invalid value for --max-generic-arguments (expected a non-negative integer)",
         )
     })?;
+    let max_datatype_components = numeric_flag_value(
+        args,
+        "--max-datatype-components",
+        policy_limits.as_ref().map_or(
+            CompileOptions::default().max_datatype_components,
+            |limits| limits.max_datatype_components,
+        ),
+    )
+    .map_err(|_| {
+        String::from(
+            "Error: Invalid value for --max-datatype-components (expected a non-negative integer)",
+        )
+    })?;
+    let max_nesting_depth =
+        optional_numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+            )
+        })?;
+    let max_value_nesting_depth = optional_numeric_flag_value(args, "--max-value-nesting-depth")
+        .map_err(|_| String::from(
+            "Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)",
+        ))?
+        .or(max_nesting_depth)
+        .or_else(|| policy_limits.as_ref().map(|limits| limits.max_value_nesting_depth));
 
     if portable_aes && !json_output {
         return Err(format!(
@@ -245,11 +322,16 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
         args,
         &[
             "--datatype-policy",
+            "--limits-file",
             "--max-input-bytes",
             "--max-events",
             "--max-attribute-depth",
+            "--max-clarifier-values",
             "--max-separator-depth",
             "--max-generic-depth",
+            "--max-generic-arguments",
+            "--max-datatype-components",
+            "--max-value-nesting-depth",
             "--max-nesting-depth",
         ],
     )
@@ -275,9 +357,21 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                 )
             })?,
             max_attribute_depth,
-            max_separator_depth,
+            max_clarifier_values,
+            max_separator_depth: CompileOptions::default().max_separator_depth,
             max_generic_depth,
-            max_nesting_depth,
+            max_generic_arguments,
+            max_datatype_components,
+            max_value_nesting_depth,
+            max_nesting_depth: CompileOptions::default().max_nesting_depth,
+            max_path_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_path_depth, |limits| limits.max_path_depth),
+            max_string_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_string_codepoints, |limits| limits.max_string_codepoints),
+            max_key_segment_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_key_segment_codepoints, |limits| limits.max_key_segment_codepoints),
+            max_list_items: policy_limits.as_ref().map_or(CompileOptions::default().max_list_items, |limits| limits.max_list_items),
+            max_tuple_items: policy_limits.as_ref().map_or(CompileOptions::default().max_tuple_items, |limits| limits.max_tuple_items),
+            max_path_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_path_characters, |limits| limits.max_path_characters),
+            max_numeric_literal_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_numeric_literal_characters, |limits| limits.max_numeric_literal_characters),
+            max_structured_comment_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_structured_comment_characters, |limits| limits.max_structured_comment_characters),
             mode: effective_mode,
             ..CompileOptions::default()
         },
@@ -3215,6 +3309,9 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "INVALID_TIME"
         | "INVALID_DATETIME"
         | "INVALID_SEPARATOR_CHAR"
+        | "CLARIFIER_VALUES_EXCEEDED"
+        | "GENERIC_ARGUMENTS_EXCEEDED"
+        | "DATATYPE_COMPONENTS_EXCEEDED"
         | "SEPARATOR_DEPTH_EXCEEDED"
         | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
         "HEADER_CONFLICT"
