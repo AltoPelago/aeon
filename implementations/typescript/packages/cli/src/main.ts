@@ -29,9 +29,13 @@
  * - --recovery     Enable recovery mode (partial results with errors)
  * - --max-input-bytes  Maximum UTF-8 input size in bytes
  * - --max-attribute-depth  Maximum attribute selector depth
- * - --max-separator-depth  Maximum separator-spec depth
+ * - --max-clarifier-values  Maximum clarifier values per datatype descriptor
+ * - --max-separator-depth  Deprecated alias for --max-clarifier-values
  * - --max-generic-depth  Maximum nested generic type depth
- * - --max-nesting-depth  Maximum container nesting depth
+ * - --max-generic-arguments  Maximum generic arguments per datatype descriptor
+ * - --max-datatype-components  Maximum components in one recursive datatype
+ * - --max-value-nesting-depth  Maximum logical container nesting depth
+ * - --max-nesting-depth  Deprecated alias for --max-value-nesting-depth
  * - --max-materialized-weight  Maximum cumulative clone materialization weight
  * - --max-reference-depth  Maximum clone resolution depth
  * - --schema       Schema JSON path (bind only)
@@ -56,7 +60,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { aeonCompileLimits, compile, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
 import { projectPortableEvents } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
@@ -182,9 +186,13 @@ Options:
   --recovery         Enable recovery mode (partial results)
   --max-input-bytes  Maximum UTF-8 input size in bytes
   --max-attribute-depth  Maximum attribute selector depth
-  --max-separator-depth  Maximum separator-spec depth
+  --max-clarifier-values  Maximum clarifier values per datatype descriptor
+  --max-separator-depth  Deprecated alias for --max-clarifier-values
   --max-generic-depth  Maximum nested generic type depth
-  --max-nesting-depth  Maximum container nesting depth
+  --max-generic-arguments  Maximum generic arguments per datatype descriptor
+  --max-datatype-components  Maximum components in one recursive datatype
+  --max-value-nesting-depth  Maximum logical container nesting depth
+  --max-nesting-depth  Deprecated alias for --max-value-nesting-depth
   --schema           Schema JSON path (bind only)
   --profile          Profile id (bind only)
   --contract-registry Trusted contract registry JSON path (bind only)
@@ -378,8 +386,8 @@ function fmt(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
+    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--limits-file', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-clarifier-values', '--max-separator-depth', '--max-generic-depth', '--max-generic-arguments', '--max-datatype-components', '--max-value-nesting-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const portableAes = args.includes('--portable-aes');
     const recovery = args.includes('--recovery');
@@ -391,9 +399,14 @@ function inspect(args: string[]): void {
     const maxInputBytes = resolveMaxInputBytes(args);
     const maxEvents = resolveDepthOption(args, '--max-events');
     const maxAttributeDepth = resolveDepthOption(args, '--max-attribute-depth');
+    const maxClarifierValues = resolveDepthOption(args, '--max-clarifier-values');
     const maxSeparatorDepth = resolveDepthOption(args, '--max-separator-depth');
     const maxGenericDepth = resolveDepthOption(args, '--max-generic-depth');
+    const maxGenericArguments = resolveDepthOption(args, '--max-generic-arguments');
+    const maxDatatypeComponents = resolveDepthOption(args, '--max-datatype-components');
+    const maxValueNestingDepth = resolveDepthOption(args, '--max-value-nesting-depth');
     const maxNestingDepth = resolveDepthOption(args, '--max-nesting-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
 
     if (!file) {
         console.error('Error: No file specified');
@@ -428,6 +441,10 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-attribute-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxClarifierValues === null) {
+        console.error('Error: Invalid value for --max-clarifier-values (expected a non-negative integer)');
+        process.exit(2);
+    }
     if (maxSeparatorDepth === null) {
         console.error('Error: Invalid value for --max-separator-depth (expected a non-negative integer)');
         process.exit(2);
@@ -436,13 +453,46 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-generic-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxGenericArguments === null) {
+        console.error('Error: Invalid value for --max-generic-arguments (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxDatatypeComponents === null) {
+        console.error('Error: Invalid value for --max-datatype-components (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxValueNestingDepth === null) {
+        console.error('Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)');
+        process.exit(2);
+    }
     if (maxNestingDepth === null) {
         console.error('Error: Invalid value for --max-nesting-depth (expected a non-negative integer)');
         process.exit(2);
     }
 
-    const input = readFileWithLimit(file, maxInputBytes);
+    let limitsOptions: ReturnType<typeof aeonCompileLimits> | undefined;
+    if (args.includes('--limits-file')) {
+        if (!limitsFile) {
+            console.error('Error: --limits-file requires a path');
+            process.exit(2);
+        }
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            limitsOptions = aeonCompileLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const effectiveInputLimit = maxInputBytes ?? limitsOptions?.maxInputBytes;
+    const input = readFileWithLimit(file, effectiveInputLimit);
     const result = compile(input, {
+        ...limitsOptions,
         recovery,
         emitAnnotations: includeAnnotations || annotationsOnly,
         ...(effectiveMode ? { mode: effectiveMode } : {}),
@@ -450,9 +500,15 @@ function inspect(args: string[]): void {
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         ...(maxEvents !== undefined ? { maxEvents } : {}),
         ...(maxAttributeDepth !== undefined ? { maxAttributeDepth } : {}),
-        ...(maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
+        ...(maxClarifierValues !== undefined
+            ? { maxClarifierValues }
+            : maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
         ...(maxGenericDepth !== undefined ? { maxGenericDepth } : {}),
-        ...(maxNestingDepth !== undefined ? { maxNestingDepth } : {}),
+        ...(maxGenericArguments !== undefined ? { maxGenericArguments } : {}),
+        ...(maxDatatypeComponents !== undefined ? { maxDatatypeComponents } : {}),
+        ...(maxValueNestingDepth !== undefined
+            ? { maxValueNestingDepth }
+            : maxNestingDepth !== undefined ? { maxNestingDepth } : {}),
     });
 
     const headerInfo = extractHeaderInfo(input);
@@ -3067,6 +3123,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'INVALID_TIME':
         case 'INVALID_DATETIME':
         case 'INVALID_SEPARATOR_CHAR':
+        case 'CLARIFIER_VALUES_EXCEEDED':
+        case 'GENERIC_ARGUMENTS_EXCEEDED':
+        case 'DATATYPE_COMPONENTS_EXCEEDED':
         case 'SEPARATOR_DEPTH_EXCEEDED':
         case 'GENERIC_DEPTH_EXCEEDED':
             return 'Parsing';

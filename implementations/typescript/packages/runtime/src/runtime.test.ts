@@ -256,13 +256,13 @@ test('runtime optionally includes annotation stream records', () => {
     assert.deepEqual(result.annotations?.map((entry) => entry.kind), ['doc', 'hint']);
 });
 
-test('runtime enforces maxSeparatorDepth and allows override', () => {
+test('runtime maps maxSeparatorDepth to maxClarifierValues and allows override', () => {
     const strictFail = runRuntime('a:grid["|", ">"] = ^1|2>3', {
         mode: 'strict',
         output: 'json',
     });
 
-    assert.ok(strictFail.meta.errors.some((diag) => diag.code === 'SEPARATOR_DEPTH_EXCEEDED'));
+    assert.ok(strictFail.meta.errors.some((diag) => diag.code === 'CLARIFIER_VALUES_EXCEEDED'));
     assert.equal(strictFail.document, undefined);
 
     const strictPass = runRuntime('a:grid["|", ">"] = ^1|2>3', {

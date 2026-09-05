@@ -14,13 +14,14 @@
  * ```
  */
 
-import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
+import { tokenize, TokenType, type LexerError } from '@altopelago/aeon-lexer';
 import { parse, SyntaxError as ParserSyntaxError, type ParserError, type Document, type Value, type Binding } from '@altopelago/aeon-parser';
 import {
     resolvePaths,
     emitEvents,
     validateReferences,
     enforceMode,
+    formatPath,
     EventEmissionError,
     type AssignmentEvent,
     type PathResolutionError,
@@ -31,6 +32,7 @@ import {
 } from '@altopelago/aeon-aes';
 import { buildAnnotationStreamFromSourceAndSpans, type AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type HostDirectiveKind } from './preamble.js';
+export * from './limits.js';
 
 // =============================================================================
 // PUBLIC API
@@ -49,7 +51,8 @@ export type AEONError =
     | ReferenceValidationError
     | ModeEnforcementError
     | InputSizeExceededError
-    | EventCountExceededError;
+    | EventCountExceededError
+    | ResourceLimitExceededError;
 
 export interface AEONWarning {
     readonly code: string;
@@ -83,6 +86,25 @@ export class EventCountExceededError extends Error {
         this.name = 'EventCountExceededError';
         this.actualEvents = actualEvents;
         this.maxEvents = maxEvents;
+    }
+}
+
+export class ResourceLimitExceededError extends Error {
+    readonly code: string;
+    readonly counter: string;
+    readonly observed: number;
+    readonly limit: number;
+    readonly span: Document['span'];
+
+    constructor(counter: string, observed: number, limit: number) {
+        super(`${counter} observed value ${observed} exceeds configured limit ${limit}`);
+        this.name = 'ResourceLimitExceededError';
+        this.code = `${counter.replaceAll(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}_EXCEEDED`;
+        this.counter = counter;
+        this.observed = observed;
+        this.limit = limit;
+        const position = { line: 1, column: 1, offset: 0 };
+        this.span = { start: position, end: position };
     }
 }
 
@@ -120,12 +142,36 @@ export interface CompileOptions {
     readonly recovery?: boolean;
     /** Maximum number of attribute segments in a reference path (default: 1). */
     readonly maxAttributeDepth?: number;
-    /** Maximum number of separator specs in a datatype annotation (default: 1). */
+    /** Maximum clarifier values on one datatype descriptor (default: 1). */
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     /** Maximum nesting depth for nested generic type annotations (default: 1). */
     readonly maxGenericDepth?: number;
+    /** Maximum generic arguments on one datatype descriptor (default: 32). */
+    readonly maxGenericArguments?: number;
+    /** Maximum aggregate components in one recursive datatype (default: 64). */
+    readonly maxDatatypeComponents?: number;
     /** Maximum container nesting depth for objects, lists, tuples, and nodes (default: 256). */
+    readonly maxValueNestingDepth?: number;
+    /** @deprecated Use maxValueNestingDepth. */
     readonly maxNestingDepth?: number;
+    /** Maximum canonical address structural-step depth (default: 1024). */
+    readonly maxPathDepth?: number;
+    /** Maximum decoded string length in Unicode code points (default: 1048576). */
+    readonly maxStringCodepoints?: number;
+    /** Maximum decoded key segment length in Unicode code points (default: 1024). */
+    readonly maxKeySegmentCodepoints?: number;
+    /** Maximum direct items in one list (default: 65536). */
+    readonly maxListItems?: number;
+    /** Maximum direct items in one tuple (default: 65536). */
+    readonly maxTupleItems?: number;
+    /** Maximum canonical/reference path length in Unicode code points (default: 8192). */
+    readonly maxPathCharacters?: number;
+    /** Maximum raw AEON numeric literal length (default: 1024). */
+    readonly maxNumericLiteralCharacters?: number;
+    /** Maximum structured-comment payload length (default: 1048576). */
+    readonly maxStructuredCommentCharacters?: number;
     /** Emit structured annotation stream records. Default: true. */
     readonly emitAnnotations?: boolean;
     /** Datatype policy in strict mode. Default: reserved_only */
@@ -170,9 +216,19 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const allErrors: AEONError[] = [];
     const recovery = options.recovery ?? false;
     const maxAttributeDepth = options.maxAttributeDepth ?? 1;
-    const maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
+    const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
     const maxGenericDepth = options.maxGenericDepth ?? 1;
-    const maxNestingDepth = options.maxNestingDepth ?? 256;
+    const maxGenericArguments = options.maxGenericArguments ?? 32;
+    const maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
+    const maxValueNestingDepth = options.maxValueNestingDepth ?? options.maxNestingDepth ?? 256;
+    const maxPathDepth = options.maxPathDepth ?? 1024;
+    const maxStringCodepoints = options.maxStringCodepoints ?? 1_048_576;
+    const maxKeySegmentCodepoints = options.maxKeySegmentCodepoints ?? 1024;
+    const maxListItems = options.maxListItems ?? 65_536;
+    const maxTupleItems = options.maxTupleItems ?? 65_536;
+    const maxPathCharacters = options.maxPathCharacters ?? 8192;
+    const maxNumericLiteralCharacters = options.maxNumericLiteralCharacters ?? 1024;
+    const maxStructuredCommentCharacters = options.maxStructuredCommentCharacters ?? 1_048_576;
     const emitAnnotations = options.emitAnnotations ?? true;
     const datatypePolicy = options.datatypePolicy;
     const maxInputBytes = options.maxInputBytes;
@@ -197,7 +253,14 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     }
 
     // Phase 2: Parsing
-    const parseResult = parse(lexResult.tokens, { maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxNestingDepth });
+    const parseResult = parse(lexResult.tokens, {
+        maxAttributeDepth,
+        maxClarifierValues,
+        maxGenericDepth,
+        maxGenericArguments,
+        maxDatatypeComponents,
+        maxValueNestingDepth,
+    });
     allErrors.push(...parseResult.errors);
     if (parseResult.errors.length > 0 && !recovery) {
         return { events: [], errors: allErrors, warnings };
@@ -206,11 +269,42 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
         return { events: [], errors: allErrors, warnings };
     }
 
+    const structureError = validateSourceStructure(parseResult.document, {
+        maxStringCodepoints,
+        maxKeySegmentCodepoints,
+        maxListItems,
+        maxTupleItems,
+        maxNumericLiteralCharacters,
+        maxPathDepth,
+        maxPathCharacters,
+    });
+    if (structureError) {
+        allErrors.push(structureError);
+        return { events: [], errors: allErrors, warnings };
+    }
+    const structuredCommentError = validateStructuredComments(input, maxStructuredCommentCharacters);
+    if (structuredCommentError) {
+        allErrors.push(structuredCommentError);
+        return { events: [], errors: allErrors, warnings };
+    }
+
     // Phase 3: Path Resolution
     const resolveResult = resolvePaths(parseResult.document, { indexedPaths: true });
     allErrors.push(...resolveResult.errors);
     if (resolveResult.errors.length > 0 && !recovery) {
         return { events: [], errors: allErrors, warnings };
+    }
+    for (const binding of resolveResult.bindings) {
+        const depth = Math.max(0, binding.path.segments.length - 1);
+        if (depth > maxPathDepth) {
+            allErrors.push(new ResourceLimitExceededError('max_path_depth', depth, maxPathDepth));
+            return { events: [], errors: allErrors, warnings };
+        }
+        const characters = [...formatPath(binding.path)].length;
+        if (characters > maxPathCharacters) {
+            allErrors.push(new ResourceLimitExceededError('max_path_characters', characters, maxPathCharacters));
+            return { events: [], errors: allErrors, warnings };
+        }
     }
 
     // Phase 4: Event Emission
@@ -272,8 +366,12 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
 
 function compilePortabilityWarnings(options: {
     readonly maxAttributeDepth?: number;
+    readonly maxClarifierValues?: number;
     readonly maxSeparatorDepth?: number;
     readonly maxGenericDepth?: number;
+    readonly maxGenericArguments?: number;
+    readonly maxDatatypeComponents?: number;
+    readonly maxValueNestingDepth?: number;
     readonly maxNestingDepth?: number;
     readonly maxEvents?: number;
 }): AEONWarning[] {
@@ -281,14 +379,16 @@ function compilePortabilityWarnings(options: {
     if (options.maxAttributeDepth !== undefined) {
         warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxAttributeDepth', options.maxAttributeDepth, 8);
     }
-    if (options.maxSeparatorDepth !== undefined) {
-        warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxSeparatorDepth', options.maxSeparatorDepth, 8);
+    const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth;
+    if (maxClarifierValues !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_CLARIFIER_VALUES', 'maxClarifierValues', maxClarifierValues, 8);
     }
     if (options.maxGenericDepth !== undefined) {
         warnIfAbove(warnings, 'AEON_NON_PORTABLE_POLICY_DEPTH', 'maxGenericDepth', options.maxGenericDepth, 8);
     }
-    if (options.maxNestingDepth !== undefined) {
-        warnIfAbove(warnings, 'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH', 'maxNestingDepth', options.maxNestingDepth, 64);
+    const maxValueNestingDepth = options.maxValueNestingDepth ?? options.maxNestingDepth;
+    if (maxValueNestingDepth !== undefined) {
+        warnIfAbove(warnings, 'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH', 'maxValueNestingDepth', maxValueNestingDepth, 64);
     }
     if (options.maxEvents !== undefined) {
         warnIfAbove(warnings, 'AEON_NON_PORTABLE_EVENT_BUDGET', 'maxEvents', options.maxEvents, 100_000);
@@ -312,6 +412,121 @@ function warnIfAbove(
         portableFloor,
         message: `${policy} ${observed} exceeds the AEON v1 portable floor ${portableFloor}`,
     });
+}
+
+interface SourceStructureLimits {
+    readonly maxStringCodepoints: number;
+    readonly maxKeySegmentCodepoints: number;
+    readonly maxListItems: number;
+    readonly maxTupleItems: number;
+    readonly maxNumericLiteralCharacters: number;
+    readonly maxPathDepth: number;
+    readonly maxPathCharacters: number;
+}
+
+function validateSourceStructure(document: Document, limits: SourceStructureLimits): ResourceLimitExceededError | null {
+    const checkKey = (key: string): ResourceLimitExceededError | null => {
+        const observed = [...key].length;
+        return observed > limits.maxKeySegmentCodepoints
+            ? new ResourceLimitExceededError('max_key_segment_codepoints', observed, limits.maxKeySegmentCodepoints)
+            : null;
+    };
+    const checkDatatype = (datatype: Binding['datatype']): ResourceLimitExceededError | null => {
+        if (!datatype) return null;
+        for (const clarifier of datatype.clarifiers) {
+            if (typeof clarifier === 'string') {
+                const observed = [...clarifier].length;
+                if (observed > limits.maxStringCodepoints) {
+                    return new ResourceLimitExceededError('max_string_codepoints', observed, limits.maxStringCodepoints);
+                }
+            }
+        }
+        return null;
+    };
+    const checkAttributes = (attributes: Binding['attributes']): ResourceLimitExceededError | null => {
+        for (const attribute of attributes) {
+            for (const [key, entry] of attribute.entries) {
+                const error = checkKey(key) ?? checkDatatype(entry.datatype) ?? checkAttributes(entry.attributes) ?? checkValue(entry.value);
+                if (error) return error;
+            }
+        }
+        return null;
+    };
+    const checkReference = (value: Extract<Value, { type: 'CloneReference' | 'PointerReference' }>): ResourceLimitExceededError | null => {
+        const depth = value.path.length;
+        if (depth > limits.maxPathDepth) return new ResourceLimitExceededError('max_path_depth', depth, limits.maxPathDepth);
+        let rendered = '$';
+        for (const segment of value.path) {
+            if (typeof segment === 'number') rendered += `[${segment}]`;
+            else if (typeof segment === 'string') rendered += /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment) ? `.${segment}` : `.[${JSON.stringify(segment)}]`;
+            else rendered += /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment.key) ? `.@.${segment.key}` : `.@.[${JSON.stringify(segment.key)}]`;
+        }
+        const characters = [...rendered].length;
+        return characters > limits.maxPathCharacters
+            ? new ResourceLimitExceededError('max_path_characters', characters, limits.maxPathCharacters)
+            : null;
+    };
+    const checkValue = (value: Value): ResourceLimitExceededError | null => {
+        switch (value.type) {
+            case 'StringLiteral': {
+                const observed = [...value.value].length;
+                return observed > limits.maxStringCodepoints
+                    ? new ResourceLimitExceededError('max_string_codepoints', observed, limits.maxStringCodepoints)
+                    : null;
+            }
+            case 'NumberLiteral': {
+                const observed = [...value.raw].length;
+                return observed > limits.maxNumericLiteralCharacters
+                    ? new ResourceLimitExceededError('max_numeric_literal_characters', observed, limits.maxNumericLiteralCharacters)
+                    : null;
+            }
+            case 'ListNode':
+                if (value.elements.length > limits.maxListItems) return new ResourceLimitExceededError('max_list_items', value.elements.length, limits.maxListItems);
+                for (const item of value.elements) { const error = checkValue(item); if (error) return error; }
+                return checkAttributes(value.attributes);
+            case 'TupleLiteral':
+                if (value.elements.length > limits.maxTupleItems) return new ResourceLimitExceededError('max_tuple_items', value.elements.length, limits.maxTupleItems);
+                for (const item of value.elements) { const error = checkValue(item); if (error) return error; }
+                return checkAttributes(value.attributes);
+            case 'ObjectNode':
+                for (const binding of value.bindings) { const error = checkBinding(binding); if (error) return error; }
+                return checkAttributes(value.attributes);
+            case 'NodeLiteral': {
+                const tagError = checkKey(value.tag);
+                if (tagError) return tagError;
+                for (const child of value.children) { const error = checkValue(child); if (error) return error; }
+                return checkDatatype(value.datatype) ?? checkAttributes(value.attributes);
+            }
+            case 'TypedValue':
+                return checkDatatype(value.datatype) ?? checkAttributes(value.attributes) ?? checkValue(value.value);
+            case 'CloneReference':
+            case 'PointerReference':
+                return checkReference(value);
+            default:
+                return null;
+        }
+    };
+    const checkBinding = (binding: Binding): ResourceLimitExceededError | null =>
+        checkKey(binding.key) ?? checkDatatype(binding.datatype) ?? checkAttributes(binding.attributes) ?? checkValue(binding.value);
+
+    if (document.header) {
+        for (const binding of document.header.bindings) { const error = checkBinding(binding); if (error) return error; }
+    }
+    for (const binding of document.bindings) { const error = checkBinding(binding); if (error) return error; }
+    return null;
+}
+
+function validateStructuredComments(input: string, limit: number): ResourceLimitExceededError | null {
+    const lexed = tokenize(input, { includeComments: true });
+    for (const token of lexed.tokens) {
+        if (token.type !== TokenType.LineComment && token.type !== TokenType.BlockComment) continue;
+        const marker = token.type === TokenType.LineComment ? token.value[2] : token.value[1];
+        if (!marker || !'#@?!{[('.includes(marker)) continue;
+        const payload = token.type === TokenType.LineComment ? token.value.slice(3) : token.value.slice(2, -2);
+        const observed = [...payload].length;
+        if (observed > limit) return new ResourceLimitExceededError('max_structured_comment_characters', observed, limit);
+    }
+    return null;
 }
 
 function normalizeLexerErrors(input: string, errors: readonly LexerError[]): readonly AEONError[] {

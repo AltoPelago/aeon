@@ -60,7 +60,7 @@ test('compile forwards core portability warnings through profile metadata', () =
 
     assert.deepEqual(result.meta?.warnings?.map((warning) => warning.code), [
         'AEON_NON_PORTABLE_POLICY_DEPTH',
-        'AEON_NON_PORTABLE_POLICY_DEPTH',
+        'AEON_NON_PORTABLE_CLARIFIER_VALUES',
         'AEON_NON_PORTABLE_POLICY_DEPTH',
     ]);
 });

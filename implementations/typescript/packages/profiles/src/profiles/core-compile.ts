@@ -44,8 +44,10 @@ export function compileWithCore(input: unknown, ctx: CompileCtx): readonly Assig
         recovery: !ctx.strict,
         ...(ctx.datatypePolicy ? { datatypePolicy: ctx.datatypePolicy } : {}),
         maxAttributeDepth: ctx.maxAttributeDepth,
-        maxSeparatorDepth: ctx.maxSeparatorDepth,
+        maxClarifierValues: ctx.maxClarifierValues,
         maxGenericDepth: ctx.maxGenericDepth,
+        maxGenericArguments: ctx.maxGenericArguments,
+        maxDatatypeComponents: ctx.maxDatatypeComponents,
     });
     if (result.errors.length > 0) {
         for (const err of result.errors) {

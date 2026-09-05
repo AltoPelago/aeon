@@ -507,6 +507,20 @@ b = [\A1\ = 2]`).tokens;
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['tuple<n, n>', 'tuple<n, n>']);
         });
 
+        it('should enforce max_generic_arguments independently from generic depth', () => {
+            const tokens = tokenize('t:tuple<n, n, n> = (1,2,3)').tokens;
+            const result = parse(tokens, { maxGenericArguments: 2 });
+
+            assert.strictEqual(result.errors[0]!.code, 'GENERIC_ARGUMENTS_EXCEEDED');
+        });
+
+        it('should enforce aggregate max_datatype_components', () => {
+            const tokens = tokenize('t:tuple<n, n> = (1,2)').tokens;
+            const result = parse(tokens, { maxDatatypeComponents: 2 });
+
+            assert.strictEqual(result.errors[0]!.code, 'DATATYPE_COMPONENTS_EXCEEDED');
+        });
+
         it('should reject malformed generic argument lists in core v1', () => {
             const tokens = tokenize('coords:tuple<, int32> = [1, 2]').tokens;
             const result = parse(tokens);
@@ -1244,12 +1258,12 @@ b = [\A1\ = 2]`).tokens;
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [2]);
         });
 
-        it('should enforce max_separator_depth policy for clarifier values', () => {
+        it('should enforce max_clarifier_values policy', () => {
             const tokens = tokenize('matrix:grid["|", ">"] = 1').tokens;
-            const result = parse(tokens, { maxSeparatorDepth: 1 });
+            const result = parse(tokens, { maxClarifierValues: 1 });
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
+            assert.strictEqual(result.errors[0]!.code, 'CLARIFIER_VALUES_EXCEEDED');
         });
 
         it('should reject repeated clarifier brackets', () => {

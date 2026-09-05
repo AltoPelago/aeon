@@ -71,7 +71,7 @@ describe('API Surface', () => {
         assert.strictEqual(result.errors.length, 0);
         assert.deepStrictEqual(result.warnings.map((warning) => warning.code), [
             'AEON_NON_PORTABLE_POLICY_DEPTH',
-            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_CLARIFIER_VALUES',
             'AEON_NON_PORTABLE_POLICY_DEPTH',
             'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH',
             'AEON_NON_PORTABLE_EVENT_BUDGET',
@@ -422,6 +422,25 @@ describe('Core - compile()', () => {
         });
     });
 
+    describe('named structural resource limits', () => {
+        const code = (source: string, options: CompileOptions): string | undefined =>
+            compile(source, options).errors[0]?.code;
+
+        it('enforces decoded strings, keys, collection lengths, and numeric lexemes independently', () => {
+            assert.strictEqual(code('a = "xy"', { maxStringCodepoints: 1 }), 'MAX_STRING_CODEPOINTS_EXCEEDED');
+            assert.strictEqual(code('ab = 1', { maxKeySegmentCodepoints: 1 }), 'MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED');
+            assert.strictEqual(code('a = [1,2]', { maxListItems: 1 }), 'MAX_LIST_ITEMS_EXCEEDED');
+            assert.strictEqual(code('a = (1,2)', { maxTupleItems: 1 }), 'MAX_TUPLE_ITEMS_EXCEEDED');
+            assert.strictEqual(code('a = 1234', { maxNumericLiteralCharacters: 3 }), 'MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED');
+        });
+
+        it('enforces canonical path depth and structured-comment payload length', () => {
+            assert.strictEqual(code('a = { b = 1 }', { maxPathDepth: 1 }), 'MAX_PATH_DEPTH_EXCEEDED');
+            assert.strictEqual(code('//@abc\na = 1', { maxStructuredCommentCharacters: 2 }), 'MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED');
+            assert.strictEqual(code('//!abc\na = 1', { maxStructuredCommentCharacters: 2 }), 'MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED');
+        });
+    });
+
     // ============================================
     // RECOVERY MODE
     // ============================================
@@ -537,15 +556,15 @@ describe('Core - compile()', () => {
         });
     });
 
-    describe('separator depth policy', () => {
-        it('should enforce max_separator_depth by default', () => {
+    describe('clarifier value policy', () => {
+        it('should enforce max_clarifier_values by default', () => {
             const result = compile('a:grid["|", "x"] = ^1|2x3');
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'SEPARATOR_DEPTH_EXCEEDED'));
+            assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'CLARIFIER_VALUES_EXCEEDED'));
         });
 
-        it('should allow clarifier lists when max_separator_depth is raised', () => {
-            const result = compile('a:grid["|", "x"] = ^1|2x3', { maxSeparatorDepth: 8 });
+        it('should allow clarifier lists when max_clarifier_values is raised', () => {
+            const result = compile('a:grid["|", "x"] = ^1|2x3', { maxClarifierValues: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });

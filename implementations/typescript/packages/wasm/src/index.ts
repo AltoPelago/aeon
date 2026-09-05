@@ -1,8 +1,12 @@
 export interface ProcessOptions {
   validationMode?: 'strict' | 'custom' | 'loose' | 'none';
+  maxClarifierValues?: number;
+  /** @deprecated Use maxClarifierValues. */
   maxSeparatorDepth?: number;
   maxAttributeDepth?: number;
   maxGenericDepth?: number;
+  maxGenericArguments?: number;
+  maxDatatypeComponents?: number;
   materializationMode?: 'all' | 'projected';
   finalizeScope?: 'payload' | 'header' | 'full';
   includePaths?: string[];

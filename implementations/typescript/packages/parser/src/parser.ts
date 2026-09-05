@@ -39,8 +39,10 @@ import {
     SyntaxError,
     DuplicateKeyError,
     DuplicateStructuralIdentityError,
-    SeparatorDepthExceededError,
+    ClarifierValuesExceededError,
     GenericDepthExceededError,
+    GenericArgumentsExceededError,
+    DatatypeComponentsExceededError,
     AttributeDepthExceededError,
     NestingDepthExceededError,
 } from './errors.js';
@@ -52,11 +54,19 @@ import { applyTrimticks, type TrimtickMarkerWidth } from './trimticks.js';
 export interface ParserOptions {
     /** Maximum nesting depth for attribute heads (default: 1) */
     readonly maxAttributeDepth?: number;
-    /** Maximum number of separator segments in datatype annotation (default: 1) */
+    /** Maximum clarifier values on one datatype descriptor (default: 1). */
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     /** Maximum nesting depth for nested generic type annotations (default: 1) */
     readonly maxGenericDepth?: number;
+    /** Maximum generic arguments on one datatype descriptor (default: 32). */
+    readonly maxGenericArguments?: number;
+    /** Maximum aggregate components in one recursive datatype (default: 64). */
+    readonly maxDatatypeComponents?: number;
     /** Maximum nesting depth for value structures like lists and objects (default: 256) */
+    readonly maxValueNestingDepth?: number;
+    /** @deprecated Use maxValueNestingDepth. */
     readonly maxNestingDepth?: number;
 }
 
@@ -74,9 +84,11 @@ export interface ParseResult {
 class Parser {
     private readonly tokens: readonly Token[];
     private readonly maxAttributeDepth: number;
-    private readonly maxSeparatorDepth: number;
+    private readonly maxClarifierValues: number;
     private readonly maxGenericDepth: number;
-    private readonly maxNestingDepth: number;
+    private readonly maxGenericArguments: number;
+    private readonly maxDatatypeComponents: number;
+    private readonly maxValueNestingDepth: number;
     private currentNestingDepth: number = 0;
     private current: number = 0;
     private readonly errors: ParserError[] = [];
@@ -85,9 +97,11 @@ class Parser {
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
         this.maxAttributeDepth = options.maxAttributeDepth ?? 1;
-        this.maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
+        this.maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
         this.maxGenericDepth = options.maxGenericDepth ?? 1;
-        this.maxNestingDepth = options.maxNestingDepth ?? 256;
+        this.maxGenericArguments = options.maxGenericArguments ?? 32;
+        this.maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
+        this.maxValueNestingDepth = options.maxValueNestingDepth ?? options.maxNestingDepth ?? 256;
     }
 
     /**
@@ -414,10 +428,14 @@ class Parser {
         };
     }
 
-    private parseTypeAnnotation(genericDepth: number = 0): TypeAnnotation {
+    private parseTypeAnnotation(
+        genericDepth: number = 0,
+        components: { count: number } = { count: 0 }
+    ): TypeAnnotation {
         if (genericDepth > this.maxGenericDepth) {
             throw new GenericDepthExceededError(genericDepth, this.maxGenericDepth, this.peek().span);
         }
+        this.countDatatypeComponent(components, this.peek().span);
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
         const genericArgs: string[] = [];
@@ -434,11 +452,13 @@ class Parser {
                 );
             }
             this.advance(); // consume <
-            genericArgs.push(this.parseGenericArgument(genericDepth));
+            genericArgs.push(this.parseGenericArgument(genericDepth, components));
+            this.enforceGenericArgumentCount(genericArgs.length);
 
             while (this.check(TokenType.Comma)) {
                 this.advance();
-                genericArgs.push(this.parseGenericArgument(genericDepth));
+                genericArgs.push(this.parseGenericArgument(genericDepth, components));
+                this.enforceGenericArgumentCount(genericArgs.length);
             }
 
             this.consume(TokenType.RightAngle, "Expected '>' to close generic arguments");
@@ -449,8 +469,11 @@ class Parser {
             this.advance(); // consume [
             clarifiers.push(...this.parseClarifierValues());
             this.consume(TokenType.RightBracket, "Expected ']' to close datatype clarifier");
-            if (clarifiers.length > this.maxSeparatorDepth) {
-                throw new SeparatorDepthExceededError(clarifiers.length, this.maxSeparatorDepth, this.previous().span);
+            if (clarifiers.length > this.maxClarifierValues) {
+                throw new ClarifierValuesExceededError(clarifiers.length, this.maxClarifierValues, this.previous().span);
+            }
+            for (let index = 0; index < clarifiers.length; index += 1) {
+                this.countDatatypeComponent(components, this.previous().span);
             }
             if (this.check(TokenType.LeftBracket)) {
                 throw new SyntaxError(
@@ -509,7 +532,7 @@ class Parser {
         }
     }
 
-    private parseGenericArgument(genericDepth: number): string {
+    private parseGenericArgument(genericDepth: number, components: { count: number }): string {
         const token = this.peek();
         if (token.type !== TokenType.Identifier && token.type !== TokenType.Number) {
             throw new SyntaxError(
@@ -522,11 +545,25 @@ class Parser {
 
         if (token.type === TokenType.Number) {
             this.advance();
+            this.countDatatypeComponent(components, token.span);
             return token.value;
         }
 
-        const type = this.parseTypeAnnotation(genericDepth + 1);
+        const type = this.parseTypeAnnotation(genericDepth + 1, components);
         return this.formatTypeAnnotation(type);
+    }
+
+    private enforceGenericArgumentCount(observed: number): void {
+        if (observed > this.maxGenericArguments) {
+            throw new GenericArgumentsExceededError(observed, this.maxGenericArguments, this.previous().span);
+        }
+    }
+
+    private countDatatypeComponent(components: { count: number }, span: Span): void {
+        components.count += 1;
+        if (components.count > this.maxDatatypeComponents) {
+            throw new DatatypeComponentsExceededError(components.count, this.maxDatatypeComponents, span);
+        }
     }
 
     private formatTypeAnnotation(type: TypeAnnotation): string {
@@ -588,12 +625,12 @@ class Parser {
             const projectedDepth = this.projectedOpeningContainerDepth();
             if (projectedDepth !== null) {
                 this.currentNestingDepth--;
-                throw new NestingDepthExceededError(projectedDepth, this.maxNestingDepth, this.peek().span);
+                throw new NestingDepthExceededError(projectedDepth, this.maxValueNestingDepth, this.peek().span);
             }
-            if (this.currentNestingDepth > this.maxNestingDepth) {
+            if (this.currentNestingDepth > this.maxValueNestingDepth) {
                 const observedDepth = this.currentNestingDepth;
                 this.currentNestingDepth--;
-                throw new NestingDepthExceededError(observedDepth, this.maxNestingDepth, this.peek().span);
+                throw new NestingDepthExceededError(observedDepth, this.maxValueNestingDepth, this.peek().span);
             }
         }
         try {
@@ -655,13 +692,13 @@ class Parser {
                     extraDepth++;
                     break;
                 default:
-                    return this.toProjectedOpeningContainerDepth(extraDepth) > this.maxNestingDepth
+                    return this.toProjectedOpeningContainerDepth(extraDepth) > this.maxValueNestingDepth
                         ? this.toProjectedOpeningContainerDepth(extraDepth)
                         : null;
             }
         }
         const projectedDepth = this.toProjectedOpeningContainerDepth(extraDepth);
-        return projectedDepth > this.maxNestingDepth
+        return projectedDepth > this.maxValueNestingDepth
             ? projectedDepth
             : null;
     }

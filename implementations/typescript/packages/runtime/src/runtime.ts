@@ -42,8 +42,12 @@ export interface RuntimeOptions {
     readonly includeAnnotations?: boolean;
     readonly maxInputBytes?: number;
     readonly maxAttributeDepth?: number;
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     readonly maxGenericDepth?: number;
+    readonly maxGenericArguments?: number;
+    readonly maxDatatypeComponents?: number;
     readonly maxMaterializedWeight?: number;
     readonly maxReferenceDepth?: number;
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
@@ -214,8 +218,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     const scope = options.scope ?? 'payload';
     const maxInputBytes = options.maxInputBytes;
     const maxAttributeDepth = options.maxAttributeDepth ?? 1;
-    const maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
+    const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
     const maxGenericDepth = options.maxGenericDepth ?? 1;
+    const maxGenericArguments = options.maxGenericArguments ?? 32;
+    const maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
 
     const errors: RuntimeDiagnostic[] = [];
     const warnings: RuntimeDiagnostic[] = [];
@@ -248,8 +254,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         datatypePolicy,
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         maxAttributeDepth,
-        maxSeparatorDepth,
+        maxClarifierValues,
         maxGenericDepth,
+        maxGenericArguments,
+        maxDatatypeComponents,
     });
 
     const needCoreMetadata = includeAnnotations || scope !== 'payload';
@@ -259,8 +267,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
             datatypePolicy,
             ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
             maxAttributeDepth,
-            maxSeparatorDepth,
+            maxClarifierValues,
             maxGenericDepth,
+            maxGenericArguments,
+            maxDatatypeComponents,
             emitAnnotations: includeAnnotations,
         })
         : null;
@@ -380,8 +390,11 @@ export function runTypedRuntime<TDocument>(
         schema: options.schema,
         output: 'json',
         ...(options.maxAttributeDepth !== undefined ? { maxAttributeDepth: options.maxAttributeDepth } : {}),
+        ...(options.maxClarifierValues !== undefined ? { maxClarifierValues: options.maxClarifierValues } : {}),
         ...(options.maxSeparatorDepth !== undefined ? { maxSeparatorDepth: options.maxSeparatorDepth } : {}),
         ...(options.maxGenericDepth !== undefined ? { maxGenericDepth: options.maxGenericDepth } : {}),
+        ...(options.maxGenericArguments !== undefined ? { maxGenericArguments: options.maxGenericArguments } : {}),
+        ...(options.maxDatatypeComponents !== undefined ? { maxDatatypeComponents: options.maxDatatypeComponents } : {}),
         ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
         ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         ...(options.materialization !== undefined ? { materialization: options.materialization } : {}),

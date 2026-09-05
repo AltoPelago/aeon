@@ -11,12 +11,18 @@ export interface CanonicalResult {
 }
 
 export interface CanonicalizeOptions {
-    /** Maximum number of separator specs in a datatype annotation. Default: 8. */
+    /** Maximum clarifier values on one datatype descriptor. Default: 1. */
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     /** Maximum nesting depth for attribute heads. Default: 1. */
     readonly maxAttributeDepth?: number;
-    /** Maximum nesting depth for nested generic type annotations. Default: 8. */
+    /** Maximum nesting depth for nested generic type annotations. Default: 1. */
     readonly maxGenericDepth?: number;
+    /** Maximum generic arguments on one datatype descriptor. Default: 32. */
+    readonly maxGenericArguments?: number;
+    /** Maximum aggregate components in one recursive datatype. Default: 64. */
+    readonly maxDatatypeComponents?: number;
 }
 
 export interface EmitObjectOptions {
@@ -67,9 +73,6 @@ const DEFAULT_HEADER: Record<string, Value> = {
     },
 };
 
-const CANONICAL_MAX_SEPARATOR_DEPTH = 8;
-const CANONICAL_MAX_GENERIC_DEPTH = 8;
-
 function stripLeadingBom(input: string): string {
     return input.startsWith('\uFEFF') ? input.slice(1) : input;
 }
@@ -87,8 +90,10 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
 
     const parsed = parse(lex.tokens, {
         maxAttributeDepth: options.maxAttributeDepth ?? 1,
-        maxSeparatorDepth: options.maxSeparatorDepth ?? CANONICAL_MAX_SEPARATOR_DEPTH,
-        maxGenericDepth: options.maxGenericDepth ?? CANONICAL_MAX_GENERIC_DEPTH,
+        maxClarifierValues: options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1,
+        maxGenericDepth: options.maxGenericDepth ?? 1,
+        maxGenericArguments: options.maxGenericArguments ?? 32,
+        maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
     });
     if (parsed.errors.length > 0 || !parsed.document) {
         return { text: '', errors: parsed.errors };

@@ -66,12 +66,16 @@ export function compile(input: unknown, options: CompileOptions): CompileResult 
         }
     }
 
+    const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
     const ctx: CompileCtx = {
         strict,
         ...(datatypePolicy ? { datatypePolicy } : {}),
         maxAttributeDepth: options.maxAttributeDepth ?? 1,
-        maxSeparatorDepth: options.maxSeparatorDepth ?? 1,
+        maxClarifierValues,
+        maxSeparatorDepth: maxClarifierValues,
         maxGenericDepth: options.maxGenericDepth ?? 1,
+        maxGenericArguments: options.maxGenericArguments ?? 32,
+        maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
         emit(event) {
             emitted.push(event);
         },

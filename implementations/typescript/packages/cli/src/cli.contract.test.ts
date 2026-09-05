@@ -271,6 +271,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
             return 'Lexical Analysis';
         case 'SYNTAX_ERROR':
         case 'INVALID_SEPARATOR_CHAR':
+        case 'CLARIFIER_VALUES_EXCEEDED':
+        case 'GENERIC_ARGUMENTS_EXCEEDED':
+        case 'DATATYPE_COMPONENTS_EXCEEDED':
         case 'SEPARATOR_DEPTH_EXCEEDED':
         case 'GENERIC_DEPTH_EXCEEDED':
             return 'Parsing';

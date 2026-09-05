@@ -30,16 +30,24 @@ export interface CompileOptions {
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
     readonly maxInputBytes?: number;
     readonly maxAttributeDepth?: number;
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     readonly maxGenericDepth?: number;
+    readonly maxGenericArguments?: number;
+    readonly maxDatatypeComponents?: number;
 }
 
 export interface CompileCtx {
     readonly strict: boolean;
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
     readonly maxAttributeDepth: number;
+    readonly maxClarifierValues: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth: number;
     readonly maxGenericDepth: number;
+    readonly maxGenericArguments: number;
+    readonly maxDatatypeComponents: number;
     emit(event: AssignmentEvent): void;
     warn(diag: Omit<Diagnostic, 'level'>): void;
     error(diag: Omit<Diagnostic, 'level'>): void;

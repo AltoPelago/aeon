@@ -338,9 +338,9 @@ test('renders generic type annotations in core v1', () => {
     assert.ok(result.text.includes('coords:tuple<int32, int32> = (1, 2)'));
 });
 
-test('canonicalizes clarifier lists up to the v1 capability floor', () => {
+test('canonicalizes clarifier lists under the consumer-selected limit', () => {
     const input = 'grid:dim["x", "y"] = ^100x200y300';
-    const result = canonicalize(input);
+    const result = canonicalize(input, { maxClarifierValues: 2 });
 
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('grid:dim["x", "y"] = ^100x200y300'));
@@ -348,7 +348,7 @@ test('canonicalizes clarifier lists up to the v1 capability floor', () => {
     const relex = tokenize(result.text);
     assert.equal(relex.errors.length, 0);
 
-    const reparsed = parse(relex.tokens, { maxSeparatorDepth: 8 });
+    const reparsed = parse(relex.tokens, { maxClarifierValues: 2 });
     assert.equal(reparsed.errors.length, 0);
 });
 
@@ -360,12 +360,12 @@ test('canonicalize preserves separator payload quoting without trimming raw segm
     assert.ok(result.text.includes('parts:sep["|"] = ^"hello world"|tail'));
 });
 
-test('canonicalize honors custom maxSeparatorDepth', () => {
+test('canonicalize honors custom maxClarifierValues', () => {
     const input = 'grid:dim["x", "y"] = ^100x200y300';
-    const result = canonicalize(input, { maxSeparatorDepth: 1 });
+    const result = canonicalize(input, { maxClarifierValues: 1 });
 
     assert.ok(result.errors.length > 0);
-    assert.equal(result.errors[0]?.code, 'SEPARATOR_DEPTH_EXCEEDED');
+    assert.equal(result.errors[0]?.code, 'CLARIFIER_VALUES_EXCEEDED');
 });
 
 test('canonicalize honors custom maxAttributeDepth for nested attribute heads', () => {

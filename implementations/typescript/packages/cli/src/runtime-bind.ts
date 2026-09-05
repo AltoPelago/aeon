@@ -64,8 +64,12 @@ interface TypedRuntimeOptions<TDocument> {
   readonly includeAnnotations?: boolean;
   readonly maxInputBytes?: number;
   readonly maxAttributeDepth?: number;
+  readonly maxClarifierValues?: number;
+  /** @deprecated Use maxClarifierValues. */
   readonly maxSeparatorDepth?: number;
   readonly maxGenericDepth?: number;
+  readonly maxGenericArguments?: number;
+  readonly maxDatatypeComponents?: number;
   readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
   readonly guard?: (value: unknown) => value is TDocument;
 }
@@ -178,8 +182,10 @@ function runRuntime(input: string, options: Omit<TypedRuntimeOptions<unknown>, '
   const scope = options.scope ?? 'payload';
   const maxInputBytes = options.maxInputBytes;
   const maxAttributeDepth = options.maxAttributeDepth ?? 1;
-  const maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
+  const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
   const maxGenericDepth = options.maxGenericDepth ?? 1;
+  const maxGenericArguments = options.maxGenericArguments ?? 32;
+  const maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
 
   const errors: RuntimeDiagnostic[] = [];
   const warnings: RuntimeDiagnostic[] = [];
@@ -209,8 +215,10 @@ function runRuntime(input: string, options: Omit<TypedRuntimeOptions<unknown>, '
     ...(datatypePolicy ? { datatypePolicy } : {}),
     ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     maxAttributeDepth,
-    maxSeparatorDepth,
+    maxClarifierValues,
     maxGenericDepth,
+    maxGenericArguments,
+    maxDatatypeComponents,
   });
 
   const needCoreMetadata = includeAnnotations || scope !== 'payload';
@@ -220,8 +228,10 @@ function runRuntime(input: string, options: Omit<TypedRuntimeOptions<unknown>, '
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         maxAttributeDepth,
-        maxSeparatorDepth,
+        maxClarifierValues,
         maxGenericDepth,
+        maxGenericArguments,
+        maxDatatypeComponents,
         emitAnnotations: includeAnnotations,
       })
     : null;
