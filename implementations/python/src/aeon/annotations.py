@@ -391,7 +391,7 @@ def should_keep_comment_on_container_before_descendant(
     )
 
 
-def scan_structured_comments(source: str) -> list[CommentRecord]:
+def scan_structured_comments(source: str, *, include_host: bool = False) -> list[CommentRecord]:
     records: list[CommentRecord] = []
     offset = 0
     line = 1
@@ -449,7 +449,7 @@ def scan_structured_comments(source: str) -> list[CommentRecord]:
                 advance()
             end = current_position()
             kind, subtype = line_channel_info(marker)
-            if kind != "host":
+            if kind != "host" or include_host:
                 records.append(CommentRecord(kind=kind, form="line", raw=source[start.offset:end.offset], span=Span(start, end), subtype=subtype))
             continue
         if char == "/" and peek(1) in {"#", "@", "?", "{", "[", "("}:

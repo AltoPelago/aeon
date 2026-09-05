@@ -16,6 +16,7 @@ from .ast import (
     HexLiteral,
     ListNode,
     NodeLiteral,
+    NumberLiteral,
     ObjectNode,
     PointerReference,
     RadixLiteral,
@@ -40,6 +41,7 @@ from .errors import (
     SyntaxError,
     EventCountExceededError,
     InputSizeExceededError,
+    ResourceLimitExceededError,
     UntypedToggleLiteralError,
     UntypedValueInStrictModeError,
 )
@@ -52,9 +54,23 @@ from .spans import Position, Span
 class CompileOptions:
     recovery: bool = False
     max_attribute_depth: int = 1
+    max_clarifier_values: int | None = None
+    # Deprecated compatibility alias for max_clarifier_values.
     max_separator_depth: int = 1
     max_generic_depth: int = 1
+    max_generic_arguments: int = 32
+    max_datatype_components: int = 64
+    max_value_nesting_depth: int | None = None
+    # Deprecated compatibility alias for max_value_nesting_depth.
     max_nesting_depth: int = 256
+    max_path_depth: int = 1024
+    max_string_codepoints: int = 1_048_576
+    max_key_segment_codepoints: int = 1024
+    max_list_items: int = 65_536
+    max_tuple_items: int = 65_536
+    max_path_characters: int = 8192
+    max_numeric_literal_characters: int = 1024
+    max_structured_comment_characters: int = 1_048_576
     datatype_policy: str | None = None
     profile: str | None = None
     # Consumer-selected effective mode. When omitted, Core honors aeon:mode
@@ -62,6 +78,12 @@ class CompileOptions:
     mode: str | None = None
     max_input_bytes: int | None = None
     max_events: int | None = None
+
+    def effective_max_clarifier_values(self) -> int:
+        return self.max_separator_depth if self.max_clarifier_values is None else self.max_clarifier_values
+
+    def effective_max_value_nesting_depth(self) -> int:
+        return self.max_nesting_depth if self.max_value_nesting_depth is None else self.max_value_nesting_depth
 
 
 @dataclass(slots=True)
@@ -170,10 +192,12 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     parse_result = parse_tokens(
         source,
         lex_result.tokens,
-        max_separator_depth=opts.max_separator_depth,
+        max_clarifier_values=opts.effective_max_clarifier_values(),
         max_generic_depth=opts.max_generic_depth,
+        max_generic_arguments=opts.max_generic_arguments,
+        max_datatype_components=opts.max_datatype_components,
         max_attribute_depth=opts.max_attribute_depth,
-        max_nesting_depth=opts.max_nesting_depth,
+        max_value_nesting_depth=opts.effective_max_value_nesting_depth(),
     )
     parse_errors = [coerce_error(error) for error in parse_result.errors]
     if parse_errors and not opts.recovery:
@@ -181,9 +205,23 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     if parse_result.document is None:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors], warnings=warnings)
 
+    structure_error = validate_source_structure(parse_result.document, opts)
+    if structure_error is not None:
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, structure_error], warnings=warnings)
+    structured_comment_error = validate_structured_comment_limits(source, opts.max_structured_comment_characters)
+    if structured_comment_error is not None:
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, structured_comment_error], warnings=warnings)
+
     resolved_bindings, path_errors = resolve_paths(parse_result.document)
     if path_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors], warnings=warnings)
+    for binding in resolved_bindings:
+        depth = max(0, len(binding.path.segments) - 1)
+        if depth > opts.max_path_depth:
+            return CompileResult(events=[], errors=[ResourceLimitExceededError("max_path_depth", depth, opts.max_path_depth)], warnings=warnings)
+        characters = len(format_path(binding.path))
+        if characters > opts.max_path_characters:
+            return CompileResult(events=[], errors=[ResourceLimitExceededError("max_path_characters", characters, opts.max_path_characters)], warnings=warnings)
 
     mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode)
     if mode_errors and not opts.recovery:
@@ -220,6 +258,88 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     )
 
 
+def validate_source_structure(document: Document, options: CompileOptions) -> ResourceLimitExceededError | None:
+    def check_key(key: str) -> ResourceLimitExceededError | None:
+        return ResourceLimitExceededError("max_key_segment_codepoints", len(key), options.max_key_segment_codepoints) if len(key) > options.max_key_segment_codepoints else None
+
+    def check_datatype(datatype: TypeAnnotation | None) -> ResourceLimitExceededError | None:
+        if datatype is None:
+            return None
+        for clarifier in datatype.clarifiers:
+            if isinstance(clarifier, str) and len(clarifier) > options.max_string_codepoints:
+                return ResourceLimitExceededError("max_string_codepoints", len(clarifier), options.max_string_codepoints, datatype.span)
+        return None
+
+    def check_attributes(attributes: list[Attribute]) -> ResourceLimitExceededError | None:
+        for attribute in attributes:
+            for key, entry in attribute.entries.items():
+                error = check_key(key) or check_datatype(entry.datatype) or check_attributes(entry.attributes) or check_value(entry.value)
+                if error is not None:
+                    return error
+        return None
+
+    def check_reference(value: CloneReference | PointerReference) -> ResourceLimitExceededError | None:
+        depth = len(value.path)
+        if depth > options.max_path_depth:
+            return ResourceLimitExceededError("max_path_depth", depth, options.max_path_depth, value.span)
+        rendered = "$"
+        for segment in value.path:
+            if isinstance(segment, int):
+                rendered += f"[{segment}]"
+            elif isinstance(segment, str):
+                rendered += f".{segment}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", segment) else ".[" + json.dumps(segment, ensure_ascii=False) + "]"
+            else:
+                rendered += f".@.{segment.key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", segment.key) else ".@.[" + json.dumps(segment.key, ensure_ascii=False) + "]"
+        if len(rendered) > options.max_path_characters:
+            return ResourceLimitExceededError("max_path_characters", len(rendered), options.max_path_characters, value.span)
+        return None
+
+    def check_value(value: Value) -> ResourceLimitExceededError | None:
+        if isinstance(value, StringLiteral):
+            return ResourceLimitExceededError("max_string_codepoints", len(value.value), options.max_string_codepoints, value.span) if len(value.value) > options.max_string_codepoints else None
+        if isinstance(value, NumberLiteral):
+            return ResourceLimitExceededError("max_numeric_literal_characters", len(value.raw), options.max_numeric_literal_characters, value.span) if len(value.raw) > options.max_numeric_literal_characters else None
+        if isinstance(value, ListNode):
+            if len(value.elements) > options.max_list_items:
+                return ResourceLimitExceededError("max_list_items", len(value.elements), options.max_list_items, value.span)
+            return next((error for item in value.elements if (error := check_value(item)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, TupleLiteral):
+            if len(value.elements) > options.max_tuple_items:
+                return ResourceLimitExceededError("max_tuple_items", len(value.elements), options.max_tuple_items, value.span)
+            return next((error for item in value.elements if (error := check_value(item)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, ObjectNode):
+            return next((error for binding in value.bindings if (error := check_binding(binding)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, NodeLiteral):
+            return check_key(value.tag) or check_datatype(value.datatype) or check_attributes(value.attributes) or next((error for child in value.children if (error := check_value(child)) is not None), None)
+        if isinstance(value, TypedValue):
+            return check_datatype(value.datatype) or check_attributes(value.attributes) or (check_value(value.value) if value.value is not None else None)
+        if isinstance(value, (CloneReference, PointerReference)):
+            return check_reference(value)
+        return None
+
+    def check_binding(binding: Binding) -> ResourceLimitExceededError | None:
+        return check_key(binding.key) or check_datatype(binding.datatype) or check_attributes(binding.attributes) or check_value(binding.value)
+
+    if document.header is not None:
+        for binding in document.header.bindings:
+            if (error := check_binding(binding)) is not None:
+                return error
+    for binding in document.bindings:
+        if (error := check_binding(binding)) is not None:
+            return error
+    return None
+
+
+def validate_structured_comment_limits(source: str, limit: int) -> ResourceLimitExceededError | None:
+    from .annotations import scan_structured_comments
+
+    for comment in scan_structured_comments(source, include_host=True):
+        payload = comment.raw[3:] if comment.form == "line" else comment.raw[2:-2]
+        if len(payload) > limit:
+            return ResourceLimitExceededError("max_structured_comment_characters", len(payload), limit, comment.span)
+    return None
+
+
 def compile_portability_warnings(options: CompileOptions) -> list[dict[str, object]]:
     defaults = CompileOptions()
     warnings: list[dict[str, object]] = []
@@ -234,10 +354,10 @@ def compile_portability_warnings(options: CompileOptions) -> list[dict[str, obje
     warn_if_above(
         warnings,
         "AEON_NON_PORTABLE_POLICY_DEPTH",
-        "max_separator_depth",
-        options.max_separator_depth,
+        "max_clarifier_values",
+        options.effective_max_clarifier_values(),
         8,
-        defaults.max_separator_depth,
+        defaults.effective_max_clarifier_values(),
     )
     warn_if_above(
         warnings,
@@ -250,10 +370,10 @@ def compile_portability_warnings(options: CompileOptions) -> list[dict[str, obje
     warn_if_above(
         warnings,
         "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
-        "max_nesting_depth",
-        options.max_nesting_depth,
+        "max_value_nesting_depth",
+        options.effective_max_value_nesting_depth(),
         64,
-        defaults.max_nesting_depth,
+        defaults.effective_max_value_nesting_depth(),
     )
     if options.max_events is not None:
         warn_if_above(

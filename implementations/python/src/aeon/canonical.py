@@ -47,6 +47,15 @@ class CanonicalResult:
     errors: list[AeonError]
 
 
+@dataclass(slots=True)
+class CanonicalizeOptions:
+    max_attribute_depth: int = 1
+    max_clarifier_values: int = 1
+    max_generic_depth: int = 1
+    max_generic_arguments: int = 32
+    max_datatype_components: int = 64
+
+
 def _zero_span() -> Span:
     from .spans import Position
 
@@ -62,12 +71,21 @@ DEFAULT_HEADER = {
 }
 
 
-def canonicalize(source: str) -> CanonicalResult:
+def canonicalize(source: str, options: CanonicalizeOptions | None = None) -> CanonicalResult:
+    effective = options or CanonicalizeOptions()
     source = strip_leading_bom(source)
     lex_result = tokenize(source)
     if lex_result.errors:
         return CanonicalResult(text="", errors=lex_result.errors)
-    parse_result = parse_tokens(source, lex_result.tokens, max_separator_depth=8, max_generic_depth=8)
+    parse_result = parse_tokens(
+        source,
+        lex_result.tokens,
+        max_attribute_depth=effective.max_attribute_depth,
+        max_clarifier_values=effective.max_clarifier_values,
+        max_generic_depth=effective.max_generic_depth,
+        max_generic_arguments=effective.max_generic_arguments,
+        max_datatype_components=effective.max_datatype_components,
+    )
     if parse_result.errors or parse_result.document is None:
         return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])
     return CanonicalResult(text=render_document(parse_result.document), errors=[])

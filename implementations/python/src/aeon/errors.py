@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from ._compat import dataclass
 from .spans import Position, Span
@@ -47,6 +48,9 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "INVALID_NUMBER",
         "INVALID_SEPARATOR_CHAR",
         "NESTING_DEPTH_EXCEEDED",
+        "CLARIFIER_VALUES_EXCEEDED",
+        "GENERIC_ARGUMENTS_EXCEEDED",
+        "DATATYPE_COMPONENTS_EXCEEDED",
         "SEPARATOR_DEPTH_EXCEEDED",
         "GENERIC_DEPTH_EXCEEDED",
     }:
@@ -158,19 +162,24 @@ class InvalidSeparatorCharError(AeonError):
         )
 
 
-class SeparatorDepthExceededError(AeonError):
+class ClarifierValuesExceededError(AeonError):
     def __init__(self, observed: int, limit: int, span: Span) -> None:
         super().__init__(
-            message=f"Separator depth {observed} exceeds max_separator_depth {limit}",
+            message=f"Clarifier value count {observed} exceeds max_clarifier_values {limit}",
             span=span,
-            code="SEPARATOR_DEPTH_EXCEEDED",
+            code="CLARIFIER_VALUES_EXCEEDED",
         )
+
+
+# Backwards-compatible import alias. New diagnostics always use the canonical
+# counter name and code.
+SeparatorDepthExceededError = ClarifierValuesExceededError
 
 
 class NestingDepthExceededError(AeonError):
     def __init__(self, observed: int, limit: int, span: Span) -> None:
         super().__init__(
-            message=f"Value nesting depth {observed} exceeds max_nesting_depth {limit}",
+            message=f"Value nesting depth {observed} exceeds max_value_nesting_depth {limit}",
             span=span,
             code="NESTING_DEPTH_EXCEEDED",
         )
@@ -182,6 +191,24 @@ class GenericDepthExceededError(AeonError):
             message=f"Generic depth {observed} exceeds max_generic_depth {limit}",
             span=span,
             code="GENERIC_DEPTH_EXCEEDED",
+        )
+
+
+class GenericArgumentsExceededError(AeonError):
+    def __init__(self, observed: int, limit: int, span: Span) -> None:
+        super().__init__(
+            message=f"Generic argument count {observed} exceeds max_generic_arguments {limit}",
+            span=span,
+            code="GENERIC_ARGUMENTS_EXCEEDED",
+        )
+
+
+class DatatypeComponentsExceededError(AeonError):
+    def __init__(self, observed: int, limit: int, span: Span) -> None:
+        super().__init__(
+            message=f"Datatype component count {observed} exceeds max_datatype_components {limit}",
+            span=span,
+            code="DATATYPE_COMPONENTS_EXCEEDED",
         )
 
 
@@ -205,6 +232,20 @@ class EventCountExceededError(AeonError):
             span=span or Span(start=zero, end=zero),
             code="EVENT_COUNT_EXCEEDED",
         )
+
+
+class ResourceLimitExceededError(AeonError):
+    def __init__(self, counter: str, observed: int, limit: int, span: Span | None = None) -> None:
+        zero = Position(line=1, column=1, offset=0)
+        code = re.sub(r"(?<!^)(?=[A-Z])", "_", counter).upper() + "_EXCEEDED"
+        super().__init__(
+            message=f"{counter} observed value {observed} exceeds configured limit {limit}",
+            span=span or Span(start=zero, end=zero),
+            code=code,
+        )
+        self.counter = counter
+        self.observed = observed
+        self.limit = limit
 
 
 def _key_from_path(path: str) -> str:
