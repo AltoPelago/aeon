@@ -66,6 +66,26 @@ console.log(result.errors); // all known issues
 
 If you need schema validation after compile, pass `result.events` to `@altopelago/aeos-core`.
 
+### Interoperate through Telex
+
+The native workflow remains `compile()`. Use `compileToTelex()` when events
+must cross a process or implementation boundary, or `exportTelex()` when you
+already have Core assignment events:
+
+```ts
+import { compile, compileToTelex, exportTelex, parseTelex } from '@altopelago/aeon-core';
+
+const native = compile('answer = 42');
+const wire = exportTelex(native.events);
+const portable = parseTelex(wire).records;
+
+const direct = compileToTelex('answer = 42');
+console.log(direct.telex);
+```
+
+Headers are excluded by default. Set `includeHeaders: true` to use the explicit
+`aeon.document.v0` header plane.
+
 ### Inspect the file preamble without full parsing
 
 Use `inspectFilePreamble()` to read only the allowed file-header slot for:
@@ -107,6 +127,13 @@ Reads only the file-header preamble slot and returns:
 - `hostDirective`
 - `format`
 - `span`
+
+### Telex boundary APIs
+
+- `compileToTelex(input, options?)`
+- `exportTelex(events, options?)`
+- `parseTelex`, `encodeTelex`, `canonicalizeTelex`
+- `validateTelex`, `validateTelexRecords`
 
 ## Exported Types
 

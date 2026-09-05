@@ -1,4 +1,22 @@
-import { compile, formatPath, type CompileOptions, type CompileResult } from '@altopelago/aeon-core';
+import {
+  compile,
+  compileToTelex,
+  encodeTelex,
+  formatPath,
+  parseTelex,
+  validateTelex,
+  type CompileOptions,
+  type CompileResult,
+  type CompileToTelexOptions,
+  type CompileToTelexResult,
+  type ParsedTelex,
+  type PortableAesEvent,
+  type TelexEncodeOptions,
+  type TelexRecord,
+  type TelexLimitOptions,
+  type TelexValidationOptions,
+  type TelexValidationResult,
+} from '@altopelago/aeon-core';
 import { finalizeJson, type FinalizeJsonResult, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import { emitFromObject, type EmitObjectOptions, type EmitResult } from '@altopelago/aeon-canonical';
 
@@ -14,6 +32,12 @@ export interface ReadAeonResult {
 
 export interface ReadAeonCheckedResult extends ReadAeonResult {
   readonly eventsByPath: ReadonlyMap<string, CompileResult['events'][number]>;
+}
+
+export interface ReadTelexResult {
+  readonly parsed: ParsedTelex;
+  readonly records: ParsedTelex['records'];
+  readonly validation: TelexValidationResult;
 }
 
 export function readAeon(input: string, options: ReadAeonOptions = {}): ReadAeonResult {
@@ -69,6 +93,43 @@ export function writeAeon(
   return emitFromObject(object, options);
 }
 
+/** Decode and validate an interoperable Telex stream. */
+export function readTelex(input: string, options: TelexValidationOptions = {}): ReadTelexResult {
+  const parsed = parseTelex(input, options);
+  const validation = validateTelex(parsed, {
+    ...options,
+    profile: parsed.profile,
+    projection: parsed.projection,
+  });
+  return { parsed, records: parsed.records, validation };
+}
+
+/** Decode Telex and throw when its default or declared AES profile is invalid. */
+export function readTelexChecked(input: string, options: TelexValidationOptions = {}): ReadTelexResult {
+  const result = readTelex(input, options);
+  if (!result.validation.valid) {
+    const summary = result.validation.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join('\n');
+    throw new Error(`Telex validation failed with ${result.validation.diagnostics.length} error(s):\n${summary}`);
+  }
+  return result;
+}
+
+/** Encode portable AES records as a Telex stream. */
+export function writeTelex(
+  records: readonly (TelexRecord | PortableAesEvent)[],
+  options: TelexEncodeOptions = {},
+): string {
+  return encodeTelex(records, options);
+}
+
+/** Compile AEON source and export its portable event stream as Telex. */
+export function aeonToTelex(
+  input: string,
+  options: CompileToTelexOptions = {},
+): CompileToTelexResult {
+  return compileToTelex(input, options);
+}
+
 export { formatPath };
 
 export type {
@@ -78,4 +139,13 @@ export type {
   FinalizeJsonResult,
   EmitObjectOptions,
   EmitResult,
+  CompileToTelexOptions,
+  CompileToTelexResult,
+  ParsedTelex,
+  PortableAesEvent,
+  TelexEncodeOptions,
+  TelexLimitOptions,
+  TelexRecord,
+  TelexValidationOptions,
+  TelexValidationResult,
 };

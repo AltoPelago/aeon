@@ -49,6 +49,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-lexer": "workspace:*",
     "@altopelago/aeon-parser": "workspace:*"
   }

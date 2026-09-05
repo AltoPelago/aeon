@@ -17,6 +17,9 @@ importers:
 
   packages/aeos:
     dependencies:
+      '@altopelago/aeon-aes':
+        specifier: workspace:*
+        version: link:../aes
       '@altopelago/aeon-core':
         specifier: workspace:*
         version: link:../core
@@ -27,9 +30,6 @@ importers:
         specifier: 0.10.1
         version: 0.10.1
     devDependencies:
-      '@altopelago/aeon-aes':
-        specifier: workspace:*
-        version: link:../aes
       '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer
@@ -54,6 +54,9 @@ importers:
 
   packages/canonical:
     dependencies:
+      '@altopelago/aeon-aes':
+        specifier: workspace:*
+        version: link:../aes
       '@altopelago/aeon-lexer':
         specifier: workspace:*
         version: link:../lexer

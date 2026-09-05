@@ -20,6 +20,9 @@ npx @altopelago/aeon-cli@0.12.1 check ./document.aeon
 ```bash
 aeon check ./document.aeon
 aeon inspect ./document.aeon --json
+aeon inspect ./document.aeon --telex
+aeon telex decode ./stream.telex.aes
+aeon telex canonicalize ./stream.telex.aes
 aeon finalize ./document.aeon --json
 aeon fmt ./document.aeon --write
 ```
@@ -31,6 +34,8 @@ aeon fmt ./document.aeon --write
 - `aeon doctor` - check environment and contract registry wiring
 - `aeon fmt [file]` - format AEON source, writing to stdout unless `--write` is used
 - `aeon inspect <file>` - inspect Assignment Events, diagnostics, and optional annotations
+- `aeon inspect <file> --telex` - export body events as Telex (`--include-headers` is explicit)
+- `aeon telex decode|canonicalize <file>` - import or canonicalize Telex
 - `aeon finalize <file>` - materialize AEON into JSON, map, header, or full views
 - `aeon bind <file>` - run the typed runtime binding pipeline with a schema
 - `aeon integrity validate|verify|sign <file>` - work with integrity envelopes

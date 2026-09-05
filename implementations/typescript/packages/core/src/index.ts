@@ -23,7 +23,13 @@ import {
     enforceMode,
     formatPath,
     EventEmissionError,
+    AEON_DOCUMENT_PROJECTION,
+    encodeTelex,
+    projectPortableEvents,
     type AssignmentEvent,
+    type PortableAesEvent,
+    type TelexEncodeOptions,
+    type TelexRecord,
     type PathResolutionError,
     type ReferenceValidationError,
     type ModeEnforcementError,
@@ -185,6 +191,29 @@ export interface CompileOptions {
     readonly maxInputBytes?: number;
     /** Maximum number of AES events Core may emit. Fail-closed when exceeded. */
     readonly maxEvents?: number;
+}
+
+export interface CompileToTelexOptions {
+    /** Options for the existing AEON compilation pipeline. */
+    readonly compile?: CompileOptions;
+    /** Telex encoding and resource-limit options. */
+    readonly telex?: TelexEncodeOptions;
+    /** Include AEON document headers in the explicit header plane. Default: false. */
+    readonly includeHeaders?: boolean;
+}
+
+export interface ExportTelexOptions extends TelexEncodeOptions {
+    /** Include AEON document headers in the explicit header plane. Default: false. */
+    readonly includeHeaders?: boolean;
+}
+
+export interface CompileToTelexResult {
+    /** The unchanged Core compilation result. */
+    readonly compile: CompileResult;
+    /** Portable AES records in source event order. */
+    readonly records: readonly (TelexRecord | PortableAesEvent)[];
+    /** Encoded Telex, or null when compilation failed. */
+    readonly telex: string | null;
 }
 
 /**
@@ -362,6 +391,65 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     }
 
     return result;
+}
+
+/**
+ * Compile AEON source and export its portable AES event stream as Telex.
+ *
+ * This is an additive boundary API: `compile()` remains the native in-memory
+ * workflow, while this helper produces an interoperable stream for another
+ * process or implementation.
+ */
+export function compileToTelex(
+    input: string,
+    options: CompileToTelexOptions = {},
+): CompileToTelexResult {
+    const compileResult = compile(input, options.compile);
+    if (compileResult.errors.length > 0) {
+        return { compile: compileResult, records: [], telex: null };
+    }
+
+    const records = projectAssignmentEventsToTelex(compileResult.events, options.includeHeaders ?? false);
+    const telexOptions: ExportTelexOptions = {
+        ...options.telex,
+        ...(options.includeHeaders !== undefined ? { includeHeaders: options.includeHeaders } : {}),
+    };
+
+    return {
+        compile: compileResult,
+        records,
+        telex: exportTelex(compileResult.events, telexOptions),
+    };
+}
+
+/** Export existing Core assignment events without recompiling their source. */
+export function exportTelex(
+    events: readonly AssignmentEvent[],
+    options: ExportTelexOptions = {},
+): string {
+    const includeHeaders = options.includeHeaders ?? false;
+    const { includeHeaders: _includeHeaders, ...encodeOptions } = options;
+    return encodeTelex(projectAssignmentEventsToTelex(events, includeHeaders), includeHeaders
+        ? { ...encodeOptions, projection: AEON_DOCUMENT_PROJECTION }
+        : encodeOptions);
+}
+
+function projectAssignmentEventsToTelex(
+    events: readonly AssignmentEvent[],
+    includeHeaders: boolean,
+): readonly (TelexRecord | PortableAesEvent)[] {
+    const isHeaderEvent = (event: AssignmentEvent): boolean => {
+        const first = event.path.segments[1];
+        return first?.type === 'member' && first.key.startsWith('aeon:');
+    };
+    const bodyRecords = projectPortableEvents(events.filter((event) => !isHeaderEvent(event)));
+    const headerRecords: TelexRecord[] = includeHeaders
+        ? projectPortableEvents(events.filter(isHeaderEvent)).map((record: PortableAesEvent) => {
+            const { path, ...fields } = record;
+            return { header: path, ...fields };
+        })
+        : [];
+    return [...headerRecords, ...bodyRecords];
 }
 
 function compilePortabilityWarnings(options: {
@@ -551,12 +639,30 @@ function normalizeLexerErrors(input: string, errors: readonly LexerError[]): rea
 // =============================================================================
 
 // Core types consumers need to work with compile() result
-export type { AssignmentEvent, CanonicalPath } from '@altopelago/aeon-aes';
+export type {
+    AssignmentEvent,
+    CanonicalPath,
+    PortableAesEvent,
+    TelexRecord,
+    ParsedTelex,
+    TelexEncodeOptions,
+    TelexLimitOptions,
+    TelexValidationOptions,
+    TelexValidationResult,
+} from '@altopelago/aeon-aes';
 export type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export type { Span, Position } from '@altopelago/aeon-lexer';
 
 // Utility for formatting paths (commonly needed)
-export { formatPath } from '@altopelago/aeon-aes';
+export {
+    formatPath,
+    parseTelex,
+    encodeTelex,
+    canonicalizeTelex,
+    validateTelex,
+    validateTelexRecords,
+    projectPortableEvents,
+} from '@altopelago/aeon-aes';
 
 function stripLeadingBom(input: string): string {
     return input.startsWith('\uFEFF') ? input.slice(1) : input;

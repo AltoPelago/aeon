@@ -40,6 +40,7 @@ const result = emitFromObject(
 - canonicalizes parsed AEON documents into stable text
 - emits deterministic AEON from plain TypeScript objects
 - sorts header fields and binding keys lexicographically
+- canonicalizes Telex v0 independently from AEON source canonicalization
 
 ## Common Patterns
 
@@ -72,6 +73,7 @@ const result = emitFromObject(
 ## API
 
 - `canonicalize(input, options?)`
+- `canonicalizeTelex(input, options?)`
 - `emitFromObject(object, options?)`
 
 ## Notes

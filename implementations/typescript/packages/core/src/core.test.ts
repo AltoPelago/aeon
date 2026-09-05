@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
     compile,
+    compileToTelex,
     formatPath,
     inspectFilePreamble,
     VERSION,
@@ -38,6 +39,34 @@ describe('API Surface', () => {
         const options: CompileOptions = { recovery: true };
         const result = compile('a = 1', options);
         assert.ok(result);
+    });
+
+    it('should export portable Telex without changing compile()', () => {
+        const result = compileToTelex('aeon:mode = "transport"\na = 1');
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.strictEqual(result.records.length, 1);
+        assert.match(result.telex ?? '', /^telex\.aes=0\n/u);
+        assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
+    });
+
+    it('should include headers only through the explicit AEON document projection', () => {
+        const result = compileToTelex('aeon:mode = "transport"\na = 1', { includeHeaders: true });
+
+        assert.match(result.telex ?? '', /projection=aeon\.document\.v0/u);
+        assert.match(result.telex ?? '', /header=\$\.\["aeon:mode"\]/u);
+        const firstRecord = result.records[0];
+        assert.ok(firstRecord && 'header' in firstRecord);
+        assert.strictEqual(firstRecord.header, '$.["aeon:mode"]');
+    });
+
+    it('should keep nested structured-header records in the header plane', () => {
+        const source = 'aeon:header = { mode = "transport", metadata = { owner = "team" } }\na = 1';
+        const result = compileToTelex(source, { includeHeaders: true });
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.match(result.telex ?? '', /header=\$\.\["aeon:metadata"\]\.owner/u);
+        assert.doesNotMatch(result.telex ?? '', /path=\$\.\["aeon:metadata"\]/u);
     });
 
     it('should accept maxInputBytes in CompileOptions', () => {

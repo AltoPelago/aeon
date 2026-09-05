@@ -43,6 +43,7 @@
     "typescript"
   ],
   "dependencies": {
+    "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
     "@altopelago/sansa": "0.10.1"
@@ -57,7 +58,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-lexer": "workspace:*"
   }
 }

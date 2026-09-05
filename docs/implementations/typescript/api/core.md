@@ -71,6 +71,27 @@ interface CompileResult {
 - `header` exposes parsed header metadata for downstream projection/finalization.
 - `annotations` are emitted only when `emitAnnotations` is enabled.
 
+## Telex boundary
+
+`compile()` remains the native in-memory API. For interoperable AES v0 records,
+Core also exposes:
+
+```ts
+compileToTelex(input, options?)
+exportTelex(events, options?)
+parseTelex(input, options?)
+```
+
+`compileToTelex()` returns the normal `CompileResult`, projected portable
+records, and encoded Telex. `exportTelex()` avoids recompilation when the caller
+already has assignment events. Both preserve event order and omit headers by
+default. `includeHeaders: true` selects the explicit `aeon.document.v0` header
+plane.
+
+The package re-exports the AES codec functions `encodeTelex()`,
+`canonicalizeTelex()`, `validateTelex()`, and `validateTelexRecords()` for
+boundary-oriented consumers.
+
 ## Anonymous child heads
 
 Core supports anonymous typed and attributed children inside ordered containers.
@@ -119,7 +140,10 @@ can produce AES paths including:
 - `$.page[0].b`
 - `$.page[1]`
 
-Lists, tuples, and node children all use bracket-addressed canonical paths.
+Legacy in-memory lists, tuples, and node children all use bracket-addressed
+canonical paths. The portable AES projection inserts the node head at `[0]`, so
+the former first source child becomes `[0][0]`; references are translated with
+the same rule during Telex export.
 
 ## Attribute metadata namespace
 

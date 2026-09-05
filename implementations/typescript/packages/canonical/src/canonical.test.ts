@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalize, emitFromObject } from './index.js';
+import { canonicalize, canonicalizeTelex, emitFromObject } from './index.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
+
+test('canonicalizes Telex independently of AEON source canonicalization', () => {
+    const result = canonicalizeTelex('telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n');
+
+    assert.equal(result, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
+});
 
 test('preserves structural identities on attribute-entry and node heads', () => {
     const result = canonicalize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`);

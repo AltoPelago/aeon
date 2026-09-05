@@ -1,6 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { indexEventsByPath, readAeon, readAeonChecked, readAeonStrictCustom, writeAeon } from './index.js';
+import {
+  aeonToTelex,
+  indexEventsByPath,
+  readAeon,
+  readAeonChecked,
+  readAeonStrictCustom,
+  readTelex,
+  readTelexChecked,
+  writeAeon,
+  writeTelex,
+} from './index.js';
+
+test('reads and writes Telex as a portable boundary format', () => {
+  const encoded = writeTelex([{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
+  const decoded = readTelex(encoded);
+
+  assert.equal(decoded.parsed.profile, 'aes.complete.v0');
+  assert.equal(decoded.validation.valid, true);
+  assert.deepEqual(decoded.records, [{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
+});
+
+test('checked Telex reads enforce completeness by default', () => {
+  assert.throws(
+    () => readTelexChecked('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n'),
+    /AES_MISSING_PARENT/u,
+  );
+});
+
+test('exports AEON source to Telex while keeping the AEON workflow available', () => {
+  const result = aeonToTelex('answer = 42');
+
+  assert.equal(result.compile.errors.length, 0);
+  assert.match(result.telex ?? '', /path=\$\.answer\nkind=NumberLiteral\nvalue=42/u);
+});
 
 test('writeAeon emits deterministic aeon text from object', () => {
   const result = writeAeon(

@@ -15,6 +15,16 @@ validate(aes, schema, options?)
 
 AEOS validates AES against schema constraints. It validates representation and structure. It does not resolve references, coerce values, or change input data.
 
+The interoperable entry point is:
+
+```ts
+validateTelex(input, schema, options?)
+```
+
+It decodes Telex, validates event-local and declared-profile requirements, then
+applies the same schema engine to body records. Header-plane records remain
+control-plane metadata and are not treated as schema bindings.
+
 `SchemaV1` rules target AES bindings with exactly one of:
 
 - `path`: an exact SANSA path string

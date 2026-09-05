@@ -8,6 +8,8 @@
  * - aeon doctor                  Check environment and contract wiring
  * - aeon fmt [file]              Format AEON document (stdout by default)
  * - aeon inspect <file>          Inspect AEON document (human-readable)
+ * - aeon telex decode <file>     Decode and validate Telex
+ * - aeon telex canonicalize <file> Canonicalize Telex
  * - aeon finalize <file>         Finalize AEON document to JSON
  * - aeon bind <file>             Run typed runtime binding with schema JSON
  * - aeon integrity validate <file>  Validate integrity envelope
@@ -16,7 +18,8 @@
  * 
  * Flags:
  * - --json         Output as JSON (inspect/finalize/integrity)
- * - --portable-aes Emit the in-progress portable flat AES projection (inspect JSON only)
+ * - --portable-aes Emit the portable flat AES projection (inspect JSON only)
+ * - --telex        Export the portable AES stream as Telex (inspect only)
  * - --contract-registry Trusted contract registry JSON path (doctor/bind)
  * - --write        Write formatted output back to file (fmt only)
  * - --annotations  Include annotation stream records in inspect/bind output
@@ -60,8 +63,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { aeonCompileLimits, compile, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
-import { projectPortableEvents } from '@altopelago/aeon-aes';
+import { aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { canonicalizeTelex, parseTelex, projectPortableEvents, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -124,6 +127,9 @@ switch (command) {
     case 'inspect':
         inspect(args.slice(1));
         break;
+    case 'telex':
+        telex(args.slice(1));
+        break;
     case 'finalize':
         finalize(args.slice(1));
         break;
@@ -165,6 +171,8 @@ Commands:
   doctor             Check environment and contract wiring
   fmt [file]         Format AEON document (stdout by default)
   inspect <file>     Inspect AEON document
+  telex decode <file>        Decode and validate Telex as JSON
+  telex canonicalize <file>  Canonicalize a Telex stream
   finalize <file>    Finalize AEON document to JSON
   bind <file>        Run typed runtime binding with schema JSON
   integrity validate <file>  Validate integrity envelope
@@ -176,6 +184,8 @@ Options:
   --contract-registry Trusted contract registry JSON path (doctor/bind)
   --json             Output as JSON (inspect/finalize)
   --portable-aes     Emit portable flat AES node projection (inspect JSON only)
+  --telex            Emit Telex instead of the inspect report
+  --include-headers  Include AEON headers in Telex's explicit header plane
     --annotations      Include annotation stream records in inspect/bind output
     --annotations-only Output only annotation stream records in inspect output
     --sort-annotations Sort annotation records deterministically before output (inspect/bind)
@@ -219,6 +229,9 @@ Examples:
   aeon fmt config.aeon --write
   aeon inspect config.aeon
   aeon inspect config.aeon --json
+  aeon inspect config.aeon --telex
+  aeon telex decode stream.telex.aes
+  aeon telex canonicalize stream.telex.aes
     aeon inspect config.aeon --json --annotations
     aeon inspect config.aeon --json --annotations-only
     aeon inspect config.aeon --json --annotations-only --sort-annotations
@@ -381,14 +394,47 @@ function fmt(args: string[]): void {
     process.stdout.write(formatted);
 }
 
+/** Decode/validate or canonicalize an existing Telex stream. */
+function telex(args: string[]): void {
+    const action = args[0];
+    const file = args[1];
+    const usage = 'Usage: aeon telex <decode|canonicalize> <file>';
+    if ((action !== 'decode' && action !== 'canonicalize') || !file || file.startsWith('--')) {
+        console.error(usage);
+        process.exit(2);
+    }
+
+    const input = readFile(file);
+    try {
+        if (action === 'canonicalize') {
+            process.stdout.write(canonicalizeTelex(input));
+            return;
+        }
+
+        const parsed = parseTelex(input);
+        const validation = validateTelex(parsed, {
+            profile: parsed.profile,
+            projection: parsed.projection,
+        });
+        console.log(JSON.stringify({ ...parsed, validation }, null, 2));
+        if (!validation.valid) process.exit(1);
+    } catch (error) {
+        const failure = error as { code?: string; message?: string };
+        console.error(`[${failure.code ?? 'TELEX_SYNTAX_ERROR'}] ${failure.message ?? String(error)}`);
+        process.exit(1);
+    }
+}
+
 /**
  * aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations]
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
+    const inspectUsage = 'Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--limits-file', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-clarifier-values', '--max-separator-depth', '--max-generic-depth', '--max-generic-arguments', '--max-datatype-components', '--max-value-nesting-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
+    const telexOutput = args.includes('--telex');
+    const includeHeaders = args.includes('--include-headers');
     const portableAes = args.includes('--portable-aes');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
@@ -415,6 +461,16 @@ function inspect(args: string[]): void {
     }
     if (portableAes && !jsonOutput) {
         console.error('Error: --portable-aes requires --json');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (telexOutput && (jsonOutput || portableAes || annotationsOnly || includeAnnotations)) {
+        console.error('Error: --telex cannot be combined with JSON or annotation output flags');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (includeHeaders && !telexOutput) {
+        console.error('Error: --include-headers requires --telex');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -514,7 +570,9 @@ function inspect(args: string[]): void {
     const headerInfo = extractHeaderInfo(input);
     const mode = headerInfo.mode;
 
-    if (jsonOutput) {
+    if (telexOutput && result.errors.length === 0) {
+        process.stdout.write(exportTelex(result.events, { includeHeaders }));
+    } else if (jsonOutput) {
         outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations, portableAes }, headerInfo);
     } else {
         outputMarkdown(file, result, {

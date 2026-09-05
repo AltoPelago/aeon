@@ -36,6 +36,11 @@ if (result.ok) {
 }
 ```
 
+For an interoperable boundary, `validateTelex(telex, schema, options?)` first
+checks Telex syntax and the declared AES profile, then applies the same AEOS
+schema to its body records. The validator CLI likewise accepts either an `aes`
+array or a `telex` string in its JSON request.
+
 ## What AEOS Does
 
 AEOS answers: "Is this AES structurally and representationally valid?"

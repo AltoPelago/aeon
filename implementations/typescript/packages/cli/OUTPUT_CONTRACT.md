@@ -14,6 +14,10 @@ The CLI MUST support these commands:
 - `aeon inspect <file> --json --annotations`
 - `aeon inspect <file> --json --annotations-only`
 - `aeon inspect <file> --json --annotations-only --sort-annotations`
+- `aeon inspect <file> --telex`
+- `aeon inspect <file> --telex --include-headers`
+- `aeon telex decode <file>`
+- `aeon telex canonicalize <file>`
 - `aeon finalize <file>`
 - `aeon finalize <file> --json`
 - `aeon finalize <file> --map`
@@ -66,6 +70,9 @@ The CLI MUST NOT (except as explicitly required by `aeon finalize`):
 - Materialize application-level objects
 
 The CLI is an inspection/validation tool that only exposes events + errors.
+
+Telex export is body-only by default. `--include-headers` selects the explicit
+`aeon.document.v0` header plane; it does not turn header records into body paths.
 
 ## 5) `aeon check <file>` (human)
 

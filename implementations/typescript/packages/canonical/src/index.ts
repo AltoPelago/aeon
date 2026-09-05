@@ -3,6 +3,10 @@ import { parse, type ParserError, type Document, type Binding, type Value, type 
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
+/** Canonicalize the interoperable Telex wire format; AEON source uses canonicalize(). */
+export { canonicalizeTelex } from '@altopelago/aeon-aes';
+export type { TelexLimitOptions, TelexRecord } from '@altopelago/aeon-aes';
+
 export type CanonicalError = LexerError | ParserError;
 
 export interface CanonicalResult {

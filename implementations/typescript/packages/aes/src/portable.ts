@@ -1,8 +1,13 @@
-import type { Span } from '@altopelago/aeon-lexer';
 import type { Attribute, Binding, Value } from '@altopelago/aeon-parser';
 import { formatDatatypeAnnotation } from './datatype.js';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
 import { formatPath, type CanonicalPath, type PathSegment } from './paths.js';
+import {
+    parseDatatypeDescriptor,
+    type AesDatatypeDescriptor,
+    type AesNumberLiteral,
+    type AesStringLiteral,
+} from './telex.js';
 
 export type PortableAesKind =
     | 'StringLiteral'
@@ -37,8 +42,11 @@ export interface PortableAesEvent {
     readonly kind: PortableAesKind;
     readonly identity?: string;
     readonly datatype?: string;
+    readonly generics?: readonly (AesDatatypeDescriptor | AesNumberLiteral)[];
+    readonly clarifiers?: readonly (AesStringLiteral | AesNumberLiteral)[];
     readonly value?: string;
-    readonly span?: Span;
+    readonly origin?: string;
+    readonly span?: string;
 }
 
 /**
@@ -71,7 +79,7 @@ export function projectPortableEvents(events: readonly AssignmentEvent[]): reado
                 path: headPath,
                 kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
-                ...(value.datatype !== null ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
+                ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
                 value: value.tag,
             });
             projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
@@ -132,7 +140,6 @@ function projectParserAttributes(
 interface ValueTreeMetadata {
     readonly identity?: string;
     readonly datatype?: string;
-    readonly span?: Span;
     readonly mappedAttributes?: ReadonlyMap<string, AttributeEntry>;
     readonly parserAttributes?: readonly Attribute[];
 }
@@ -150,9 +157,8 @@ function projectValueTree(
         path,
         kind: portableValue.kind,
         ...(metadata.identity !== undefined ? { identity: metadata.identity } : {}),
-        ...(metadata.datatype !== undefined ? { datatype: metadata.datatype } : {}),
+        ...projectDatatype(metadata.datatype),
         ...(portableValue.value !== undefined ? { value: portableValue.value } : {}),
-        ...(metadata.span !== undefined ? { span: metadata.span } : {}),
     });
     projectMappedAttributes(metadata.mappedAttributes, path, projected, nodeSourcePaths);
     projectParserAttributes(metadata.parserAttributes ?? [], path, projected, nodeSourcePaths);
@@ -175,7 +181,7 @@ function projectValueTree(
                 path: headPath,
                 kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
-                ...(value.datatype !== null ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
+                ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
                 value: value.tag,
             });
             projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
@@ -201,7 +207,6 @@ function projectBindingTree(
         {
             ...(binding.structuralId !== null ? { identity: binding.structuralId } : {}),
             ...(binding.datatype !== null ? { datatype: formatDatatypeAnnotation(binding.datatype) } : {}),
-            span: binding.span,
             parserAttributes: binding.attributes,
         },
         projected,
@@ -216,7 +221,7 @@ function projectAnonymousTree(
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     if (rawValue.type !== 'TypedValue') {
-        projectValueTree(path, rawValue, { span: rawValue.span }, projected, nodeSourcePaths);
+        projectValueTree(path, rawValue, {}, projected, nodeSourcePaths);
         return;
     }
     projectValueTree(
@@ -225,7 +230,6 @@ function projectAnonymousTree(
         {
             ...(rawValue.structuralId !== null ? { identity: rawValue.structuralId } : {}),
             ...(rawValue.datatype !== null ? { datatype: formatDatatypeAnnotation(rawValue.datatype) } : {}),
-            span: rawValue.span,
             parserAttributes: rawValue.attributes,
         },
         projected,
@@ -271,9 +275,18 @@ function projectEvent(
         path: formatPath(path),
         kind: projectedValue.kind,
         ...(event.structuralId != null ? { identity: event.structuralId } : {}),
-        ...(event.datatype !== undefined ? { datatype: event.datatype } : {}),
+        ...projectDatatype(event.datatype),
         ...(projectedValue.value !== undefined ? { value: projectedValue.value } : {}),
-        span: event.span,
+    };
+}
+
+function projectDatatype(datatype: string | undefined): Partial<PortableAesEvent> {
+    if (datatype === undefined) return {};
+    const descriptor = parseDatatypeDescriptor(datatype);
+    return {
+        datatype: descriptor.datatype,
+        generics: descriptor.generics,
+        clarifiers: descriptor.clarifiers,
     };
 }
 

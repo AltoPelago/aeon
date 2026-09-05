@@ -818,6 +818,44 @@ describe('AEON CLI output contract', () => {
             );
         });
 
+        it('exports Telex and keeps headers opt-in', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-export-'));
+            const file = path.join(dir, 'document.aeon');
+            fs.writeFileSync(file, 'aeon:mode = "transport"\nanswer = 42\n', 'utf-8');
+
+            const bodyOnly = await runCli(['inspect', file, '--telex']);
+            assert.strictEqual(bodyOnly.code, 0);
+            assert.strictEqual(bodyOnly.stderr, '');
+            assert.match(bodyOnly.stdout, /path=\$\.answer\nkind=NumberLiteral\nvalue=42/u);
+            assert.doesNotMatch(bodyOnly.stdout, /header=/u);
+
+            const withHeaders = await runCli(['inspect', file, '--telex', '--include-headers']);
+            assert.strictEqual(withHeaders.code, 0);
+            assert.match(withHeaders.stdout, /projection=aeon\.document\.v0/u);
+            assert.match(withHeaders.stdout, /header=\$\.\["aeon:mode"\]/u);
+        });
+
+        it('decodes and canonicalizes Telex input', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-import-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            fs.writeFileSync(
+                file,
+                'telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n',
+                'utf-8',
+            );
+
+            const decoded = await runCli(['telex', 'decode', file]);
+            assert.strictEqual(decoded.code, 0);
+            assert.strictEqual(decoded.stderr, '');
+            const payload = JSON.parse(decoded.stdout) as { records: Array<{ value?: string }>; validation: { valid: boolean } };
+            assert.strictEqual(payload.validation.valid, true);
+            assert.strictEqual(payload.records[0]?.value, 'A');
+
+            const canonical = await runCli(['telex', 'canonicalize', file]);
+            assert.strictEqual(canonical.code, 0);
+            assert.strictEqual(canonical.stdout, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
+        });
+
         it('supports --sort-annotations with annotations-only JSON output', async () => {
             const { code, stdout, stderr } = await runCli([
                 'inspect',
