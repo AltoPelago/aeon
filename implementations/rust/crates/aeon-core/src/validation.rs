@@ -980,10 +980,13 @@ fn validate_datatype_shape(
             format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
-    if generic_depth(datatype) > max_generic_depth {
+    let observed_generic_depth = generic_depth(datatype);
+    if observed_generic_depth > max_generic_depth {
         return Some(Diagnostic::new(
             "GENERIC_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds generic depth limit"),
+            format!(
+                "Generic depth {observed_generic_depth} exceeds max_generic_depth {max_generic_depth}"
+            ),
         ));
     }
     if let Value::NumberLiteral { raw } = &event.value
@@ -1018,10 +1021,13 @@ fn validate_datatype_shape_light(
             format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
-    if generic_depth(datatype) > max_generic_depth {
+    let observed_generic_depth = generic_depth(datatype);
+    if observed_generic_depth > max_generic_depth {
         return Some(Diagnostic::new(
             "GENERIC_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds generic depth limit"),
+            format!(
+                "Generic depth {observed_generic_depth} exceeds max_generic_depth {max_generic_depth}"
+            ),
         ));
     }
     if let Value::NumberLiteral { raw } = value
@@ -1611,7 +1617,9 @@ fn generic_depth(datatype: &str) -> usize {
             _ => {}
         }
     }
-    max_depth
+    // A single generic application (`list<int>`) is depth 0. Each generic
+    // application nested inside another increments the recursion depth.
+    max_depth.saturating_sub(1)
 }
 
 fn is_valid_number_literal(raw: &str) -> bool {

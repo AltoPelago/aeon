@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aeonCompileLimits, loadAeonicLimits } from './limits.js';
+import { aeonCompileLimits, aeonTransportLimits, finalizationLimits, loadAeonicLimits } from './limits.js';
 
 const SOURCE = `limits_id = "altopelago.aeonic-limits.v1"
 limits_version = "1.0.0"
@@ -49,6 +49,15 @@ test('loads and normalizes the closed v1 limits file under bootstrap policy', ()
         maxInputBytes: 16777216,
         maxEvents: 100000,
     });
+    assert.deepStrictEqual(finalizationLimits(loaded.limits), {
+        maxReferenceDepth: 64,
+        maxMaterializedWeight: 1000000,
+    });
+    assert.deepStrictEqual(aeonTransportLimits(loaded.limits), {
+        maxFrameBytes: 16777216,
+        maxBufferBytes: 33554432,
+        maxHeaderBytes: 65536,
+    });
 });
 
 test('rejects unknown fields and accepts the two custom limit sentinels', () => {
@@ -63,4 +72,10 @@ test('rejects unknown fields and accepts the two custom limit sentinels', () => 
     const effective = aeonCompileLimits(sentinels.limits);
     assert.strictEqual(effective.maxEvents, undefined);
     assert.strictEqual(effective.maxInputBytes, 16777216);
+
+    const processingSentinels = loadAeonicLimits(SOURCE
+        .replace('max_reference_depth = 64', 'max_reference_depth = !"unBound"')
+        .replace('max_materialized_weight = 1000000', 'max_materialized_weight = !"useImplementation"'));
+    assert.ok(processingSentinels.limits);
+    assert.deepStrictEqual(finalizationLimits(processingSentinels.limits), {});
 });

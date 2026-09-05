@@ -34,6 +34,32 @@ test('FrameDecoder enforces buffer limits', () => {
     assert.throws(() => decoder.push(new Uint8Array([1, 2, 3, 4, 5])), /BUFFER_TOO_LARGE/);
 });
 
+test('canonical byte-limit option names take precedence over migration aliases', () => {
+    assert.throws(
+        () => encodeFrame('abcd', { maxFrameBytes: 3, maxFrameSize: 4 }),
+        /max_frame_bytes 3/,
+    );
+    const decoder = new FrameDecoder({ maxBufferBytes: 4, maxBufferSize: 5 });
+    assert.throws(
+        () => decoder.push(new Uint8Array([0, 0, 0, 1, 0])),
+        /max_buffer_bytes 4/,
+    );
+});
+
+test('transport limits are inclusive at their configured boundary', () => {
+    assert.equal(encodeFrame('abc', { maxFrameBytes: 3 }).length, 7);
+    const decoder = new FrameDecoder({ maxBufferBytes: 4 });
+    assert.deepStrictEqual(decoder.push(new Uint8Array([0, 0, 0, 1])), []);
+    assert.deepStrictEqual(inspectHeader('a', { maxHeaderBytes: 1 }).errors, []);
+});
+
+test('transport limits reject one byte over their configured boundary', () => {
+    assert.throws(() => encodeFrame('abcd', { maxFrameBytes: 3 }), /FRAME_TOO_LARGE/);
+    const decoder = new FrameDecoder({ maxBufferBytes: 4 });
+    assert.throws(() => decoder.push(new Uint8Array([0, 0, 0, 1, 0])), /BUFFER_TOO_LARGE/);
+    assert.equal(inspectHeader('ab', { maxHeaderBytes: 1 }).errors[0]?.code, 'HEADER_TOO_LARGE');
+});
+
 test('inspectHeader reads header fields', () => {
     const input = `aeon:version = "2.0"\naeon:mode = "strict"\na = 1`;
     const result = inspectHeader(input);

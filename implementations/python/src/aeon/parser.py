@@ -337,8 +337,6 @@ class Parser:
     ) -> TypeAnnotation:
         if components is None:
             components = [0]
-        if generic_depth > self.max_generic_depth:
-            raise GenericDepthExceededError(generic_depth, self.max_generic_depth, self.peek().span)
         self.count_datatype_component(components, self.peek().span)
         start = self.peek().span.start
         name = self.consume("IDENT", "Expected type name").value
@@ -346,6 +344,8 @@ class Parser:
         clarifiers: list[str | int | float] = []
         self.skip_layout()
         if self.check("LANGLE"):
+            if generic_depth > self.max_generic_depth:
+                raise GenericDepthExceededError(generic_depth, self.max_generic_depth, self.peek().span)
             if name == "radix":
                 raise SyntaxError("Radix datatype bases must use bracket syntax like 'radix[10]'", self.peek().span)
             self.advance()

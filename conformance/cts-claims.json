@@ -17,8 +17,8 @@
         },
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
-          "status": "claimed",
+          "snapshot_id": "core-next-cts-v1-snapshot-0.1",
+          "status": "experimental",
           "command": "pnpm test:cts:core"
         },
         {
@@ -60,8 +60,8 @@
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
-          "status": "claimed",
+          "snapshot_id": "core-next-cts-v1-snapshot-0.1",
+          "status": "experimental",
           "command": "python3 tools/run_cts.py core"
         },
         {
@@ -115,8 +115,8 @@
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
-          "status": "claimed",
+          "snapshot_id": "core-next-cts-v1-snapshot-0.1",
+          "status": "experimental",
           "command": "python3 tools/run_cts.py core"
         },
         {

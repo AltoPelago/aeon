@@ -86,6 +86,17 @@ export interface AeonCompileLimits {
     readonly maxEvents?: number;
 }
 
+export interface FinalizationLimits {
+    readonly maxReferenceDepth?: number;
+    readonly maxMaterializedWeight?: number;
+}
+
+export interface AeonTransportLimits {
+    readonly maxFrameBytes: number;
+    readonly maxBufferBytes: number;
+    readonly maxHeaderBytes: number;
+}
+
 export type AeonicLimitsLoadResult =
     | { readonly limits: AeonicLimitsV1; readonly errors: readonly [] }
     | { readonly limits: null; readonly errors: readonly LimitsDiagnostic[] };
@@ -162,6 +173,23 @@ export function aeonCompileLimits(limits: AeonicLimitsV1): AeonCompileLimits {
     };
 }
 
+/** Resolve the shared reference/materialization subset for finalization. */
+export function finalizationLimits(limits: AeonicLimitsV1): FinalizationLimits {
+    return {
+        ...optionalProcessing(limits.processing.maxReferenceDepth, 'maxReferenceDepth'),
+        ...optionalProcessing(limits.processing.maxMaterializedWeight, 'maxMaterializedWeight'),
+    };
+}
+
+/** Resolve the TypeScript framing transport subset. */
+export function aeonTransportLimits(limits: AeonicLimitsV1): AeonTransportLimits {
+    return {
+        maxFrameBytes: bounded(limits.transport.maxFrameBytes, 16_777_216, 4_294_967_295, 'max_frame_bytes'),
+        maxBufferBytes: bounded(limits.transport.maxBufferBytes, 33_554_432, 4_294_967_295, 'max_buffer_bytes'),
+        maxHeaderBytes: bounded(limits.transport.maxHeaderBytes, 65_536, 16_777_216, 'max_header_bytes'),
+    };
+}
+
 function bounded(setting: LimitSetting, implementationDefault: number, hardCeiling: number, name: string): number {
     if (setting === 'useImplementation') return implementationDefault;
     if (setting === 'unBound') return hardCeiling;
@@ -172,6 +200,14 @@ function bounded(setting: LimitSetting, implementationDefault: number, hardCeili
 function optional(setting: LimitSetting, implementationDefault: number, key: 'maxInputBytes' | 'maxEvents'): Partial<AeonCompileLimits> {
     if (setting === 'unBound') return {};
     return { [key]: setting === 'useImplementation' ? implementationDefault : setting };
+}
+
+function optionalProcessing(
+    setting: LimitSetting,
+    key: keyof FinalizationLimits
+): Partial<FinalizationLimits> {
+    if (setting === 'unBound' || setting === 'useImplementation') return {};
+    return { [key]: setting };
 }
 
 function decodeBinding(binding: Binding, path: string, errors: LimitsDiagnostic[]): Decoded | undefined {

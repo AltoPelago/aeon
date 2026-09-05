@@ -60,7 +60,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { aeonCompileLimits, compile, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { aeonCompileLimits, compile, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
 import { projectPortableEvents } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
@@ -541,8 +541,8 @@ function inspect(args: string[]): void {
  * Purpose: finalize AES into JSON output
  */
 function finalize(args: string[]): void {
-    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
+    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--limits-file', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
     const effectiveMode = resolveCoreMode(args);
@@ -552,6 +552,7 @@ function finalize(args: string[]): void {
     const maxInputBytes = resolveMaxInputBytes(args);
     const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
     const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
     const includePaths = getFlagValues(args, '--include-path');
     const projected = args.includes('--projected') || includePaths.length > 0;
 
@@ -588,6 +589,10 @@ function finalize(args: string[]): void {
         console.error('Error: Invalid value for --max-reference-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (args.includes('--limits-file') && !limitsFile) {
+        console.error('Error: --limits-file requires a path');
+        process.exit(2);
+    }
 
     if (args.includes('--include-path') && includePaths.length === 0) {
         console.error('Error: Missing value for --include-path <$.path>');
@@ -601,14 +606,34 @@ function finalize(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFileWithLimit(file, maxInputBytes);
+    let limitsOptions: ReturnType<typeof aeonCompileLimits> | undefined;
+    let finalizeLimitOptions: ReturnType<typeof finalizationLimits> | undefined;
+    if (limitsFile) {
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            limitsOptions = aeonCompileLimits(loaded.limits);
+            finalizeLimitOptions = finalizationLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const effectiveInputLimit = maxInputBytes ?? limitsOptions?.maxInputBytes;
+    const input = readFileWithLimit(file, effectiveInputLimit);
     const result = compile(input, {
+        ...limitsOptions,
         recovery,
         ...(effectiveMode ? { mode: effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
     const finalizeOptions: FinalizeOptions = {
+        ...finalizeLimitOptions,
         mode,
         scope,
         ...(result.header ? { header: result.header } : {}),

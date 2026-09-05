@@ -492,16 +492,16 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should enforce max_generic_depth for nested generic type arguments', () => {
-            const tokens = tokenize('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))').tokens;
+            const tokens = tokenize('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)').tokens;
             const result = parse(tokens, { maxGenericDepth: 1 });
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'GENERIC_DEPTH_EXCEEDED');
         });
 
-        it('should allow nested generic type arguments when maxGenericDepth is raised', () => {
+        it('should allow nested generic type arguments at maxGenericDepth', () => {
             const tokens = tokenize('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))').tokens;
-            const result = parse(tokens, { maxGenericDepth: 8 });
+            const result = parse(tokens, { maxGenericDepth: 1 });
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['tuple<n, n>', 'tuple<n, n>']);

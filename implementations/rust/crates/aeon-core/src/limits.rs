@@ -122,6 +122,12 @@ pub struct AeonCompileLimits {
     pub max_events: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinalizationLimits {
+    pub max_reference_depth: Option<usize>,
+    pub max_materialized_weight: Option<usize>,
+}
+
 pub fn load_aeonic_limits(source: &str) -> Result<AeonicLimitsV1, Vec<LimitsDiagnostic>> {
     let result = compile(
         source,
@@ -268,6 +274,14 @@ pub fn aeon_compile_limits(limits: &AeonicLimitsV1) -> Result<AeonCompileLimits,
         max_input_bytes: optional(limits.aeon.max_input_bytes, 16_777_216),
         max_events: optional(limits.processing.max_events, 100_000),
     })
+}
+
+#[must_use]
+pub const fn finalization_limits(limits: &AeonicLimitsV1) -> FinalizationLimits {
+    FinalizationLimits {
+        max_reference_depth: optional_processing(limits.processing.max_reference_depth),
+        max_materialized_weight: optional_processing(limits.processing.max_materialized_weight),
+    }
 }
 
 fn validate_bindings(bindings: &[Binding]) -> Result<AeonicLimitsV1, LimitsDiagnostic> {
@@ -549,6 +563,13 @@ const fn optional(setting: LimitSetting, implementation_default: usize) -> Optio
     }
 }
 
+const fn optional_processing(setting: LimitSetting) -> Option<usize> {
+    match setting {
+        LimitSetting::Value(value) => Some(value),
+        LimitSetting::UnBound | LimitSetting::UseImplementation => None,
+    }
+}
+
 fn diagnostic(
     code: impl Into<String>,
     path: impl Into<String>,
@@ -563,7 +584,7 @@ fn diagnostic(
 
 #[cfg(test)]
 mod tests {
-    use super::{LimitSetting, aeon_compile_limits, load_aeonic_limits};
+    use super::{LimitSetting, aeon_compile_limits, finalization_limits, load_aeonic_limits};
 
     const SOURCE: &str = r#"limits_id = "altopelago.aeonic-limits.v1"
 limits_version = "1.0.0"
@@ -600,6 +621,9 @@ transport = { max_frame_bytes = 16777216, max_buffer_bytes = 33554432, max_heade
         let effective = aeon_compile_limits(&limits).expect("effective limits");
         assert_eq!(effective.max_datatype_components, 64);
         assert_eq!(effective.max_path_depth, 1024);
+        let finalize = finalization_limits(&limits);
+        assert_eq!(finalize.max_reference_depth, Some(64));
+        assert_eq!(finalize.max_materialized_weight, Some(1_000_000));
     }
 
     #[test]

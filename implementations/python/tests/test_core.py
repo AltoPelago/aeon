@@ -704,13 +704,13 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["$.a", "$.a.a", "$.a.b"], [event["path"] for event in result.events])
 
     def test_generic_depth_is_enforced_by_default(self) -> None:
-        result = compile_source('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))')
+        result = compile_source('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)')
         self.assertEqual(["GENERIC_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
-    def test_generic_depth_allows_nested_generics_when_raised(self) -> None:
+    def test_generic_depth_allows_nested_generics_at_limit(self) -> None:
         result = compile_source(
             't:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))',
-            CompileOptions(max_generic_depth=8),
+            CompileOptions(max_generic_depth=1),
         )
         self.assertEqual([], result.errors)
         paths = [event["path"] for event in result.events]

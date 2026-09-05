@@ -53,12 +53,18 @@ pnpm test:fuzz
 pnpm test:stress
 pnpm test:cts
 pnpm test:cts:core
+pnpm test:cts:core:released
 pnpm test:cts:aes
+pnpm test:cts:finalize:limits
+pnpm test:cts:transport:limits
 pnpm test:cts:annotations
 pnpm test:cts:all
 ```
 
-The CTS commands now check for the required built outputs first and will tell you to run `pnpm build` if those artifacts are missing.
+`test:cts:core` runs the consolidated next Core target used by current development.
+`test:cts:core:released` pins the immutable `core-cts-v1-snapshot-0.2`
+compatibility target. The CTS commands check for the required built outputs first
+and will tell you to run `pnpm build` if those artifacts are missing.
 
 Package-scoped examples from this workspace:
 

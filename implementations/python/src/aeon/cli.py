@@ -9,7 +9,7 @@ from .annotations import build_annotation_stream, sort_annotation_records
 from .canonical import canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
-from .limits import aeon_compile_limits, load_aeonic_limits
+from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits
 from .portable import project_portable_events
 
 
@@ -231,6 +231,7 @@ def finalize(args: list[str]) -> int:
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
     max_materialized_weight = numeric_flag_value(args, "--max-materialized-weight")
     max_reference_depth = numeric_flag_value(args, "--max-reference-depth")
+    limits_file = flag_value(args, "--limits-file")
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
         return 2
@@ -240,28 +241,50 @@ def finalize(args: list[str]) -> int:
     if max_reference_depth is None and "--max-reference-depth" in args:
         print("Error: Invalid value for --max-reference-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
+    if limits_file is None and "--limits-file" in args:
+        print("Error: --limits-file requires a path", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
         print("Error: No file specified", file=sys.stderr)
         return 2
 
+    compile_kwargs: dict[str, object] = {
+        "recovery": recovery,
+        "datatype_policy": datatype_policy,
+        "mode": mode,
+    }
+    finalize_kwargs: dict[str, int] = {}
+    if limits_file is not None:
+        loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
+        if loaded.limits is None:
+            for error in loaded.errors:
+                print(f"[{error.code}] {error.path}: {error.message}", file=sys.stderr)
+            return 2
+        try:
+            compile_kwargs.update(aeon_compile_limits(loaded.limits))
+            finalize_kwargs.update(finalization_limits(loaded.limits))
+        except ValueError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+    if max_input_bytes is not None:
+        compile_kwargs["max_input_bytes"] = max_input_bytes
+    if max_materialized_weight is not None:
+        finalize_kwargs["max_materialized_weight"] = max_materialized_weight
+    if max_reference_depth is not None:
+        finalize_kwargs["max_reference_depth"] = max_reference_depth
+
     source = Path(file_arg).read_text(encoding="utf-8")
     result = compile_source(
         source,
-        CompileOptions(
-            recovery=recovery,
-            datatype_policy=datatype_policy,
-            mode=mode,
-            max_input_bytes=max_input_bytes,
-        ),
+        CompileOptions(**compile_kwargs),
     )
     finalize_options = FinalizeOptions(
         mode="loose" if "--loose" in args else "strict",
         materialization="projected" if projected else "all",
         include_paths=include_paths or None,
         scope=scope,
-        max_materialized_weight=max_materialized_weight,
-        max_reference_depth=max_reference_depth,
+        **finalize_kwargs,
     )
     finalized = finalize_map(result, finalize_options) if map_output else finalize_json(result, finalize_options)
     print(json.dumps(finalized, indent=2))
@@ -331,7 +354,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
     )
 
 

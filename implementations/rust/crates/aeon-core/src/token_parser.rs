@@ -28,7 +28,7 @@ fn is_bare_key_kind(kind: TokenKind) -> bool {
 
 pub(crate) fn parse_document_from_tokens(
     input: &str,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     max_attribute_depth: usize,
     max_clarifier_values: usize,
     max_generic_depth: usize,
@@ -53,7 +53,7 @@ pub(crate) fn parse_document_from_tokens(
     }
     TokenParser::new(
         &lexed.tokens,
-        max_nesting_depth,
+        max_value_nesting_depth,
         max_attribute_depth,
         max_clarifier_values,
         max_generic_depth,
@@ -70,7 +70,7 @@ pub(crate) struct ParseRecoveryResult {
 
 pub(crate) fn parse_document_from_tokens_recovery(
     input: &str,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     max_attribute_depth: usize,
     max_clarifier_values: usize,
     max_generic_depth: usize,
@@ -102,7 +102,7 @@ pub(crate) fn parse_document_from_tokens_recovery(
     }
     TokenParser::new(
         &lexed.tokens,
-        max_nesting_depth,
+        max_value_nesting_depth,
         max_attribute_depth,
         max_clarifier_values,
         max_generic_depth,
@@ -115,7 +115,7 @@ pub(crate) fn parse_document_from_tokens_recovery(
 struct TokenParser<'a> {
     tokens: &'a [Token],
     current: usize,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     current_nesting_depth: usize,
     max_attribute_depth: usize,
     max_clarifier_values: usize,
@@ -128,7 +128,7 @@ struct TokenParser<'a> {
 impl<'a> TokenParser<'a> {
     fn new(
         tokens: &'a [Token],
-        max_nesting_depth: usize,
+        max_value_nesting_depth: usize,
         max_attribute_depth: usize,
         max_clarifier_values: usize,
         max_generic_depth: usize,
@@ -138,7 +138,7 @@ impl<'a> TokenParser<'a> {
         Self {
             tokens,
             current: 0,
-            max_nesting_depth,
+            max_value_nesting_depth,
             current_nesting_depth: 0,
             max_attribute_depth,
             max_clarifier_values,
@@ -299,18 +299,6 @@ impl<'a> TokenParser<'a> {
         generic_depth: usize,
         component_count: &mut usize,
     ) -> Result<String, Diagnostic> {
-        if generic_depth > self.max_generic_depth {
-            return Err(Diagnostic {
-                code: String::from("GENERIC_DEPTH_EXCEEDED"),
-                path: Some(String::from("$")),
-                span: Some(self.peek().span),
-                phase: None,
-                message: format!(
-                    "Generic depth {} exceeds max_generic_depth {}",
-                    generic_depth, self.max_generic_depth
-                ),
-            });
-        }
         self.count_datatype_component(component_count, self.peek().span)?;
 
         let start = self.current;
@@ -330,6 +318,18 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
+            if generic_depth > self.max_generic_depth {
+                return Err(Diagnostic {
+                    code: String::from("GENERIC_DEPTH_EXCEEDED"),
+                    path: Some(String::from("$")),
+                    span: Some(self.previous().span),
+                    phase: None,
+                    message: format!(
+                        "Generic depth {} exceeds max_generic_depth {}",
+                        generic_depth, self.max_generic_depth
+                    ),
+                });
+            }
             if datatype_name == "radix" {
                 return Err(Diagnostic {
                     code: String::from("SYNTAX_ERROR"),
@@ -514,12 +514,12 @@ impl<'a> TokenParser<'a> {
                     span: Some(span),
                     phase: None,
                     message: format!(
-                        "Value nesting depth {} exceeds max_nesting_depth {}",
-                        projected_depth, self.max_nesting_depth
+                        "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                        projected_depth, self.max_value_nesting_depth
                     ),
                 });
             }
-            if self.current_nesting_depth > self.max_nesting_depth {
+            if self.current_nesting_depth > self.max_value_nesting_depth {
                 let span = self.peek().span;
                 let observed_depth = self.current_nesting_depth;
                 self.current_nesting_depth -= 1;
@@ -529,8 +529,8 @@ impl<'a> TokenParser<'a> {
                     span: Some(span),
                     phase: None,
                     message: format!(
-                        "Value nesting depth {} exceeds max_nesting_depth {}",
-                        observed_depth, self.max_nesting_depth
+                        "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                        observed_depth, self.max_value_nesting_depth
                     ),
                 });
             }
@@ -621,7 +621,7 @@ impl<'a> TokenParser<'a> {
         // parse_value() has already counted the current value slot, so only the
         // additional nested container openers beyond that first value add depth.
         let projected_depth = self.current_nesting_depth + extra_depth.saturating_sub(1);
-        (projected_depth > self.max_nesting_depth).then_some(projected_depth)
+        (projected_depth > self.max_value_nesting_depth).then_some(projected_depth)
     }
 
     fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -2356,13 +2356,13 @@ group:object = {
         let error = parse_document_from_tokens(&source, 256, 1, 1, 1, 32, 64)
             .expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
-        assert!(error.message.contains("max_nesting_depth 256"));
+        assert!(error.message.contains("max_value_nesting_depth 256"));
     }
 
     #[test]
     fn honors_configured_generic_depth_limit() {
         let source = "v:tuple<tuple<number>> = ((1))\n";
-        let bindings = parse_document_from_tokens(source, 256, 1, 1, 2, 32, 64)
+        let bindings = parse_document_from_tokens(source, 256, 1, 1, 1, 32, 64)
             .expect("expected generic depth pass");
         assert_eq!(
             bindings[0].datatype.as_deref(),
@@ -2372,7 +2372,7 @@ group:object = {
 
     #[test]
     fn reports_generic_depth_without_off_by_one_message() {
-        let source = "v:tuple<tuple<number>> = ((1))\n";
+        let source = "v:tuple<tuple<tuple<number>>> = (((1)))\n";
         let error = parse_document_from_tokens(source, 256, 1, 1, 1, 32, 64)
             .expect_err("expected depth error");
         assert_eq!(error.code, "GENERIC_DEPTH_EXCEEDED");

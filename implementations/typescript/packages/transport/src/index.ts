@@ -1,7 +1,11 @@
 import { Transform } from 'node:stream';
 
 export interface FrameOptions {
+    readonly maxFrameBytes?: number;
+    readonly maxBufferBytes?: number;
+    /** @deprecated Use maxFrameBytes. */
     readonly maxFrameSize?: number;
+    /** @deprecated Use maxBufferBytes. */
     readonly maxBufferSize?: number;
 }
 
@@ -44,9 +48,9 @@ const DEFAULT_MAX_HEADER = 64 * 1024;
 
 export function encodeFrame(payload: Uint8Array | string, options: FrameOptions = {}): Uint8Array {
     const data = toBytes(payload);
-    const maxFrameSize = options.maxFrameSize ?? DEFAULT_MAX_FRAME;
-    if (data.length > maxFrameSize) {
-        throw new TransportError('FRAME_TOO_LARGE', `Frame size ${data.length} exceeds max ${maxFrameSize}`);
+    const maxFrameBytes = options.maxFrameBytes ?? options.maxFrameSize ?? DEFAULT_MAX_FRAME;
+    if (data.length > maxFrameBytes) {
+        throw new TransportError('FRAME_TOO_LARGE', `Frame size ${data.length} exceeds max_frame_bytes ${maxFrameBytes}`);
     }
     const header = new Uint8Array(4);
     const length = data.length >>> 0;
@@ -70,9 +74,9 @@ export function decodeFrame(
         (buffer[1]! << 16) |
         (buffer[2]! << 8) |
         buffer[3]!;
-    const maxFrameSize = options.maxFrameSize ?? DEFAULT_MAX_FRAME;
-    if (length < 0 || length > maxFrameSize) {
-        throw new TransportError('FRAME_TOO_LARGE', `Frame size ${length} exceeds max ${maxFrameSize}`);
+    const maxFrameBytes = options.maxFrameBytes ?? options.maxFrameSize ?? DEFAULT_MAX_FRAME;
+    if (length < 0 || length > maxFrameBytes) {
+        throw new TransportError('FRAME_TOO_LARGE', `Frame size ${length} exceeds max_frame_bytes ${maxFrameBytes}`);
     }
     if (buffer.length < 4 + length) return null;
     const frame = buffer.slice(4, 4 + length);
@@ -91,9 +95,9 @@ export class FrameDecoder {
 
     push(chunk: Uint8Array): Uint8Array[] {
         this.buffer = concatBytes(this.buffer, chunk);
-        const maxBufferSize = this.options.maxBufferSize ?? DEFAULT_MAX_BUFFER;
-        if (this.buffer.length > maxBufferSize) {
-            throw new TransportError('BUFFER_TOO_LARGE', `Buffer size ${this.buffer.length} exceeds max ${maxBufferSize}`);
+        const maxBufferBytes = this.options.maxBufferBytes ?? this.options.maxBufferSize ?? DEFAULT_MAX_BUFFER;
+        if (this.buffer.length > maxBufferBytes) {
+            throw new TransportError('BUFFER_TOO_LARGE', `Buffer size ${this.buffer.length} exceeds max_buffer_bytes ${maxBufferBytes}`);
         }
         const frames: Uint8Array[] = [];
         while (true) {
@@ -165,7 +169,7 @@ export function inspectHeader(input: string | Uint8Array, options: HeaderInspect
             errors: [{
                 level: 'error',
                 code: 'HEADER_TOO_LARGE',
-                message: `Header inspection limit ${maxHeaderBytes} bytes exceeded`,
+                message: `Header size ${sourceBytes.length} exceeds max_header_bytes ${maxHeaderBytes}`,
             }],
             warnings: [],
         };

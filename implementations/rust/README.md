@@ -143,6 +143,10 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
+`core` runs the consolidated next Core target. Use `core-released` to run the
+immutable `core-cts-v1-snapshot-0.2` compatibility target explicitly; it is not
+part of the default current-development run.
+
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before
 running the requested lanes.

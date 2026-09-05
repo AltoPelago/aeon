@@ -432,9 +432,6 @@ class Parser {
         genericDepth: number = 0,
         components: { count: number } = { count: 0 }
     ): TypeAnnotation {
-        if (genericDepth > this.maxGenericDepth) {
-            throw new GenericDepthExceededError(genericDepth, this.maxGenericDepth, this.peek().span);
-        }
         this.countDatatypeComponent(components, this.peek().span);
         const start = this.peek().span.start;
         const name = this.consume(TokenType.Identifier, "Expected type name").value;
@@ -443,6 +440,9 @@ class Parser {
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
+            if (genericDepth > this.maxGenericDepth) {
+                throw new GenericDepthExceededError(genericDepth, this.maxGenericDepth, this.peek().span);
+            }
             if (name === 'radix') {
                 throw new SyntaxError(
                     "Radix datatype bases must use bracket syntax like 'radix[10]'",

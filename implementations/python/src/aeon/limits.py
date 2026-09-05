@@ -108,6 +108,17 @@ def aeon_compile_limits(limits: AeonicLimitsV1) -> dict[str, int | None]:
     }
 
 
+def finalization_limits(limits: AeonicLimitsV1) -> dict[str, int]:
+    result: dict[str, int] = {}
+    reference_depth = limits.processing["max_reference_depth"]
+    materialized_weight = limits.processing["max_materialized_weight"]
+    if isinstance(reference_depth, int):
+        result["max_reference_depth"] = reference_depth
+    if isinstance(materialized_weight, int):
+        result["max_materialized_weight"] = materialized_weight
+    return result
+
+
 def _decode_binding(binding: Binding, path: str, errors: list[LimitsDiagnostic]) -> Any:
     if binding.datatype is not None or binding.attributes or binding.structural_id is not None:
         errors.append(LimitsDiagnostic("LIMITS_DECORATION_NOT_ALLOWED", path, "Limits bindings may not use datatypes, attributes, or structural identities"))

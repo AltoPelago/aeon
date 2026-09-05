@@ -605,13 +605,13 @@ describe('Core - compile()', () => {
 
     describe('generic depth policy', () => {
         it('should enforce max_generic_depth by default', () => {
-            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))');
+            const result = compile('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'GENERIC_DEPTH_EXCEEDED'));
         });
 
-        it('should allow nested generic annotations when max_generic_depth is raised', () => {
-            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))', { maxGenericDepth: 8 });
+        it('should allow nested generic annotations at max_generic_depth', () => {
+            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))', { maxGenericDepth: 1 });
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t'));
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t[0]'));

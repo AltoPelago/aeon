@@ -297,7 +297,37 @@ function sortObjectKeys(value) {
   );
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents }) {
+function mergeObjects(base, overlay) {
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return overlay;
+  if (!overlay || typeof overlay !== 'object' || Array.isArray(overlay)) return overlay ?? base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    merged[key] = key in merged ? mergeObjects(merged[key], value) : value;
+  }
+  return merged;
+}
+
+function renderAeonValue(value, indent = 0) {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Number.isSafeInteger(value) && value >= 0) return String(value);
+  if (Array.isArray(value)) {
+    const padding = ' '.repeat(indent + 2);
+    return `[\n${value.map((entry) => `${padding}${renderAeonValue(entry, indent + 2)}`).join('\n')}\n${' '.repeat(indent)}]`;
+  }
+  if (value && typeof value === 'object') {
+    const padding = ' '.repeat(indent + 2);
+    return `{\n${Object.entries(value).map(([key, entry]) => `${padding}${key} = ${renderAeonValue(entry, indent + 2)}`).join('\n')}\n${' '.repeat(indent)}}`;
+  }
+  fail(`Unsupported CTS limits value: ${JSON.stringify(value)}`);
+}
+
+function renderLimitsFile(limits) {
+  return Object.entries(limits)
+    .map(([key, value]) => `${key} = ${renderAeonValue(value)}`)
+    .join('\n\n') + '\n';
+}
+
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -305,6 +335,11 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portabl
   const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'inspect', file, '--json'] : ['inspect', file, '--json'];
+  if (limits) {
+    const limitsFile = path.join(dir, 'limits.aeon');
+    fs.writeFileSync(limitsFile, renderLimitsFile(limits), 'utf8');
+    args.push('--limits-file', limitsFile);
+  }
   if (mode === 'transport') args.push('--transport');
   else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
@@ -322,6 +357,22 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portabl
   try {
     return { ok: true, parse: JSON.parse(stdout), stderr, code };
   } catch {
+    const inputLimit = stderr.match(/Input size (\d+) bytes exceeds configured limit(?: of)? (\d+) bytes/u);
+    if (code !== 0 && inputLimit) {
+      return {
+        ok: true,
+        parse: {
+          events: [],
+          errors: [{
+            code: 'INPUT_SIZE_EXCEEDED',
+            path: '$',
+            message: inputLimit[0],
+          }],
+        },
+        stderr,
+        code,
+      };
+    }
     if (code !== 0) {
       return { ok: false, parse: null, stderr: `${stderr}\nSUT exited ${code} without valid JSON envelope`, code };
     }
@@ -329,7 +380,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portabl
   }
 }
 
-async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, materialization, includePaths, outputMode }) {
+async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, materialization, includePaths, outputMode, limits }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-finalize-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -338,6 +389,11 @@ async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, mater
   const command = isJs ? process.execPath : sutPath;
   const formatFlag = outputMode === 'map' ? '--map' : '--json';
   const args = isJs ? [sutPath, 'finalize', file, formatFlag] : ['finalize', file, formatFlag];
+  if (limits) {
+    const limitsFile = path.join(dir, 'limits.aeon');
+    fs.writeFileSync(limitsFile, renderLimitsFile(limits), 'utf8');
+    args.push('--limits-file', limitsFile);
+  }
   args.push(mode === 'transport' ? '--transport' : '--strict');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (scope) args.push('--scope', scope);
@@ -499,8 +555,10 @@ async function main() {
   for (const suiteRef of manifest.suites ?? []) {
     const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
     const suite = JSON.parse(fs.readFileSync(suitePath, 'utf8'));
+    const excludedTests = new Set(Array.isArray(suiteRef.exclude_tests) ? suiteRef.exclude_tests : []);
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
+      if (excludedTests.has(test.id)) continue;
       const source = String(test.input?.source ?? '');
       const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
@@ -510,6 +568,9 @@ async function main() {
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
       const maxEvents = Number.isInteger(test.input?.options?.max_events) ? test.input.options.max_events : undefined;
+      const limits = test.input?.options?.limits === undefined
+        ? undefined
+        : mergeObjects(suite.meta?.limits_defaults, test.input.options.limits);
       let errors = [];
       let warnings = [];
       let ok = false;
@@ -539,6 +600,7 @@ async function main() {
           materialization: typeof test.input?.options?.materialization === 'string' ? test.input.options.materialization : 'all',
           includePaths: Array.isArray(test.input?.options?.include_paths) ? test.input.options.include_paths : [],
           outputMode: args.lane === 'finalize-map' ? 'map' : 'json',
+          limits,
         });
         if (!finalized.ok || !finalized.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -564,6 +626,7 @@ async function main() {
           maxSeparatorDepth,
           maxGenericDepth,
           maxEvents,
+          limits,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -589,6 +652,7 @@ async function main() {
           maxSeparatorDepth,
           maxGenericDepth,
           maxEvents,
+          limits,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);

@@ -15,8 +15,8 @@ use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION, Value,
-    aeon_compile_limits, compile, format_path, load_aeonic_limits, normalize_number_literal,
-    project_portable_events,
+    aeon_compile_limits, compile, finalization_limits, format_path, load_aeonic_limits,
+    normalize_number_literal, project_portable_events,
 };
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
@@ -560,13 +560,14 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
-    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
+    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
     let file = find_file(
         args,
         &[
             "--datatype-policy",
             "--scope",
             "--include-path",
+            "--limits-file",
             "--max-input-bytes",
             "--max-materialized-weight",
             "--max-reference-depth",
@@ -585,18 +586,38 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         })?;
     let scope = resolve_finalize_scope(flag_value(args, "--scope").as_deref())
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let (policy_limits, policy_finalize_limits) = if let Some(path) = limits_file.as_deref() {
+        let limits_source = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+        let limits = load_aeonic_limits(&limits_source).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        let compile_limits = aeon_compile_limits(&limits)
+            .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?;
+        (Some(compile_limits), Some(finalization_limits(&limits)))
+    } else {
+        (None, None)
+    };
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
-    })?;
+    })?.or_else(|| policy_limits.as_ref().and_then(|limits| limits.max_input_bytes));
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
-    })?;
+    })?.or_else(|| policy_finalize_limits.and_then(|limits| limits.max_materialized_weight));
     let max_reference_depth =
         optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
             String::from(
                 "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
             )
-        })?;
+        })?.or_else(|| policy_finalize_limits.and_then(|limits| limits.max_reference_depth));
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -621,6 +642,21 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
             datatype_policy,
             max_input_bytes,
             mode: compile_mode,
+            max_events: policy_limits.as_ref().and_then(|limits| limits.max_events),
+            max_attribute_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_attribute_depth, |limits| limits.max_attribute_depth),
+            max_clarifier_values: policy_limits.as_ref().map(|limits| limits.max_clarifier_values),
+            max_generic_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_generic_depth, |limits| limits.max_generic_depth),
+            max_generic_arguments: policy_limits.as_ref().map_or(CompileOptions::default().max_generic_arguments, |limits| limits.max_generic_arguments),
+            max_datatype_components: policy_limits.as_ref().map_or(CompileOptions::default().max_datatype_components, |limits| limits.max_datatype_components),
+            max_value_nesting_depth: policy_limits.as_ref().map(|limits| limits.max_value_nesting_depth),
+            max_path_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_path_depth, |limits| limits.max_path_depth),
+            max_string_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_string_codepoints, |limits| limits.max_string_codepoints),
+            max_key_segment_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_key_segment_codepoints, |limits| limits.max_key_segment_codepoints),
+            max_list_items: policy_limits.as_ref().map_or(CompileOptions::default().max_list_items, |limits| limits.max_list_items),
+            max_tuple_items: policy_limits.as_ref().map_or(CompileOptions::default().max_tuple_items, |limits| limits.max_tuple_items),
+            max_path_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_path_characters, |limits| limits.max_path_characters),
+            max_numeric_literal_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_numeric_literal_characters, |limits| limits.max_numeric_literal_characters),
+            max_structured_comment_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_structured_comment_characters, |limits| limits.max_structured_comment_characters),
             ..CompileOptions::default()
         },
     );
@@ -5600,7 +5636,7 @@ mod tests {
             .expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
         ));
     }
 
@@ -5758,7 +5794,7 @@ mod tests {
             result.contains("Error: --projected requires at least one --include-path <$.path>")
         );
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
         ));
         let _ = fs::remove_dir_all(&dir);
     }

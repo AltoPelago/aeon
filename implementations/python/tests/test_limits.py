@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from aeon.core import CompileOptions, compile_source
-from aeon.limits import aeon_compile_limits, load_aeonic_limits
+from aeon.limits import aeon_compile_limits, finalization_limits, load_aeonic_limits
 
 
 SOURCE = '''limits_id = "altopelago.aeonic-limits.v1"
@@ -41,6 +41,10 @@ class LimitsTests(unittest.TestCase):
         self.assertEqual(32, effective["max_generic_arguments"])
         self.assertEqual(64, effective["max_datatype_components"])
         self.assertEqual(1024, effective["max_path_depth"])
+        self.assertEqual(
+            {"max_reference_depth": 64, "max_materialized_weight": 1_000_000},
+            finalization_limits(loaded.limits),  # type: ignore[arg-type]
+        )
 
     def test_rejects_unknown_fields_and_supports_sentinels(self) -> None:
         unknown = load_aeonic_limits(SOURCE.replace("max_header_bytes = 65536", "max_header_bytes = 65536, surprise = 1"))
@@ -50,6 +54,12 @@ class LimitsTests(unittest.TestCase):
         effective = aeon_compile_limits(sentinels.limits)  # type: ignore[arg-type]
         self.assertIsNone(effective["max_events"])
         self.assertEqual(16_777_216, effective["max_input_bytes"])
+        processing_sentinels = load_aeonic_limits(
+            SOURCE
+            .replace("max_reference_depth = 64", 'max_reference_depth = !"unBound"')
+            .replace("max_materialized_weight = 1000000", 'max_materialized_weight = !"useImplementation"')
+        )
+        self.assertEqual({}, finalization_limits(processing_sentinels.limits))  # type: ignore[arg-type]
 
     def test_named_resource_limits_are_independent(self) -> None:
         cases = [
