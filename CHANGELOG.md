@@ -30,6 +30,13 @@ repositories.
 - Preserved structural identities across node and attribute AST surfaces,
   matter resolution, debug and JSON projections, and clone materialization.
 - Kept identity as occurrence metadata rather than path identity.
+- Aligned AEOS Telex adaptation across TypeScript, Rust, and Python: flat
+  attributes now participate in owner constraints, Python validates the
+  adapted stream instead of an empty normalization result, and Rust preserves
+  portable numeric indexes for list, tuple, and node paths.
+- Added AEOS adapter regressions for decomposed datatypes, explicit node heads,
+  node-content cardinality, WTC kinds, nested attributes, and structural
+  identity metadata.
 - Enforced exact lowercase `local` for the reserved WTC resolver-local
   reference while preserving authored case for named references.
 - Aligned datatype-clarifier parsing across the implementation surfaces.

@@ -60,6 +60,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
 };
 
 type AttributeInfo = {
+    identity?: string;
     type: string;
     raw: string;
     value: string;
@@ -69,6 +70,7 @@ type AttributeInfo = {
 };
 
 type EventInfo = {
+    identity?: string;
     type: string;
     raw: string;
     value: string;
@@ -80,6 +82,7 @@ type EventInfo = {
 
 type AeosSansaResolveBinding = {
     path: string;
+    identity?: string;
     name?: string;
     index?: number;
     info?: EventInfo;
@@ -378,6 +381,7 @@ export function validate(
             const element = elements[i];
             const attributes = buildAttributeInfoMap(element?.attributes);
             const info: EventInfo = {
+                ...(typeof element?.structuralId === 'string' ? { identity: element.structuralId } : {}),
                 type: typeof element?.type === 'string' ? element.type : 'Unknown',
                 raw: typeof element?.raw === 'string' ? element.raw : '',
                 value: typeof element?.value === 'string' ? element.value : '',
@@ -402,6 +406,7 @@ export function validate(
             const valueNode = (entry as any)?.value;
             const nestedAttributes = buildAttributeInfoMap((entry as any)?.annotations as ReadonlyMap<string, unknown> | Record<string, unknown> | undefined);
             const info: AttributeInfo = {
+                ...(typeof (entry as any)?.structuralId === 'string' ? { identity: (entry as any).structuralId as string } : {}),
                 type: typeof valueNode?.type === 'string' ? valueNode.type : 'Unknown',
                 raw: typeof valueNode?.raw === 'string' ? valueNode.raw : '',
                 value: typeof valueNode?.value === 'string' ? valueNode.value : '',
@@ -419,6 +424,7 @@ export function validate(
         for (const [key, attribute] of attributes.entries()) {
             const attributePath = appendAttributePath(basePath, key);
             eventsByPath.set(attributePath, {
+                ...(attribute.identity !== undefined ? { identity: attribute.identity } : {}),
                 type: attribute.type,
                 raw: attribute.raw,
                 value: attribute.value,
@@ -462,6 +468,7 @@ export function validate(
                 const value = typeof event.value === 'string' ? event.value : '';
                 const datatype = portableDatatype(event);
                 const info: EventInfo = {
+                    ...(typeof event.identity === 'string' ? { identity: event.identity } : {}),
                     type: event.kind,
                     raw: value,
                     value,
@@ -476,6 +483,7 @@ export function validate(
             } else if (event.value && typeof event.value.type === 'string') {
                 const attributes = buildAttributeInfoMap(event.annotations);
                 const info: EventInfo = {
+                    ...(typeof event.structuralId === 'string' ? { identity: event.structuralId } : {}),
                     type: event.value.type,
                     raw: typeof event.value.raw === 'string' ? event.value.raw : '',
                     value: typeof event.value.value === 'string' ? event.value.value : '',
@@ -510,6 +518,7 @@ export function validate(
 
         // Register index even for first occurrence
     }
+    hydratePortableAttributes(eventsByPath, aes);
     hydratePortableContainerArities(aes, containerArity, resourcePolicy, ctx, toTuple);
     for (const [path, info] of eventsByPath) {
         enforceStringLengthResourceBudget(info, path, resourcePolicy, ctx);
@@ -990,6 +999,7 @@ function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string,
         }
     }
     current.info = info;
+    if (info.identity !== undefined) current.identity = info.identity;
 }
 
 function getOrCreateChildBinding(
@@ -1690,6 +1700,33 @@ function parsePortableReferencePath(path: string): readonly (string | number | {
         if (segment.type === 'attribute') return { type: 'attr' as const, key: segment.key };
         return segment.key;
     });
+}
+
+function hydratePortableAttributes(eventsByPath: Map<string, EventInfo>, aes: AES): void {
+    const attributes = aes
+        .filter(isPortableTelexRecord)
+        .map((record) => {
+            try {
+                return { record, details: parsePortablePath(record.path) };
+            } catch {
+                return null;
+            }
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .filter(({ details }) => details.segments.at(-1)?.type === 'attribute')
+        .sort((a, b) => a.details.segments.length - b.details.segments.length);
+
+    for (const { record, details } of attributes) {
+        const final = details.segments.at(-1);
+        if (final?.type !== 'attribute') continue;
+        const ownerPath = details.prefixes.at(-2) ?? '$';
+        const owner = eventsByPath.get(ownerPath);
+        const attribute = eventsByPath.get(record.path);
+        if (owner === undefined || attribute === undefined) continue;
+        const mapped = new Map(owner.attributes ?? []);
+        mapped.set(final.key, attribute);
+        owner.attributes = mapped;
+    }
 }
 
 function hydratePortableContainerArities(

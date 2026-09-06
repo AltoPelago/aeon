@@ -429,7 +429,7 @@ def validate_telex_records(
 ) -> dict[str, object]:
     """Apply AEOS to decoded portable AES records without reparsing AEON."""
 
-    return validate_events(portable_records_to_aeos(records), schema, options)
+    return validate(portable_records_to_aeos(records), schema, options)
 
 
 def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str, object]]:

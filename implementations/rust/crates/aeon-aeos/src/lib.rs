@@ -995,11 +995,12 @@ fn portable_event_path(path: &str) -> Option<(EventPath, String)> {
         } else if path.as_bytes().get(cursor) == Some(&b'[') {
             let end = path[cursor + 1..].find(']')? + cursor + 1;
             let index = path[cursor + 1..end].to_owned();
+            let numeric_index = index.parse::<u64>().ok()?;
             key = index.clone();
             segments.push(PathSegmentInput {
                 segment_type: "index".to_owned(),
                 key: None,
-                index: Some(JsonValue::String(index)),
+                index: Some(JsonValue::from(numeric_index)),
             });
             cursor = end + 1;
         } else {
@@ -1054,8 +1055,8 @@ fn portable_reference_path(path: &str) -> Option<Vec<ReferencePathSegment>> {
             }),
             "index" => segment.index.and_then(|index| {
                 index
-                    .as_str()
-                    .and_then(|value| value.parse::<i64>().ok())
+                    .as_u64()
+                    .and_then(|value| i64::try_from(value).ok())
                     .map(ReferencePathSegment::Index)
             }),
             _ => None,
@@ -5251,5 +5252,87 @@ mod tests {
             error.code == "container_cardinality_mismatch"
                 && error.path.as_deref() == Some("$.values")
         }));
+    }
+
+    #[test]
+    fn recombines_telex_datatype_components_for_schema_validation() {
+        let wire = "telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n\npath=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n";
+        let schema = Schema {
+            rules: vec![
+                SchemaRule {
+                    path: Some("$.items".to_owned()),
+                    selector: None,
+                    constraints: json!({"type": "ListNode", "datatype": "list<int>"}),
+                },
+                SchemaRule {
+                    path: Some("$.items[0]".to_owned()),
+                    selector: None,
+                    constraints: json!({"type": "NumberLiteral", "datatype": "int"}),
+                },
+            ],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.ok, "{:?}", result.errors);
+    }
+
+    #[test]
+    fn counts_node_contents_beneath_the_explicit_telex_head() {
+        let wire = "telex.aes=0\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n";
+        let schema = Schema {
+            rules: vec![SchemaRule {
+                path: Some("$.node".to_owned()),
+                selector: None,
+                constraints: json!({"type": "NodeLiteral", "min_children": 2, "max_children": 2}),
+            }],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.ok, "{:?}", result.errors);
+    }
+
+    #[test]
+    fn preserves_wtc_kind_through_the_telex_adapter() {
+        let wire = "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n";
+        let schema = Schema {
+            rules: vec![SchemaRule {
+                path: Some("$.when".to_owned()),
+                selector: None,
+                constraints: json!({"type": "WTCDateTimeLiteral", "datatype": "wtc"}),
+            }],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.ok, "{:?}", result.errors);
     }
 }

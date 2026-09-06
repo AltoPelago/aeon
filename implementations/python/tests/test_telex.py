@@ -107,6 +107,54 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual("VALUE", adapted[0]["structuralId"])
         self.assertEqual("UNIT", adapted[0]["annotations"]["unit"]["structuralId"])
 
+    def test_aeos_recombines_telex_datatype_components(self) -> None:
+        wire = (
+            "telex.aes=0\n\n"
+            "path=$.items\nkind=ListNode\ndatatype=list<int>\n\n"
+            "path=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n"
+        )
+        schema = {
+            "rules": [
+                {"path": "$.items", "constraints": {"type": "ListNode", "datatype": "list<int>"}},
+                {"path": "$.items[0]", "constraints": {"type": "NumberLiteral", "datatype": "int"}},
+            ]
+        }
+        result = validate_aeos_telex(wire, schema)
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_aeos_counts_node_contents_beneath_the_explicit_head(self) -> None:
+        wire = (
+            "telex.aes=0\n\n"
+            "path=$.node\nkind=NodeLiteral\n\n"
+            "path=$.node[0]\nkind=NodeHead\nvalue=tag\n\n"
+            "path=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\n"
+            "path=$.node[0][1]\nkind=StringLiteral\nvalue=two\n"
+        )
+        passing = validate_aeos_telex(wire, {
+            "rules": [{"path": "$.node", "constraints": {"type": "NodeLiteral", "min_children": 2, "max_children": 2}}]
+        })
+        self.assertTrue(passing["ok"], passing["errors"])
+
+        failing = validate_aeos_telex(wire, {
+            "rules": [{"path": "$.node", "constraints": {"type": "NodeLiteral", "max_children": 1}}]
+        })
+        self.assertFalse(failing["ok"])
+        self.assertIn("container_cardinality_mismatch", [error["code"] for error in failing["errors"]])
+
+    def test_aeos_telex_preserves_wtc_kind_and_checks_lowercase_local(self) -> None:
+        valid = validate_aeos_telex(
+            "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n",
+            {"rules": [{"path": "$.when", "constraints": {"type": "WTCDateTimeLiteral", "datatype": "wtc"}}]},
+        )
+        self.assertTrue(valid["ok"], valid["errors"])
+
+        invalid = validate_aeos_telex(
+            "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&LOCAL\n",
+            {"rules": []},
+        )
+        self.assertFalse(invalid["ok"])
+        self.assertIn("AES_INVALID_VALUE", [error["code"] for error in invalid["errors"]])
+
     def test_sdk_loads_and_writes_telex_without_aeon_reparse(self) -> None:
         encoded = aeon_to_telex("answer:number = 42")
         loaded = load_telex_text(encoded)
