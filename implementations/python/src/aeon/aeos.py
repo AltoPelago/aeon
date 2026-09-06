@@ -375,6 +375,222 @@ def validate_events(events: list[dict[str, object]], schema: dict[str, object], 
     return validate(normalized, schema, options)
 
 
+def validate_telex(
+    source: str,
+    schema: dict[str, object],
+    options: dict[str, object] | None = None,
+    *,
+    limits: object = None,
+    registered_fields: list[str] | None = None,
+) -> dict[str, object]:
+    """Decode portable Telex and apply an AEOS schema to its body plane."""
+
+    from .telex import TelexSyntaxError, parse_telex, validate_telex_records as validate_portable
+
+    try:
+        parsed = parse_telex(source, limits)
+    except TelexSyntaxError as error:
+        return {
+            "ok": False,
+            "errors": [{"path": "$", "span": None, "message": str(error), "phase": "telex_decode", "code": error.code}],
+            "warnings": [],
+            "guarantees": {},
+        }
+    portable = validate_portable(
+        parsed.records,
+        profile=parsed.profile,
+        projection=parsed.projection,
+        limits=limits,
+        registered_fields=registered_fields or [],
+    )
+    if not portable["valid"]:
+        return {
+            "ok": False,
+            "errors": [
+                {
+                    "path": diagnostic.get("path") or "$",
+                    "span": None,
+                    "message": diagnostic["message"],
+                    "phase": "aes_validation",
+                    "code": diagnostic["code"],
+                }
+                for diagnostic in portable["diagnostics"]
+            ],
+            "warnings": [],
+            "guarantees": {},
+        }
+    return validate_telex_records(parsed.records, schema, options)
+
+
+def validate_telex_records(
+    records: list[dict[str, object]],
+    schema: dict[str, object],
+    options: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Apply AEOS to decoded portable AES records without reparsing AEON."""
+
+    return validate_events(portable_records_to_aeos(records), schema, options)
+
+
+def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Restore portable records to the legacy event shape consumed by AEOS."""
+
+    from .telex import parse_canonical_path
+
+    body: list[tuple[str, dict[str, object]]] = []
+    attributes: list[tuple[str, dict[str, object]]] = []
+    for record in records:
+        address = record.get("path")
+        if not isinstance(address, str):
+            continue
+        details = parse_canonical_path(address)
+        if details.segments and details.segments[-1][0] == "attribute":
+            attributes.append((address, record))
+            continue
+        datatype = _portable_datatype(record)
+        segments = [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]
+        body.append(
+            (
+                address,
+                {
+                    "path": {"segments": segments},
+                    "key": str(details.segments[-1][1]) if details.segments else "",
+                    "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
+                    "datatype": datatype,
+                    "annotations": {},
+                    "value": _portable_aeos_value(record),
+                    "span": _portable_span(record.get("span")),
+                },
+            )
+        )
+
+    by_address = {address: event for address, event in body}
+    for address, record in attributes:
+        details = parse_canonical_path(address)
+        owner = details.prefixes[-2]
+        key = str(details.segments[-1][1])
+        event = by_address.get(owner)
+        if event is not None:
+            _insert_portable_attribute(event["annotations"], [key], record)
+            continue
+        first_attribute = next((index for index, segment in enumerate(details.segments) if segment[0] == "attribute"), None)
+        if first_attribute is None or any(segment[0] != "attribute" for segment in details.segments[first_attribute:]):
+            continue
+        root_owner = "$" if first_attribute == 0 else details.prefixes[first_attribute - 1]
+        event = by_address.get(root_owner)
+        if event is not None:
+            _insert_portable_attribute(
+                event["annotations"],
+                [str(segment[1]) for segment in details.segments[first_attribute:]],
+                record,
+            )
+
+    values = {address: event["value"] for address, event in body}
+    for address, event in body:
+        value = event["value"]
+        kind = value.get("type")
+        if kind == "ObjectNode":
+            value["bindings"] = [{"path": child} for child in values if _portable_parent(child) == address]
+        elif kind in {"ListNode", "TupleLiteral"}:
+            value["elements"] = _portable_indexed_children(address, values)
+        elif kind == "NodeLiteral":
+            value["children"] = _portable_indexed_children(f"{address}[0]", values)
+    return [event for _, event in body]
+
+
+def _portable_aeos_segment(segment: tuple[str, str | int]) -> dict[str, object]:
+    kind, value = segment
+    if kind == "index":
+        return {"type": "index", "index": int(value)}
+    return {"type": "attribute" if kind == "attribute" else "member", "key": str(value)}
+
+
+def _portable_aeos_value(record: dict[str, object]) -> dict[str, object]:
+    kind = str(record.get("kind", ""))
+    raw = record.get("value") if isinstance(record.get("value"), str) else ""
+    value: object = raw
+    if kind == "BooleanLiteral":
+        value = raw == "true"
+    elif kind == "NullLiteral":
+        value = {"mode": "reserved" if raw in {"none", "notSet", "notApplicable", "tombstone"} else "reason", "value": raw}
+    result: dict[str, object] = {"type": kind, "raw": raw, "value": value}
+    if kind in {"CloneReference", "PointerReference"}:
+        from .telex import parse_canonical_path
+
+        result["path"] = [
+            int(segment[1]) if segment[0] == "index" else {"type": "attr", "key": segment[1]} if segment[0] == "attribute" else str(segment[1])
+            for segment in parse_canonical_path(raw).segments
+        ]
+    return result
+
+
+def _insert_portable_attribute(target: object, keys: list[str], record: dict[str, object]) -> None:
+    if not isinstance(target, dict) or not keys:
+        return
+    key, rest = keys[0], keys[1:]
+    existing = target.get(key)
+    if not isinstance(existing, dict):
+        existing = {"annotations": {}}
+        target[key] = existing
+    annotations = existing.get("annotations")
+    if not isinstance(annotations, dict):
+        annotations = {}
+        existing["annotations"] = annotations
+    if rest:
+        _insert_portable_attribute(annotations, rest, record)
+        return
+    existing.update(
+        {
+            "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
+            "datatype": _portable_datatype(record),
+            "value": _portable_aeos_value(record),
+            "annotations": annotations,
+        }
+    )
+
+
+def _portable_parent(path: str) -> str | None:
+    from .telex import parse_canonical_path
+
+    details = parse_canonical_path(path)
+    if not details.segments:
+        return None
+    return "$" if len(details.prefixes) == 1 else details.prefixes[-2]
+
+
+def _portable_datatype(record: dict[str, object]) -> str | None:
+    if not isinstance(record.get("datatype"), str):
+        return None
+    from .telex import format_datatype_descriptor
+
+    descriptor = {
+        key: record[key]
+        for key in ("datatype", "generics", "clarifiers")
+        if key in record
+    }
+    return format_datatype_descriptor(descriptor)
+
+
+def _portable_indexed_children(parent: str, values: dict[str, object]) -> list[object]:
+    from .telex import parse_canonical_path
+
+    children: list[tuple[int, object]] = []
+    for address, value in values.items():
+        details = parse_canonical_path(address)
+        if _portable_parent(address) != parent or not details.segments or details.segments[-1][0] != "index":
+            continue
+        children.append((int(details.segments[-1][1]), value))
+    children.sort(key=lambda item: item[0])
+    return [value for _, value in children]
+
+
+def _portable_span(value: object) -> list[int] | None:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]+:[0-9]+", value) is None:
+        return None
+    start, end = value.split(":", 1)
+    return [int(start), int(end)]
+
+
 def emit_resource_error(ctx: DiagContext, path: str, message: str, span: tuple[int, int] | None = None) -> None:
     emit_error(ctx, create_diag(path, span, message, ERROR_CODES["invalid_schema_policy"]))
 
@@ -1436,6 +1652,9 @@ def format_canonical_path(path: object) -> str:
                 result += f'.["{escaped_key}"]'
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
+        elif seg_type in {"attribute", "attr"}:
+            key = str(segment.get("key", ""))
+            result = format_attribute_path(result or "$", key)
     return result or "$"
 
 
@@ -1484,6 +1703,18 @@ def canonical_path_to_json(path: str) -> dict[str, object]:
     index = 1 if path.startswith("$") else 0
     while index < len(path):
         if path[index] == ".":
+            if path.startswith(".@.", index):
+                member_start = index + 3
+                if path.startswith('["', member_start):
+                    key, index = parse_quoted_member(path, member_start + 2)
+                else:
+                    end = member_start
+                    while end < len(path) and path[end] not in ".[":
+                        end += 1
+                    key = path[member_start:end]
+                    index = end
+                segments.append({"type": "attribute", "key": key})
+                continue
             if path.startswith('.["', index):
                 key, index = parse_quoted_member(path, index + 3)
                 segments.append({"type": "member", "key": key})

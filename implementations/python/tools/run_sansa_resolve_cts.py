@@ -85,6 +85,8 @@ def run_test(test: dict[str, object], namespaces: dict[str, dict[str, object]]) 
         options["parentTraversal"] = "forbid"
     if input_data.get("failOnParentFromEffectiveRoot") is True:
         options["failOnParentFromEffectiveRoot"] = True
+    if isinstance(input_data.get("maxBindings"), int):
+        options["maxBindings"] = input_data["maxBindings"]
 
     namespace = fixture["namespace"]
     if not isinstance(namespace, dict):
@@ -108,6 +110,9 @@ def run_test(test: dict[str, object], namespaces: dict[str, dict[str, object]]) 
             actual_selector_index = first.get("selectorIndex") if isinstance(first, dict) else None
             if actual_selector_index != expected["selectorIndex"]:
                 failures.append(f"selectorIndex mismatch: expected {expected['selectorIndex']}, got {actual_selector_index}")
+        for field in ("limit", "observed"):
+            if isinstance(expected.get(field), int) and isinstance(first, dict) and first.get(field) != expected[field]:
+                failures.append(f"{field} mismatch: expected {expected[field]}, got {first.get(field)}")
         return failures
 
     expected_addresses = expected.get("addresses")

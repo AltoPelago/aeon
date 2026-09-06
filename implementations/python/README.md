@@ -21,6 +21,8 @@ Current implementation target:
 - reference legality checks
 - transport, strict, and custom mode enforcement
 - JSON finalization from assignment events
+- portable AES projection and Telex v0 encode/decode/validation
+- direct portable AES materialization and AEOS validation without reparsing AEON
 - CTS-compatible `inspect --json` CLI surface
 - annotation stream extraction
 - AEOS validator CTS adapter via `--cts-validate`
@@ -30,6 +32,7 @@ Python is still the conformance-first implementation, but its supported command 
 
 - `inspect`
 - `fmt`
+- `telex decode`, `telex canonicalize`, and `telex materialize`
 - `--cts-validate`
 
 Current CTS status:
@@ -38,6 +41,7 @@ Current CTS status:
 - `aes`: green
 - `annotations`: green
 - `aeos`: green
+- `telex/v0`: green (snapshot 0.1)
 
 Implementation note:
 
@@ -121,6 +125,34 @@ print(loaded.get('$.numbers[1]'))
 PY
 ```
 
+Export AEON as Telex, then consume it directly through the portable AES path:
+
+```bash
+cd implementations/python
+python3.12 - <<'PY'
+from aeon import aeon_to_telex, load_telex_text
+
+wire = aeon_to_telex('answer:number = 42')
+loaded = load_telex_text(wire).require_ok()
+print(wire, end='')
+print(loaded.document)
+PY
+```
+
+Headers remain opt-in and use the `aeon.document.v0` projection:
+
+```bash
+./bin/aeon-python inspect document.aeon --telex --include-headers
+```
+
+Telex can also be decoded, canonicalized, or materialized without invoking the AEON parser:
+
+```bash
+./bin/aeon-python telex decode stream.telex.aes
+./bin/aeon-python telex canonicalize stream.telex.aes
+./bin/aeon-python telex materialize stream.telex.aes --scope full
+```
+
 Load an AEOS schema document directly from `.aeos` and validate through the convenience API:
 
 ```bash
@@ -172,7 +204,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 ```bash
 node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/core/v1/core-cts.v1.next.json" --lane core
-node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.json" --lane aes
+node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.next.json" --lane aes
 python3.12 tools/run_sansa_resolve_cts.py --cts "$AEONITE_CTS_ROOT/sansa/v1/sansa-resolve-cts.v1.json"
 node ../typescript/tools/annotation-cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/annotations/v1/annotation-stream-cts.v1.json"
 node ../typescript/tools/cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aeos/v1/aeos-validator-cts.v1.json"
@@ -201,9 +233,9 @@ cd implementations/python
 python3 tools/run_cts.py core aes sansa-resolve
 ```
 
-`core` runs the consolidated next Core target. Use `core-released` to run the
-immutable `core-cts-v1-snapshot-0.2` compatibility target explicitly; it is not
-part of the default current-development run.
+`core` and `aes` run their consolidated next targets. Use `core-released` or
+`aes-released` to exercise the corresponding immutable compatibility target
+explicitly; released targets are not part of the default current-development run.
 
 ## Cross-Implementation Diff
 

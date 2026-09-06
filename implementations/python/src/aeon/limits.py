@@ -119,6 +119,25 @@ def finalization_limits(limits: AeonicLimitsV1) -> dict[str, int]:
     return result
 
 
+def telex_limits(limits: AeonicLimitsV1) -> dict[str, int]:
+    """Resolve the shared limits document for the Telex v0 codec."""
+
+    format_limits = limits.formats["telex"]
+    return {
+        "max_input_bytes": _bounded(format_limits["max_input_bytes"], 67_108_864, 1_073_741_824, "max_input_bytes"),
+        "max_line_bytes": _bounded(format_limits["max_line_bytes"], 1_048_576, 67_108_864, "max_line_bytes"),
+        "max_fields_per_event": _bounded(format_limits["max_fields_per_event"], 64, 4_096, "max_fields_per_event"),
+        "max_decoded_payload_bytes": _bounded(format_limits["max_decoded_payload_bytes"], 33_554_432, 1_073_741_824, "max_decoded_payload_bytes"),
+        "max_events": _bounded(limits.processing["max_events"], 100_000, 1_000_000, "max_events"),
+        "max_path_depth": _bounded(limits.structure["max_path_depth"], 1_024, 4_096, "max_path_depth"),
+        "max_path_characters": _bounded(limits.structure["max_path_characters"], 8_192, 65_536, "max_path_characters"),
+        "max_generic_depth": _bounded(limits.structure["max_generic_depth"], 1, 64, "max_generic_depth"),
+        "max_generic_arguments": _bounded(limits.structure["max_generic_arguments"], 32, 4_096, "max_generic_arguments"),
+        "max_clarifier_values": _bounded(limits.structure["max_clarifier_values"], 1, 4_096, "max_clarifier_values"),
+        "max_datatype_components": _bounded(limits.structure["max_datatype_components"], 64, 4_096, "max_datatype_components"),
+    }
+
+
 def _decode_binding(binding: Binding, path: str, errors: list[LimitsDiagnostic]) -> Any:
     if binding.datatype is not None or binding.attributes or binding.structural_id is not None:
         errors.append(LimitsDiagnostic("LIMITS_DECORATION_NOT_ALLOWED", path, "Limits bindings may not use datatypes, attributes, or structural identities"))

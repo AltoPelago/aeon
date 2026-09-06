@@ -9,8 +9,10 @@ from .annotations import build_annotation_stream, sort_annotation_records
 from .canonical import canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
-from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits
-from .portable import project_portable_events
+from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits
+from .portable import export_telex, project_portable_events
+from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
+from .telex import TelexSyntaxError, canonicalize_telex, parse_telex, validate_telex_records
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
         return inspect(args[1:])
     if command == "finalize":
         return finalize(args[1:])
+    if command == "telex":
+        return telex(args[1:])
     print(f"Error: Unknown command: {command}", file=sys.stderr)
     return 2
 
@@ -52,6 +56,8 @@ def cts_validate() -> int:
 
 def inspect(args: list[str]) -> int:
     json_output = "--json" in args
+    telex_output = "--telex" in args
+    include_headers = "--include-headers" in args
     portable_aes = "--portable-aes" in args
     recovery = "--recovery" in args
     annotations_only = "--annotations-only" in args
@@ -109,6 +115,12 @@ def inspect(args: list[str]) -> int:
     if limits_file is None and "--limits-file" in args:
         print("Error: --limits-file requires a path", file=sys.stderr)
         return 2
+    if telex_output and (json_output or portable_aes or include_annotations):
+        print("Error: --telex cannot be combined with JSON or annotation output flags", file=sys.stderr)
+        return 2
+    if include_headers and not telex_output:
+        print("Error: --include-headers requires --telex", file=sys.stderr)
+        return 2
     if portable_aes and not json_output:
         print("Error: --portable-aes requires --json", file=sys.stderr)
         return 2
@@ -160,7 +172,9 @@ def inspect(args: list[str]) -> int:
         annotations = []
     if sort_annotations:
         annotations = sort_annotation_records(annotations)
-    if json_output:
+    if telex_output and not result.errors:
+        sys.stdout.write(export_telex(result.events, header=result.header, include_headers=include_headers))
+    elif json_output:
         if annotations_only:
             print(json.dumps({"annotations": annotations}, indent=2))
             return 0
@@ -175,6 +189,79 @@ def inspect(args: list[str]) -> int:
         for error in result.errors:
             print(error.message)
     return 1 if result.errors else 0
+
+
+def telex(args: list[str]) -> int:
+    usage = "Usage: aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
+    if len(args) < 2 or args[0] not in {"decode", "canonicalize", "materialize"} or args[1].startswith("--"):
+        print(usage, file=sys.stderr)
+        return 2
+    action, file_arg = args[0], args[1]
+    scope = flag_value(args, "--scope") or "payload"
+    if scope not in {"payload", "header", "full"}:
+        print("Error: Invalid value for --scope (expected payload, header, or full)", file=sys.stderr)
+        return 2
+    max_materialized_weight = numeric_flag_value(args, "--max-materialized-weight")
+    max_reference_depth = numeric_flag_value(args, "--max-reference-depth")
+    for flag, value in (("--max-materialized-weight", max_materialized_weight), ("--max-reference-depth", max_reference_depth)):
+        if flag in args and value is None:
+            print(f"Error: Invalid value for {flag} (expected a non-negative integer)", file=sys.stderr)
+            return 2
+    limits_file = flag_value(args, "--limits-file")
+    if "--limits-file" in args and limits_file is None:
+        print("Error: --limits-file requires a path", file=sys.stderr)
+        return 2
+    codec_limits: object = None
+    finalize_kwargs: dict[str, int] = {}
+    if limits_file is not None:
+        loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
+        if loaded.limits is None:
+            for error in loaded.errors:
+                print(f"[{error.code}] {error.path}: {error.message}", file=sys.stderr)
+            return 2
+        try:
+            codec_limits = telex_limits(loaded.limits)
+            finalize_kwargs.update(finalization_limits(loaded.limits))
+        except ValueError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+    if max_materialized_weight is not None:
+        finalize_kwargs["max_materialized_weight"] = max_materialized_weight
+    if max_reference_depth is not None:
+        finalize_kwargs["max_reference_depth"] = max_reference_depth
+    source = Path(file_arg).read_text(encoding="utf-8")
+    try:
+        if action == "canonicalize":
+            sys.stdout.write(canonicalize_telex(source, codec_limits))
+            return 0
+        parsed = parse_telex(source, codec_limits)
+    except TelexSyntaxError as error:
+        print(f"[{error.code}] {error.detail}", file=sys.stderr)
+        return 1
+    validation = validate_telex_records(
+        parsed.records,
+        profile=parsed.profile,
+        projection=parsed.projection,
+        limits=codec_limits,
+    )
+    if action == "decode":
+        print(json.dumps({**parsed.to_dict(), "validation": validation}, indent=2))
+        return 0 if validation["valid"] else 1
+    finalized = finalize_portable_json(
+        parsed.records,
+        PortableFinalizeOptions(
+            mode="loose" if "--loose" in args else "strict",
+            scope=scope,
+            profile=parsed.profile,
+            projection=parsed.projection,
+            limits=codec_limits,
+            **finalize_kwargs,
+        ),
+    )
+    print(json.dumps(finalized, indent=2))
+    meta = finalized.get("meta", {})
+    errors = meta.get("errors", []) if isinstance(meta, dict) else []
+    return 0 if validation["valid"] and not errors else 1
 
 
 def fmt(args: list[str]) -> int:
@@ -354,7 +441,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
     )
 
 

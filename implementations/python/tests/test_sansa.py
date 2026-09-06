@@ -99,6 +99,19 @@ class SansaResolveTests(unittest.TestCase):
         )
         self.assertEqual([], resolve_address("$.document[1]", namespace)["bindings"])
 
+    def test_binding_limit_fails_without_partial_results(self) -> None:
+        children = [
+            {"address": f"$.item{index}", "name": f"item{index}", "children": []}
+            for index in range(3)
+        ]
+        result = resolve_address("$.*", {"root": {"address": "$", "children": children}}, {"maxBindings": 1})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual([], result["bindings"])
+        self.assertEqual("SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED", result["errors"][0]["code"])
+        self.assertEqual(1, result["errors"][0]["limit"])
+        self.assertEqual(2, result["errors"][0]["observed"])
+
 
 if __name__ == "__main__":
     unittest.main()

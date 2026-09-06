@@ -6,9 +6,18 @@ from pathlib import Path
 import re
 
 from ._compat import dataclass
-from .aeos import validate_events
+from .aeos import validate_events, validate_telex_records as validate_aeos_telex_records
 from .core import CompileOptions, CompileResult, compile_source
 from .finalize import FinalizeOptions, finalize_json
+from .portable import export_telex
+from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
+from .telex import (
+    ParsedTelex,
+    TelexSyntaxError,
+    encode_telex,
+    parse_telex,
+    validate_telex_records as validate_portable_telex_records,
+)
 
 
 @dataclass(slots=True)
@@ -23,6 +32,71 @@ class LoadOptions:
 
 class AeonLoadError(Exception):
     pass
+
+
+@dataclass(slots=True)
+class TelexLoadOptions:
+    finalize: PortableFinalizeOptions | None = None
+    schema: dict[str, object] | None = None
+    schema_file: str | Path | None = None
+    validation_options: dict[str, object] | None = None
+    limits: object = None
+    registered_fields: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class LoadedTelexDocument:
+    source: str
+    parsed: ParsedTelex | None
+    portable_validation: dict[str, object] | None
+    finalized: dict[str, object] | None
+    validation: dict[str, object] | None = None
+    decode_error: dict[str, object] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+    @property
+    def document(self) -> object | None:
+        return self.finalized.get("document") if self.finalized is not None else None
+
+    @property
+    def errors(self) -> list[dict[str, object]]:
+        errors: list[dict[str, object]] = []
+        if self.decode_error is not None:
+            errors.append(self.decode_error)
+        if self.portable_validation is not None:
+            diagnostics = self.portable_validation.get("diagnostics", [])
+            if isinstance(diagnostics, list):
+                errors.extend(item for item in diagnostics if isinstance(item, dict))
+        if self.finalized is not None:
+            meta = self.finalized.get("meta", {})
+            if isinstance(meta, dict) and isinstance(meta.get("errors"), list):
+                errors.extend(item for item in meta["errors"] if isinstance(item, dict))
+        if self.validation is not None and isinstance(self.validation.get("errors"), list):
+            errors.extend(item for item in self.validation["errors"] if isinstance(item, dict))
+        return errors
+
+    @property
+    def warnings(self) -> list[dict[str, object]]:
+        warnings: list[dict[str, object]] = []
+        if self.finalized is not None:
+            meta = self.finalized.get("meta", {})
+            if isinstance(meta, dict) and isinstance(meta.get("warnings"), list):
+                warnings.extend(item for item in meta["warnings"] if isinstance(item, dict))
+        if self.validation is not None and isinstance(self.validation.get("warnings"), list):
+            warnings.extend(item for item in self.validation["warnings"] if isinstance(item, dict))
+        return warnings
+
+    def require_ok(self) -> "LoadedTelexDocument":
+        if self.ok:
+            return self
+        messages = [
+            f"{error.get('code', 'ERROR')}: {error.get('message', 'Telex load failed')}"
+            for error in self.errors
+        ]
+        raise AeonLoadError("\n".join(messages))
 
 
 @dataclass(slots=True)
@@ -126,6 +200,98 @@ def load_text(source: str, options: LoadOptions | None = None) -> LoadedDocument
 def load_file(file_path: str | Path, options: LoadOptions | None = None) -> LoadedDocument:
     source = Path(file_path).read_text(encoding="utf-8")
     return load_text(source, options)
+
+
+def load_telex_text(source: str, options: TelexLoadOptions | None = None) -> LoadedTelexDocument:
+    opts = options or TelexLoadOptions()
+    try:
+        parsed = parse_telex(source, opts.limits)
+    except TelexSyntaxError as error:
+        return LoadedTelexDocument(
+            source=source,
+            parsed=None,
+            portable_validation=None,
+            finalized=None,
+            decode_error={
+                "code": error.code,
+                "message": str(error),
+                **({"line": error.line} if error.line is not None else {}),
+            },
+        )
+
+    portable_validation = validate_portable_telex_records(
+        parsed.records,
+        profile=parsed.profile,
+        projection=parsed.projection,
+        limits=opts.limits,
+        registered_fields=opts.registered_fields,
+    )
+    finalized: dict[str, object] | None = None
+    validation: dict[str, object] | None = None
+    if portable_validation["valid"]:
+        finalize_options = opts.finalize or PortableFinalizeOptions()
+        finalized = finalize_portable_json(
+            parsed.records,
+            replace(
+                finalize_options,
+                profile=parsed.profile,
+                projection=parsed.projection,
+                registered_fields=list(opts.registered_fields),
+                limits=opts.limits if opts.limits is not None else finalize_options.limits,
+            ),
+        )
+        schema = opts.schema
+        if schema is None and opts.schema_file is not None:
+            schema = load_schema_file(opts.schema_file)
+        if schema is not None:
+            validation = validate_aeos_telex_records(parsed.records, schema, opts.validation_options)
+    return LoadedTelexDocument(
+        source=source,
+        parsed=parsed,
+        portable_validation=portable_validation,
+        finalized=finalized,
+        validation=validation,
+    )
+
+
+def load_telex_file(file_path: str | Path, options: TelexLoadOptions | None = None) -> LoadedTelexDocument:
+    source = Path(file_path).read_text(encoding="utf-8")
+    return load_telex_text(source, options)
+
+
+def aeon_to_telex(
+    source: str,
+    compile_options: CompileOptions | None = None,
+    *,
+    include_headers: bool = False,
+    profile: str | None = None,
+    limits: object = None,
+) -> str:
+    compiled = compile_source(source, compile_options)
+    if compiled.errors:
+        messages = [f"{error.code}: {error.message}" for error in compiled.errors]
+        raise AeonLoadError("\n".join(messages))
+    return export_telex(
+        compiled.events,
+        header=compiled.header,
+        include_headers=include_headers,
+        profile=profile,
+        limits=limits,
+    )
+
+
+def write_telex_file(
+    file_path: str | Path,
+    records: list[dict[str, object]],
+    *,
+    profile: str | None = None,
+    projection: str | None = None,
+    limits: object = None,
+) -> None:
+    Path(file_path).write_text(
+        encode_telex(records, profile=profile, projection=projection, limits=limits),
+        encoding="utf-8",
+    )
 
 
 def load_schema_text(source: str, file_label: str = "<memory>") -> dict[str, object]:

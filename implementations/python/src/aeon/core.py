@@ -414,6 +414,8 @@ def header_to_result(document: Document) -> dict[str, object] | None:
         return None
     return {
         "fields": document.header.fields,
+        "bindings": [binding_to_json(binding) for binding in document.header.bindings],
+        "order": [binding.key for binding in document.header.bindings],
         "span": document.header.span.to_json(),
     }
 

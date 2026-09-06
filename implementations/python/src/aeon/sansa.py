@@ -64,6 +64,9 @@ def resolve_address(
         return {"ok": False, "bindings": [], "errors": [root_result["error"]]}
 
     current = [root_result["binding"]]
+    max_bindings = opts.get("maxBindings")
+    if isinstance(max_bindings, bool) or not isinstance(max_bindings, int) or max_bindings < 0:
+        max_bindings = None
     selectors = address.get("selectors", [])
     if not isinstance(selectors, list):
         selectors = []
@@ -90,6 +93,14 @@ def resolve_address(
             return {"ok": False, "bindings": [], "errors": [selected["error"]]}
         selected_bindings = selected.get("bindings", [])
         current = selected_bindings if isinstance(selected_bindings, list) else []
+        if isinstance(max_bindings, int) and len(current) > max_bindings:
+            error = resolve_error(
+                "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+                f"SANSA resolution binding count exceeds configured limit {max_bindings}",
+                index,
+            )
+            error.update(limit=max_bindings, observed=max_bindings + 1)
+            return {"ok": False, "bindings": [], "errors": [error]}
         if len(current) == 0:
             break
 

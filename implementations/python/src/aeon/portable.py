@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Iterable
 
+from .telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_datatype_descriptor
+
 
 PortableEvent = dict[str, object]
 
@@ -93,7 +95,7 @@ def compact_event(
     if identity is not None:
         event["identity"] = identity
     if datatype is not None:
-        event["datatype"] = datatype
+        event.update(parse_datatype_descriptor(datatype))
     if value is not None:
         event["value"] = value
     if span is not None:
@@ -508,3 +510,68 @@ def stringify_value(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def project_telex_records(
+    events: Iterable[dict[str, object]],
+    *,
+    header: dict[str, object] | None = None,
+    include_headers: bool = False,
+) -> list[PortableEvent]:
+    """Create portable AES records suitable for Telex encoding."""
+
+    # The legacy Python projection exposes character ranges without an origin.
+    # Such spans remain useful to local inspect consumers, but are not portable
+    # AES evidence and therefore must not cross the Telex boundary.
+    body = [
+        {key: value for key, value in record.items() if key != "span"}
+        for record in project_portable_events(events)
+    ]
+    if not include_headers or header is None:
+        return body
+    projected_header: list[PortableEvent] = []
+    bindings = header.get("bindings")
+    if isinstance(bindings, list):
+        for raw_binding in bindings:
+            if not isinstance(raw_binding, dict) or not isinstance(raw_binding.get("key"), str):
+                continue
+            key = str(raw_binding["key"])
+            temporary: list[PortableEvent] = []
+            project_value_tree(
+                f'$.[' + json.dumps(f"aeon:{key}", ensure_ascii=False) + "]",
+                raw_binding.get("value"),
+                identity=optional_string(raw_binding.get("structuralId")),
+                datatype=format_datatype(raw_binding.get("datatype")),
+                mapped_attributes=None,
+                parser_attributes=raw_binding.get("attributes"),
+                span=None,
+                projected=temporary,
+                node_source_paths=set(),
+            )
+            for record in temporary:
+                address = record.pop("path")
+                record["header"] = address
+                projected_header.append(_ordered_portable_record(record, "header"))
+    return [*projected_header, *body]
+
+
+def export_telex(
+    events: Iterable[dict[str, object]],
+    *,
+    header: dict[str, object] | None = None,
+    include_headers: bool = False,
+    profile: str | None = None,
+    limits: object = None,
+) -> str:
+    records = project_telex_records(events, header=header, include_headers=include_headers)
+    return encode_telex(
+        records,
+        profile=profile,
+        projection=AEON_DOCUMENT_PROJECTION if include_headers else None,
+        limits=limits,
+    )
+
+
+def _ordered_portable_record(record: PortableEvent, address_field: str) -> PortableEvent:
+    order = (address_field, "kind", "datatype", "generics", "clarifiers", "identity", "value", "origin", "span")
+    return {key: record[key] for key in order if key in record}

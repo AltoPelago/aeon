@@ -14,6 +14,64 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_inspect_exports_telex_with_opt_in_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "document.aeon"
+            fixture.write_text('aeon:mode = "strict"\nanswer:number = 42\n', encoding="utf-8")
+            body = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            full = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex", "--include-headers"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, body.returncode, body.stderr)
+        self.assertNotIn("header=", body.stdout)
+        self.assertNotIn("projection=", body.stdout)
+        self.assertEqual(0, full.returncode, full.stderr)
+        self.assertIn("projection=aeon.document.v0", full.stdout)
+        self.assertIn('header=$.["aeon:mode"]', full.stdout)
+
+    def test_telex_decode_canonicalize_and_materialize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "stream.telex.aes"
+            fixture.write_text(
+                "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
+                encoding="utf-8",
+            )
+            decoded = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "decode", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            canonical = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "canonicalize", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            materialized = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "materialize", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, decoded.returncode, decoded.stderr)
+        self.assertTrue(json.loads(decoded.stdout)["validation"]["valid"])
+        self.assertEqual(
+            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n",
+            canonical.stdout,
+        )
+        self.assertEqual({"answer": "A"}, json.loads(materialized.stdout)["document"])
+
     def test_inspect_emits_portable_expanded_node_projection_on_explicit_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "portable-node.aeon"
