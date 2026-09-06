@@ -12,6 +12,76 @@ export interface ProcessOptions {
   includePaths?: string[];
 }
 
+export interface TelexOptions {
+  registeredFields?: string[];
+  maxInputBytes?: number;
+  maxLineBytes?: number;
+  maxFieldsPerEvent?: number;
+  maxEvents?: number;
+  maxDecodedPayloadBytes?: number;
+  maxPathDepth?: number;
+  maxPathCharacters?: number;
+  maxGenericDepth?: number;
+  maxGenericArguments?: number;
+  maxClarifierValues?: number;
+  maxDatatypeComponents?: number;
+}
+
+export interface TelexDiagnostic {
+  code: string;
+  message: string;
+  record: number | null;
+  path: string | null;
+  field: string | null;
+  firstRecord: number | null;
+  requiredPath: string | null;
+  counter: string | null;
+  observed: number | null;
+  limit: number | null;
+}
+
+export interface TelexValidationResult {
+  valid: boolean;
+  profile: string;
+  diagnostics: TelexDiagnostic[];
+}
+
+export interface MissingTelexPath {
+  field?: 'header';
+  path: string;
+  requiredBy: string;
+}
+
+export interface TelexCompletenessResult {
+  complete: boolean;
+  missing: MissingTelexPath[];
+}
+
+export class TelexWasmError extends Error {
+  readonly code: string;
+  readonly line: number | null;
+  readonly counter: string | null;
+  readonly observed: number | null;
+  readonly limit: number | null;
+
+  constructor(details: {
+    code?: string;
+    line?: number | null;
+    message?: string;
+    counter?: string | null;
+    observed?: number | null;
+    limit?: number | null;
+  }) {
+    super(details.message ?? 'Telex WASM operation failed');
+    this.name = 'TelexWasmError';
+    this.code = details.code ?? 'TELEX_WASM_ERROR';
+    this.line = details.line ?? null;
+    this.counter = details.counter ?? null;
+    this.observed = details.observed ?? null;
+    this.limit = details.limit ?? null;
+  }
+}
+
 export interface Position {
   line: number;
   column: number;
@@ -92,11 +162,17 @@ interface RustWasmProcessResult {
 
 export interface AeonWasmRuntime {
   processAeon(source: string, options?: ProcessOptions): ProcessResult;
+  validateTelex(source: string, options?: TelexOptions): TelexValidationResult;
+  canonicalizeTelex(source: string, options?: TelexOptions): string;
+  checkTelexCompleteness(source: string, options?: TelexOptions): TelexCompletenessResult;
 }
 
 interface GeneratedAeonWasmModule {
   default: (initInput?: unknown) => Promise<unknown>;
   process_aeon(source: string, optionsJson: string): string;
+  validate_telex(source: string, optionsJson: string): string;
+  canonicalize_telex(source: string, optionsJson: string): string;
+  check_telex_completeness(source: string, optionsJson: string): string;
 }
 
 let runtimePromise: Promise<AeonWasmRuntime> | undefined;
@@ -112,6 +188,30 @@ export async function processAeon(
 ): Promise<ProcessResult> {
   const runtime = await loadAeonWasm();
   return runtime.processAeon(source, options);
+}
+
+export async function validateTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexValidationResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.validateTelex(source, options);
+}
+
+export async function canonicalizeTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<string> {
+  const runtime = await loadAeonWasm();
+  return runtime.canonicalizeTelex(source, options);
+}
+
+export async function checkTelexCompleteness(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexCompletenessResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.checkTelexCompleteness(source, options);
 }
 
 async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime> {
@@ -134,7 +234,42 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
     processAeon(source: string, options: ProcessOptions = {}): ProcessResult {
       return parseProcessResult(module.process_aeon(source, JSON.stringify(options)));
     },
+    validateTelex(source: string, options: TelexOptions = {}): TelexValidationResult {
+      return parseTelexResult<TelexValidationResult>(
+        invokeTelex(() => module.validate_telex(source, JSON.stringify(options))),
+      );
+    },
+    canonicalizeTelex(source: string, options: TelexOptions = {}): string {
+      return invokeTelex(() => module.canonicalize_telex(source, JSON.stringify(options)));
+    },
+    checkTelexCompleteness(source: string, options: TelexOptions = {}): TelexCompletenessResult {
+      return parseTelexResult<TelexCompletenessResult>(
+        invokeTelex(() => module.check_telex_completeness(source, JSON.stringify(options))),
+      );
+    },
   };
+}
+
+function invokeTelex(operation: () => string): string {
+  try {
+    return operation();
+  } catch (error) {
+    const message = typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error);
+    try {
+      throw new TelexWasmError(JSON.parse(message) as ConstructorParameters<typeof TelexWasmError>[0]);
+    } catch (parseError) {
+      if (parseError instanceof TelexWasmError) throw parseError;
+      throw new TelexWasmError({ message });
+    }
+  }
+}
+
+function parseTelexResult<Result>(json: string): Result {
+  return JSON.parse(json) as Result;
 }
 
 function parseProcessResult(json: string): ProcessResult {

@@ -6,6 +6,10 @@ use aeon_core::{
     normalize_number_literal,
 };
 use aeon_finalize::{FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json};
+use aes_telex::{
+    Diagnostic as TelexDiagnostic, TelexLimits, TelexSyntaxError, canonicalize_telex_with_limits,
+    check_prefix_completeness, parse_telex_with_limits, validate_telex_with_limits,
+};
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use wasm_bindgen::prelude::*;
@@ -35,6 +39,23 @@ struct ProcessOptions {
     finalize_scope: String,
     #[serde(default)]
     include_paths: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct TelexOptions {
+    registered_fields: Vec<String>,
+    max_input_bytes: Option<usize>,
+    max_line_bytes: Option<usize>,
+    max_fields_per_event: Option<usize>,
+    max_events: Option<usize>,
+    max_decoded_payload_bytes: Option<usize>,
+    max_path_depth: Option<usize>,
+    max_path_characters: Option<usize>,
+    max_generic_depth: Option<usize>,
+    max_generic_arguments: Option<usize>,
+    max_clarifier_values: Option<usize>,
+    max_datatype_components: Option<usize>,
 }
 
 fn default_validation_mode() -> String {
@@ -88,6 +109,149 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
 
     let result = process(source, &options);
     serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+}
+
+#[wasm_bindgen(js_name = validate_telex)]
+pub fn validate_telex_wasm(source: &str, options_json: &str) -> Result<String, JsValue> {
+    validate_telex_json(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+#[wasm_bindgen(js_name = canonicalize_telex)]
+pub fn canonicalize_telex_wasm(source: &str, options_json: &str) -> Result<String, JsValue> {
+    canonicalize_telex_text(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+#[wasm_bindgen(js_name = check_telex_completeness)]
+pub fn check_telex_completeness_wasm(source: &str, options_json: &str) -> Result<String, JsValue> {
+    check_telex_completeness_json(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+pub fn validate_telex_json(source: &str, options_json: &str) -> Result<String, String> {
+    let options = parse_telex_options(options_json)?;
+    let limits = telex_limits(&options);
+    let registered = options
+        .registered_fields
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let result = validate_telex_with_limits(source, &registered, &limits)
+        .map_err(|error| telex_syntax_error_json(&error))?;
+    serde_json::to_string(&json!({
+        "valid": result.valid,
+        "profile": result.profile,
+        "diagnostics": result
+            .diagnostics
+            .iter()
+            .map(telex_diagnostic_json)
+            .collect::<Vec<_>>(),
+    }))
+    .map_err(|error| format!("failed to serialize Telex validation result: {error}"))
+}
+
+pub fn canonicalize_telex_text(source: &str, options_json: &str) -> Result<String, String> {
+    let options = parse_telex_options(options_json)?;
+    canonicalize_telex_with_limits(source, &telex_limits(&options))
+        .map_err(|error| telex_syntax_error_json(&error))
+}
+
+pub fn check_telex_completeness_json(source: &str, options_json: &str) -> Result<String, String> {
+    let options = parse_telex_options(options_json)?;
+    let parsed = parse_telex_with_limits(source, &telex_limits(&options))
+        .map_err(|error| telex_syntax_error_json(&error))?;
+    let result = check_prefix_completeness(&parsed.records, parsed.projection.as_deref()).map_err(
+        |error| {
+            json!({
+                "code": "TELEX_COMPLETENESS_ERROR",
+                "line": null,
+                "message": error.detail,
+            })
+            .to_string()
+        },
+    )?;
+    let missing = result
+        .missing
+        .iter()
+        .map(|entry| {
+            let mut value = json!({
+                "path": entry.path,
+                "requiredBy": entry.required_by,
+            });
+            if let (Some(field), Some(object)) = (entry.field, value.as_object_mut()) {
+                object.insert("field".to_owned(), json!(field));
+            }
+            value
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&json!({
+        "complete": result.complete,
+        "missing": missing,
+    }))
+    .map_err(|error| format!("failed to serialize Telex completeness result: {error}"))
+}
+
+fn parse_telex_options(options_json: &str) -> Result<TelexOptions, String> {
+    if options_json.trim().is_empty() {
+        return Ok(TelexOptions::default());
+    }
+    serde_json::from_str(options_json)
+        .map_err(|error| format!("invalid Telex options JSON: {error}"))
+}
+
+fn telex_limits(options: &TelexOptions) -> TelexLimits {
+    let mut limits = TelexLimits::default();
+    limits.max_input_bytes = options.max_input_bytes.unwrap_or(limits.max_input_bytes);
+    limits.max_line_bytes = options.max_line_bytes.unwrap_or(limits.max_line_bytes);
+    limits.max_fields_per_event = options
+        .max_fields_per_event
+        .unwrap_or(limits.max_fields_per_event);
+    limits.max_events = options.max_events.unwrap_or(limits.max_events);
+    limits.max_decoded_payload_bytes = options
+        .max_decoded_payload_bytes
+        .unwrap_or(limits.max_decoded_payload_bytes);
+    limits.max_path_depth = options.max_path_depth.unwrap_or(limits.max_path_depth);
+    limits.max_path_characters = options
+        .max_path_characters
+        .unwrap_or(limits.max_path_characters);
+    limits.max_generic_depth = options
+        .max_generic_depth
+        .unwrap_or(limits.max_generic_depth);
+    limits.max_generic_arguments = options
+        .max_generic_arguments
+        .unwrap_or(limits.max_generic_arguments);
+    limits.max_clarifier_values = options
+        .max_clarifier_values
+        .unwrap_or(limits.max_clarifier_values);
+    limits.max_datatype_components = options
+        .max_datatype_components
+        .unwrap_or(limits.max_datatype_components);
+    limits
+}
+
+fn telex_syntax_error_json(error: &TelexSyntaxError) -> String {
+    json!({
+        "code": error.code,
+        "line": error.line,
+        "message": error.to_string(),
+        "counter": error.counter,
+        "observed": error.observed,
+        "limit": error.limit,
+    })
+    .to_string()
+}
+
+fn telex_diagnostic_json(diagnostic: &TelexDiagnostic) -> JsonValue {
+    json!({
+        "code": diagnostic.code,
+        "message": diagnostic.message,
+        "record": diagnostic.record,
+        "path": diagnostic.path,
+        "field": diagnostic.field,
+        "firstRecord": diagnostic.first_record,
+        "requiredPath": diagnostic.required_path,
+        "counter": diagnostic.counter,
+        "observed": diagnostic.observed,
+        "limit": diagnostic.limit,
+    })
 }
 
 fn process(source: &str, options: &ProcessOptions) -> JsonValue {
@@ -469,7 +633,10 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::process_aeon_json;
+    use super::{
+        canonicalize_telex_text, check_telex_completeness_json, process_aeon_json,
+        validate_telex_json,
+    };
     use serde_json::Value as JsonValue;
 
     #[test]
@@ -573,5 +740,47 @@ mod tests {
         assert_eq!(parsed["annotations"], serde_json::json!([]));
         assert_eq!(parsed["errors"][0]["code"], "INPUT_SIZE_EXCEEDED");
         assert_eq!(parsed["errors"][0]["phase"], 0);
+    }
+
+    #[test]
+    fn validates_telex_inside_rust() {
+        let output = validate_telex_json(
+            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+            "",
+        )
+        .expect("validate Telex");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["valid"], true);
+        assert_eq!(parsed["profile"], "aes.complete.v0");
+        assert_eq!(parsed["diagnostics"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn canonicalizes_telex_inside_rust() {
+        let output = canonicalize_telex_text(
+            "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
+            "",
+        )
+        .expect("canonicalize Telex");
+
+        assert_eq!(
+            output,
+            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
+        );
+    }
+
+    #[test]
+    fn checks_telex_completeness_inside_rust() {
+        let output = check_telex_completeness_json(
+            "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n",
+            "",
+        )
+        .expect("check Telex completeness");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["complete"], false);
+        assert_eq!(parsed["missing"][0]["path"], "$.a");
+        assert_eq!(parsed["missing"][0]["requiredBy"], "$.a.b");
     }
 }

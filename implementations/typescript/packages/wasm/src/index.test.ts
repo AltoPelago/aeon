@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { loadAeonWasm } from './index.js';
+import { loadAeonWasm, TelexWasmError } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,6 +23,34 @@ test('processes a basic document through the generated wasm artifact', async () 
   assert.deepEqual(result.diagnostics.errors, []);
   assert.deepEqual(result.finalized.document, { a: 'ok' });
   assert.equal(result.events[0]?.path, '$.a');
+});
+
+test('validates, canonicalizes, and checks Telex inside wasm', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const complete = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
+  const nonCanonical = 'telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n';
+  const partial = 'telex.aes=0\nprofile=aes.partial.v0\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n';
+
+  assert.deepEqual(runtime.validateTelex(complete), {
+    valid: true,
+    profile: 'aes.complete.v0',
+    diagnostics: [],
+  });
+  assert.equal(
+    runtime.canonicalizeTelex(nonCanonical),
+    'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n',
+  );
+  assert.deepEqual(runtime.checkTelexCompleteness(partial), {
+    complete: false,
+    missing: [{ path: '$.a', requiredBy: '$.a.b' }],
+  });
+  assert.throws(
+    () => runtime.validateTelex('not telex'),
+    (error: unknown) => error instanceof TelexWasmError
+      && error.code === 'TELEX_INVALID_PREAMBLE'
+      && error.line === 1,
+  );
 });
 
 test('reports toggle literal naming from wasm events', async () => {

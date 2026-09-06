@@ -17,6 +17,25 @@ const result = await processAeon('name:string = "AEON"\n', {
 console.log(result.finalized.document);
 ```
 
+The same runtime exposes bulk Rust/WASM operations for Telex without creating
+an intermediate JavaScript event graph:
+
+```ts
+import {
+  canonicalizeTelex,
+  checkTelexCompleteness,
+  validateTelex,
+} from '@altopelago/aeon-wasm';
+
+const validation = await validateTelex(telex);
+const canonical = await canonicalizeTelex(telex);
+const completeness = await checkTelexCompleteness(telex);
+```
+
+These operations accept the Telex resource limits as camel-case options. They
+perform parsing and validation internally and return only the result needed by
+the caller across the JavaScript/WASM boundary.
+
 `processAeon` returns the normalized engine contract used by browser parity
 tools:
 
