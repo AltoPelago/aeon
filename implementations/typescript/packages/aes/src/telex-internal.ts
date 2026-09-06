@@ -367,8 +367,8 @@ export function canonicalizeTelex(input, limitsOptions = {}) {
  * Parse Telex and report whether every non-root path prefix is present.
  * This is a structural convenience check, not full AES profile validation.
  */
-export function checkTelexCompleteness(input) {
-  const parsed = parseTelex(input);
+export function checkTelexCompleteness(input, options = {}) {
+  const parsed = parseTelex(input, options);
   return checkPrefixCompleteness(parsed.records, { projection: parsed.projection });
 }
 

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTypedRuntimeBinder, runRuntime, runTypedRuntime } from './index.js';
+import { compileToTelex } from '@altopelago/aeon-core';
+import { createTypedRuntimeBinder, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
 test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
@@ -19,6 +20,34 @@ test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     assert.equal(result.meta.errors.length, 0);
     assert.equal((result.document as Record<string, unknown>).name, 'AEON');
     assert.equal((result.document as Record<string, unknown>).copy, 'AEON');
+});
+
+test('runs Telex -> portable AES -> schema -> JSON materialization', () => {
+    const wire = compileToTelex('name = "AEON"\nvalues = [2, 3]\ncopy = ~values').telex;
+    assert.ok(wire);
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.name', constraints: { type: 'StringLiteral', required: true } },
+            { path: '$.values', constraints: { type: 'ListNode', required: true } },
+        ],
+    };
+
+    const result = runTelexRuntime(wire, { schema });
+
+    assert.equal(result.meta.errors.length, 0);
+    assert.equal(result.meta.telex?.valid, true);
+    assert.deepEqual(result.document, {
+        name: 'AEON',
+        values: [2, 3],
+        copy: [2, 3],
+    });
+});
+
+test('Telex runtime fails before schema and finalization when AES is incomplete', () => {
+    const result = runTelexRuntime('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+
+    assert.equal(result.document, undefined);
+    assert.ok(result.meta.errors.some((diagnostic) => diagnostic.phase === 5 && diagnostic.code === 'AES_MISSING_PARENT'));
 });
 
 test('strict mode stops after schema errors', () => {

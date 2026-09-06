@@ -10,6 +10,7 @@
  * - aeon inspect <file>          Inspect AEON document (human-readable)
  * - aeon telex decode <file>     Decode and validate Telex
  * - aeon telex canonicalize <file> Canonicalize Telex
+ * - aeon telex materialize <file> Materialize complete Telex as JSON
  * - aeon finalize <file>         Finalize AEON document to JSON
  * - aeon bind <file>             Run typed runtime binding with schema JSON
  * - aeon integrity validate <file>  Validate integrity envelope
@@ -66,7 +67,7 @@ import { canonicalize } from '@altopelago/aeon-canonical';
 import { aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
 import { canonicalizeTelex, parseTelex, projectPortableEvents, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
-import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
+import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
     buildCanonicalReceipt,
     computeCanonicalHash,
@@ -173,6 +174,7 @@ Commands:
   inspect <file>     Inspect AEON document
   telex decode <file>        Decode and validate Telex as JSON
   telex canonicalize <file>  Canonicalize a Telex stream
+  telex materialize <file>   Materialize complete Telex as JSON
   finalize <file>    Finalize AEON document to JSON
   bind <file>        Run typed runtime binding with schema JSON
   integrity validate <file>  Validate integrity envelope
@@ -232,6 +234,7 @@ Examples:
   aeon inspect config.aeon --telex
   aeon telex decode stream.telex.aes
   aeon telex canonicalize stream.telex.aes
+  aeon telex materialize stream.telex.aes --scope full
     aeon inspect config.aeon --json --annotations
     aeon inspect config.aeon --json --annotations-only
     aeon inspect config.aeon --json --annotations-only --sort-annotations
@@ -398,8 +401,17 @@ function fmt(args: string[]): void {
 function telex(args: string[]): void {
     const action = args[0];
     const file = args[1];
-    const usage = 'Usage: aeon telex <decode|canonicalize> <file>';
-    if ((action !== 'decode' && action !== 'canonicalize') || !file || file.startsWith('--')) {
+    const usage = 'Usage: aeon telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--transport] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    if ((action !== 'decode' && action !== 'canonicalize' && action !== 'materialize') || !file || file.startsWith('--')) {
+        console.error(usage);
+        process.exit(2);
+    }
+
+    const mode = resolveFinalizeMode(args);
+    const scope = resolveFinalizeScope(args);
+    const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
+    const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    if (mode === null || scope === null || maxMaterializedWeight === null || maxReferenceDepth === null) {
         console.error(usage);
         process.exit(2);
     }
@@ -416,6 +428,19 @@ function telex(args: string[]): void {
             profile: parsed.profile,
             projection: parsed.projection,
         });
+        if (action === 'materialize') {
+            const finalized = finalizePortableJson(parsed.records, {
+                profile: parsed.profile,
+                projection: parsed.projection,
+                mode,
+                scope,
+                ...(maxMaterializedWeight !== undefined ? { maxMaterializedWeight } : {}),
+                ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
+            });
+            console.log(JSON.stringify(finalized, null, 2));
+            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            return;
+        }
         console.log(JSON.stringify({ ...parsed, validation }, null, 2));
         if (!validation.valid) process.exit(1);
     } catch (error) {

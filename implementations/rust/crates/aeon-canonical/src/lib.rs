@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, HashSet};
 
 use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
 
+pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalResult {
     pub text: String,
@@ -3136,5 +3138,16 @@ mod tests {
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
+    }
+
+    #[test]
+    fn canonicalizes_telex_through_the_canonicalization_crate() {
+        let source =
+            "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n";
+        let result = canonicalize_telex(source).expect("canonical Telex");
+        assert_eq!(
+            result,
+            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
+        );
     }
 }

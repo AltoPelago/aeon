@@ -7,13 +7,24 @@ import {
     type ProfileRegistry,
 } from '@altopelago/aeon-profiles';
 import { compile as compileCore, type AnnotationRecord } from '@altopelago/aeon-core';
-import { resolveRefs, type AssignmentEvent, type ResolveDiagnostic, type ResolveMeta } from '@altopelago/aeon-aes';
+import {
+    parseTelex,
+    resolveRefs,
+    validateTelexRecords,
+    type AssignmentEvent,
+    type ParsedTelex,
+    type ResolveDiagnostic,
+    type ResolveMeta,
+    type TelexValidationOptions,
+    type TelexValidationResult,
+} from '@altopelago/aeon-aes';
 import { materialize } from '@altopelago/aeon-tonic';
 import {
     finalizeJson,
     finalizeLinkedJson,
     finalizeMap,
     finalizeNode,
+    finalizePortableJson,
     type FinalizeHeader,
     type Diagnostic as FinalizeDiagnostic,
     type FinalizedMap,
@@ -22,7 +33,7 @@ import {
     type FinalizeScope,
     type JsonObject,
 } from '@altopelago/aeon-finalize';
-import { validate, type Diag as SchemaDiagnostic, type ResultEnvelope, type SchemaV1 } from '@altopelago/aeos-core';
+import { validate, type Diag as SchemaDiagnostic, type PortableAesBodyEvent, type ResultEnvelope, type SchemaV1 } from '@altopelago/aeos-core';
 
 export type RuntimeMode = 'strict' | 'loose';
 export type RuntimeOutput = 'json' | 'linked-json' | 'map' | 'node';
@@ -70,12 +81,29 @@ export interface RuntimeMeta {
     readonly schema?: ResultEnvelope;
     readonly resolution?: ResolveMeta;
     readonly finalization?: FinalizeMeta;
+    readonly telex?: TelexValidationResult;
 }
 
 export interface RuntimeResult {
     readonly aes: readonly AssignmentEvent[];
     readonly annotations?: readonly AnnotationRecord[];
     readonly document?: JsonObject | FinalizedMap | FinalizedNodeDocument;
+    readonly meta: RuntimeMeta;
+}
+
+export interface TelexRuntimeOptions extends Omit<TelexValidationOptions, 'profile' | 'projection'> {
+    readonly mode?: RuntimeMode;
+    readonly schema?: SchemaV1;
+    readonly scope?: FinalizeScope;
+    readonly maxMaterializedWeight?: number;
+    readonly maxReferenceDepth?: number;
+    readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
+}
+
+export interface TelexRuntimeResult {
+    readonly aes: ParsedTelex['records'];
+    readonly parsed?: ParsedTelex;
+    readonly document?: JsonObject;
     readonly meta: RuntimeMeta;
 }
 
@@ -373,6 +401,94 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
             ...(compileResult.meta?.version ? { version: compileResult.meta.version } : {}),
             ...(schemaResult ? { schema: schemaResult } : {}),
             ...(resolved.meta ? { resolution: resolved.meta } : {}),
+            ...(finalized.meta ? { finalization: finalized.meta } : {}),
+        },
+    };
+}
+
+/**
+ * Run the portable runtime path for an already-encoded Telex stream.
+ *
+ * Telex is decoded and checked as portable AES before schema validation or
+ * materialization. Parser-AST profiles, AEON source processors, and tonics are
+ * intentionally absent from this transport-neutral path.
+ */
+export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}): TelexRuntimeResult {
+    const mode = options.mode ?? 'strict';
+    const scope = options.scope ?? 'payload';
+    const errors: RuntimeDiagnostic[] = [];
+    const warnings: RuntimeDiagnostic[] = [];
+    let parsed: ParsedTelex;
+
+    try {
+        parsed = parseTelex(input, options);
+    } catch (error) {
+        const failure = error as { readonly code?: string; readonly message?: string };
+        errors.push(asDiag('error', 5, {
+            code: failure.code ?? 'TELEX_SYNTAX_ERROR',
+            message: failure.message ?? String(error),
+        }));
+        return { aes: [], meta: { errors, warnings } };
+    }
+
+    const telex = validateTelexRecords(parsed.records, {
+        ...options,
+        profile: parsed.profile,
+        projection: parsed.projection,
+    });
+    for (const diagnostic of telex.diagnostics) {
+        errors.push(asDiag('error', 5, diagnostic));
+    }
+    if (!telex.valid) {
+        return {
+            aes: parsed.records,
+            parsed,
+            meta: { errors, warnings, telex },
+        };
+    }
+
+    let schemaResult: ResultEnvelope | undefined;
+    if (options.schema) {
+        const body = parsed.records.filter((record): record is PortableAesBodyEvent => (
+            typeof record.path === 'string'
+            && typeof record.kind === 'string'
+            && record.header === undefined
+        ));
+        schemaResult = validate(body, options.schema, {
+            ...(options.trailingSeparatorDelimiterPolicy !== undefined
+                ? { trailingSeparatorDelimiterPolicy: options.trailingSeparatorDelimiterPolicy }
+                : {}),
+        });
+        appendSchemaDiagnostics(errors, warnings, schemaResult.errors, 'error');
+        appendSchemaDiagnostics(errors, warnings, schemaResult.warnings, 'warning');
+        if (mode === 'strict' && schemaResult.errors.length > 0) {
+            return {
+                aes: parsed.records,
+                parsed,
+                meta: { errors, warnings, telex, schema: schemaResult },
+            };
+        }
+    }
+
+    const finalized = finalizePortableJson(parsed.records, {
+        ...options,
+        profile: parsed.profile,
+        projection: parsed.projection,
+        mode,
+        scope,
+    });
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.errors, 'error');
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.warnings, 'warning');
+
+    return {
+        aes: parsed.records,
+        parsed,
+        document: finalized.document,
+        meta: {
+            errors,
+            warnings,
+            telex,
+            ...(schemaResult ? { schema: schemaResult } : {}),
             ...(finalized.meta ? { finalization: finalized.meta } : {}),
         },
     };

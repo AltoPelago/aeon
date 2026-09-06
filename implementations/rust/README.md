@@ -59,6 +59,7 @@ The current crates include:
 - `aeon-canonical`
 - `aeon-finalize`
 - `aeon-cli`
+- `aeon-wasm`
 
 Current verified status:
 
@@ -112,6 +113,8 @@ Current CLI status:
 - `bind --max-materialized-weight <n>` for clone-expansion budgets
 - `bind --max-reference-depth <n>` for clone-resolution depth budgets
 - AEOS CTS adapter via `--cts-validate`
+- `inspect --telex [--include-headers]` for AEON-to-Telex export
+- `telex decode`, `telex canonicalize`, and `telex materialize`
 
 Implementation note:
 
@@ -119,6 +122,10 @@ Implementation note:
 - `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - `--max-reference-depth` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - the Rust SDK can now load AEOS schema documents directly from `.aeos` and project them into the internal `Schema` model before validation.
+- Core exposes additive `compile_to_telex` and `export_telex` APIs while retaining the native event workflow.
+- the Rust SDK exposes `load_telex_str`, `load_telex_file`, and `write_telex`; complete streams are validated and materialized directly from flat AES records.
+- AEOS accepts Telex records without treating structural identities as path segments, including attribute-space selection and flat-container cardinality.
+- the Rust/WASM bridge exposes Telex validation, completeness, canonicalization, and direct materialization.
 
 Run the starter test suite with:
 

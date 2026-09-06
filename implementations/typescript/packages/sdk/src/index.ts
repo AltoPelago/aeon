@@ -17,7 +17,13 @@ import {
   type TelexValidationOptions,
   type TelexValidationResult,
 } from '@altopelago/aeon-core';
-import { finalizeJson, type FinalizeJsonResult, type FinalizeOptions } from '@altopelago/aeon-finalize';
+import {
+  finalizeJson,
+  finalizePortableJson,
+  type FinalizeJsonResult,
+  type FinalizeOptions,
+  type FinalizePortableJsonOptions,
+} from '@altopelago/aeon-finalize';
 import { emitFromObject, type EmitObjectOptions, type EmitResult } from '@altopelago/aeon-canonical';
 
 export interface ReadAeonOptions {
@@ -38,6 +44,15 @@ export interface ReadTelexResult {
   readonly parsed: ParsedTelex;
   readonly records: ParsedTelex['records'];
   readonly validation: TelexValidationResult;
+}
+
+export interface ReadTelexDocumentOptions {
+  readonly telex?: TelexValidationOptions;
+  readonly finalize?: Omit<FinalizePortableJsonOptions, 'profile' | 'projection'>;
+}
+
+export interface ReadTelexDocumentResult extends ReadTelexResult {
+  readonly finalized: FinalizeJsonResult;
 }
 
 export function readAeon(input: string, options: ReadAeonOptions = {}): ReadAeonResult {
@@ -114,6 +129,38 @@ export function readTelexChecked(input: string, options: TelexValidationOptions 
   return result;
 }
 
+/** Decode, validate, and materialize a complete Telex stream as JSON. */
+export function readTelexDocument(
+  input: string,
+  options: ReadTelexDocumentOptions = {},
+): ReadTelexDocumentResult {
+  const result = readTelex(input, options.telex);
+  const finalized = finalizePortableJson(result.records, {
+    ...(options.finalize ?? {}),
+    profile: result.parsed.profile,
+    projection: result.parsed.projection,
+  });
+  return { ...result, finalized };
+}
+
+/** Decode and materialize Telex, throwing on AES or finalization errors. */
+export function readTelexDocumentChecked(
+  input: string,
+  options: ReadTelexDocumentOptions = {},
+): ReadTelexDocumentResult {
+  const result = readTelexDocument(input, options);
+  if (!result.validation.valid) {
+    const summary = result.validation.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join('\n');
+    throw new Error(`Telex validation failed with ${result.validation.diagnostics.length} error(s):\n${summary}`);
+  }
+  const finalizeErrors = result.finalized.meta?.errors ?? [];
+  if (finalizeErrors.length > 0) {
+    const summary = finalizeErrors.map((diagnostic) => `${diagnostic.code ?? 'FINALIZE_ERROR'}: ${diagnostic.message}`).join('\n');
+    throw new Error(`Telex finalization failed with ${finalizeErrors.length} error(s):\n${summary}`);
+  }
+  return result;
+}
+
 /** Encode portable AES records as a Telex stream. */
 export function writeTelex(
   records: readonly (TelexRecord | PortableAesEvent)[],
@@ -137,6 +184,7 @@ export type {
   CompileResult,
   FinalizeOptions,
   FinalizeJsonResult,
+  FinalizePortableJsonOptions,
   EmitObjectOptions,
   EmitResult,
   CompileToTelexOptions,

@@ -6,14 +6,28 @@ use std::path::{Path, PathBuf};
 use aeon_aeos::{
     AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ReferencePathSegment,
     ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions, validate,
+    validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
     AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
-    ReferenceSegment, Value, compile, normalize_number_literal,
+    ReferenceSegment, Value, compile, compile_to_telex, normalize_number_literal,
 };
-use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
+use aeon_finalize::{
+    FinalizeOptions, FinalizePortableJsonOptions, MaterializeError, finalize_into,
+    finalize_portable_json,
+};
+use aes_telex::{
+    encode_telex_with_projection_and_limits, parse_telex_with_limits,
+    validate_telex_records_with_projection_and_limits,
+};
 use serde::de::DeserializeOwned;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
+
+pub use aeon_core::{CompileToTelexOptions, CompileToTelexResult};
+pub use aes_telex::{
+    ParsedTelex, TelexLimits, TelexRecord, TelexSyntaxError,
+    ValidationResult as TelexValidationResult,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
@@ -31,10 +45,27 @@ pub struct LoadedDocument<T> {
     pub document: T,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TelexLoadOptions {
+    pub finalize: FinalizePortableJsonOptions,
+    pub schema: Option<Schema>,
+    pub schema_file: Option<PathBuf>,
+    pub validation: ValidationOptions,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedTelexDocument<T> {
+    pub parsed: ParsedTelex,
+    pub validation: Option<ResultEnvelope>,
+    pub document: T,
+}
+
 #[derive(Debug)]
 pub enum AeonLoadError {
     Read(std::io::Error),
     Compile(Vec<Diagnostic>),
+    TelexSyntax(TelexSyntaxError),
+    TelexValidation(TelexValidationResult),
     SchemaLoad(String),
     Schema(ResultEnvelope),
     Finalize(aeon_finalize::FinalizeMeta),
@@ -48,6 +79,12 @@ impl fmt::Display for AeonLoadError {
             Self::Compile(errors) => {
                 write!(f, "AEON compile failed with {} error(s)", errors.len())
             }
+            Self::TelexSyntax(error) => write!(f, "Telex decode failed: {error}"),
+            Self::TelexValidation(result) => write!(
+                f,
+                "AES validation failed with {} error(s)",
+                result.diagnostics.len()
+            ),
             Self::SchemaLoad(message) => write!(f, "{message}"),
             Self::Schema(result) => {
                 write!(
@@ -75,7 +112,12 @@ impl std::error::Error for AeonLoadError {
         match self {
             Self::Read(error) => Some(error),
             Self::Deserialize(error) => Some(error),
-            Self::Compile(_) | Self::SchemaLoad(_) | Self::Schema(_) | Self::Finalize(_) => None,
+            Self::TelexSyntax(error) => Some(error),
+            Self::Compile(_)
+            | Self::TelexValidation(_)
+            | Self::SchemaLoad(_)
+            | Self::Schema(_)
+            | Self::Finalize(_) => None,
         }
     }
 }
@@ -127,6 +169,86 @@ pub fn load_file<T: DeserializeOwned, P: AsRef<Path>>(
 ) -> Result<LoadedDocument<T>, AeonLoadError> {
     let source = fs::read_to_string(path).map_err(AeonLoadError::Read)?;
     load_str(&source, options)
+}
+
+/// Decode, validate, optionally bind, and directly materialize a complete
+/// Telex stream without rebuilding the AEON parser's AST.
+pub fn load_telex_str<T: DeserializeOwned>(
+    source: &str,
+    mut options: TelexLoadOptions,
+) -> Result<LoadedTelexDocument<T>, AeonLoadError> {
+    let parsed = parse_telex_with_limits(source, &options.finalize.limits)
+        .map_err(AeonLoadError::TelexSyntax)?;
+    let registered = options
+        .finalize
+        .registered_fields
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let portable = validate_telex_records_with_projection_and_limits(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        &registered,
+        &options.finalize.limits,
+    );
+    if !portable.valid {
+        return Err(AeonLoadError::TelexValidation(portable));
+    }
+
+    let schema = if let Some(schema) = options.schema {
+        Some(schema)
+    } else if let Some(schema_file) = options.schema_file.as_ref() {
+        Some(load_schema_file(schema_file)?)
+    } else {
+        None
+    };
+    let validation = schema.map(|schema| {
+        validate_aeos_telex_records(&parsed.records, Some(schema), options.validation)
+    });
+    if let Some(result) = &validation
+        && !result.errors.is_empty()
+    {
+        return Err(AeonLoadError::Schema(result.clone()));
+    }
+
+    options.finalize.profile = parsed.profile.clone();
+    options.finalize.projection = parsed.projection.clone();
+    let finalized = finalize_portable_json(&parsed.records, options.finalize);
+    if !finalized.meta.errors.is_empty() {
+        return Err(AeonLoadError::Finalize(finalized.meta));
+    }
+    let document =
+        serde_json::from_value(finalized.document).map_err(AeonLoadError::Deserialize)?;
+    Ok(LoadedTelexDocument {
+        parsed,
+        validation,
+        document,
+    })
+}
+
+pub fn load_telex_file<T: DeserializeOwned, P: AsRef<Path>>(
+    path: P,
+    options: TelexLoadOptions,
+) -> Result<LoadedTelexDocument<T>, AeonLoadError> {
+    let source = fs::read_to_string(path).map_err(AeonLoadError::Read)?;
+    load_telex_str(&source, options)
+}
+
+/// Encode portable records for transport while retaining the in-memory APIs.
+pub fn write_telex(
+    records: &[TelexRecord],
+    profile: Option<&str>,
+    projection: Option<&str>,
+    limits: &TelexLimits,
+) -> Result<String, aes_telex::TelexEncodeError> {
+    encode_telex_with_projection_and_limits(records, profile, projection, limits)
+}
+
+/// Compile AEON and export Telex through the SDK facade.
+#[must_use]
+pub fn aeon_to_telex(source: &str, options: CompileToTelexOptions) -> CompileToTelexResult {
+    compile_to_telex(source, options)
 }
 
 pub fn load_schema_file<P: AsRef<Path>>(path: P) -> Result<Schema, AeonLoadError> {
@@ -890,6 +1012,65 @@ mod tests {
         assert!(loaded.validation.as_ref().is_some_and(|result| result.ok));
 
         let _ = fs::remove_file(schema_path);
+    }
+
+    #[test]
+    fn loads_complete_telex_without_reconstructing_parser_events() {
+        let wire = "telex.aes=0\n\npath=$.config\nkind=ObjectNode\n\npath=$.config.name\nkind=StringLiteral\nvalue=AEON\n\npath=$.config.values\nkind=ListNode\n\npath=$.config.values[0]\nkind=NumberLiteral\nvalue=2\n\npath=$.config.values[1]\nkind=NumberLiteral\nvalue=3\n";
+        let loaded =
+            load_telex_str::<BTreeMap<String, JsonValue>>(wire, TelexLoadOptions::default())
+                .expect("Telex load success");
+        assert_eq!(
+            loaded.document,
+            BTreeMap::from([(
+                "config".to_owned(),
+                json!({"name": "AEON", "values": [2, 3]}),
+            )])
+        );
+        assert_eq!(loaded.parsed.profile, aes_telex::COMPLETE_AES_PROFILE);
+    }
+
+    #[test]
+    fn exports_aeon_to_telex_through_the_sdk_facade() {
+        let result = aeon_to_telex("answer = 42", CompileToTelexOptions::default());
+        assert!(result.compile.errors.is_empty());
+        assert!(
+            result
+                .telex
+                .is_some_and(|wire| wire.contains("path=$.answer"))
+        );
+    }
+
+    #[test]
+    fn rejects_partial_telex_at_the_materialization_boundary() {
+        let wire = "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n";
+        let error = load_telex_str::<JsonValue>(wire, TelexLoadOptions::default())
+            .expect_err("partial Telex must fail");
+        assert!(matches!(error, AeonLoadError::Finalize(_)));
+    }
+
+    #[test]
+    fn validates_telex_against_aeos_before_materialization() {
+        let wire = "telex.aes=0\n\npath=$.port\nkind=StringLiteral\nvalue=8080\n";
+        let error = load_telex_str::<JsonValue>(
+            wire,
+            TelexLoadOptions {
+                schema: Some(Schema {
+                    rules: vec![rule(
+                        "$.port",
+                        json!({"required": true, "type": "NumberLiteral"}),
+                    )],
+                    datatype_rules: BTreeMap::new(),
+                    datatype_allowlist: Vec::new(),
+                    world: "open".to_owned(),
+                    reference_policy: None,
+                    resource_policy: None,
+                }),
+                ..TelexLoadOptions::default()
+            },
+        )
+        .expect_err("schema mismatch");
+        assert!(matches!(error, AeonLoadError::Schema(_)));
     }
 
     fn build_schema() -> Schema {

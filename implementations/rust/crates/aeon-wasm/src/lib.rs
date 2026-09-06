@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
@@ -5,7 +7,10 @@ use aeon_core::{
     HeaderFields, NullLiteralMode, ReferenceSegment, Span, Value, compile, format_path,
     normalize_number_literal,
 };
-use aeon_finalize::{FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json};
+use aeon_finalize::{
+    FinalizeMode, FinalizeOptions, FinalizePortableJsonOptions, FinalizeScope, Materialization,
+    finalize_json, finalize_portable_json,
+};
 use aes_telex::{
     Diagnostic as TelexDiagnostic, TelexLimits, TelexSyntaxError, canonicalize_telex_with_limits,
     check_prefix_completeness, parse_telex_with_limits, validate_telex_with_limits,
@@ -56,6 +61,10 @@ struct TelexOptions {
     max_generic_arguments: Option<usize>,
     max_clarifier_values: Option<usize>,
     max_datatype_components: Option<usize>,
+    finalize_mode: Option<String>,
+    finalize_scope: Option<String>,
+    max_materialized_weight: Option<usize>,
+    max_reference_depth: Option<usize>,
 }
 
 fn default_validation_mode() -> String {
@@ -126,6 +135,11 @@ pub fn check_telex_completeness_wasm(source: &str, options_json: &str) -> Result
     check_telex_completeness_json(source, options_json).map_err(|error| JsValue::from_str(&error))
 }
 
+#[wasm_bindgen(js_name = materialize_telex)]
+pub fn materialize_telex_wasm(source: &str, options_json: &str) -> Result<String, JsValue> {
+    materialize_telex_json(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
 pub fn validate_telex_json(source: &str, options_json: &str) -> Result<String, String> {
     let options = parse_telex_options(options_json)?;
     let limits = telex_limits(&options);
@@ -187,6 +201,42 @@ pub fn check_telex_completeness_json(source: &str, options_json: &str) -> Result
         "missing": missing,
     }))
     .map_err(|error| format!("failed to serialize Telex completeness result: {error}"))
+}
+
+pub fn materialize_telex_json(source: &str, options_json: &str) -> Result<String, String> {
+    let options = parse_telex_options(options_json)?;
+    let limits = telex_limits(&options);
+    let parsed = parse_telex_with_limits(source, &limits)
+        .map_err(|error| telex_syntax_error_json(&error))?;
+    let result = finalize_portable_json(
+        &parsed.records,
+        FinalizePortableJsonOptions {
+            mode: if options.finalize_mode.as_deref() == Some("loose") {
+                FinalizeMode::Loose
+            } else {
+                FinalizeMode::Strict
+            },
+            scope: match options.finalize_scope.as_deref() {
+                Some("header") => FinalizeScope::Header,
+                Some("full") => FinalizeScope::Full,
+                _ => FinalizeScope::Payload,
+            },
+            profile: parsed.profile,
+            projection: parsed.projection,
+            registered_fields: options.registered_fields,
+            limits,
+            max_materialized_weight: options.max_materialized_weight,
+            max_reference_depth: options.max_reference_depth,
+        },
+    );
+    serde_json::to_string(&json!({
+        "document": result.document,
+        "meta": {
+            "errors": diagnostics_json(&result.meta.errors),
+            "warnings": diagnostics_json(&result.meta.warnings),
+        }
+    }))
+    .map_err(|error| format!("failed to serialize Telex materialization result: {error}"))
 }
 
 fn parse_telex_options(options_json: &str) -> Result<TelexOptions, String> {
@@ -469,7 +519,14 @@ fn events_json(
     if matches!(scope, "header" | "full")
         && let Some(header) = header
     {
-        for (key, value) in &header.fields {
+        let mut seen = BTreeSet::new();
+        for key in header.order.iter().chain(header.fields.keys()) {
+            if !seen.insert(key.as_str()) {
+                continue;
+            }
+            let Some(value) = header.fields.get(key) else {
+                continue;
+            };
             output.push(json!({
                 "path": format!("$.[\"aeon:{key}\"]"),
                 "key": format!("aeon:{key}"),
@@ -634,8 +691,8 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_telex_text, check_telex_completeness_json, process_aeon_json,
-        validate_telex_json,
+        canonicalize_telex_text, check_telex_completeness_json, materialize_telex_json,
+        process_aeon_json, validate_telex_json,
     };
     use serde_json::Value as JsonValue;
 
@@ -709,8 +766,8 @@ mod tests {
         assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
         assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
         assert_eq!(parsed["finalized"]["header"]["encoding"], "utf-8");
-        assert_eq!(parsed["events"][0]["path"], "$.[\"aeon:encoding\"]");
-        assert_eq!(parsed["events"][1]["path"], "$.[\"aeon:mode\"]");
+        assert_eq!(parsed["events"][0]["path"], "$.[\"aeon:mode\"]");
+        assert_eq!(parsed["events"][1]["path"], "$.[\"aeon:encoding\"]");
     }
 
     #[test]
@@ -782,5 +839,17 @@ mod tests {
         assert_eq!(parsed["complete"], false);
         assert_eq!(parsed["missing"][0]["path"], "$.a");
         assert_eq!(parsed["missing"][0]["requiredBy"], "$.a.b");
+    }
+
+    #[test]
+    fn materializes_complete_telex_inside_rust() {
+        let output = materialize_telex_json(
+            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+            "",
+        )
+        .expect("materialize Telex");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+        assert_eq!(parsed["document"], serde_json::json!({"answer": 42}));
+        assert_eq!(parsed["meta"]["errors"], serde_json::json!([]));
     }
 }

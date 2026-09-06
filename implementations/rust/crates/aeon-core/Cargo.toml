@@ -6,9 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+aes-telex.workspace = true
+
 [lib]
 path = "src/lib.rs"
 
 [lints]
 workspace = true
-

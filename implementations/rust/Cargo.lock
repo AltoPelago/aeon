@@ -7,6 +7,7 @@ name = "aeon-aeos"
 version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
  "regex",
  "serde",
  "serde_json",
@@ -24,6 +25,7 @@ name = "aeon-canonical"
 version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
 ]
 
 [[package]]
@@ -35,6 +37,7 @@ dependencies = [
  "aeon-canonical",
  "aeon-core",
  "aeon-finalize",
+ "aes-telex",
  "ed25519-dalek",
  "pkcs8",
  "serde",
@@ -46,12 +49,16 @@ dependencies = [
 [[package]]
 name = "aeon-core"
 version = "0.12.1"
+dependencies = [
+ "aes-telex",
+]
 
 [[package]]
 name = "aeon-finalize"
 version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
  "serde",
  "serde_json",
 ]
@@ -63,6 +70,7 @@ dependencies = [
  "aeon-aeos",
  "aeon-core",
  "aeon-finalize",
+ "aes-telex",
  "serde",
  "serde_json",
 ]

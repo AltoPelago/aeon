@@ -8,6 +8,8 @@ import {
   readAeonStrictCustom,
   readTelex,
   readTelexChecked,
+  readTelexDocument,
+  readTelexDocumentChecked,
   writeAeon,
   writeTelex,
 } from './index.js';
@@ -26,6 +28,66 @@ test('checked Telex reads enforce completeness by default', () => {
     () => readTelexChecked('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n'),
     /AES_MISSING_PARENT/u,
   );
+});
+
+test('materializes an AEON document after a Telex round trip', () => {
+  const source = String.raw`aeon:header = { mode = "transport", metadata = { owner = "team" } }
+config\CONFIG\@{scope\META\ = "test"} = {
+  title:string = "Demo"
+  values:list<int> = [2, 3, 4]
+  card:node = <tag\HEAD\@{role = "button"}(\CHILD\@{lang = "en"}:string = "hello", true)>
+  copy = ~config.values
+  pointer = ~>config.title
+}`;
+  const exported = aeonToTelex(source, { includeHeaders: true });
+  assert.equal(exported.compile.errors.length, 0);
+  assert.ok(exported.telex);
+
+  const imported = readTelexDocumentChecked(exported.telex, {
+    finalize: { mode: 'loose', scope: 'full' },
+  });
+
+  assert.deepEqual(imported.finalized.document, {
+    header: {
+      mode: 'transport',
+      metadata: { owner: 'team' },
+    },
+    payload: {
+      config: {
+        title: 'Demo',
+        values: [2, 3, 4],
+        card: {
+          $node: 'tag',
+          '@': { role: 'button' },
+          $children: ['hello', true],
+        },
+        copy: [2, 3, 4],
+        pointer: '~>config.title',
+        '@': {
+          card: {
+            '@items': {
+              '0': { lang: 'en' },
+            },
+          },
+        },
+      },
+      '@': {
+        config: { scope: 'test' },
+      },
+    },
+  });
+  assert.equal(imported.validation.valid, true);
+  assert.equal(imported.finalized.meta?.errors?.length ?? 0, 0);
+  assert.ok(imported.finalized.meta?.warnings?.some((diagnostic) => diagnostic.code === 'FINALIZE_UNRESOLVED_REFERENCE'));
+});
+
+test('refuses to materialize partial Telex without external state', () => {
+  const input = 'telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n';
+  const result = readTelexDocument(input);
+
+  assert.equal(result.validation.valid, true);
+  assert.deepEqual(result.finalized.document, {});
+  assert.ok(result.finalized.meta?.errors?.some((diagnostic) => diagnostic.code === 'FINALIZE_PARTIAL_AES_UNSUPPORTED'));
 });
 
 test('exports AEON source to Telex while keeping the AEON workflow available', () => {

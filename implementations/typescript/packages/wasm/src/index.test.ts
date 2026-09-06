@@ -45,6 +45,10 @@ test('validates, canonicalizes, and checks Telex inside wasm', async () => {
     complete: false,
     missing: [{ path: '$.a', requiredBy: '$.a.b' }],
   });
+  assert.deepEqual(runtime.materializeTelex(complete), {
+    document: { answer: 42 },
+    meta: { errors: [], warnings: [] },
+  });
   assert.throws(
     () => runtime.validateTelex('not telex'),
     (error: unknown) => error instanceof TelexWasmError

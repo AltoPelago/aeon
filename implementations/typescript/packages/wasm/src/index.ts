@@ -25,6 +25,10 @@ export interface TelexOptions {
   maxGenericArguments?: number;
   maxClarifierValues?: number;
   maxDatatypeComponents?: number;
+  finalizeMode?: 'strict' | 'loose';
+  finalizeScope?: 'payload' | 'header' | 'full';
+  maxMaterializedWeight?: number;
+  maxReferenceDepth?: number;
 }
 
 export interface TelexDiagnostic {
@@ -55,6 +59,11 @@ export interface MissingTelexPath {
 export interface TelexCompletenessResult {
   complete: boolean;
   missing: MissingTelexPath[];
+}
+
+export interface TelexMaterializationResult {
+  document: unknown;
+  meta: NormalizedDiagnostics;
 }
 
 export class TelexWasmError extends Error {
@@ -165,6 +174,7 @@ export interface AeonWasmRuntime {
   validateTelex(source: string, options?: TelexOptions): TelexValidationResult;
   canonicalizeTelex(source: string, options?: TelexOptions): string;
   checkTelexCompleteness(source: string, options?: TelexOptions): TelexCompletenessResult;
+  materializeTelex(source: string, options?: TelexOptions): TelexMaterializationResult;
 }
 
 interface GeneratedAeonWasmModule {
@@ -173,6 +183,7 @@ interface GeneratedAeonWasmModule {
   validate_telex(source: string, optionsJson: string): string;
   canonicalize_telex(source: string, optionsJson: string): string;
   check_telex_completeness(source: string, optionsJson: string): string;
+  materialize_telex(source: string, optionsJson: string): string;
 }
 
 let runtimePromise: Promise<AeonWasmRuntime> | undefined;
@@ -214,6 +225,14 @@ export async function checkTelexCompleteness(
   return runtime.checkTelexCompleteness(source, options);
 }
 
+export async function materializeTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexMaterializationResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.materializeTelex(source, options);
+}
+
 async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime> {
   let module: GeneratedAeonWasmModule;
 
@@ -245,6 +264,11 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
     checkTelexCompleteness(source: string, options: TelexOptions = {}): TelexCompletenessResult {
       return parseTelexResult<TelexCompletenessResult>(
         invokeTelex(() => module.check_telex_completeness(source, JSON.stringify(options))),
+      );
+    },
+    materializeTelex(source: string, options: TelexOptions = {}): TelexMaterializationResult {
+      return parseTelexResult<TelexMaterializationResult>(
+        invokeTelex(() => module.materialize_telex(source, JSON.stringify(options))),
       );
     },
   };

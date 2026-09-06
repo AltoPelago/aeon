@@ -7,6 +7,7 @@ import { projectPortableEvents } from './portable.js';
 import { resolvePaths } from './paths.js';
 import {
     canonicalizeTelex,
+    checkTelexCompleteness,
     encodeTelex,
     parseTelex,
     validateTelex,
@@ -64,6 +65,16 @@ describe('telex.aes v0', () => {
             (error: unknown) => error instanceof Error
                 && 'code' in error
                 && error.code === 'AES_DATATYPE_LIMIT',
+        );
+    });
+
+    it('applies caller-selected parser limits during completeness checks', () => {
+        const source = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
+        assert.throws(
+            () => checkTelexCompleteness(source, { maxEvents: 0 }),
+            (error: unknown) => error instanceof Error
+                && 'code' in error
+                && error.code === 'TELEX_LIMIT_EXCEEDED',
         );
     });
 

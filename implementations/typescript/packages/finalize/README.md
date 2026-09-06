@@ -41,6 +41,21 @@ if (!meta?.errors?.length) {
 }
 ```
 
+### Portable AES JSON output
+
+```ts
+import { finalizePortableJson } from '@altopelago/aeon-finalize';
+
+const { document, meta } = finalizePortableJson(telex.records, {
+  profile: telex.profile,
+  projection: telex.projection,
+});
+```
+
+This path consumes the flat portable AES model directly. It requires
+`aes.complete.v0`; a partial stream needs external state before it can be
+materialized.
+
 ### Node output
 
 ```ts
@@ -81,6 +96,7 @@ const next = transformDocument(nodeDocument, {
 - `finalizeMap(aes, options)`
 - `finalizeJson(aes, options)`
 - `finalizeLinkedJson(aes, options)`
+- `finalizePortableJson(records, options)`
 - `finalizeNode(aes, options)`
 - `finalizeWithProfile(aes, options)`
 

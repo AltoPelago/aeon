@@ -1,5 +1,9 @@
 #![allow(clippy::too_many_arguments)]
 
+mod portable_json;
+
+pub use portable_json::{FinalizePortableJsonOptions, finalize_portable_json};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -12,6 +16,20 @@ use serde_json::{Map, Value as JsonValue, json};
 
 fn canonical_datatype_name(name: &str) -> &str {
     name
+}
+
+fn ordered_header_fields(header: &HeaderFields) -> Vec<(&str, &Value)> {
+    let mut fields = Vec::with_capacity(header.fields.len());
+    let mut seen = BTreeSet::new();
+    for key in header.order.iter().chain(header.fields.keys()) {
+        if !seen.insert(key.as_str()) {
+            continue;
+        }
+        if let Some(value) = header.fields.get(key) {
+            fields.push((key.as_str(), value));
+        }
+    }
+    fields
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +253,7 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
     if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full)
         && let Some(header) = options.header.as_ref()
     {
-        for (key, value) in &header.fields {
+        for (key, value) in ordered_header_fields(header) {
             let path = match options.scope {
                 FinalizeScope::Header => format!("$.{key}"),
                 FinalizeScope::Full => format!("$.header.{key}"),
@@ -483,7 +501,7 @@ fn header_to_json(
 ) -> JsonValue {
     let mut object = Map::new();
     if let Some(header) = header {
-        for (key, value) in &header.fields {
+        for (key, value) in ordered_header_fields(header) {
             let path = match scope {
                 FinalizeScope::Header => format!("$.{key}"),
                 FinalizeScope::Full => format!("$.header.{key}"),
@@ -500,7 +518,7 @@ fn header_to_json(
                 continue;
             }
             object.insert(
-                key.clone(),
+                key.to_owned(),
                 value_to_json(
                     value,
                     &path,

@@ -21,12 +21,14 @@ fn later_position(a: Position, b: Position) -> Position {
 
 pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
     let mut fields = BTreeMap::new();
+    let mut order = Vec::new();
     for binding in bindings {
         if let Some(key) = binding.key.strip_prefix("aeon:") {
+            order.push(key.to_owned());
             let _ = fields.insert(String::from(key), binding.value.clone());
         }
     }
-    HeaderFields { fields }
+    HeaderFields { fields, order }
 }
 
 pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagnostic> {

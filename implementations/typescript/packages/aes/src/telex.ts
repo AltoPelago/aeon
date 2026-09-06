@@ -177,8 +177,11 @@ export function canonicalizeTelex(input: string, options: TelexLimitOptions = {}
     return implementation.canonicalizeTelex(input, options) as string;
 }
 
-export function checkTelexCompleteness(input: string): TelexCompletenessResult {
-    return implementation.checkTelexCompleteness(input) as TelexCompletenessResult;
+export function checkTelexCompleteness(
+    input: string,
+    options: TelexLimitOptions = {},
+): TelexCompletenessResult {
+    return implementation.checkTelexCompleteness(input, options) as TelexCompletenessResult;
 }
 
 export function checkPrefixCompleteness(

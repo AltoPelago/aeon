@@ -856,6 +856,36 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(canonical.stdout, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
         });
 
+        it('materializes complete Telex input', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-materialize-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            fs.writeFileSync(file, [
+                'telex.aes=0',
+                '',
+                'path=$.config',
+                'kind=ObjectNode',
+                '',
+                'path=$.config.name',
+                'kind=StringLiteral',
+                'value=AEON',
+                '',
+                'path=$.copy',
+                'kind=CloneReference',
+                'value=$.config',
+                '',
+            ].join('\n'), 'utf-8');
+
+            const result = await runCli(['telex', 'materialize', file]);
+            assert.strictEqual(result.code, 0);
+            assert.strictEqual(result.stderr, '');
+            assert.deepStrictEqual(JSON.parse(result.stdout), {
+                document: {
+                    config: { name: 'AEON' },
+                    copy: { name: 'AEON' },
+                },
+            });
+        });
+
         it('supports --sort-annotations with annotations-only JSON output', async () => {
             const { code, stdout, stderr } = await runCli([
                 'inspect',

@@ -20,7 +20,10 @@ use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
-pub use portable::{PortableAesEvent, project_portable_events};
+pub use portable::{
+    CompileToTelexOptions, CompileToTelexResult, ExportTelexOptions, PortableAesEvent,
+    compile_to_telex, export_telex, project_portable_events, project_telex_records,
+};
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
     SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
@@ -569,6 +572,7 @@ pub struct BindingProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
+    pub order: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -802,22 +806,22 @@ fn finalize_compile(
     if let Some(error) = validate_event_path_limits(&flattened.events, &options) {
         errors.push(error);
     }
-    if let Some(max_events) = options.max_events {
-        if flattened.events.len() > max_events {
-            return CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![event_count_exceeded_error(
-                    flattened.events.len(),
-                    max_events,
-                )],
-                warnings,
-                bindings: Vec::new(),
-                header: options
-                    .include_header
-                    .then(|| extract_header_fields(&bindings)),
-            };
-        }
+    if let Some(max_events) = options.max_events
+        && flattened.events.len() > max_events
+    {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![event_count_exceeded_error(
+                flattened.events.len(),
+                max_events,
+            )],
+            warnings,
+            bindings: Vec::new(),
+            header: options
+                .include_header
+                .then(|| extract_header_fields(&bindings)),
+        };
     }
     validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
     let indexes = build_validation_indexes(&flattened);
@@ -888,20 +892,20 @@ fn validate_only_compile(
     let mut errors = Vec::new();
     validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
-    if let Some(max_events) = options.max_events {
-        if flattened.events.len() > max_events {
-            return CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![event_count_exceeded_error(
-                    flattened.events.len(),
-                    max_events,
-                )],
-                warnings,
-                bindings: Vec::new(),
-                header: None,
-            };
-        }
+    if let Some(max_events) = options.max_events
+        && flattened.events.len() > max_events
+    {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![event_count_exceeded_error(
+                flattened.events.len(),
+                max_events,
+            )],
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
     }
     trace_compile(format!(
         "compile:validation_only:flattened events={} ref_steps={} ref_targets={}",

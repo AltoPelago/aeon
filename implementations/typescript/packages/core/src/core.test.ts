@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
     compile,
     compileToTelex,
+    checkTelexCompleteness,
     formatPath,
     inspectFilePreamble,
     VERSION,
@@ -48,6 +49,12 @@ describe('API Surface', () => {
         assert.strictEqual(result.records.length, 1);
         assert.match(result.telex ?? '', /^telex\.aes=0\n/u);
         assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
+    });
+
+    it('should expose the quick Telex completeness check', () => {
+        const result = checkTelexCompleteness('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+        assert.strictEqual(result.complete, false);
+        assert.deepStrictEqual(result.missing.map(({ path }) => path), ['$.nested']);
     });
 
     it('should include headers only through the explicit AEON document projection', () => {

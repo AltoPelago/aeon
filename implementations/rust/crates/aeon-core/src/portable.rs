@@ -1,5 +1,11 @@
 use std::collections::{BTreeMap, HashSet};
 
+use aes_telex::{
+    AEON_DOCUMENT_PROJECTION, DatatypeClarifier, DatatypeDescriptor, GenericArgument,
+    TelexEncodeError, TelexLimits, TelexRecord, encode_telex_with_projection_and_limits,
+    parse_datatype_descriptor,
+};
+
 use crate::pathing::{format_path, render_member_segment};
 use crate::{
     AssignmentEvent, AttributeValue, Binding, CanonicalPath, PathSegment, ReferenceSegment, Span,
@@ -13,8 +19,198 @@ pub struct PortableAesEvent {
     pub kind: &'static str,
     pub identity: Option<String>,
     pub datatype: Option<String>,
+    pub generics: Vec<GenericArgument>,
+    pub clarifiers: Vec<DatatypeClarifier>,
     pub value: Option<String>,
     pub span: Option<Span>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExportTelexOptions {
+    pub include_headers: bool,
+    pub header: Option<crate::HeaderFields>,
+    pub profile: Option<String>,
+    pub projection: Option<String>,
+    pub limits: TelexLimits,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CompileToTelexOptions {
+    pub compile: crate::CompileOptions,
+    pub telex: ExportTelexOptions,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileToTelexResult {
+    pub compile: crate::CompileResult,
+    pub records: Vec<TelexRecord>,
+    pub telex: Option<String>,
+    pub encode_error: Option<TelexEncodeError>,
+}
+
+/// Compile AEON and export an interoperable Telex stream. `compile` remains
+/// the native in-memory entry point; this additive helper is the wire boundary.
+#[must_use]
+pub fn compile_to_telex(input: &str, mut options: CompileToTelexOptions) -> CompileToTelexResult {
+    if options.telex.include_headers {
+        options.compile.include_header = true;
+    }
+    let compile = crate::compile(input, options.compile);
+    if !compile.errors.is_empty() {
+        return CompileToTelexResult {
+            compile,
+            records: Vec::new(),
+            telex: None,
+            encode_error: None,
+        };
+    }
+    if options.telex.include_headers {
+        options.telex.header = compile.header.clone();
+    }
+    match project_telex_records(&compile.events, &options.telex) {
+        Ok(records) => {
+            let projection = if options.telex.include_headers {
+                Some(AEON_DOCUMENT_PROJECTION)
+            } else {
+                options.telex.projection.as_deref()
+            };
+            match encode_telex_with_projection_and_limits(
+                &records,
+                options.telex.profile.as_deref(),
+                projection,
+                &options.telex.limits,
+            ) {
+                Ok(telex) => CompileToTelexResult {
+                    compile,
+                    records,
+                    telex: Some(telex),
+                    encode_error: None,
+                },
+                Err(error) => CompileToTelexResult {
+                    compile,
+                    records,
+                    telex: None,
+                    encode_error: Some(error),
+                },
+            }
+        }
+        Err(error) => CompileToTelexResult {
+            compile,
+            records: Vec::new(),
+            telex: None,
+            encode_error: Some(error),
+        },
+    }
+}
+
+pub fn export_telex(
+    events: &[AssignmentEvent],
+    options: &ExportTelexOptions,
+) -> Result<String, TelexEncodeError> {
+    let records = project_telex_records(events, options)?;
+    let projection = if options.include_headers {
+        Some(AEON_DOCUMENT_PROJECTION)
+    } else {
+        options.projection.as_deref()
+    };
+    encode_telex_with_projection_and_limits(
+        &records,
+        options.profile.as_deref(),
+        projection,
+        &options.limits,
+    )
+}
+
+pub fn project_telex_records(
+    events: &[AssignmentEvent],
+    options: &ExportTelexOptions,
+) -> Result<Vec<TelexRecord>, TelexEncodeError> {
+    let is_header = |event: &AssignmentEvent| matches!(event.path.segments.get(1), Some(PathSegment::Member(key)) if key.starts_with("aeon:"));
+    let body = project_portable_events(
+        &events
+            .iter()
+            .filter(|event| !is_header(event))
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+    let mut records = Vec::new();
+    if options.include_headers {
+        let mut header = project_portable_events(
+            &events
+                .iter()
+                .filter(|event| is_header(event))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        if header.is_empty()
+            && let Some(fields) = options.header.as_ref()
+        {
+            header = project_header_fields(fields);
+        }
+        for event in &header {
+            records.push(portable_to_telex(event, "header")?);
+        }
+    }
+    for event in &body {
+        records.push(portable_to_telex(event, "path")?);
+    }
+    Ok(records)
+}
+
+fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> {
+    let mut projected = Vec::new();
+    let node_source_paths = HashSet::new();
+    let mut emitted = HashSet::new();
+    for key in header.order.iter().chain(header.fields.keys()) {
+        if !emitted.insert(key.as_str()) {
+            continue;
+        }
+        let Some(value) = header.fields.get(key) else {
+            continue;
+        };
+        project_value_tree(
+            append_member("$", &format!("aeon:{key}")),
+            value,
+            ValueTreeMetadata {
+                identity: None,
+                datatype: None,
+                attributes: None,
+                span: None,
+            },
+            &mut projected,
+            &node_source_paths,
+        );
+    }
+    split_projected_datatypes(&mut projected);
+    projected
+}
+
+fn portable_to_telex(
+    event: &PortableAesEvent,
+    address_field: &str,
+) -> Result<TelexRecord, TelexEncodeError> {
+    let mut fields = vec![
+        (address_field.to_owned(), event.path.clone()),
+        ("kind".to_owned(), event.kind.to_owned()),
+    ];
+    let datatype = event.datatype.as_ref().map(|datatype| DatatypeDescriptor {
+        datatype: datatype.clone(),
+        generics: event.generics.clone(),
+        clarifiers: event.clarifiers.clone(),
+    });
+    if datatype.is_some() {
+        fields.push(("datatype".to_owned(), String::new()));
+    }
+    if let Some(identity) = &event.identity {
+        fields.push(("identity".to_owned(), identity.clone()));
+    }
+    if let Some(value) = &event.value {
+        fields.push(("value".to_owned(), value.clone()));
+    }
+    Ok(match datatype {
+        Some(datatype) => TelexRecord::with_datatype(fields, datatype),
+        None => TelexRecord::new(fields),
+    })
 }
 
 /// Project legacy Rust assignment events into the portable flat AES shape.
@@ -65,6 +261,8 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
                 kind: "NodeHead",
                 identity: structural_id.clone(),
                 datatype: datatype.clone(),
+                generics: Vec::new(),
+                clarifiers: Vec::new(),
                 value: Some(tag.clone()),
                 span: None,
             });
@@ -78,7 +276,21 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
         }
     }
 
+    split_projected_datatypes(&mut projected);
     projected
+}
+
+fn split_projected_datatypes(events: &mut [PortableAesEvent]) {
+    for event in events {
+        let Some(raw) = event.datatype.clone() else {
+            continue;
+        };
+        if let Ok(descriptor) = parse_datatype_descriptor(&raw, &TelexLimits::default()) {
+            event.datatype = Some(descriptor.datatype);
+            event.generics = descriptor.generics;
+            event.clarifiers = descriptor.clarifiers;
+        }
+    }
 }
 
 fn project_event(
@@ -93,6 +305,8 @@ fn project_event(
         kind,
         identity: event.structural_id.clone(),
         datatype: event.datatype.clone(),
+        generics: Vec::new(),
+        clarifiers: Vec::new(),
         value: projected_value,
         span: Some(event.span),
     }
@@ -149,6 +363,8 @@ fn project_attribute_value(
         kind,
         identity: entry.structural_id.clone(),
         datatype: entry.datatype.clone(),
+        generics: Vec::new(),
+        clarifiers: Vec::new(),
         value,
         span: None,
     });
@@ -203,6 +419,8 @@ fn project_value_tree(
         kind,
         identity: metadata.identity.cloned(),
         datatype: metadata.datatype.cloned(),
+        generics: Vec::new(),
+        clarifiers: Vec::new(),
         value: projected_value,
         span: metadata.span,
     });
@@ -254,6 +472,8 @@ fn project_value_children(
                 kind: "NodeHead",
                 identity: structural_id.clone(),
                 datatype: datatype.clone(),
+                generics: Vec::new(),
+                clarifiers: Vec::new(),
                 value: Some(tag.clone()),
                 span: None,
             });
@@ -602,5 +822,61 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["$.a", "$.a.@.z", "$.a.@.a"]
         );
+    }
+
+    #[test]
+    fn compiles_to_telex_without_changing_the_native_compile_api() {
+        let result = compile_to_telex(
+            "aeon:mode = \"transport\"\na:list<int> = [2, 3]",
+            CompileToTelexOptions::default(),
+        );
+        assert!(
+            result.compile.errors.is_empty(),
+            "{:?}",
+            result.compile.errors
+        );
+        assert_eq!(result.records.len(), 3);
+        let telex = result.telex.expect("encoded Telex");
+        assert!(telex.starts_with("telex.aes=0\n"));
+        assert!(
+            telex.contains("path=$.a\nkind=ListNode\ndatatype=list<int>"),
+            "{telex}"
+        );
+    }
+
+    #[test]
+    fn exposes_datatype_generics_and_clarifiers_as_separate_event_components() {
+        let events = project("a:list<int> = [2]\nb:sep[\".\"] = ^one.two");
+        assert_eq!(events[0].datatype.as_deref(), Some("list"));
+        assert!(matches!(
+            events[0].generics.as_slice(),
+            [GenericArgument::Datatype(datatype)] if datatype.datatype == "int"
+        ));
+        let separator = events
+            .iter()
+            .find(|event| event.path == "$.b")
+            .expect("separator event");
+        assert_eq!(separator.datatype.as_deref(), Some("sep"));
+        assert!(matches!(
+            separator.clarifiers.as_slice(),
+            [DatatypeClarifier { kind: aes_telex::ClarifierKind::StringLiteral, value }] if value == "."
+        ));
+    }
+
+    #[test]
+    fn exports_headers_only_under_the_document_projection() {
+        let result = compile_to_telex(
+            "aeon:mode = \"transport\"\na = 1",
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    include_headers: true,
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        let telex = result.telex.expect("encoded Telex");
+        assert!(telex.contains("projection=aeon.document.v0"));
+        assert!(telex.contains("header=$.[\"aeon:mode\"]"), "{telex}");
     }
 }

@@ -11,16 +11,20 @@ use aeon_aeos::{
     ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
-use aeon_canonical::canonicalize;
+use aeon_canonical::{canonicalize, canonicalize_telex};
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION, Value,
-    aeon_compile_limits, compile, finalization_limits, format_path, load_aeonic_limits,
-    normalize_number_literal, project_portable_events,
+    ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION,
+    Value, aeon_compile_limits, compile, export_telex, finalization_limits, format_path,
+    load_aeonic_limits, normalize_number_literal, project_portable_events,
 };
 use aeon_finalize::{
-    FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
-    value_to_ast_json,
+    FinalizeMode, FinalizeOptions, FinalizePortableJsonOptions, FinalizeScope, Materialization,
+    finalize_json, finalize_map, finalize_portable_json, value_to_ast_json,
+};
+use aes_telex::{
+    ClarifierKind, DatatypeDescriptor, GenericArgument, TelexRecord, parse_telex,
+    validate_telex_records_with_projection,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -110,6 +114,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         Some("inspect") => inspect(&args[2..]),
         Some("inspect-cases") => inspect_cases(&args[2..]),
         Some("finalize") => finalize(&args[2..]),
+        Some("telex") => telex(&args[2..]),
         Some("bind") => bind(&args[2..]),
         Some("integrity") => integrity(&args[2..]),
         Some("fmt") => fmt(&args[2..]),
@@ -120,6 +125,174 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         }
         Some(other) => Err(format!("Unknown command: {other}")),
     }
+}
+
+fn telex(args: &[String]) -> Result<ExitCode, String> {
+    const USAGE: &str = "Usage: aeon telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
+    let Some(action @ ("decode" | "canonicalize" | "materialize")) =
+        args.first().map(String::as_str)
+    else {
+        return Err(USAGE.to_owned());
+    };
+    let Some(file) = args.get(1).filter(|file| !file.starts_with("--")) else {
+        return Err(USAGE.to_owned());
+    };
+    let source =
+        fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    if action == "canonicalize" {
+        let output = canonicalize_telex(&source)
+            .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+        print!("{output}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let parsed =
+        parse_telex(&source).map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+    let validation = validate_telex_records_with_projection(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        &[],
+    );
+    if action == "decode" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "version": parsed.version,
+                "profile": parsed.profile,
+                "profileExplicit": parsed.profile_explicit,
+                "projection": parsed.projection,
+                "projectionExplicit": parsed.projection_explicit,
+                "records": parsed.records.iter().map(telex_record_json).collect::<Vec<_>>(),
+                "canonical": parsed.canonical,
+                "validation": telex_validation_json(&validation),
+            }))
+            .map_err(|error| format!("failed to encode Telex output: {error}"))?
+        );
+        return Ok(if validation.valid {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
+    let mode =
+        resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{USAGE}"))?;
+    let scope = resolve_finalize_scope(flag_value(args, "--scope").as_deref())
+        .map_err(|message| format!("Error: {message}\n{USAGE}"))?;
+    let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight")
+        .map_err(|_| format!("Error: Invalid --max-materialized-weight\n{USAGE}"))?;
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth")
+        .map_err(|_| format!("Error: Invalid --max-reference-depth\n{USAGE}"))?;
+    let finalized = finalize_portable_json(
+        &parsed.records,
+        FinalizePortableJsonOptions {
+            mode,
+            scope,
+            profile: parsed.profile,
+            projection: parsed.projection,
+            max_materialized_weight,
+            max_reference_depth,
+            ..FinalizePortableJsonOptions::default()
+        },
+    );
+    let has_errors = !validation.valid || !finalized.meta.errors.is_empty();
+    let output = json!({
+        "document": finalized.document,
+        "meta": {
+            "errors": serde_json::from_str::<JsonValue>(&render_errors(&finalized.meta.errors)).unwrap_or_else(|_| json!([])),
+            "warnings": serde_json::from_str::<JsonValue>(&render_errors(&finalized.meta.warnings)).unwrap_or_else(|_| json!([])),
+        },
+        "validation": telex_validation_json(&validation),
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output)
+            .map_err(|error| format!("failed to encode Telex output: {error}"))?
+    );
+    Ok(if has_errors {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn telex_record_json(record: &TelexRecord) -> JsonValue {
+    let mut object = Map::new();
+    for (field, value) in record.fields() {
+        object.insert(field.clone(), JsonValue::String(value.clone()));
+    }
+    if let Some(datatype) = record.datatype() {
+        object.insert(
+            "datatype".to_owned(),
+            JsonValue::String(datatype.datatype.clone()),
+        );
+        object.insert(
+            "generics".to_owned(),
+            JsonValue::Array(
+                datatype
+                    .generics
+                    .iter()
+                    .map(generic_argument_json)
+                    .collect(),
+            ),
+        );
+        object.insert(
+            "clarifiers".to_owned(),
+            JsonValue::Array(
+                datatype
+                    .clarifiers
+                    .iter()
+                    .map(|clarifier| {
+                        json!({
+                            "kind": match clarifier.kind {
+                                ClarifierKind::StringLiteral => "StringLiteral",
+                                ClarifierKind::NumberLiteral => "NumberLiteral",
+                            },
+                            "value": clarifier.value,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    JsonValue::Object(object)
+}
+
+fn generic_argument_json(argument: &GenericArgument) -> JsonValue {
+    match argument {
+        GenericArgument::Datatype(datatype) => datatype_descriptor_json(datatype),
+        GenericArgument::NumberLiteral(value) => {
+            json!({"kind": "NumberLiteral", "value": value})
+        }
+    }
+}
+
+fn datatype_descriptor_json(datatype: &DatatypeDescriptor) -> JsonValue {
+    json!({
+        "datatype": datatype.datatype,
+        "generics": datatype.generics.iter().map(generic_argument_json).collect::<Vec<_>>(),
+        "clarifiers": datatype.clarifiers.iter().map(|clarifier| json!({
+            "kind": match clarifier.kind {
+                ClarifierKind::StringLiteral => "StringLiteral",
+                ClarifierKind::NumberLiteral => "NumberLiteral",
+            },
+            "value": clarifier.value,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn telex_validation_json(validation: &aes_telex::ValidationResult) -> JsonValue {
+    json!({
+        "valid": validation.valid,
+        "profile": validation.profile,
+        "diagnostics": validation.diagnostics.iter().map(|diagnostic| json!({
+            "code": diagnostic.code,
+            "message": diagnostic.message,
+            "record": diagnostic.record,
+            "path": diagnostic.path,
+            "field": diagnostic.field,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn check(args: &[String]) -> Result<ExitCode, String> {
@@ -178,8 +351,10 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--portable-aes] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
+    let telex_output = args.iter().any(|arg| arg == "--telex");
+    let include_headers = args.iter().any(|arg| arg == "--include-headers");
     let portable_aes = args.iter().any(|arg| arg == "--portable-aes");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
@@ -317,6 +492,17 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "Error: --portable-aes requires --json\n{INSPECT_USAGE}"
         ));
     }
+    if telex_output
+        && (json_output
+            || portable_aes
+            || include_annotations
+            || annotations_only
+            || sort_annotations_flag)
+    {
+        return Err(format!(
+            "Error: --telex cannot be combined with JSON or annotation output flags\n{INSPECT_USAGE}"
+        ));
+    }
 
     let file = find_file(
         args,
@@ -376,6 +562,25 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             ..CompileOptions::default()
         },
     );
+    if telex_output {
+        if !result.errors.is_empty() {
+            for error in &result.errors {
+                eprintln!("{}", format_error_line(error));
+            }
+            return Ok(ExitCode::from(1));
+        }
+        let wire = export_telex(
+            &result.events,
+            &ExportTelexOptions {
+                include_headers,
+                header: result.header.clone(),
+                ..ExportTelexOptions::default()
+            },
+        )
+        .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+        print!("{wire}");
+        return Ok(ExitCode::SUCCESS);
+    }
     let annotations_requested = include_annotations || annotations_only || sort_annotations_flag;
     let mut annotations = if annotations_requested {
         extract_annotations(&source)
@@ -606,18 +811,27 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     } else {
         (None, None)
     };
-    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
-        String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
-    })?.or_else(|| policy_limits.as_ref().and_then(|limits| limits.max_input_bytes));
+    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-input-bytes (expected a non-negative integer)",
+            )
+        })?
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .and_then(|limits| limits.max_input_bytes)
+        });
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
     })?.or_else(|| policy_finalize_limits.and_then(|limits| limits.max_materialized_weight));
-    let max_reference_depth =
-        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth")
+        .map_err(|_| {
             String::from(
                 "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
             )
-        })?.or_else(|| policy_finalize_limits.and_then(|limits| limits.max_reference_depth));
+        })?
+        .or_else(|| policy_finalize_limits.and_then(|limits| limits.max_reference_depth));
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -643,20 +857,68 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
             max_input_bytes,
             mode: compile_mode,
             max_events: policy_limits.as_ref().and_then(|limits| limits.max_events),
-            max_attribute_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_attribute_depth, |limits| limits.max_attribute_depth),
-            max_clarifier_values: policy_limits.as_ref().map(|limits| limits.max_clarifier_values),
-            max_generic_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_generic_depth, |limits| limits.max_generic_depth),
-            max_generic_arguments: policy_limits.as_ref().map_or(CompileOptions::default().max_generic_arguments, |limits| limits.max_generic_arguments),
-            max_datatype_components: policy_limits.as_ref().map_or(CompileOptions::default().max_datatype_components, |limits| limits.max_datatype_components),
-            max_value_nesting_depth: policy_limits.as_ref().map(|limits| limits.max_value_nesting_depth),
-            max_path_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_path_depth, |limits| limits.max_path_depth),
-            max_string_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_string_codepoints, |limits| limits.max_string_codepoints),
-            max_key_segment_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_key_segment_codepoints, |limits| limits.max_key_segment_codepoints),
-            max_list_items: policy_limits.as_ref().map_or(CompileOptions::default().max_list_items, |limits| limits.max_list_items),
-            max_tuple_items: policy_limits.as_ref().map_or(CompileOptions::default().max_tuple_items, |limits| limits.max_tuple_items),
-            max_path_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_path_characters, |limits| limits.max_path_characters),
-            max_numeric_literal_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_numeric_literal_characters, |limits| limits.max_numeric_literal_characters),
-            max_structured_comment_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_structured_comment_characters, |limits| limits.max_structured_comment_characters),
+            max_attribute_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_attribute_depth, |limits| {
+                    limits.max_attribute_depth
+                }),
+            max_clarifier_values: policy_limits
+                .as_ref()
+                .map(|limits| limits.max_clarifier_values),
+            max_generic_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_generic_depth, |limits| {
+                    limits.max_generic_depth
+                }),
+            max_generic_arguments: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_generic_arguments, |limits| {
+                    limits.max_generic_arguments
+                }),
+            max_datatype_components: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_datatype_components,
+                |limits| limits.max_datatype_components,
+            ),
+            max_value_nesting_depth: policy_limits
+                .as_ref()
+                .map(|limits| limits.max_value_nesting_depth),
+            max_path_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_path_depth, |limits| {
+                    limits.max_path_depth
+                }),
+            max_string_codepoints: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_string_codepoints, |limits| {
+                    limits.max_string_codepoints
+                }),
+            max_key_segment_codepoints: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_key_segment_codepoints,
+                |limits| limits.max_key_segment_codepoints,
+            ),
+            max_list_items: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_list_items, |limits| {
+                    limits.max_list_items
+                }),
+            max_tuple_items: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_tuple_items, |limits| {
+                    limits.max_tuple_items
+                }),
+            max_path_characters: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_path_characters, |limits| {
+                    limits.max_path_characters
+                }),
+            max_numeric_literal_characters: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_numeric_literal_characters,
+                |limits| limits.max_numeric_literal_characters,
+            ),
+            max_structured_comment_characters: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_structured_comment_characters,
+                |limits| limits.max_structured_comment_characters,
+            ),
             ..CompileOptions::default()
         },
     );
@@ -1374,7 +1636,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         ));
     }
     if let Some(profile_id) = resolved_contracts.applied_profile_id.as_deref() {
-        warnings.push(profile_processors_skipped_warning(&profile_id));
+        warnings.push(profile_processors_skipped_warning(profile_id));
     }
     meta.insert(String::from("warnings"), JsonValue::Array(warnings));
     meta.insert(
@@ -2498,13 +2760,16 @@ fn print_help() {
     );
     println!("  doctor [--json] [--contract-registry <registry.json>]");
     println!(
-        "  inspect <file> [--json] [--portable-aes] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+        "  inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]"
+    );
+    println!(
+        "  telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
     );
     println!(
         "  bind <file> (--schema <schema.json> | --contract-registry <registry.json>) [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--annotations] [--sort-annotations] [--max-input-bytes <n>]"
@@ -2805,6 +3070,28 @@ fn render_portable_events(events: &[PortableAesEvent]) -> String {
                 object.insert(
                     String::from("datatype"),
                     JsonValue::String(datatype.clone()),
+                );
+                object.insert(
+                    String::from("generics"),
+                    JsonValue::Array(event.generics.iter().map(generic_argument_json).collect()),
+                );
+                object.insert(
+                    String::from("clarifiers"),
+                    JsonValue::Array(
+                        event
+                            .clarifiers
+                            .iter()
+                            .map(|clarifier| {
+                                json!({
+                                    "kind": match clarifier.kind {
+                                        ClarifierKind::StringLiteral => "StringLiteral",
+                                        ClarifierKind::NumberLiteral => "NumberLiteral",
+                                    },
+                                    "value": clarifier.value,
+                                })
+                            })
+                            .collect(),
+                    ),
                 );
             }
             if let Some(value) = &event.value {
@@ -3739,6 +4026,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
 
 fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
     AeosAttributeEntry {
+        structural_id: entry.structural_id.clone(),
         value: entry
             .value
             .as_ref()
@@ -4184,12 +4472,12 @@ fn normalize_aeos_schema_contract_value(
             ));
         }
     };
-    if let Some(expected) = expected_schema_id {
-        if schema_id != expected {
-            return Err(format!(
-                "Schema contract id mismatch. Expected '{expected}', found '{schema_id}' in {file}"
-            ));
-        }
+    if let Some(expected) = expected_schema_id
+        && schema_id != expected
+    {
+        return Err(format!(
+            "Schema contract id mismatch. Expected '{expected}', found '{schema_id}' in {file}"
+        ));
     }
     match object.get("version") {
         Some(JsonValue::String(value)) if !value.is_empty() => {}
@@ -4623,6 +4911,80 @@ mod tests {
     fn unknown_command_is_a_usage_error() {
         let result = run(vec![String::from("aeon-rust"), String::from("wat")]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn telex_decode_and_materialize_accept_complete_streams() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.telex.aes");
+        fs::write(
+            &file,
+            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+        )
+        .expect("Telex fixture");
+        for action in ["decode", "materialize", "canonicalize"] {
+            let result = run(vec![
+                "aeon-rust".to_owned(),
+                "telex".to_owned(),
+                action.to_owned(),
+                file.to_string_lossy().into_owned(),
+            ])
+            .expect("Telex command");
+            assert_eq!(result, ExitCode::SUCCESS);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn telex_materialize_rejects_partial_streams() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-partial-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("partial.telex.aes");
+        fs::write(
+            &file,
+            "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n",
+        )
+        .expect("Telex fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "telex".to_owned(),
+            "materialize".to_owned(),
+            file.to_string_lossy().into_owned(),
+        ])
+        .expect("Telex command");
+        assert_eq!(result, ExitCode::from(1));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn inspect_exports_telex_with_opt_in_headers() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-export-telex-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.aeon");
+        fs::write(&file, "aeon:mode = \"transport\"\nanswer = 42\n").expect("AEON fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "inspect".to_owned(),
+            file.to_string_lossy().into_owned(),
+            "--telex".to_owned(),
+            "--include-headers".to_owned(),
+        ])
+        .expect("Telex export");
+        assert_eq!(result, ExitCode::SUCCESS);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

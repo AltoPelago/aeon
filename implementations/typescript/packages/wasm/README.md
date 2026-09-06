@@ -24,17 +24,20 @@ an intermediate JavaScript event graph:
 import {
   canonicalizeTelex,
   checkTelexCompleteness,
+  materializeTelex,
   validateTelex,
 } from '@altopelago/aeon-wasm';
 
 const validation = await validateTelex(telex);
 const canonical = await canonicalizeTelex(telex);
 const completeness = await checkTelexCompleteness(telex);
+const materialized = await materializeTelex(telex);
 ```
 
 These operations accept the Telex resource limits as camel-case options. They
 perform parsing and validation internally and return only the result needed by
-the caller across the JavaScript/WASM boundary.
+the caller across the JavaScript/WASM boundary. `materializeTelex` consumes the
+flat AES records directly; it does not reconstruct an AEON parser AST.
 
 `processAeon` returns the normalized engine contract used by browser parity
 tools:

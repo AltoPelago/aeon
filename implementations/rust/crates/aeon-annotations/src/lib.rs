@@ -419,8 +419,7 @@ fn resolve_placement(
     let previous = bindable
         .landmarks
         .iter()
-        .filter(|landmark| landmark.span.end.offset <= comment_span.start.offset)
-        .next_back();
+        .rfind(|landmark| landmark.span.end.offset <= comment_span.start.offset);
     let next = bindable
         .landmarks
         .iter()

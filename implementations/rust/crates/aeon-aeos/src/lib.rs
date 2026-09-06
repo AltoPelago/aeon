@@ -4,6 +4,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use aes_telex::{
+    TelexLimits, TelexRecord, format_datatype_descriptor, parse_telex_with_limits,
+    validate_telex_records_with_projection_and_limits,
+};
+
 use aeon_core::{
     SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions, SansaSelector,
     parse_sansa_address, resolve_sansa_address,
@@ -145,12 +150,12 @@ fn portable_pattern_problem(pattern: &str) -> Option<&'static str> {
             continue;
         }
         if *char == '(' {
-            if matches!(chars.get(index + 1), Some('?')) {
-                if !matches!(chars.get(index + 2), Some(':')) {
-                    return Some(
-                        "lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile",
-                    );
-                }
+            if matches!(chars.get(index + 1), Some('?'))
+                && !matches!(chars.get(index + 2), Some(':'))
+            {
+                return Some(
+                    "lookaround, named groups, and inline regex flags are not part of the AEOS portable pattern profile",
+                );
             }
             stack.push('(');
             continue;
@@ -343,12 +348,14 @@ fn enforce_string_length_resource_budget(
     ctx: &mut DiagContext,
 ) {
     enforce_string_length_resource_budget_inner(
-        &info.value_type,
-        &info.raw,
-        info.value.as_ref(),
-        info.span,
-        &info.attributes,
-        path,
+        StringLengthResourceInput {
+            value_type: &info.value_type,
+            raw: &info.raw,
+            value: info.value.as_ref(),
+            span: info.span,
+            attributes: &info.attributes,
+            path,
+        },
         policy,
         ctx,
     );
@@ -361,44 +368,50 @@ fn enforce_attribute_string_length_resource_budget(
     ctx: &mut DiagContext,
 ) {
     enforce_string_length_resource_budget_inner(
-        &info.value_type,
-        &info.raw,
-        info.value.as_ref(),
-        info.span,
-        &info.attributes,
-        path,
+        StringLengthResourceInput {
+            value_type: &info.value_type,
+            raw: &info.raw,
+            value: info.value.as_ref(),
+            span: info.span,
+            attributes: &info.attributes,
+            path,
+        },
         policy,
         ctx,
     );
 }
 
-fn enforce_string_length_resource_budget_inner(
-    value_type: &str,
-    raw: &str,
-    value: Option<&JsonValue>,
+struct StringLengthResourceInput<'a> {
+    value_type: &'a str,
+    raw: &'a str,
+    value: Option<&'a JsonValue>,
     span: Option<[usize; 2]>,
-    attributes: &BTreeMap<String, AttributeInfo>,
-    path: &str,
+    attributes: &'a BTreeMap<String, AttributeInfo>,
+    path: &'a str,
+}
+
+fn enforce_string_length_resource_budget_inner(
+    input: StringLengthResourceInput<'_>,
     policy: &ResourcePolicy,
     ctx: &mut DiagContext,
 ) {
-    if let Some(payload_len) = string_like_payload_len(value_type, raw, value) {
-        if payload_len > policy.max_string_length_default {
-            emit_resource_error(
-                ctx,
-                path,
-                format!(
-                    "String-like payload length {payload_len} exceeds max_string_length_default {}",
-                    policy.max_string_length_default
-                ),
-                span,
-            );
-        }
+    if let Some(payload_len) = string_like_payload_len(input.value_type, input.raw, input.value)
+        && payload_len > policy.max_string_length_default
+    {
+        emit_resource_error(
+            ctx,
+            input.path,
+            format!(
+                "String-like payload length {payload_len} exceeds max_string_length_default {}",
+                policy.max_string_length_default
+            ),
+            input.span,
+        );
     }
-    for (key, attribute) in attributes {
+    for (key, attribute) in input.attributes {
         enforce_attribute_string_length_resource_budget(
             attribute,
-            &format_attribute_path(path, key),
+            &format_attribute_path(input.path, key),
             policy,
             ctx,
         );
@@ -546,6 +559,8 @@ pub struct AesEvent {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AttributeEntry {
+    #[serde(default, rename = "structuralId")]
+    pub structural_id: Option<String>,
     pub value: EventValue,
     #[serde(default)]
     pub datatype: Option<String>,
@@ -633,6 +648,7 @@ struct DiagContext {
 
 #[derive(Debug, Clone)]
 struct EventInfo {
+    identity: Option<String>,
     value_type: String,
     datatype: Option<String>,
     raw: String,
@@ -644,6 +660,7 @@ struct EventInfo {
 
 #[derive(Debug, Clone)]
 struct AttributeInfo {
+    identity: Option<String>,
     value_type: String,
     datatype: Option<String>,
     raw: String,
@@ -688,6 +705,374 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
 #[must_use]
 pub fn validate(envelope: &ValidationEnvelope) -> ResultEnvelope {
     validate_inner(&envelope.aes, envelope.schema.as_ref(), &envelope.options)
+}
+
+/// Decode and validate Telex before applying an AEOS schema to its body plane.
+/// Attribute-addressed records are restored as event annotations, while their
+/// identities remain event metadata and never become path identity.
+#[must_use]
+pub fn validate_telex(
+    input: &str,
+    schema: Schema,
+    options: ValidationOptions,
+    limits: &TelexLimits,
+    registered_fields: &[&str],
+) -> ResultEnvelope {
+    let parsed = match parse_telex_with_limits(input, limits) {
+        Ok(parsed) => parsed,
+        Err(error) => return failing_telex_envelope(error.code),
+    };
+    let portable = validate_telex_records_with_projection_and_limits(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        registered_fields,
+        limits,
+    );
+    if !portable.valid {
+        return ResultEnvelope {
+            ok: false,
+            errors: portable
+                .diagnostics
+                .into_iter()
+                .map(|diagnostic| ValidationDiagnostic {
+                    path: diagnostic.path,
+                    code: diagnostic.code.to_owned(),
+                    phase: "aes_validation".to_owned(),
+                    span: None,
+                })
+                .collect(),
+            warnings: Vec::new(),
+            guarantees: BTreeMap::new(),
+        };
+    }
+    validate_telex_records(&parsed.records, Some(schema), options)
+}
+
+/// Apply AEOS to already-decoded, event-locally valid portable AES records.
+#[must_use]
+pub fn validate_telex_records(
+    records: &[TelexRecord],
+    schema: Option<Schema>,
+    options: ValidationOptions,
+) -> ResultEnvelope {
+    let aes = portable_records_to_aeos(records);
+    validate(&ValidationEnvelope {
+        aes,
+        schema,
+        options,
+    })
+}
+
+fn failing_telex_envelope(code: &'static str) -> ResultEnvelope {
+    ResultEnvelope {
+        ok: false,
+        errors: vec![ValidationDiagnostic {
+            path: Some("$".to_owned()),
+            code: code.to_owned(),
+            phase: "telex_decode".to_owned(),
+            span: None,
+        }],
+        warnings: Vec::new(),
+        guarantees: BTreeMap::new(),
+    }
+}
+
+fn portable_records_to_aeos(records: &[TelexRecord]) -> Vec<AesEvent> {
+    let mut body = Vec::<(String, AesEvent)>::new();
+    let mut attributes = Vec::<(&str, &TelexRecord)>::new();
+    for record in records {
+        let Some(path) = record.get("path") else {
+            continue;
+        };
+        if is_attribute_record(path) {
+            attributes.push((path, record));
+            continue;
+        }
+        if let Some((event_path, key)) = portable_event_path(path) {
+            body.push((
+                path.to_owned(),
+                AesEvent {
+                    path: event_path,
+                    key,
+                    structural_id: record.get("identity").map(str::to_owned),
+                    datatype: portable_datatype(record),
+                    annotations: BTreeMap::new(),
+                    value: portable_event_value(record),
+                    span: portable_span(record.get("span")),
+                },
+            ));
+        }
+    }
+    for (path, record) in attributes {
+        if let Some((owner, key)) = direct_attribute_owner(path)
+            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+        {
+            insert_portable_attribute(&mut event.annotations, &[key], record);
+        } else if let Some((owner, keys)) = split_attribute_path(path)
+            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+        {
+            insert_portable_attribute(&mut event.annotations, &keys, record);
+        }
+    }
+    hydrate_portable_container_shapes(&mut body);
+    body.into_iter().map(|(_, event)| event).collect()
+}
+
+fn hydrate_portable_container_shapes(body: &mut [(String, AesEvent)]) {
+    let values = body
+        .iter()
+        .map(|(address, event)| (address.clone(), event.value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for (address, event) in body {
+        match event.value.value_type.as_str() {
+            "ObjectNode" => {
+                event.value.bindings = values
+                    .keys()
+                    .filter(|child| portable_parent(child).as_deref() == Some(address))
+                    .map(|child| serde_json::json!({"path": child}))
+                    .collect();
+            }
+            "ListNode" | "TupleLiteral" => {
+                event.value.elements = portable_indexed_children(address, &values);
+            }
+            "NodeLiteral" => {
+                event.value.elements = portable_indexed_children(&format!("{address}[0]"), &values);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn portable_indexed_children(
+    parent: &str,
+    values: &BTreeMap<String, EventValue>,
+) -> Vec<EventValue> {
+    let mut children = values
+        .iter()
+        .filter_map(|(address, value)| {
+            (portable_parent(address).as_deref() == Some(parent))
+                .then(|| portable_final_index(address).map(|index| (index, value.clone())))
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    children.sort_by_key(|(index, _)| *index);
+    children.into_iter().map(|(_, value)| value).collect()
+}
+
+fn portable_parent(path: &str) -> Option<String> {
+    let mut cursor = 1;
+    let mut parent = "$".to_owned();
+    while cursor < path.len() {
+        parent = path[..cursor].to_owned();
+        if path[cursor..].starts_with(".@.") {
+            cursor = portable_member(path, cursor + 3)?.1;
+        } else if path.as_bytes().get(cursor) == Some(&b'.') {
+            cursor = portable_member(path, cursor + 1)?.1;
+        } else if path.as_bytes().get(cursor) == Some(&b'[') {
+            cursor = path[cursor + 1..].find(']')? + cursor + 2;
+        } else {
+            return None;
+        }
+    }
+    Some(parent)
+}
+
+fn portable_final_index(path: &str) -> Option<usize> {
+    let start = path.rfind('[')? + 1;
+    let end = path[start..].find(']')? + start;
+    (end + 1 == path.len())
+        .then(|| path[start..end].parse().ok())
+        .flatten()
+}
+
+fn portable_datatype(record: &TelexRecord) -> Option<String> {
+    record.datatype().map(format_datatype_descriptor)
+}
+
+fn portable_event_value(record: &TelexRecord) -> EventValue {
+    let value_type = record.get("kind").unwrap_or("").to_owned();
+    let raw = record.get("value").map(str::to_owned);
+    let value = raw.as_deref().map(|value| match value_type.as_str() {
+        "BooleanLiteral" => JsonValue::Bool(value == "true"),
+        "NullLiteral" => serde_json::json!({"mode": if matches!(value, "none" | "notSet" | "notApplicable" | "tombstone") { "reserved" } else { "reason" }, "value": value}),
+        _ => JsonValue::String(value.to_owned()),
+    });
+    let path = matches!(value_type.as_str(), "CloneReference" | "PointerReference")
+        .then(|| raw.as_deref().and_then(portable_reference_path))
+        .flatten();
+    EventValue {
+        value_type,
+        raw,
+        value,
+        path,
+        elements: Vec::new(),
+        bindings: Vec::new(),
+    }
+}
+
+fn insert_portable_attribute(
+    target: &mut BTreeMap<String, AttributeEntry>,
+    keys: &[String],
+    record: &TelexRecord,
+) {
+    let Some((first, rest)) = keys.split_first() else {
+        return;
+    };
+    let entry = target
+        .entry(first.clone())
+        .or_insert_with(|| AttributeEntry {
+            structural_id: record.get("identity").map(str::to_owned),
+            value: portable_event_value(record),
+            datatype: portable_datatype(record),
+            annotations: BTreeMap::new(),
+        });
+    if rest.is_empty() {
+        *entry = AttributeEntry {
+            structural_id: record.get("identity").map(str::to_owned),
+            value: portable_event_value(record),
+            datatype: portable_datatype(record),
+            annotations: std::mem::take(&mut entry.annotations),
+        };
+    } else {
+        insert_portable_attribute(&mut entry.annotations, rest, record);
+    }
+}
+
+fn split_attribute_path(path: &str) -> Option<(String, Vec<String>)> {
+    let marker = path.find(".@.")?;
+    let owner = path[..marker].to_owned();
+    let mut keys = Vec::new();
+    let mut cursor = marker + 3;
+    loop {
+        let (key, end) = portable_member(path, cursor)?;
+        keys.push(key);
+        cursor = end;
+        if cursor == path.len() {
+            break;
+        }
+        if !path[cursor..].starts_with(".@.") {
+            return None;
+        }
+        cursor += 3;
+    }
+    Some((owner, keys))
+}
+
+fn is_attribute_record(path: &str) -> bool {
+    direct_attribute_owner(path).is_some()
+}
+
+fn direct_attribute_owner(path: &str) -> Option<(String, String)> {
+    let marker = path.rfind(".@.")?;
+    let (key, end) = portable_member(path, marker + 3)?;
+    (end == path.len()).then(|| (path[..marker].to_owned(), key))
+}
+
+fn portable_event_path(path: &str) -> Option<(EventPath, String)> {
+    let mut cursor = 1;
+    let mut segments = Vec::new();
+    let mut key = String::new();
+    while cursor < path.len() {
+        if path[cursor..].starts_with(".@.") {
+            let (member, end) = portable_member(path, cursor + 3)?;
+            key = member.clone();
+            segments.push(PathSegmentInput {
+                segment_type: "attribute".to_owned(),
+                key: Some(member),
+                index: None,
+            });
+            cursor = end;
+        } else if path.as_bytes().get(cursor) == Some(&b'.') {
+            let (member, end) = portable_member(path, cursor + 1)?;
+            key = member.clone();
+            segments.push(PathSegmentInput {
+                segment_type: "member".to_owned(),
+                key: Some(member),
+                index: None,
+            });
+            cursor = end;
+        } else if path.as_bytes().get(cursor) == Some(&b'[') {
+            let end = path[cursor + 1..].find(']')? + cursor + 1;
+            let index = path[cursor + 1..end].to_owned();
+            key = index.clone();
+            segments.push(PathSegmentInput {
+                segment_type: "index".to_owned(),
+                key: None,
+                index: Some(JsonValue::String(index)),
+            });
+            cursor = end + 1;
+        } else {
+            return None;
+        }
+    }
+    Some((EventPath { segments }, key))
+}
+
+fn portable_member(path: &str, cursor: usize) -> Option<(String, usize)> {
+    let bytes = path.as_bytes();
+    if bytes.get(cursor) == Some(&b'[') {
+        let mut end = cursor + 2;
+        let mut escaped = false;
+        while end < bytes.len() {
+            if escaped {
+                escaped = false;
+            } else if bytes[end] == b'\\' {
+                escaped = true;
+            } else if bytes[end] == b'"' {
+                break;
+            }
+            end += 1;
+        }
+        if bytes.get(end + 1) != Some(&b']') {
+            return None;
+        }
+        return serde_json::from_str::<String>(&path[cursor + 1..=end])
+            .ok()
+            .map(|key| (key, end + 2));
+    }
+    let mut end = cursor;
+    while bytes
+        .get(end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        end += 1;
+    }
+    (end > cursor).then(|| (path[cursor..end].to_owned(), end))
+}
+
+fn portable_reference_path(path: &str) -> Option<Vec<ReferencePathSegment>> {
+    let (event_path, _) = portable_event_path(path)?;
+    event_path
+        .segments
+        .into_iter()
+        .map(|segment| match segment.segment_type.as_str() {
+            "member" => segment.key.map(ReferencePathSegment::Member),
+            "attribute" => segment.key.map(|key| ReferencePathSegment::Attribute {
+                segment_type: "attr".to_owned(),
+                key,
+            }),
+            "index" => segment.index.and_then(|index| {
+                index
+                    .as_str()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .map(ReferencePathSegment::Index)
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn portable_span(span: Option<&str>) -> Option<SpanInput> {
+    let (start, end) = span?.split_once(':')?;
+    Some(SpanInput::Object {
+        start: OffsetOnly {
+            offset: start.parse().ok()?,
+        },
+        end: OffsetOnly {
+            offset: end.parse().ok()?,
+        },
+    })
 }
 
 pub fn validate_cts_payload(payload: &str) -> Result<String, String> {
@@ -794,6 +1179,7 @@ fn validate_inner(
 
         bound_paths.insert(path.clone());
         let info = EventInfo {
+            identity: event.structural_id.clone(),
             value_type: event.value.value_type.clone(),
             datatype: event.datatype.clone(),
             raw: event.value.raw.clone().unwrap_or_default(),
@@ -1432,19 +1818,19 @@ fn validate_reference_constraints(
         return false;
     }
 
-    if let Some(pattern) = reference_target_pattern {
-        if portable_pattern_problem(pattern).is_some() || reference == Some("forbid") {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(String::from(path)),
-                    code: String::from("invalid_reference_constraint"),
-                    phase: String::from("schema_validation"),
-                    span: None,
-                },
-            );
-            return false;
-        }
+    if let Some(pattern) = reference_target_pattern
+        && (portable_pattern_problem(pattern).is_some() || reference == Some("forbid"))
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("invalid_reference_constraint"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
     }
 
     if constraints.get("resolve_reference_form").is_some()
@@ -2276,27 +2662,25 @@ fn validate_attribute_entry(
         .get("reference")
         .and_then(JsonValue::as_str)
         == Some("require")
-    {
-        if let Some(reference_kind) = effective_constraints
+        && let Some(reference_kind) = effective_constraints
             .get("reference_kind")
             .and_then(JsonValue::as_str)
-        {
-            let expected = match reference_kind {
-                "clone" => Some("CloneReference"),
-                "pointer" => Some("PointerReference"),
-                _ => None,
-            };
-            if expected.is_some_and(|expected_type| entry.value_type != expected_type) {
-                emit_error(
-                    ctx,
-                    ValidationDiagnostic {
-                        path: Some(String::from(path)),
-                        code: String::from("reference_kind_mismatch"),
-                        phase: String::from("schema_validation"),
-                        span: entry.span,
-                    },
-                );
-            }
+    {
+        let expected = match reference_kind {
+            "clone" => Some("CloneReference"),
+            "pointer" => Some("PointerReference"),
+            _ => None,
+        };
+        if expected.is_some_and(|expected_type| entry.value_type != expected_type) {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("reference_kind_mismatch"),
+                    phase: String::from("schema_validation"),
+                    span: entry.span,
+                },
+            );
         }
     }
 
@@ -2637,6 +3021,7 @@ fn hydrate_indexed_fallback(
         events_by_path
             .entry(child_path)
             .or_insert_with(|| EventInfo {
+                identity: None,
                 value_type: element.value_type.clone(),
                 datatype: None,
                 raw: element.raw.clone().unwrap_or_default(),
@@ -2656,6 +3041,7 @@ fn build_attribute_info_map(
         mapped.insert(
             key.clone(),
             AttributeInfo {
+                identity: entry.structural_id.clone(),
                 value_type: entry.value.value_type.clone(),
                 datatype: entry.datatype.clone(),
                 raw: entry.value.raw.clone().unwrap_or_default(),
@@ -2678,6 +3064,7 @@ fn hydrate_attribute_info_events(
         events_by_path.insert(
             attribute_path.clone(),
             EventInfo {
+                identity: entry.identity.clone(),
                 value_type: entry.value_type.clone(),
                 datatype: entry.datatype.clone(),
                 raw: entry.raw.clone(),
@@ -3052,6 +3439,7 @@ fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, in
             _ => return,
         }
     }
+    current.identity = info.identity.clone();
     current.semantic_type = info.datatype.clone();
     current.datatype = info.datatype.clone();
     current.representation_kind = Some(info.value_type.clone());
@@ -3335,8 +3723,8 @@ fn count_form_digits(value_type: &str, raw: &str) -> usize {
         return count_integer_digits(raw);
     }
     let body = raw
-        .trim_start_matches(|ch| matches!(ch, '#' | '%' | '^'))
-        .trim_start_matches(|ch| matches!(ch, '+' | '-'))
+        .trim_start_matches(['#', '%', '^'])
+        .trim_start_matches(['+', '-'])
         .replace('_', "");
     body.chars()
         .filter(|ch| ch.is_ascii_digit() || ch.is_ascii_alphabetic() || *ch == '&' || *ch == '!')
@@ -3357,7 +3745,7 @@ fn first_invalid_radix_digit(raw: &str, radix: usize) -> Option<char> {
     let body = raw
         .strip_prefix('%')
         .unwrap_or(raw)
-        .trim_start_matches(|ch| matches!(ch, '+' | '-'))
+        .trim_start_matches(['+', '-'])
         .replace('_', "");
     body.chars()
         .find(|ch| radix_digit_value(*ch).is_some_and(|digit| digit >= radix))
@@ -3479,6 +3867,18 @@ fn format_canonical_path(path: &EventPath) -> String {
                     _ => rendered.push('?'),
                 }
                 rendered.push(']');
+            }
+            "attribute" => {
+                let key = segment.key.as_deref().unwrap_or_default();
+                rendered.push_str(".@");
+                if is_identifier(key) {
+                    rendered.push('.');
+                    rendered.push_str(key);
+                } else {
+                    rendered.push_str(".[\"");
+                    rendered.push_str(&escape_quoted_key(key));
+                    rendered.push_str("\"]");
+                }
             }
             _ => {}
         }
@@ -4490,6 +4890,7 @@ mod tests {
         annotations.insert(
             String::from("unit"),
             AttributeEntry {
+                structural_id: None,
                 value: EventValue {
                     value_type: String::from("StringLiteral"),
                     raw: Some(String::from("\"cm\"")),
@@ -4505,6 +4906,7 @@ mod tests {
         annotations.insert(
             String::from("extra"),
             AttributeEntry {
+                structural_id: None,
                 value: EventValue {
                     value_type: String::from("StringLiteral"),
                     raw: Some(String::from("\"x\"")),
@@ -4585,6 +4987,7 @@ mod tests {
         annotations.insert(
             String::from("unit"),
             AttributeEntry {
+                structural_id: None,
                 value: EventValue {
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("-7")),
@@ -4726,5 +5129,127 @@ mod tests {
                 "toggle_pair_mismatch",
             ]
         );
+    }
+
+    #[test]
+    fn validates_telex_attributes_without_making_identity_part_of_the_path() {
+        let wire = "telex.aes=0\n\npath=$.value\nkind=NumberLiteral\ndatatype=number\nidentity=BINDING\nvalue=3\n\npath=$.value.@.unit\nkind=StringLiteral\nidentity=ATTRIBUTE\nvalue=ms\n";
+        let schema = Schema {
+            rules: vec![SchemaRule {
+                path: Some("$.value".to_owned()),
+                selector: None,
+                constraints: json!({
+                    "type": "NumberLiteral",
+                    "attributes": {"unit": {"type": "StringLiteral"}},
+                    "closed_attributes": true
+                }),
+            }],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.ok, "{:?}", result.errors);
+
+        let parsed = parse_telex_with_limits(wire, &TelexLimits::default()).expect("valid Telex");
+        let aes = portable_records_to_aeos(&parsed.records);
+        let event = aes
+            .iter()
+            .find(|event| format_canonical_path(&event.path) == "$.value")
+            .expect("body event");
+        assert_eq!(event.structural_id.as_deref(), Some("BINDING"));
+        assert_eq!(
+            event
+                .annotations
+                .get("unit")
+                .and_then(|entry| entry.structural_id.as_deref()),
+            Some("ATTRIBUTE")
+        );
+
+        let attributes = build_attribute_info_map(&event.annotations);
+        let info = EventInfo {
+            identity: event.structural_id.clone(),
+            value_type: event.value.value_type.clone(),
+            datatype: event.datatype.clone(),
+            raw: event.value.raw.clone().unwrap_or_default(),
+            value: event.value.value.clone(),
+            span: event.span_pair(),
+            attributes,
+            reference_path: event.value.path.clone(),
+        };
+        let mut events_by_path = BTreeMap::from([(String::from("$.value"), info.clone())]);
+        hydrate_attribute_info_events("$.value", &info.attributes, &mut events_by_path);
+        let namespace = create_aeos_sansa_resolve_namespace(&events_by_path);
+        let binding = resolve_sansa_address("$.value", &namespace, &SansaResolveOptions::default());
+        assert!(binding.ok);
+        assert_eq!(binding.bindings[0].identity.as_deref(), Some("BINDING"));
+        let attribute = resolve_sansa_address(
+            "$.value.@.unit",
+            &namespace,
+            &SansaResolveOptions::default(),
+        );
+        assert!(attribute.ok);
+        assert_eq!(attribute.bindings[0].identity.as_deref(), Some("ATTRIBUTE"));
+    }
+
+    #[test]
+    fn validates_structural_descendants_inside_telex_attribute_values() {
+        let wire = "telex.aes=0\n\npath=$.value\nkind=NumberLiteral\nvalue=3\n\npath=$.value.@.settings\nkind=ObjectNode\n\npath=$.value.@.settings.enabled\nkind=BooleanLiteral\nvalue=true\n";
+        let schema = Schema {
+            rules: vec![SchemaRule {
+                path: Some("$.value.@.settings.enabled".to_owned()),
+                selector: None,
+                constraints: json!({"required": true, "type": "BooleanLiteral"}),
+            }],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.ok, "{:?}", result.errors);
+    }
+
+    #[test]
+    fn derives_telex_container_cardinality_from_flat_children() {
+        let wire = "telex.aes=0\n\npath=$.values\nkind=ListNode\n\npath=$.values[0]\nkind=NumberLiteral\nvalue=1\n\npath=$.values[1]\nkind=NumberLiteral\nvalue=2\n";
+        let schema = Schema {
+            rules: vec![SchemaRule {
+                path: Some("$.values".to_owned()),
+                selector: None,
+                constraints: json!({"type": "ListNode", "max_children": 1}),
+            }],
+            datatype_rules: BTreeMap::new(),
+            datatype_allowlist: Vec::new(),
+            world: "open".to_owned(),
+            reference_policy: None,
+            resource_policy: None,
+        };
+        let result = validate_telex(
+            wire,
+            schema,
+            ValidationOptions::default(),
+            &TelexLimits::default(),
+            &[],
+        );
+        assert!(result.errors.iter().any(|error| {
+            error.code == "container_cardinality_mismatch"
+                && error.path.as_deref() == Some("$.values")
+        }));
     }
 }
