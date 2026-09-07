@@ -555,6 +555,7 @@ function isLegacyHeaderEvent(
     event: AssignmentEvent,
     headerFieldNames?: ReadonlySet<string>,
 ): boolean {
+    if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
     const segment = event.path.segments[1];
     if (segment?.type !== 'member' || !segment.key.startsWith('aeon:')) return false;
     return headerFieldNames === undefined || headerFieldNames.has(segment.key.slice('aeon:'.length));

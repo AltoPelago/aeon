@@ -930,14 +930,8 @@ fn translate_reference_target(
     output
 }
 
-fn is_legacy_header_event(event: &AssignmentEvent, header: Option<&crate::HeaderFields>) -> bool {
-    let Some(PathSegment::Member(key)) = event.path.segments.get(1) else {
-        return false;
-    };
-    let Some(field) = key.strip_prefix("aeon:") else {
-        return false;
-    };
-    header.is_none_or(|header| header.fields.contains_key(field))
+fn is_legacy_header_event(event: &AssignmentEvent, _header: Option<&crate::HeaderFields>) -> bool {
+    event.source_plane == crate::SourcePlane::Header
 }
 
 struct PortableSourceContext<'a> {
@@ -1694,9 +1688,9 @@ mod tests {
     }
 
     #[test]
-    fn quoted_aeon_prefix_key_remains_in_the_body_plane() {
+    fn same_name_quoted_aeon_prefix_key_remains_in_the_body_plane() {
         let result = compile_to_telex(
-            "aeon:mode = \"transport\"\n\"aeon:payload\" = 1",
+            "aeon:mode = \"transport\"\n\"aeon:mode\" = 1",
             CompileToTelexOptions {
                 telex: ExportTelexOptions {
                     include_headers: true,
@@ -1711,9 +1705,13 @@ mod tests {
             result.compile.errors
         );
         assert_eq!(result.compile.events.len(), 1);
-        assert_eq!(result.compile.events[0].key, "aeon:payload");
+        assert_eq!(result.compile.events[0].key, "aeon:mode");
+        assert_eq!(
+            result.compile.events[0].source_plane,
+            crate::SourcePlane::Body
+        );
         let telex = result.telex.expect("encoded Telex");
         assert!(telex.contains("header=$.[\"aeon:mode\"]"), "{telex}");
-        assert!(telex.contains("path=$.[\"aeon:payload\"]"), "{telex}");
+        assert!(telex.contains("path=$.[\"aeon:mode\"]"), "{telex}");
     }
 }

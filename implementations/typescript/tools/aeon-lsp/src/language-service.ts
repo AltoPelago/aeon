@@ -1186,7 +1186,7 @@ function collectReferenceCandidates(text: string): string[] {
     const candidates = new Set<string>();
     for (const event of compiled.events) {
         const path = trimLeadingRoot(formatPath(event.path));
-        if (!path || path.startsWith('aeon:')) continue;
+        if (!path || event.sourcePlane === 'header') continue;
         candidates.add(path);
     }
     return Array.from(candidates).sort((a, b) => a.localeCompare(b));

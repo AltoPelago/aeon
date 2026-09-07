@@ -103,6 +103,7 @@ pub(crate) fn flatten_document(
     flatten_bindings(
         bindings,
         root,
+        crate::SourcePlane::Body,
         shallow_event_values,
         emit_binding_projections,
         include_event_annotations,
@@ -476,6 +477,7 @@ fn flatten_validation_value(
 fn flatten_bindings(
     bindings: &[Binding],
     parent: &CanonicalPath,
+    inherited_source_plane: crate::SourcePlane,
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
@@ -487,6 +489,11 @@ fn flatten_bindings(
 ) {
     let parent_path = format_path(parent);
     for binding in bindings {
+        let source_plane = if binding.is_header {
+            crate::SourcePlane::Header
+        } else {
+            inherited_source_plane
+        };
         let path = parent.member(binding.key.clone());
         let path_text = format_path(&path);
         track_reference_binding(
@@ -505,6 +512,7 @@ fn flatten_bindings(
             events.push(AssignmentEvent {
                 path: path.clone(),
                 key: binding.key.clone(),
+                source_plane,
                 structural_id: binding.structural_id.clone(),
                 datatype: binding.datatype.clone(),
                 annotations: if include_event_annotations {
@@ -547,6 +555,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        source_plane,
                         structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
@@ -565,6 +574,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(item),
                         &path.index(index),
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -593,6 +603,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        source_plane,
                         structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
@@ -611,6 +622,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(item),
                         &path.index(index),
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -627,6 +639,7 @@ fn flatten_bindings(
                 flatten_bindings(
                     nested,
                     &path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -653,6 +666,7 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: child_path.clone(),
                         key: index.to_string(),
+                        source_plane,
                         structural_id: typed_structural_id(child),
                         datatype: typed_datatype(child),
                         annotations: typed_annotations(child),
@@ -671,6 +685,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(child),
                         &child_path,
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -691,6 +706,7 @@ fn flatten_bindings(
 fn flatten_container_item(
     value: &Value,
     parent: &CanonicalPath,
+    source_plane: crate::SourcePlane,
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
@@ -705,6 +721,7 @@ fn flatten_container_item(
         Value::ObjectNode { bindings } => flatten_bindings(
             bindings,
             parent,
+            source_plane,
             shallow_event_values,
             emit_binding_projections,
             include_event_annotations,
@@ -730,6 +747,7 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: item_path.clone(),
                     key: index.to_string(),
+                    source_plane,
                     structural_id: typed_structural_id(item),
                     datatype: typed_datatype(item),
                     annotations: typed_annotations(item),
@@ -748,6 +766,7 @@ fn flatten_container_item(
                 flatten_container_item(
                     unwrap_typed_value(item),
                     &item_path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -776,6 +795,7 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: child_path.clone(),
                     key: index.to_string(),
+                    source_plane,
                     structural_id: typed_structural_id(child),
                     datatype: typed_datatype(child),
                     annotations: typed_annotations(child),
@@ -794,6 +814,7 @@ fn flatten_container_item(
                 flatten_container_item(
                     unwrap_typed_value(child),
                     &child_path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,

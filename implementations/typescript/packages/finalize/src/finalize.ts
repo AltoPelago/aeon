@@ -38,7 +38,7 @@ export function finalizeMap(
     if (scope === 'payload' || scope === 'full') {
         for (const event of aes) {
         const topLevelKey = topLevelMemberKey(event);
-        if (topLevelKey && isHeaderEventKey(topLevelKey, options.header)) {
+        if (topLevelKey && isHeaderEvent(event, topLevelKey, options.header)) {
             continue;
         }
         const basePath = formatPath(event.path);
@@ -110,7 +110,8 @@ function topLevelMemberKey(event: FinalizeInput[number]): string | null {
     return segment.key;
 }
 
-function isHeaderEventKey(key: string, header: FinalizeHeader | undefined): boolean {
+function isHeaderEvent(event: FinalizeInput[number], key: string, header: FinalizeHeader | undefined): boolean {
+    if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
     if (key === 'aeon:header') return true;
     if (!header || !key.startsWith('aeon:')) return false;
     return header.fields.has(key.slice('aeon:'.length));

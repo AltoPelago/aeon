@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aeon_aeos::{
-    AesEvent, AttributeEntry as AeosAttributeEntry, EventPath, EventValue, OffsetOnly,
-    PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema, SpanInput,
-    ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
+    AesEvent, AesSourcePlane, AttributeEntry as AeosAttributeEntry, EventPath, EventValue,
+    OffsetOnly, PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema,
+    SpanInput, ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::{canonicalize, canonicalize_telex};
@@ -3918,6 +3918,10 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            source_plane: Some(match event.source_plane {
+                aeon_core::SourcePlane::Header => AesSourcePlane::Header,
+                aeon_core::SourcePlane::Body => AesSourcePlane::Body,
+            }),
             structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             annotations: event

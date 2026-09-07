@@ -111,10 +111,11 @@ class PortableProjectionTests(unittest.TestCase):
         )
         self.assertEqual("$.a", document["events"][4]["path"])
 
-    def test_quoted_aeon_prefix_key_remains_in_the_body_plane(self) -> None:
-        result = compile_source('aeon:mode = "transport"\n"aeon:payload" = 1\n')
+    def test_same_name_quoted_aeon_prefix_key_remains_in_the_body_plane(self) -> None:
+        result = compile_source('aeon:mode = "transport"\n"aeon:mode" = 1\n')
         self.assertEqual([], result.errors)
-        self.assertEqual(["aeon:payload"], [event["key"] for event in result.events])
+        self.assertEqual(["aeon:mode"], [event["key"] for event in result.events])
+        self.assertEqual(["body"], [event["sourcePlane"] for event in result.events])
 
         document = adapt_python_assignment_events_to_portable_aes(
             result.events,
@@ -122,7 +123,7 @@ class PortableProjectionTests(unittest.TestCase):
             include_headers=True,
         )
         self.assertEqual(
-            ['$.["aeon:mode"]', '$.["aeon:payload"]'],
+            ['$.["aeon:mode"]', '$.["aeon:mode"]'],
             [event.get("header") or event.get("path") for event in document["events"]],
         )
 

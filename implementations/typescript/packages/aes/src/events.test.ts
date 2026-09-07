@@ -86,6 +86,13 @@ describe('Assignment Event Emission', () => {
 
             const paths = result.events.map(e => formatPath(e.path));
             assert.deepStrictEqual(paths, ['$.["aeon:version"]', '$.["aeon:profile"]', '$.a']);
+            assert.deepStrictEqual(result.events.map((event) => event.sourcePlane), ['header', 'header', 'body']);
+        });
+
+        it('distinguishes header syntax from a same-name quoted aeon-prefixed body key', () => {
+            const result = emit('aeon:mode = "transport"\n"aeon:mode" = 1');
+
+            assert.deepStrictEqual(result.events.map((event) => event.sourcePlane), ['header', 'body']);
         });
     });
 

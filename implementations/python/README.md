@@ -53,6 +53,10 @@ Implementation note:
   locations use Unicode code-point offsets; optional exact `source_bytes`
   derive the portable `sha256:` origin and convert retained ranges to UTF-8
   byte spans.
+- Native assignment events carry `sourcePlane` as `header` or `body`, inherited
+  by expanded inline descendants. Portable adapters, AEOS, and finalizers use
+  it before the legacy key-prefix fallback, so a quoted body key may safely
+  have the same spelling and textual address as a header occurrence.
 - `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
 - `max_reference_depth` and `--max-reference-depth` are processor controls, not AEON Core or AEOS conformance requirements.
 

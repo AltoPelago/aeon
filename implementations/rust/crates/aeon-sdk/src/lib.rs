@@ -4,9 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use aeon_aeos::{
-    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ReferencePathSegment,
-    ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions, validate,
-    validate_telex_records as validate_aeos_telex_records,
+    AesEvent, AesSourcePlane, EventPath, EventValue, OffsetOnly, PathSegmentInput,
+    ReferencePathSegment, ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions,
+    validate, validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
     AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
@@ -644,6 +644,10 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            source_plane: Some(match event.source_plane {
+                aeon_core::SourcePlane::Header => AesSourcePlane::Header,
+                aeon_core::SourcePlane::Body => AesSourcePlane::Body,
+            }),
             structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             value: core_value_to_aeos(&event.value),

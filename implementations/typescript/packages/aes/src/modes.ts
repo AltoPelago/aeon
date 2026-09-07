@@ -336,6 +336,9 @@ function defaultDatatypePolicyForMode(mode: Mode): DatatypePolicy {
 }
 
 function shouldSkipHeaderEvent(event: AssignmentEvent, header: Header | null): boolean {
+    if (event.sourcePlane !== undefined) {
+        return event.sourcePlane === 'header';
+    }
     if (!header) {
         return false;
     }

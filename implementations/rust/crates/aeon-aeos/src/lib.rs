@@ -546,6 +546,8 @@ pub struct SchemaRule {
 pub struct AesEvent {
     pub path: EventPath,
     pub key: String,
+    #[serde(default, rename = "sourcePlane")]
+    pub source_plane: Option<AesSourcePlane>,
     #[serde(default, rename = "structuralId")]
     pub structural_id: Option<String>,
     #[serde(default)]
@@ -555,6 +557,13 @@ pub struct AesEvent {
     pub value: EventValue,
     #[serde(default)]
     pub span: Option<SpanInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AesSourcePlane {
+    Header,
+    Body,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -795,6 +804,7 @@ fn portable_records_to_aeos(records: &[TelexRecord]) -> Vec<AesEvent> {
                 AesEvent {
                     path: event_path,
                     key,
+                    source_plane: Some(AesSourcePlane::Body),
                     structural_id: record.get("identity").map(str::to_owned),
                     datatype: portable_datatype(record),
                     annotations: BTreeMap::new(),
@@ -2944,7 +2954,9 @@ fn check_world_policy(
         }
     }
     for event in aes {
-        if event.key.starts_with("aeon:") {
+        if event.source_plane == Some(AesSourcePlane::Header)
+            || (event.source_plane.is_none() && event.key.starts_with("aeon:"))
+        {
             continue;
         }
         let path = format_canonical_path(&event.path);
@@ -3983,6 +3995,28 @@ mod tests {
     }
 
     #[test]
+    fn explicit_body_plane_is_not_exempted_by_an_aeon_prefixed_key() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "aeon:mode" } ] },
+              "key": "aeon:mode",
+              "sourcePlane": "body",
+              "value": { "type": "NumberLiteral", "raw": "1", "value": 1 }
+            }
+          ],
+          "schema": { "world": "closed", "rules": [] },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert!(envelope.errors.iter().any(|error| {
+            error.path.as_deref() == Some("$.[\"aeon:mode\"]") && error.code == "unexpected_binding"
+        }));
+    }
+
+    #[test]
     fn cts_payload_adapter_round_trips() {
         let payload = r#"{"aes":[],"schema":{"rules":[]},"options":{}}"#;
         let parsed = validate_cts_payload(payload).expect("payload should validate");
@@ -4329,6 +4363,7 @@ mod tests {
                     ],
                 },
                 key: String::from("a"),
+                source_plane: None,
                 structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
@@ -4377,6 +4412,7 @@ mod tests {
                     ],
                 },
                 key: String::from("a"),
+                source_plane: None,
                 structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
@@ -4506,6 +4542,7 @@ mod tests {
                     ],
                 },
                 key: String::from("postcode"),
+                source_plane: None,
                 structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
@@ -4561,6 +4598,7 @@ mod tests {
                         ],
                     },
                     key: String::from("source"),
+                    source_plane: None,
                     structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
@@ -4590,6 +4628,7 @@ mod tests {
                         ],
                     },
                     key: String::from("postcode"),
+                    source_plane: None,
                     structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
@@ -4642,6 +4681,7 @@ mod tests {
                     ],
                 },
                 key: String::from("postcode"),
+                source_plane: None,
                 structural_id: None,
                 datatype: None,
                 annotations: BTreeMap::new(),
@@ -4694,6 +4734,7 @@ mod tests {
                         ],
                     },
                     key: String::from("page"),
+                    source_plane: None,
                     structural_id: None,
                     datatype: None,
                     annotations: BTreeMap::new(),
@@ -4728,6 +4769,7 @@ mod tests {
                         ],
                     },
                     key: String::from("0"),
+                    source_plane: None,
                     structural_id: None,
                     datatype: Some(String::from("int32")),
                     annotations: BTreeMap::new(),
@@ -4793,6 +4835,7 @@ mod tests {
                     ],
                 },
                 key: String::from("0"),
+                source_plane: None,
                 structural_id: None,
                 datatype: Some(String::from("int32")),
                 annotations: BTreeMap::new(),
@@ -4846,6 +4889,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                source_plane: None,
                 structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations: BTreeMap::new(),
@@ -4938,6 +4982,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                source_plane: None,
                 structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations,
@@ -5025,6 +5070,7 @@ mod tests {
                     ],
                 },
                 key: String::from("value"),
+                source_plane: None,
                 structural_id: None,
                 datatype: Some(String::from("number")),
                 annotations,

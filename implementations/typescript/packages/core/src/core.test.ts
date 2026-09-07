@@ -98,14 +98,15 @@ describe('API Surface', () => {
     });
 
     it('should preserve quoted aeon-prefixed payload keys beside actual headers', () => {
-        const source = 'aeon:mode = "transport"\n"aeon:payload" = 1';
+        const source = 'aeon:mode = "transport"\n"aeon:mode" = 1';
         const body = compileToTelex(source);
         const document = compileToTelex(source, { includeHeaders: true });
 
-        assert.match(body.telex ?? '', /path=\$\.\["aeon:payload"\]/u);
-        assert.doesNotMatch(body.telex ?? '', /aeon:mode/u);
+        assert.deepStrictEqual(document.compile.events.map((event) => event.sourcePlane), ['header', 'body']);
+        assert.match(body.telex ?? '', /path=\$\.\["aeon:mode"\]/u);
+        assert.doesNotMatch(body.telex ?? '', /header=/u);
         assert.match(document.telex ?? '', /header=\$\.\["aeon:mode"\]/u);
-        assert.match(document.telex ?? '', /path=\$\.\["aeon:payload"\]/u);
+        assert.match(document.telex ?? '', /path=\$\.\["aeon:mode"\]/u);
     });
 
     it('should accept maxInputBytes in CompileOptions', () => {

@@ -101,6 +101,7 @@ export interface CanonicalBinding {
     readonly path: CanonicalPath;
     readonly binding: Binding;
     readonly span: Span;
+    readonly sourcePlane: 'header' | 'body';
 }
 
 /**
@@ -175,12 +176,12 @@ class PathResolver {
                     ...binding,
                     key: `aeon:${binding.key}`,
                 };
-                this.resolveBinding(syntheticBinding, rootPath);
+                this.resolveBinding(syntheticBinding, rootPath, 'header');
             }
         }
 
         for (const binding of document.bindings) {
-            this.resolveBinding(binding, rootPath);
+            this.resolveBinding(binding, rootPath, 'body');
         }
 
         return {
@@ -189,13 +190,14 @@ class PathResolver {
         };
     }
 
-    private resolveBinding(binding: Binding, parentPath: CanonicalPath): void {
+    private resolveBinding(binding: Binding, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         // Create path for this binding
         const path = extendPath(parentPath, binding.key);
         const pathString = formatPath(path);
 
         // Check for duplicate path
-        const existingSpan = this.pathRegistry.get(pathString);
+        const registryKey = `${sourcePlane}\0${pathString}`;
+        const existingSpan = this.pathRegistry.get(registryKey);
         if (existingSpan) {
             this.errors.push(new DuplicateCanonicalPathError(
                 pathString,
@@ -206,39 +208,40 @@ class PathResolver {
             return;
         }
 
-        this.pathRegistry.set(pathString, binding.span);
+        this.pathRegistry.set(registryKey, binding.span);
 
         // Register this binding
         this.bindings.push({
             path,
             binding,
             span: binding.span,
+            sourcePlane,
         });
 
         // Recursively resolve bindings in value (if object or list containing objects)
-        this.resolveValue(binding.value, path);
+        this.resolveValue(binding.value, path, sourcePlane);
     }
 
-    private resolveValue(value: Value, parentPath: CanonicalPath): void {
+    private resolveValue(value: Value, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         switch (value.type) {
             case 'TypedValue':
-                this.resolveValue(value.value, parentPath);
+                this.resolveValue(value.value, parentPath, sourcePlane);
                 break;
 
             case 'ObjectNode':
-                this.resolveObject(value, parentPath);
+                this.resolveObject(value, parentPath, sourcePlane);
                 break;
 
             case 'ListNode':
-                this.resolveList(value, parentPath);
+                this.resolveList(value, parentPath, sourcePlane);
                 break;
 
             case 'TupleLiteral':
-                this.resolveTuple(value, parentPath);
+                this.resolveTuple(value, parentPath, sourcePlane);
                 break;
 
             case 'NodeLiteral':
-                this.resolveNode(value, parentPath);
+                this.resolveNode(value, parentPath, sourcePlane);
                 break;
 
             // All other value types do NOT produce paths
@@ -249,21 +252,21 @@ class PathResolver {
         }
     }
 
-    private resolveObject(obj: ObjectNode, parentPath: CanonicalPath): void {
+    private resolveObject(obj: ObjectNode, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         // Object bindings extend the parent path
         for (const binding of obj.bindings) {
-            this.resolveBinding(binding, parentPath);
+            this.resolveBinding(binding, parentPath, sourcePlane);
         }
     }
 
-    private resolveList(list: ListNode, parentPath: CanonicalPath): void {
+    private resolveList(list: ListNode, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         // Core v1: list elements introduce indexed canonical paths.
         if (this.options.indexedPaths) {
             for (let index = 0; index < list.elements.length; index++) {
                 const element = list.elements[index]!;
                 const indexedPath = extendPathIndex(parentPath, index);
-                this.registerSyntheticValueBinding(String(index), element, indexedPath);
-                this.resolveValue(unwrapTypedValue(element), indexedPath);
+                this.registerSyntheticValueBinding(String(index), element, indexedPath, sourcePlane);
+                this.resolveValue(unwrapTypedValue(element), indexedPath, sourcePlane);
             }
             return;
         }
@@ -272,16 +275,16 @@ class PathResolver {
         for (const element of list.elements) {
             const value = unwrapTypedValue(element);
             if (value.type === 'ObjectNode') {
-                this.resolveObject(value, parentPath);
+                this.resolveObject(value, parentPath, sourcePlane);
             } else if (value.type === 'ListNode') {
-                this.resolveList(value, parentPath);
+                this.resolveList(value, parentPath, sourcePlane);
             } else if (value.type === 'TupleLiteral') {
-                this.resolveTuple(value, parentPath);
+                this.resolveTuple(value, parentPath, sourcePlane);
             }
         }
     }
 
-    private resolveTuple(tuple: Extract<Value, { type: 'TupleLiteral' }>, parentPath: CanonicalPath): void {
+    private resolveTuple(tuple: Extract<Value, { type: 'TupleLiteral' }>, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         if (!this.options.indexedPaths) {
             // Compatibility gate: tuples should not be emitted into AES path space.
             return;
@@ -290,12 +293,12 @@ class PathResolver {
         for (let index = 0; index < tuple.elements.length; index++) {
             const element = tuple.elements[index]!;
             const indexedPath = extendPathIndex(parentPath, index);
-            this.registerSyntheticValueBinding(String(index), element, indexedPath);
-            this.resolveValue(unwrapTypedValue(element), indexedPath);
+            this.registerSyntheticValueBinding(String(index), element, indexedPath, sourcePlane);
+            this.resolveValue(unwrapTypedValue(element), indexedPath, sourcePlane);
         }
     }
 
-    private resolveNode(node: Extract<Value, { type: 'NodeLiteral' }>, parentPath: CanonicalPath): void {
+    private resolveNode(node: Extract<Value, { type: 'NodeLiteral' }>, parentPath: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         if (!this.options.indexedPaths) {
             return;
         }
@@ -303,23 +306,24 @@ class PathResolver {
         for (let index = 0; index < node.children.length; index++) {
             const child = node.children[index]!;
             const indexedPath = extendPathIndex(parentPath, index);
-            this.registerSyntheticValueBinding(String(index), child, indexedPath);
-            this.resolveValue(unwrapTypedValue(child), indexedPath);
+            this.registerSyntheticValueBinding(String(index), child, indexedPath, sourcePlane);
+            this.resolveValue(unwrapTypedValue(child), indexedPath, sourcePlane);
         }
     }
 
-    private registerSyntheticValueBinding(key: string, value: Value, path: CanonicalPath): void {
+    private registerSyntheticValueBinding(key: string, value: Value, path: CanonicalPath, sourcePlane: 'header' | 'body'): void {
         const datatype = value.type === 'TypedValue' ? value.datatype : null;
         const attributes = value.type === 'TypedValue' ? value.attributes : [];
         const bindingValue = unwrapTypedValue(value);
         const pathString = formatPath(path);
-        const existingSpan = this.pathRegistry.get(pathString);
+        const registryKey = `${sourcePlane}\0${pathString}`;
+        const existingSpan = this.pathRegistry.get(registryKey);
         if (existingSpan) {
             this.errors.push(new DuplicateCanonicalPathError(pathString, value.span, existingSpan));
             return;
         }
 
-        this.pathRegistry.set(pathString, value.span);
+        this.pathRegistry.set(registryKey, value.span);
         const syntheticBinding: Binding = {
             type: 'Binding',
             key,
@@ -333,6 +337,7 @@ class PathResolver {
             path,
             binding: syntheticBinding,
             span: value.span,
+            sourcePlane,
         });
     }
 }

@@ -71,6 +71,7 @@ def finalize_map(aes: object, options: FinalizeOptions | None = None) -> dict[st
     aes_events = normalize_aes_input(aes)
     projection = Projection(opts.materialization, opts.include_paths)
     entries: list[dict[str, object]] = []
+    header_keys = set(extract_header_keys(header))
 
     for event in aes_events:
         if not isinstance(event, dict):
@@ -79,9 +80,10 @@ def finalize_map(aes: object, options: FinalizeOptions | None = None) -> dict[st
         path = event.get("path")
         if not isinstance(key, str) or not isinstance(path, str):
             continue
-        if opts.scope == "payload" and key.startswith("aeon:"):
+        header_event = is_header_event(event, header_keys)
+        if opts.scope == "payload" and header_event:
             continue
-        if opts.scope == "header" and not key.startswith("aeon:"):
+        if opts.scope == "header" and not header_event:
             continue
         if not projection.includes(path):
             continue
@@ -164,7 +166,7 @@ def payload_to_json(
             continue
         if not is_top_level_path(path):
             continue
-        if key.startswith("aeon:") or key in header_keys:
+        if is_header_event(event, header_keys):
             continue
         scoped_path = scoped_top_level_path(scope, "payload", key)
         if not ctx.projection.includes(scoped_path):
@@ -648,6 +650,14 @@ def extract_header_keys(header: dict[str, object] | None) -> list[str]:
     if header is None:
         return []
     return [key for key, _ in header_field_items(header)]
+
+
+def is_header_event(event: dict[str, object], header_keys: set[str]) -> bool:
+    source_plane = event.get("sourcePlane")
+    if source_plane in {"header", "body"}:
+        return source_plane == "header"
+    key = event.get("key")
+    return isinstance(key, str) and (key.startswith("aeon:") or key in header_keys)
 
 
 def infer_header(aes: object) -> dict[str, object] | None:

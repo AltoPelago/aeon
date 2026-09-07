@@ -59,8 +59,13 @@ pub(crate) fn validate_duplicate_canonical_paths(
 ) {
     let mut seen = HashSet::new();
     let mut duplicate_indexes = Vec::new();
-    for (index, path) in flattened.rendered_event_paths.iter().enumerate() {
-        if !seen.insert(path.clone()) {
+    for (index, (event, path)) in flattened
+        .events
+        .iter()
+        .zip(flattened.rendered_event_paths.iter())
+        .enumerate()
+    {
+        if !seen.insert((event.source_plane, path.clone())) {
             duplicate_indexes.push(index);
         }
     }
@@ -87,7 +92,7 @@ pub(crate) fn validate_duplicate_canonical_paths(
             .drain(..)
             .zip(flattened.rendered_event_paths.drain(..))
         {
-            if retained.insert(path.clone()) {
+            if retained.insert((event.source_plane, path.clone())) {
                 retained_events.push(event);
                 retained_paths.push(path);
             }

@@ -611,6 +611,9 @@ def is_legacy_header_event(
     event: dict[str, object],
     header_field_names: set[str] | None = None,
 ) -> bool:
+    source_plane = event.get("sourcePlane")
+    if source_plane in {"header", "body"}:
+        return source_plane == "header"
     path = event.get("path")
     if not isinstance(path, str):
         return False

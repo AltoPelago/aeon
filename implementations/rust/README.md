@@ -133,6 +133,11 @@ Implementation note:
   spans; invalid UTF-8 or ranges fail closed. Anonymous sequence occurrences
   in the v0 assignment-event contract retain origin-only evidence because their
   inherited owner spans are not occurrence-exact.
+- Native assignment events carry a `SourcePlane::Header` or
+  `SourcePlane::Body` occurrence marker. It is inherited by expanded inline
+  descendants and lets adapters, AEOS, and finalizers distinguish a quoted
+  body key such as `"aeon:mode"` from an actual header without making the key
+  spelling part of plane identity.
 - the Rust SDK exposes `load_telex_str`, `load_telex_file`, and `write_telex`; complete streams are validated and materialized directly from flat AES records.
 - AEOS accepts Telex records without treating structural identities as path segments, including attribute-space selection and flat-container cardinality.
 - the Rust/WASM bridge exposes Telex validation, completeness, canonicalization, and direct materialization.

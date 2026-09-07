@@ -670,6 +670,18 @@ describe('AEON CLI output contract', () => {
             assert.deepStrictEqual(parsed, expected);
         });
 
+        it('keeps a same-name quoted aeon header key in the legacy body view', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-header-plane-'));
+            const file = path.join(dir, 'document.aeon');
+            fs.writeFileSync(file, 'aeon:mode = "transport"\n"aeon:mode" = 1\n', 'utf-8');
+
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as { events: Array<{ key: string }> };
+            assert.deepStrictEqual(parsed.events.map((event) => event.key), ['aeon:mode']);
+        });
+
         it('exits 2 and prints usage error on stderr when file missing', async () => {
             const { code, stdout, stderr } = await runCli(['inspect']);
             assert.strictEqual(code, 2);

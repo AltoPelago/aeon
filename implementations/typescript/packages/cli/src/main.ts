@@ -1527,12 +1527,19 @@ function integritySign(args: string[]): void {
 /**
  * JSON output (--json flag)
  */
+function isLegacyVisibleEvent(event: AssignmentEvent): boolean {
+    if (event.sourcePlane !== undefined) {
+        return event.sourcePlane !== 'header' || event.path.segments.length > 2;
+    }
+    return !event.key.startsWith('aeon:');
+}
+
 function outputJSON(
     result: CompileResult,
     options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean; includeHeaders: boolean; sourceBytes?: Uint8Array },
     headerInfo?: HeaderInfo,
 ): void {
-    const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
+    const visibleEvents = result.events.filter(isLegacyVisibleEvent);
     const annotations = options.sortAnnotations
         ? sortAnnotationRecords(result.annotations ?? [])
         : (result.annotations ?? []);
@@ -3091,7 +3098,7 @@ function outputMarkdown(
         sortAnnotations: boolean;
     },
 ): void {
-    const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
+    const visibleEvents = result.events.filter(isLegacyVisibleEvent);
     const annotations = info.sortAnnotations
         ? sortAnnotationRecords(result.annotations ?? [])
         : (result.annotations ?? []);

@@ -116,6 +116,7 @@ class ResolvedBinding:
     datatype: str | None
     annotations: dict[str, dict[str, object]] | None
     structural_id: str | None
+    source_plane: str
 
 
 RESERVED_KIND_MAP = {
@@ -246,7 +247,14 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     events = [
         event
         for index, event in enumerate(internal_events)
-        if not should_skip_header_binding_for_mode(parse_result.document, resolved_bindings[index])
+        # Preserve the native/legacy projection: direct synthetic header
+        # bindings stay hidden, while their expanded inline descendants remain
+        # visible. Portable AES consumers use sourcePlane to classify the
+        # descendants correctly instead of inferring their plane from a key.
+        if not (
+            resolved_bindings[index].source_plane == "header"
+            and len(resolved_bindings[index].path.segments) <= 2
+        )
     ]
     return CompileResult(
         events=events,
@@ -633,7 +641,7 @@ def skip_gp_whitespace(source: str, index: int) -> int:
 def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonError]]:
     bindings: list[ResolvedBinding] = []
     errors: list[AeonError] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     root = CanonicalPath(segments=(CanonicalSegment(type="root"),))
 
     if document.header is not None:
@@ -645,10 +653,10 @@ def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonE
                 attributes=binding.attributes,
                 span=binding.span,
             )
-            resolve_binding(synthetic, root, bindings, errors, seen)
+            resolve_binding(synthetic, root, bindings, errors, seen, "header")
 
     for binding in document.bindings:
-        resolve_binding(binding, root, bindings, errors, seen)
+        resolve_binding(binding, root, bindings, errors, seen, "body")
     return bindings, errors
 
 
@@ -657,14 +665,16 @@ def resolve_binding(
     parent: CanonicalPath,
     bindings: list[ResolvedBinding],
     errors: list[AeonError],
-    seen: set[str],
+    seen: set[tuple[str, str]],
+    source_plane: str,
 ) -> None:
     path = extend_member(parent, binding.key)
     path_str = format_path(path)
-    if path_str in seen:
+    registry_key = (source_plane, path_str)
+    if registry_key in seen:
         errors.append(DuplicateCanonicalPathError(path_str, binding.span))
         return
-    seen.add(path_str)
+    seen.add(registry_key)
     bindings.append(
         ResolvedBinding(
             path=path,
@@ -674,12 +684,13 @@ def resolve_binding(
             datatype=format_datatype(binding.datatype),
             annotations=build_annotations(binding.attributes),
             structural_id=binding.structural_id,
+            source_plane=source_plane,
         )
     )
-    resolve_value(binding.value, path, bindings, errors, seen)
+    resolve_value(binding.value, path, bindings, errors, seen, source_plane)
 
 
-def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[str]) -> None:
+def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[tuple[str, str]], source_plane: str) -> None:
     value = unwrap_typed_value(value)
     if isinstance(value, ObjectNode):
         local_keys: set[str] = set()
@@ -688,7 +699,7 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                 errors.append(AeonError(message=f"Duplicate key: '{binding.key}'", span=binding.span, code="DUPLICATE_KEY"))
                 continue
             local_keys.add(binding.key)
-            resolve_binding(binding, parent, bindings, errors, seen)
+            resolve_binding(binding, parent, bindings, errors, seen, source_plane)
         return
     if isinstance(value, (ListNode, TupleLiteral)):
         elements = value.elements
@@ -698,10 +709,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
             element_annotations = build_annotations(element.attributes) if isinstance(element, TypedValue) else None
             element_path = extend_index(parent, index)
             path_str = format_path(element_path)
-            if path_str in seen:
+            registry_key = (source_plane, path_str)
+            if registry_key in seen:
                 errors.append(DuplicateCanonicalPathError(path_str, element.span))
                 continue
-            seen.add(path_str)
+            seen.add(registry_key)
             bindings.append(
                 ResolvedBinding(
                     path=element_path,
@@ -711,9 +723,10 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     datatype=element_datatype,
                     annotations=element_annotations,
                     structural_id=element.structural_id if isinstance(element, TypedValue) else None,
+                    source_plane=source_plane,
                 )
             )
-            resolve_value(element_value, element_path, bindings, errors, seen)
+            resolve_value(element_value, element_path, bindings, errors, seen, source_plane)
         return
     if isinstance(value, NodeLiteral):
         for index, child in enumerate(value.children):
@@ -722,10 +735,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
             child_annotations = build_annotations(child.attributes) if isinstance(child, TypedValue) else None
             child_path = extend_index(parent, index)
             path_str = format_path(child_path)
-            if path_str in seen:
+            registry_key = (source_plane, path_str)
+            if registry_key in seen:
                 errors.append(DuplicateCanonicalPathError(path_str, child.span))
                 continue
-            seen.add(path_str)
+            seen.add(registry_key)
             bindings.append(
                 ResolvedBinding(
                     path=child_path,
@@ -735,9 +749,10 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     datatype=child_datatype,
                     annotations=child_annotations,
                     structural_id=child.structural_id if isinstance(child, TypedValue) else None,
+                    source_plane=source_plane,
                 )
             )
-            resolve_value(child_value, child_path, bindings, errors, seen)
+            resolve_value(child_value, child_path, bindings, errors, seen, source_plane)
 
 
 def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object]] | None:
@@ -763,6 +778,7 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     event = {
         "path": format_path(binding.path),
         "key": binding.key,
+        "sourcePlane": binding.source_plane,
         "datatype": binding.datatype,
         "span": binding.span.to_json(),
         "value": value_to_json(binding.value),
@@ -993,6 +1009,8 @@ def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode
 
 
 def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBinding) -> bool:
+    if binding.source_plane:
+        return binding.source_plane == "header"
     if document.header is None:
         return False
     prefix = "aeon:"

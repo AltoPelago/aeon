@@ -197,7 +197,10 @@ def inspect(args: list[str]) -> int:
                     source_bytes=source_bytes if source_provenance else None,
                 )["events"]
                 if portable_aes
-                else result.events
+                else [
+                    {key: value for key, value in event.items() if key != "sourcePlane"}
+                    for event in result.events
+                ]
             ),
             "errors": [error.to_json() for error in result.errors],
         }

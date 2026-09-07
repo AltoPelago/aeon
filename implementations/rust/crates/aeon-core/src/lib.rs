@@ -568,12 +568,19 @@ pub struct Binding {
 pub struct AssignmentEvent {
     pub path: CanonicalPath,
     pub key: String,
+    pub source_plane: SourcePlane,
     pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub annotations: BTreeMap<String, AttributeValue>,
     pub annotation_order: Vec<String>,
     pub value: Value,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourcePlane {
+    Header,
+    Body,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1288,7 +1288,10 @@ def check_world_policy(
 
     for event in aes:
         key = event.get("key")
-        if isinstance(key, str) and key.startswith("aeon:"):
+        source_plane = event.get("sourcePlane")
+        if source_plane == "header" or (
+            source_plane is None and isinstance(key, str) and key.startswith("aeon:")
+        ):
             continue
         path = format_canonical_path(event.get("path"))
         if path not in bound_paths:

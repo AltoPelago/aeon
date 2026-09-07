@@ -501,6 +501,20 @@ describe('validate()', () => {
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.UNEXPECTED_BINDING));
         });
 
+        it('does not exempt aeon-prefixed body events from closed-world rules', () => {
+            const aes: AES = [{
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'aeon:payload' }] },
+                key: 'aeon:payload',
+                sourcePlane: 'body',
+                value: { type: 'NumberLiteral', value: '1', raw: '1', span: [1, 2] },
+                span: [1, 2],
+            }] as unknown as AES;
+
+            const result = validate(aes, { world: 'closed', rules: [] });
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.UNEXPECTED_BINDING));
+        });
+
         it('rejects unexpected nested bindings in closed-world mode', () => {
             const aes: AES = [
                 {

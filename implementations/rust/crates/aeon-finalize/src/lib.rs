@@ -9,7 +9,7 @@ use std::fmt;
 
 use aeon_core::{
     AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, NullLiteralMode,
-    ReferenceSegment, Span, Value, compile, format_path, normalize_number_literal,
+    ReferenceSegment, SourcePlane, Span, Value, compile, format_path, normalize_number_literal,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
@@ -279,6 +279,9 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 
     if matches!(options.scope, FinalizeScope::Payload | FinalizeScope::Full) {
         for event in events {
+            if event.source_plane == SourcePlane::Header {
+                continue;
+            }
             let base = format_path(&event.path);
             let path = match options.scope {
                 FinalizeScope::Payload => base,
@@ -1420,6 +1423,9 @@ fn is_reserved_key(key: &str) -> bool {
 fn index_event_values(events: &[AssignmentEvent]) -> BTreeMap<String, Value> {
     let mut values = BTreeMap::new();
     for event in events {
+        if event.source_plane == SourcePlane::Header {
+            continue;
+        }
         let _ = values.insert(format_path(&event.path), event.value.clone());
     }
     values
@@ -2371,6 +2377,7 @@ mod tests {
         let events = vec![AssignmentEvent {
             path: aeon_core::CanonicalPath::root().member("a"),
             key: String::from("a"),
+            source_plane: aeon_core::SourcePlane::Body,
             structural_id: None,
             datatype: Some(String::from("list")),
             annotations: BTreeMap::new(),

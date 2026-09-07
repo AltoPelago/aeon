@@ -117,7 +117,7 @@ function payloadEntriesToNode(
         const segment = event.path.segments[1];
         if (!segment || segment.type !== 'member') continue;
         const key = segment.key;
-        if (isHeaderEventKey(key, header)) continue;
+        if (isHeaderEvent(event, key, header)) continue;
         const eventPath = scopedTopLevelPath(scope, 'payload', key);
         if (!shouldIncludeProjectedPath(eventPath, projection)) continue;
         if (isReservedObjectKey(key)) {
@@ -432,7 +432,8 @@ function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', 
     return `$.${key}`;
 }
 
-function isHeaderEventKey(key: string, header: FinalizeHeader | undefined): boolean {
+function isHeaderEvent(event: AssignmentEvent, key: string, header: FinalizeHeader | undefined): boolean {
+    if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
     if (key === 'aeon:header') return true;
     if (!header || !key.startsWith('aeon:')) return false;
     return header.fields.has(key.slice('aeon:'.length));

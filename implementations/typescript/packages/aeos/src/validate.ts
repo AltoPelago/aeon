@@ -688,7 +688,7 @@ export function validate(
 
 function checkWorldPolicy(
     schema: SchemaV1,
-    aes: readonly { key?: string; path?: unknown; span?: unknown }[],
+    aes: readonly { key?: string; path?: unknown; span?: unknown; sourcePlane?: 'header' | 'body' }[],
     boundPaths: ReadonlySet<string>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
@@ -709,7 +709,7 @@ function checkWorldPolicy(
     }
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
-        if (key.startsWith('aeon:')) continue;
+        if (event.sourcePlane === 'header' || (event.sourcePlane === undefined && key.startsWith('aeon:'))) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
         if (allowedRules.some((rule) => rule.kind === 'selector'

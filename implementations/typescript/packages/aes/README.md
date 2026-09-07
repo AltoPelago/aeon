@@ -45,6 +45,8 @@ if (result.errors.length === 0) {
 - `validateTelexRecords(records, options?)`
 - canonical path helpers
 - Assignment Event Stream types
+  - emitted native events carry `sourcePlane: 'header' | 'body'`; consumers
+    must not infer control-plane identity from an `aeon:` key prefix
 - reconstructed candidate AES types:
   - `CandidateAES`
   - `CandidateAssignmentEvent`
