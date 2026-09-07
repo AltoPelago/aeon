@@ -1,0 +1,65 @@
+title:string = "Privacy Policy"
+description:string = "How AltoPelago handles contact-form submissions, server logs, browser storage, service providers, retention, and privacy requests on the AEON website."
+activePage:string = "privacy"
+keywords:list<string> = ["privacy", "personal information", "contact form", "cookies", "cPanel", "server logs", "Australia"]
+
+page:node = <page(
+  <section @{type = "copy", level = 1, id = "scope"} (
+    <kicker("Privacy")>
+    <title("Privacy policy")>
+    <copy("This policy explains how AltoPelago handles personal information submitted through the AEON website. AltoPelago is maintained in Australia by Patrik Fagard. This policy is provided as a matter of good practice and applies whether or not a particular Australian privacy-law obligation applies in the circumstances.")>
+    <copy("Last updated: 7 September 2026.")>
+  )>
+
+  <section @{type = "copy", id = "collection"} (
+    <kicker("Collection")>
+    <title("Information this site collects")>
+    <copy("If you use the contact form, AltoPelago receives your name, email address, subject, message, and any personal information you choose to include. Please do not include sensitive personal information unless it is necessary for your enquiry.")>
+    <copy("The site does not provide user accounts, subscriptions, payments, or public profiles. It does not use advertising pixels, social-media trackers, or client-side analytics, and it does not set cookies.")>
+    <copy("The site stores an optional aeon:view-format preference in your browser's local storage when you choose the Markdown view. A playground hand-off may use temporary session storage to transfer source between pages. These browser-side values are functional preferences and are not used to track you or build a profile.")>
+    <copy("The cPanel hosting environment records ordinary web-server access information. Depending on the hosting configuration, this can include an IP address, requested page, date and time, response status and size, referring page, browser or user-agent information, and request method or protocol.")>
+    <copy("cPanel-provided tools such as Visitors or AWStats may process those logs into basic traffic and error statistics. These server-side operational statistics are not combined with contact-form correspondence, used to track people across websites, or used for targeted advertising.")>
+  )>
+
+  <section @{type = "copy", id = "use"} (
+    <kicker("Use")>
+    <title("How information is used")>
+    <copy("Contact-form information is used only as reasonably necessary to receive, assess, and respond to your message; follow up on project or website matters; maintain relevant correspondence and project records; detect abuse; protect and diagnose the service; review basic aggregate traffic; or meet applicable legal obligations.")>
+    <copy("Providing contact information is voluntary. Without a valid email address, AltoPelago cannot reply to your message.")>
+    <copy("AltoPelago handles personal information only for the purposes described above and in accordance with applicable Australian privacy law.")>
+  )>
+
+  <section @{type = "copy", id = "disclosure"} (
+    <kicker("Providers")>
+    <title("Storage and disclosure")>
+    <copy("A submitted message is delivered to project email accounts. Website-hosting and email-service providers process the message and ordinary request information as needed to provide those services.")>
+    <copy("Some pages request the GSAP animation library from the jsDelivr content-delivery network. That request can disclose ordinary connection information such as your IP address, the requested file, browser information, and referring page to the provider. Contact-form contents are not sent to jsDelivr.")>
+    <copy("AltoPelago does not sell personal information, rent contact lists, or disclose contact details for marketing. Information may be disclosed where required by law or where reasonably necessary to protect the security of the site or its users.")>
+    <copy("Hosting, email, or content-delivery infrastructure may route or store information outside Australia. The countries involved can vary with provider infrastructure. AltoPelago does not otherwise intentionally disclose contact-form information to overseas recipients.")>
+  )>
+
+  <section @{type = "copy", id = "retention"} (
+    <kicker("Retention")>
+    <title("Retention and security")>
+    <copy("Contact correspondence is retained only while reasonably needed to respond, keep a relevant project record, resolve an issue, protect the service, or meet a legal obligation. It is deleted when no longer needed. Residual copies may remain for a limited period in routine service-provider backups.")>
+    <copy("Server logs and derived traffic statistics are retained and rotated according to the hosting configuration and are used only for operational, security, diagnostic, and basic site-usage purposes.")>
+    <copy("AltoPelago uses reasonable technical and organisational safeguards appropriate to this small collection footprint. No method of internet transmission or electronic storage can be guaranteed to be completely secure.")>
+  )>
+
+  <section @{type = "copy", id = "choices"} (
+    <kicker("Your choices")>
+    <title("Access, correction, deletion, and concerns")>
+    <copy("To ask whether AltoPelago holds contact correspondence about you, request access, correction, or deletion, or raise a privacy concern, use the contact form. Include enough information to identify the relevant message, but do not send additional sensitive information. Requests will be considered and answered within a reasonable time, subject to applicable legal requirements or permitted retention.")>
+    <copy("If Australian privacy law applies and you are not satisfied with the response, information about privacy rights and complaints is available from the Office of the Australian Information Commissioner.")>
+    <actions(
+      <action @{href = "/contact.php", primary = true}("Contact AltoPelago")>
+      <action @{href = "https://www.oaic.gov.au/privacy/privacy-complaints"}("OAIC privacy complaints")>
+    )>
+  )>
+
+  <section @{type = "copy", id = "changes"} (
+    <kicker("Updates")>
+    <title("Changes to this policy")>
+    <copy("This page will be updated if the site changes what it collects or how information is handled. The date above identifies the current version.")>
+  )>
+)>

@@ -1,0 +1,276 @@
+title:string = "AEON - Semantic Data Language"
+description:string = "AEON is a human-readable data notation for explicit meaning, deterministic processing, visible structure, validation, and safer documents."
+activePage:string = "home"
+keywords:list<string> = ["overview", "home", "AEON", "notation", "data language", "explicit meaning", "zero trust", "npm"]
+
+page:node = <page(
+  <section @{type:string = "feature", hero:boolean = true, id:string = "top", level:string = "1"} (
+    <kicker("AEON")>
+    <title("Documents should never surprise you.")>
+     <code(>`
+      // an introduction to the AEON language
+
+      announce:object = {
+        message:string = "Hello World!"
+      }
+
+    `)>
+    <heading("AEON is a language system for explicit meaning.")>
+    <copy("AEON is a human-readable data notation system built on a simple belief: meaning should be layered and explicit. This lets it operate with a zero-trust mindset, where each relevant layer can be inspected or validated before [& materialization|Materialization]. AEON treats determinism as a feature rather than an implementation detail.")>
+    <copy("This page introduces you to Another Easy Object Notation Language.")>
+    <copy("If you are tired of data notation languages that are too bare, too magical, or too verbose, AEON gives you a way to write documents that are clear, predictable, and safe.")>
+    <actions(
+      <action @{href:string = "/walkthrough.php", primary:boolean = true} ("Walkthrough")>
+      <action @{href:string = "/playground.php"} ("Playground")>
+      <action @{href:string = "/why-aeon.php"} ("Why AEON")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "npm"} (
+    <kicker("Get Started")>
+    <title("AEON TypeScript packages are published on npm.")>
+    <copy("The reference TypeScript implementation is available under the @altopelago scope, including the runtime, core parser pipeline, AEOS validation, canonical form, CLI, and WebAssembly package.")>
+    <code(>`
+      npm install @altopelago/aeon-runtime
+    `)>
+    <actions(
+      <action @{href:string = "https://www.npmjs.com/package/@altopelago/aeon-runtime", primary:boolean = true} ("Open npm package")>
+      <action @{href:string = "/developer-start.php"} ("Developer start")>
+      <action @{href:string = "https://github.com/AltoPelago/aeon"} ("GitHub repo")>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "developer-map"} (
+    <kicker("First Path")>
+    <title("A practical route through AEON for a new developer.")>
+    <cards(
+      <card(
+        <topline("1. Try")>
+        <heading("Start in five minutes")>
+        <copy("Once the idea is clear, open the developer start page to see source text go through the runtime and become an accepted JSON projection.")>
+        <href("/developer-start.php")>
+        <cta("Developer start")>
+      )>
+      <card(
+        <topline("2. Integrate")>
+        <heading("Use the runtime when you need the pipeline")>
+        <copy("Reach for the TypeScript runtime when you need profile compilation, schema validation, reference resolution, finalization, and annotations together.")>
+        <href("https://github.com/AltoPelago/aeon/tree/main/implementations/typescript/packages/runtime")>
+        <cta("Open runtime")>
+      )>
+      <card(
+        <topline("3. Language")>
+        <heading("Understand the language layer")>
+        <copy("Read how vocabulary, grammar, processing stages, profiles, schemas, conventions, and Tonics fit together.")>
+        <href("/aeon-language.php#language-layer")>
+        <cta("Language layer")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "copy", id:string = "why-aeon"} (
+    <kicker("Why AEON Exists")>
+    <title("Configuration and document languages became too implicit, too brittle, or too magical.")>
+    <copy("AEON exists because important documents should not depend on hidden conventions, parser guesses, runtime coercion, or schemas bolted on after the fact.")>
+    <copy("It restores clarity by making structure, type, intention, and trust boundaries visible at the surface of the file.")>
+    <actions(
+      <action @{href:string = "/why-aeon.php", primary:boolean = true} ("Read why AEON")>
+      <action @{href:string = "/aeon-language.php"} ("See how it works")>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "pain-points"} (
+    <kicker("Motivation")>
+    <title("AEON is a correction to familiar data-language pain points.")>
+    <cards(
+      <card(
+        <topline("Implicit Magic")>
+        <heading("No hidden meaning behind conventions")>
+        <copy("Values do not silently change shape because a parser decided that a word looked like a boolean, date, number, or missing value.")>
+      )>
+      <card(
+        <topline("Unstructured Blobs")>
+        <heading("No guessing what a field intends")>
+        <copy("The document carries visible type and structure, so tools can validate intent before they materialize runtime objects.")>
+      )>
+      <card(
+        <topline("Runtime Surprises")>
+        <heading("No execution before validation")>
+        <copy("A document may make claims, but the consumer decides which schemas, profiles, conventions, and Tonics are trusted.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "capabilities"} (
+    <kicker("Capabilities")>
+    <title("A document with nothing to hide.")>
+    <copy("AEON documents are ordinary to read and unambiguous to interpret. The visible surface teaches you the shape of the data before any runtime object exists.")>
+    <code(>`
+      project:object = {
+        name:string = "AEON website"
+        status:toggle = on
+        owner:string = "Alto Pelago"
+        tags:list<string> = ["docs", "language", "tools"]
+      }
+    `)>
+    <annotations(
+      <annotation(
+        <label("Types are visible.")>
+        <copy("Readers and validators do not have to infer whether a value is text, a toggle, a list, or an object.")>
+      )>
+      <annotation(
+        <label("Assignments are explicit.")>
+        <copy("Documents cannot surprise you with implicit merging, mutation, or execution.")>
+      )>
+      <annotation(
+        <label("Lists declare their element type.")>
+        <copy("Validation can stay predictable without scanning for mixed or accidental forms.")>
+      )>
+      <annotation(
+        <label("Everything is deterministic.")>
+        <copy("The same source produces the same assignment stream and canonical representation.")>
+      )>
+    )>
+    <actions(
+      <action @{href:string = "/capabilities.php", primary:boolean = true} ("Capabilities")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "who"} (
+    <kicker("Who It Is For")>
+    <title("AEON is for people who need documents to be readable, deterministic, and safe to process.")>
+    <copy("It is designed for configuration authors, system designers, schema-driven environments, tool builders, agent runtimes, and zero-trust pipelines.")>
+    <annotations(
+      <annotation(
+        <label("Configuration authors")>
+        <copy("Use AEON when readable files need explicit shape, safer defaults, and fewer parser guesses.")>
+      )>
+      <annotation(
+        <label("Tool builders")>
+        <copy("Use AEON when stable streams, source spans, annotations, and canonical output matter.")>
+      )>
+      <annotation(
+        <label("Validation pipelines")>
+        <copy("Use AEON when syntax, schema checks, meaning checks, and materialization need clean boundaries.")>
+      )>
+      <annotation(
+        <label("Interchange systems")>
+        <copy("Use AEON when documents need to move between implementations without losing structure.")>
+      )>
+      <annotation(
+        <label("AI-assisted builders")>
+        <copy("Use AEON when you write your own systems but want AI help without losing deterministic validation and reviewable boundaries.")>
+      )>
+    )>
+    <actions(
+      <action @{href:string = "/walkthrough.php", primary:boolean = true} ("Learn the basics")>
+      <action @{href:string = "/ecosystem.php"} ("Open system map")>
+      <action @{href:string = "/ai.php"} ("AEON with AI")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "processing"} (
+    <kicker("How It Works")>
+    <title("AEON documents do not go straight into your system.")>
+    <copy("They pass through deterministic layers that preserve source [& claims|Claim], validate structure, apply [& consumer|Consumer] meaning checks, produce stable representation, and only then materialize meaning under consumer [& authority|Authority].")>
+    <code(>`
+      source text → AES → AEOS → meaning validation → canonical form → Tonic
+
+      AES = assignment event stream
+      AEOS = form validation
+      meaning validation = consumer context checks
+      canonical = stable representation
+      Tonic = materialization under consumer authority
+    `)>
+    <copy("This pipeline exists because a document should not choose its own runtime. AEON separates claims, which are what the document says, from trust, which is what the consumer accepts.")>
+    <copy("[& Profiles|Profile] describe optional semantic behavior. [& Schemas|Schema] validate form. [& Conventions|Convention] name shared ecosystem rules. These layers can work together, but they never blur.")>
+    <actions(
+      <action @{href:string = "/aeon-language.php", primary:boolean = true} ("Read AEON language")>
+      <action @{href:string = "/schemas.php"} ("Open schemas")>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "explore-home"} (
+    <kicker("Explore")>
+    <title("Try the language before you study the whole system.")>
+    <cards(
+      <card(
+        <topline("Playground")>
+        <heading("Write AEON and inspect the result")>
+        <copy("Use the playground to type AEON, switch between transport, strict, and custom modes, and inspect the AES, data output, and annotation stream.")>
+        <href("/playground.php")>
+        <cta("Open playground")>
+      )>
+      <card(
+        <topline("Templating")>
+        <heading("Render AEON nodes as HTML")>
+        <copy("Explore how AEON data, node templates, semantic comments, and output HTML stay inspectable.")>
+        <href("/templating.php")>
+        <cta("Open templating")>
+      )>
+      <card(
+        <topline("Ecosystem")>
+        <heading("See the surrounding system")>
+        <copy("Map AEON Core to schemas, canonical output, Tonics, &ND prose, NEON-style experiments, and implementation surfaces.")>
+        <href("/ecosystem.php")>
+        <cta("Open ecosystem")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "language-home"} (
+    <kicker("Learn")>
+    <title("Move from motivation into language, then into reference material.")>
+    <cards(
+      <card(
+        <topline("Why AEON")>
+        <heading("Understand the motivation")>
+        <copy("Read the case for visible meaning, explicit trust, deterministic processing, and safer document boundaries.")>
+        <href("/why-aeon.php")>
+        <cta("Open why AEON")>
+      )>
+      <card(
+        <topline("AEON Language")>
+        <heading("Learn the inner workings")>
+        <copy("Go deeper into vocabulary, grammar, processing layers, profiles, schemas, conventions, and Tonics.")>
+        <href("/aeon-language.php")>
+        <cta("Open AEON language")>
+      )>
+      <card(
+        <topline("Language Guide")>
+        <heading("Read the core forms")>
+        <copy("Learn bindings, containers, references, nodes, modes, and the common grammar shapes in a compact practical guide.")>
+        <href("/language.php")>
+        <cta("Open language guide")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "resources"} (
+    <kicker("Specifications And Source")>
+    <title("Leave the site when you need the source material.")>
+    <cards(
+      <card(
+        <topline("Wiki")>
+        <heading("Read the public AEON guide")>
+        <copy("Open the fuller guide for quick start notes, examples, value types, processing model, contracts, security model, and spec reference map.")>
+        <href("https://github.com/AltoPelago/aeon/wiki")>
+        <cta("Open wiki")>
+      )>
+      <card(
+        <topline("Repository")>
+        <heading("Inspect the implementation source")>
+        <copy("Go to the AEON repository for packages, examples, implementation work, and project history.")>
+        <href("https://github.com/AltoPelago/aeon")>
+        <cta("Open repository")>
+      )>
+      <card(
+        <topline("Specifications")>
+        <heading("Check the normative language rules")>
+        <copy("Use the specs repository when you need authority-level behavior for the core language, contracts, profiles, and conventions.")>
+        <href("https://github.com/aeonite-org/aeonite-specs")>
+        <cta("Open specs")>
+      )>
+    )>
+  )>
+)>

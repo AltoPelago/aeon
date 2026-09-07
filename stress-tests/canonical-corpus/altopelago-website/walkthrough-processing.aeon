@@ -1,0 +1,254 @@
+title:string = "AEON Processing Walkthrough"
+description:string = "Follow one AEON document through source text, canonical form, assignment events, schema validation, meaning validation, and Tonic materialization."
+activePage:string = "walkthrough-processing"
+keywords:list<string> = ["processing", "pipeline", "canonical", "AES", "AEOS", "schema validation", "materialization", "tonic"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Processing Walkthrough")>
+    <title("Watch one AEON document move from edited text to accepted runtime form.")>
+    <heading("Show the pipeline, one boundary at a time.")>
+    <copy("The language walkthroughs introduce the surface syntax. This page follows a small document through the processing stages that make AEON useful in real systems: source text, [& canonical form|Canonical form], assignment events, schema validation, meaning validation, and [& Tonic] materialization.")>
+    <copy("The examples borrow the shape of the Hello World, Goodnight Moon, and Sayonara Sun demos: friendly messages, explicit datatypes, staged validation, and a runtime object that only appears after the consumer has accepted the document.")>
+    <actions(
+      <action @{href:string = "#edited-source", primary:boolean = true} ("Start with source")>
+      <action @{href:string = "/playground.php"} ("Open playground")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "edited-source"} (
+    <kicker("Step 1")>
+    <title("Start with the document the user edits.")>
+    <copy("The edited document is ordinary AEON. It declares strict mode, then gives the consumer a greeting configuration with a custom datatype label, a separator version, two messages, and the small numeric window used by the app.")>
+    <code(`
+aeon:header = {
+  mode:string = "strict"
+}
+
+moon:greeting = {
+  version:ver[.] = ^1.0.0
+  daytime:string = "Hello World"
+  nighttime:string = "Goodbye Moon"
+  hoursBeforeMidnight:number = 4
+  hoursAfterMidnight:number = 5
+}
+`)>
+    <annotations(
+      <annotation(
+        <label("Visible claims")>
+        <copy("The document says it wants strict mode and that moon is a greeting. It does not prove those claims by itself.")>
+      )>
+      <annotation(
+        <label("Typed values")>
+        <copy("The messages, version, and hour fields keep their intended value families visible before any runtime object exists.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 2")>
+    <title("Canonical view reproduces the same document in a stable form.")>
+    <copy("Canonical form is not a new meaning layer. It is the same document normalized for stable comparison, signing, hashing, cache keys, review diffs, and reproducible processing.")>
+    <code(`
+aeon:header = {
+  mode:string = "strict"
+}
+moon:greeting = {
+  daytime:string = "Hello World"
+  hoursAfterMidnight:number = 5
+  hoursBeforeMidnight:number = 4
+  nighttime:string = "Goodbye Moon"
+  version:ver[.] = ^1.0.0
+}
+`)>
+    <copy("The consumer can compare this stable representation without pretending that canonicalization has performed domain validation. It has only made the representation deterministic.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 3")>
+    <title("Parsing produces assignment events before application objects.")>
+    <copy("AEON does not need to jump directly from text into a runtime model. The parser can expose a stream of assignments: each event has a path, value family, datatype claim, and source order.")>
+    <code(`
+event:object = {
+  order:number = 1
+  path:string = "$.moon"
+  nodeType:string = "ObjectNode"
+  datatype:string = "greeting"
+}
+
+event:object = {
+  order:number = 4
+  path:string = "$.moon.nighttime"
+  nodeType:string = "StringLiteral"
+  value:string = "Goodbye Moon"
+}
+
+event:object = {
+  order:number = 5
+  path:string = "$.moon.hoursBeforeMidnight"
+  nodeType:string = "IntegerLiteral"
+  value:number = 4
+}
+`)>
+    <copy("This is the point where tooling can inspect what was written without accepting the document as valid config yet.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 4")>
+    <title("The consumer applies a schema to the stream.")>
+    <copy("A [& schema|Schema] checks that the required paths exist and that each path carries the expected literal family. The schema does not coerce values, repair types, or silently decide that a different shape is close enough.")>
+    <code(`
+aeos:schema = {
+  id:string = "example.greeting.v1"
+  version:string = "1"
+  rules:list<object> = [
+    {
+      path:sansa = $.moon
+      constraints:object = {
+        required:boolean = true
+        type:string = "ObjectNode"
+        datatype:string = "greeting"
+      }
+    }
+    {
+      path:sansa = $.moon.version
+      constraints:object = {
+        required:boolean = true
+        type:string = "SeparatorLiteral"
+      }
+    }
+    {
+      path:sansa = $.moon.daytime
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+      }
+    }
+    {
+      path:sansa = $.moon.nighttime
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+      }
+    }
+    {
+      path:sansa = $.moon.hoursBeforeMidnight
+      constraints:object = {
+        required:boolean = true
+        type:string = "IntegerLiteral"
+      }
+    }
+  ]
+}
+`)>
+    <code(`
+schemaResult:validation = {
+  status:toggle = on
+  accepted:list<string> = [
+    "$.moon"
+    "$.moon.version"
+    "$.moon.daytime"
+    "$.moon.nighttime"
+    "$.moon.hoursBeforeMidnight"
+    "$.moon.hoursAfterMidnight"
+  ]
+}
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 5")>
+    <title("Meaning validation checks the business rules the schema should not guess.")>
+    <copy("The schema can prove the shape. It cannot decide whether the greeting window makes sense for this application. That belongs to [& consumer|Consumer] policy, profile rules, or domain validators.")>
+    <code(`
+meaningRules:object = {
+  datatype:string = "greeting"
+  hoursBeforeMidnight:range = ^0..6
+  hoursAfterMidnight:range = ^0..6
+  daytime:required = yes
+  nighttime:required = yes
+}
+
+meaningResult:validation = {
+  status:toggle = on
+  checks:list<string> = [
+    "moon datatype is greeting"
+    "hoursBeforeMidnight is between 0 and 6"
+    "hoursAfterMidnight is between 0 and 6"
+    "daytime and nighttime messages are present"
+  ]
+}
+`)>
+    <copy("A consumer can make those rules stricter in one context and looser in another without changing what AEON Core is responsible for.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 6")>
+    <title("Only then does a Tonic materialize the runtime object.")>
+    <copy("A Tonic is where the accepted document becomes something useful to an application. In the Moon example it can become a Greeting object. In the Sun example the same staged pattern becomes a Farewell object.")>
+    <code(`
+tonic:materialized = {
+  class:string = "Greeting"
+  sourcePath:string = "$.moon"
+  daytime:string = "Hello World"
+  nighttime:string = "Goodbye Moon"
+  activeWindow:string = "19:00-05:00"
+  messageAt22:string = "Goodbye Moon"
+}
+`)>
+    <copy("The runtime object is accepted for this context because the consumer walked through the boundaries it cares about: compile errors, datatype checks, schema rules, meaning rules, and finalization errors. Those checks do not prove external truth; they establish that the consumer chose to materialize this claim under its policy.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 7")>
+    <title("The same shape scales to the Sayonara Sun example.")>
+    <copy("Once the pattern is routine, the repetitive checks can move into helper functions while the config loader still reads in phase order: load, require datatype, require schema, require ranges, require clean finalization, then construct the Tonic.")>
+    <code(`
+sun:farewell = {
+  version:ver[.] = ^1.1.0
+  daytime:string = "Hello, Sun"
+  farewell:string = "Sayonara, Sun"
+  sunsetHour:number = 18
+  cooldownHours:number = 3
+}
+
+loader:sequence = [
+  "loadAeonDocument"
+  "requireDatatype"
+  "requireSchema"
+  "requireUnsignedIntegerRange"
+  "requireNoFinalizeErrors"
+  "new Farewell"
+]
+`)>
+    <copy("The code becomes shorter, but the trust boundary stays visible. The helper layer reduces boilerplate without collapsing the phases.")>
+  )>
+
+  <section @{type:string = "cards"} (
+    <kicker("Next")>
+    <title("Continue into the side-channel model.")>
+    <cards(
+      <card(
+        <topline("Annotation Walkthrough")>
+        <heading("See annotations drive rendering")>
+        <copy("Trace AEON data and node templates into an annotation stream, then into generated HTML.")>
+        <href("/walkthrough-annotations.php")>
+        <cta("Open annotation walkthrough")>
+      )>
+      <card(
+        <topline("Templating Demo")>
+        <heading("Try the app-like renderer")>
+        <copy("Edit data and template AEON side by side, then render the output in the browser.")>
+        <href("/templating.php")>
+        <cta("Open templating")>
+      )>
+      <card(
+        <topline("Playground")>
+        <heading("Test strict parsing yourself")>
+        <copy("Use the playground to try source documents, invalid forms, and stream output.")>
+        <href("/playground.php")>
+        <cta("Open playground")>
+      )>
+    )>
+  )>
+)>

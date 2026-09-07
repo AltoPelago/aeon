@@ -1,0 +1,72 @@
+title:string = "AEON Design Board"
+description:string = "A lightweight design board for the AEON website, showing reusable layout blocks, text styles, cards, and code surfaces."
+activePage:string = "design-board"
+keywords:list<string> = ["design", "style", "components", "layout", "cards", "typography", "website"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Design Board")>
+    <title("Keep the recurring blocks visible in one place.")>
+    <copy("This page is the lightweight reference for the AEON website system. It shows the main text and layout blocks we reuse across the homepage, walkthrough, and future pages.")>
+    <copy("It is not a full Storybook. It is a simple shared board for checking consistency while the site is still taking shape.")>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Text Styles")>
+    <title("The core text primitives for the site voice and rhythm.")>
+    <copy("This board starts with the basic text primitives: kicker, highlighted title, headline, panel heading, panel copy, and prose.")>
+    <copy("These are the recurring pieces we want to keep stable as the AEON site grows.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Kicker")>
+    <title("Highlighted title treatment.")>
+    <heading("Panel heading inside the standard right column.")>
+    <copy("Panel copy is the main descriptive text for feature sections. It should read comfortably in one or two short paragraphs without feeling like body copy on a card.")>
+    <copy("This is the same structure used on the homepage and the walkthrough.")>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Headline")>
+    <title("A wider headline block for sections that are more editorial than feature-driven.")>
+    <copy("Prose text handles the longer explanatory passages. It is looser and more editorial than panel copy, but still sits within the same visual system.")>
+    <copy("This is useful for overview pages, explanatory sections, and framing text before examples.")>
+  )>
+
+  <section @{type:string = "code"} (
+    <kicker("Code Example")>
+    <heading("Playground-style code surface.")>
+    <code(`
+/(refresh these totals before publication?)/
+summary@{intent="inform" audience="executive"} = "Conventions baseline"
+
+totalConventions = 12
+conventionList = [
+  "aeon.gp.convention.v1"
+  "aeon.gp.context.v1"
+  "aeon.gp.temporal.v1"
+]
+
+publishedCount = ~totalConventions
+`)>
+  )>
+
+  <section @{type:string = "cards"} (
+    <kicker("Cards")>
+    <title("Compact information blocks.")>
+    <cards(
+      <card(
+        <topline("Homepage")>
+        <copy("Use for quick, scannable summaries where a full feature layout would feel too heavy.")>
+      )>
+      <card(
+        <topline("Walkthrough")>
+        <copy("Useful later for lesson summaries, prerequisites, or what you just learned groupings.")>
+      )>
+      <card(
+        <topline("Docs")>
+        <copy("Can also support reference lists, small callouts, or grouped entry points into the spec set.")>
+      )>
+    )>
+  )>
+)>

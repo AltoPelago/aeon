@@ -1,0 +1,190 @@
+title:string = "Understanding AEON: A Semantic Preservation System"
+description:string = "A RAG-oriented primer for AI agents: understand AEON as semantic preservation, with claims, authority, AES, references, schemas, annotations, canonicalization, and materialization kept distinct."
+activePage:string = "ai"
+keywords:list<string> = ["rag", "ai", "aeon", "semantic preservation", "aes", "authority", "references", "canonicalization", "materialization"]
+
+page:node = <page(
+  <section @{type:string = "copyRich", level:string = "1", id:string = "semantic-preservation"} (
+    <kicker("RAG Document")>
+    <title("Understanding AEON: A Semantic Preservation System")>
+    <heading("Read this first")>
+    <copy("If you approach AEON as typed JSON, a configuration language, a serialization format, a schema language, or a programming language, you will misunderstand most of its design.")>
+    <copy("AEON is best understood as a [& semantic preservation|Semantic preservation] architecture.")>
+    <copy("The language exists to preserve distinctions that other systems often collapse.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "core-principle"} (
+    <kicker("Core Principle")>
+    <title("Preserve distinctions until a trusted consumer explicitly chooses to collapse them.")>
+    <copy("Most systems perform semantic reduction early.")>
+    <info(`
+      reference -> value
+      type -> runtime object
+      document -> HTML
+      list -> set
+      schema -> meaning
+    `)>
+    <copy("AEON attempts to delay those reductions.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "claims-and-authority"} (
+    <kicker("Claims and Authority")>
+    <title("AEON separates claim, meaning, authority, and materialization.")>
+    <info(`
+      claim
+      !=
+      meaning
+      !=
+      authority
+      !=
+      materialization
+    `)>
+    <copy("A document makes [& claims|Claim].")>
+    <copy("Validators verify form.")>
+    <copy("[& Consumers|Consumer] decide meaning.")>
+    <copy("[& Tonics|Tonic] materialize meaning.")>
+    <copy("The source itself possesses no executable authority.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "parsing-goal"} (
+    <kicker("Parsing Goal")>
+    <title("The purpose of parsing is preservation, not immediate runtime values.")>
+    <copy("Do not think:")>
+    <info("source -> runtime object")>
+    <copy("Think:")>
+    <info("source -> semantic representation")>
+    <copy("The purpose of parsing is not to obtain values.")>
+    <copy("The purpose of parsing is to preserve semantic structure.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "aes"} (
+    <kicker("AES")>
+    <title("Inside the processing model, AES is the central preservation artifact.")>
+    <copy("For authors, source text is the entry point. For implementers, AES is the artifact that makes preservation visible across processing stages.")>
+    <copy("It is [& AES]: Assignment Event Stream.")>
+    <copy("Mentally model the system as:")>
+    <info(`
+      AEON Source
+          |
+          v
+      AES
+          |
+          v
+      Validation
+          |
+          v
+      Canonicalization
+          |
+          v
+      Materialization
+    `)>
+    <copy("Many AEON features only make sense when viewed through AES.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "references"} (
+    <kicker("References")>
+    <title("Do not materialize references mentally.")>
+    <copy("The most common mistake is to turn a relationship graph into a value too early.")>
+    <code(`
+      a = 3
+      b = ~a
+      c = ~>b
+    `)>
+    <copy("Do not immediately think:")>
+    <info("c = 3")>
+    <copy("Instead think:")>
+    <info(`
+      a contains 3
+      b references a
+      c references b
+    `)>
+    <copy("The relationship graph is part of the document's meaning.")>
+    <copy("Resolution may occur later. Preservation occurs first.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "types"} (
+    <kicker("Types")>
+    <title("Types are claims, not runtime classes.")>
+    <code(`
+      person:person = {
+        name = "Bob"
+      }
+    `)>
+    <copy("The parser does not know what a person is.")>
+    <copy("The parser preserves the claim.")>
+    <copy("Validation and materialization determine what the claim means.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "schemas"} (
+    <kicker("Schemas")>
+    <title("Schemas adjudicate form. Schemas do not adjudicate truth.")>
+    <copy("A schema can determine exists, required, shape, declared type, and structural constraints.")>
+    <copy("A schema cannot inherently determine business meaning, truthfulness, or domain correctness.")>
+    <copy("Those belong to later layers.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "collections"} (
+    <kicker("Collections")>
+    <title("AEON Core intentionally contains few collection concepts.")>
+    <copy("A list remains a list. Additional collection semantics are layered through conventions.")>
+    <code(`
+      tags@{
+        collection = "set"
+      }:list<string>
+    `)>
+    <copy("This is not a native set.")>
+    <copy("It is list plus set intent.")>
+    <copy("Validation and materialization determine whether set semantics are enforced.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "comments-and-annotations"} (
+    <kicker("Comments and Annotations")>
+    <title("Annotations are preserved semantic channels.")>
+    <copy("Do not assume comments are ignored.")>
+    <copy("Do not assume comments execute.")>
+    <copy("Consumers may ignore annotations, validate them, interpret them, or reject them.")>
+    <copy("The existence of an annotation does not grant authority.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "nodes"} (
+    <kicker("Nodes")>
+    <title("Nodes represent semantic document structure.")>
+    <copy("Nodes are not HTML, XML, or runtime objects.")>
+    <copy("They are structured semantic claims that may later materialize into HTML, Markdown, PDFs, documentation, or other projections.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "canonicalization"} (
+    <kicker("Canonicalization")>
+    <title("Canonicalization removes representation differences, not semantic differences.")>
+    <copy("Canonicalization should make equivalent representations compare reliably without pretending non-equivalent claims are the same.")>
+    <copy("Examples of removable distinctions include whitespace, formatting, and ordering where explicitly irrelevant.")>
+    <copy("Examples of preserved distinctions include references, declared types, semantic relationships, and annotations.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "materialization"} (
+    <kicker("Materialization")>
+    <title("Materialization is an explicit step.")>
+    <copy("The most common mistake is assuming materialization occurs automatically. It does not.")>
+    <copy("A Tonic may choose to [& materialize|Materialization] person as a Rust struct, TypeScript class, Python object, or HTML fragment.")>
+    <copy("The source document remains independent of those choices.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "language-independence"} (
+    <kicker("Language Independence")>
+    <title("Host languages are consumers, not authorities.")>
+    <copy("Do not model AEON around JavaScript.")>
+    <copy("Do not model AEON around Python.")>
+    <copy("Do not model AEON around Rust.")>
+    <copy("The semantic model exists independently of any host language.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "mental-model"} (
+    <kicker("Mental Model")>
+    <title("AEON transports meaning without transporting authority.")>
+    <heading("The wrong mental model")>
+    <info("AEON is a typed data format.")>
+    <heading("The better mental model")>
+    <info("AEON transports meaning without transporting authority.")>
+    <copy("Most design decisions become understandable from that perspective.")>
+  )>
+)>

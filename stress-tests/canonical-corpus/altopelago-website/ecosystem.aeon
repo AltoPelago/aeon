@@ -1,0 +1,321 @@
+title:string = "The AEON System"
+description:string = "A map of the AEON declaration ecosystem: Core syntax, AES, AEOS validation, meaning validation, canonical representation, Tonics, profiles, and conventions."
+activePage:string = "ecosystem"
+keywords:list<string> = ["ecosystem", "system", "layers", "AES", "AEOS", "canonical", "tonics", "profiles", "conventions"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("AEON System")>
+    <title("AEON is a layered declaration ecosystem.")>
+    <heading("A declaration is not a runtime object.")>
+    <copy("Most data formats begin by treating data as an object, tree, map, or document. Useful systems then grow around that foundation: schemas, serializers, runtime mappers, conventions, transforms, and execution surfaces.")>
+    <copy("Over time those layers can collapse into each other. Structure becomes mixed with meaning. Validation becomes mixed with execution. Metadata becomes mixed with content. Parsing becomes mixed with materialization.")>
+    <copy("AEON starts from a different premise: a declaration is not the same thing as a runtime object. From that distinction, the rest of the system follows.")>
+    <actions(
+      <action @{href:string = "#language-layer", primary:boolean = true} ("Language layer")>
+      <action @{href:string = "#aes"} ("AES")>
+      <action @{href:string = "#contracts"} ("Contracts")>
+      <action @{href:string = "/walkthrough-processing.php"} ("Processing walkthrough")>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Core Shift")>
+    <title("AEON preserves meaning without prematurely executing it.")>
+    <copy("AEON is not merely a serialization format. It is a layered declaration ecosystem built around deterministic [& assignment streams|AES].")>
+    <copy("Rather than collapsing every concern into a single object model, AEON keeps identity, structure, metadata, relationships, validation, interpretation, and materialization as separate responsibilities.")>
+    <code(`
+source text
+  → syntax
+  → assignment stream
+  → form validation
+  → meaning validation
+  → materialization
+`)>
+    <copy("Each phase moves forward. No layer quietly rewrites the meaning of an earlier layer.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "language-layer"} (
+    <kicker("Language Layer")>
+    <title("Different constructs carry different responsibilities.")>
+    <copy("Traditional formats often force identity, structure, metadata, and relationships into one structural model. AEON lets them coexist without collapsing into one another.")>
+    <referenceList(
+      <item(
+        <name("Bindings")>
+        <definition("map-centric identity and canonical addressing.")>
+      )>
+      <item(
+        <name("Containers")>
+        <definition("object, list, and tuple structure for nested values.")>
+      )>
+      <item(
+        <name("Nodes")>
+        <definition("ordered document-shaped structure for mixed content and markup-like trees.")>
+      )>
+      <item(
+        <name("Attributes")>
+        <definition("hard metadata attached locally to a binding, anonymous value, or node.")>
+      )>
+      <item(
+        <name("References")>
+        <definition("symbolic relationships through clone and pointer references.")>
+      )>
+      <item(
+        <name("Comments")>
+        <definition("soft metadata and annotation channels outside the ordinary value stream.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Bindings")>
+    <title("Bindings create identity.")>
+    <copy("A [& binding|Binding] is not just a surface convenience. It declares that a value is assigned to a canonical path.")>
+    <code(`
+user:object = {
+  name:string = "Patrik"
+}
+
+paths:list<string> = [
+  "$.user"
+  "$.user.name"
+]
+`)>
+    <copy("That stable identity gives tools something precise to target: diagnostics, schema rules, references, canonical comparison, hashing, and audit output.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Containers")>
+    <title("Containers organize structure without pretending every shape is a domain object.")>
+    <copy("Objects, lists, and tuples provide hierarchical structure. They group values, preserve order where order matters, and give authors ordinary document shapes without requiring runtime materialization.")>
+    <code(`
+config:object = {
+  db:object = {
+    host:string = "localhost"
+  }
+  ports:list<number> = [3000, 8080]
+  point:tuple = (:number = 12, :number = 42)
+}
+`)>
+    <copy("Structure and runtime meaning remain separate. A container can be valid AEON long before a consumer decides what it means inside an application.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Nodes")>
+    <title("Nodes preserve ordered document structure.")>
+    <copy("Nodes let AEON represent ordered, nested, document-like structures without forcing them into map/list shapes. They are useful for templates, prose-adjacent data, and markup-like content.")>
+    <code(`
+content:node =
+  <paragraph (
+    "Hello "
+    <strong ("world")>
+  )>
+
+template:node =
+  <article (
+    <h1(~document.title)>
+    <p(~document.summary)>
+  )>
+`)>
+    <copy("[& AEON Core] preserves the node tree as declared. A [& Tonic] may later materialize it as HTML, Markdown, &ND, a UI component tree, or something domain-specific, but that materialization is an explicit consumer choice.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Metadata")>
+    <title("Attributes and comments are different kinds of side channels.")>
+    <copy("[& Attributes|Attribute] are hard metadata: inline, structured, and attached to the thing they qualify. [& Semantic comments|Semantic comment] are soft metadata: advisory, annotative, or workflow-oriented side channels that do not become ordinary data bindings.")>
+    <code(`
+title@{lang:string = "en"}:string = "Hello"
+
+//# User-facing display title
+title:string = "Hello"
+
+//@ review.status("draft")
+`)>
+    <copy("This separation lets a document carry provenance, rendering hints, semantic labels, profile hooks, documentation, and governance metadata without flattening all of those roles into content.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("References")>
+    <title("References preserve relationships symbolically.")>
+    <copy("Clone references express value intent. Pointer references express address or identity intent. Keeping that distinction visible lets tools preserve dependency relationships instead of collapsing every reference into a terminal value immediately.")>
+    <code(`
+db:object = {
+  host:string = "localhost"
+}
+
+hostCopy:string = ~db.host
+activeDb:object = ~>db
+`)>
+    <copy("Indirection itself can be meaningful. Runtime materialization can resolve it later under consumer policy.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "aes"} (
+    <kicker("AES")>
+    <title("The Assignment Event Stream is the semantic spine.")>
+    <copy("The center of the AEON ecosystem is not a runtime object. AEON Core produces an ordered stream of assignment events that tools can inspect before meaning is accepted.")>
+    <code(`
+AEON source
+  → lexer
+  → parser
+  → canonical path resolution
+  → AES emission
+  → AEOS validation
+  → meaning validation
+  → Tonic materialization
+`)>
+    <copy("Each event can preserve canonical path, source order, spans, datatype hints, attributes, references, and original structure. That stream becomes the stable handoff point between tools.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("AEOS")>
+    <title("AEOS validates form without interpreting meaning.")>
+    <copy("[& AEOS] answers structural questions: does this path exist, does the value have the expected literal family, does the representation satisfy the schema, and is the document shape acceptable?")>
+    <copy("It does not coerce values, resolve references, execute processors, or materialize domain objects. That restraint is what makes validation usable as a boundary.")>
+    <code(`
+schemaCheck:validation = {
+  path:string = "$.moon.hoursBeforeMidnight"
+  required:boolean = true
+  expectedType:string = "IntegerLiteral"
+  result:toggle = on
+}
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Meaning Validation")>
+    <title("Sound data still needs contextual understanding.")>
+    <copy("After AEOS has accepted the representation, a [& consumer|Consumer] may still need to ask whether the [& claims|Claim] make sense in the domain. This layer brings in context, policy, conventions, and application knowledge without making AEOS guess at meaning.")>
+    <code(`
+patientBodyTemp@{unit:string = "cm"}:float = 99.8
+
+meaningCheck:validation = {
+  path:string = "$.patientBodyTemp"
+  representation:toggle = on
+  issue:string = "body temperature uses a length unit"
+  expectedUnit:list<string> = ["celsius", "fahrenheit"]
+  result:toggle = no
+}
+`)>
+    <copy("The value can be syntactically valid and structurally acceptable while still being wrong for the consumer. Meaning validation is where those domain contradictions are flagged before a Tonic creates runtime objects.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "tonics"} (
+    <kicker("Tonics")>
+    <title("Materialization happens after representation and meaning are accepted.")>
+    <copy("A Tonic is a deterministic materializer that consumes AES, optionally relies on AEOS and meaning-validation guarantees, and creates a chosen output: a runtime object, graph, UI tree, exported file, minimized form, domain class, or rendered document.")>
+    <code(`
+accepted:AES
+  → Greeting tonic
+  → runtime Greeting object
+
+accepted:AES
+  → Template tonic
+  → rendered HTML
+
+accepted:AES
+  → Audit tonic
+  → signature report
+`)>
+    <copy("Transformation belongs at the edge of the system, not at the center.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Channels")>
+    <title("The ecosystem keeps channels distinct.")>
+    <referenceList(
+      <item(
+        <name("AEON")>
+        <definition("human-readable declaration language.")>
+      )>
+      <item(
+        <name("AES")>
+        <definition("canonical assignment event stream and tool handoff surface.")>
+      )>
+      <item(
+        <name("AEOS")>
+        <definition("schema and form validation.")>
+      )>
+      <item(
+        <name("Meaning Validation")>
+        <definition("consumer-owned context checks over otherwise sound AEON claims.")>
+      )>
+      <item(
+        <name("Canonical Form")>
+        <definition("stable representation for comparison, signing, hashing, and reproducible processing.")>
+      )>
+      <item(
+        <name("Annotation Stream")>
+        <definition("structured semantic commentary and consumer-defined side-channel languages.")>
+      )>
+      <item(
+        <name("&ND")>
+        <definition("native documentation language in the broader AEON ecosystem.")>
+      )>
+      <item(
+        <name("NEON")>
+        <definition("text/binary hybrid transport in the broader AEON ecosystem.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "contracts"} (
+    <kicker("Contracts")>
+    <title("Schemas, profiles, and conventions answer different questions.")>
+    <copy("The ecosystem has multiple contract types because not every promise is the same kind of promise.")>
+    <referenceList(
+      <item(
+        <name("Schemas")>
+        <definition("form validation contracts: is this structurally acceptable?")>
+      )>
+      <item(
+        <name("Profiles")>
+        <definition("interpretation contracts: how should this be interpreted if the consumer trusts the profile?")>
+      )>
+      <item(
+        <name("Conventions")>
+        <definition("shared ecosystem contracts: what assumptions do compatible tools agree to use?")>
+      )>
+    )>
+    <copy("A document can declare a schema, profile, or convention. The consumer still decides whether that declaration maps to something trusted.")>
+    <code(`
+meeting@{
+  target:string = "zone"
+  zone:string = "Australia/Melbourne"
+  tzdbVersion:string = "2026b"
+}:datetime = 2026-06-06T10:10:00
+`)>
+    <copy("For example, the temporal convention treats these attributes as a shared interpretation agreement. AEON Core keeps them as ordinary metadata; a trusted temporal-aware consumer decides whether and how to apply them.")>
+    <actions(
+      <action @{href:string = "/aeon-language.php#temporal-convention", primary:boolean = true} ("See temporal example")>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Tolerance")>
+    <title("AEON is human-friendly at the surface and hostile to semantic ambiguity.")>
+    <copy("AEON can permit multiple deterministic surface representations when they produce the same unambiguous structure.")>
+    <code(`
+a:list<number> = [
+  1
+  2
+  3
+]
+
+b:list<number> = [1, 2, 3]
+`)>
+    <copy("But that tolerance stops before semantics. AEON rejects hidden coercion, runtime guessing, parser-specific repair heuristics, and invisible interpretation.")>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Conclusion")>
+    <title("AEON serializes declarations, not premature runtime meaning.")>
+    <copy("Most formats serialize values. AEON serializes declarations. AES becomes the stable semantic ledger. AEOS constrains representations. Meaning validation applies consumer context. Tonics materialize accepted meaning. Materialization happens last.")>
+    <copy("The system remains deterministic because each layer knows exactly what it is allowed to do, and what it must never do.")>
+    <copy("AEON describes. AEOS validates form. Consumers validate meaning. Tonics materialize. Meaning is deferred until explicitly requested.")>
+    <actions(
+      <action @{href:string = "/walkthrough-processing.php", primary:boolean = true} ("Open processing walkthrough")>
+      <action @{href:string = "/walkthrough-annotations.php"} ("Open annotations")>
+    )>
+  )>
+)>

@@ -1,0 +1,110 @@
+title:string = "Explore AEON"
+description:string = "Explore the hands-on AEON surfaces: walkthroughs, the browser playground, processing examples, templating demo, and public wiki."
+activePage:string = "explore"
+keywords:list<string> = ["explore", "playground", "walkthrough", "templating", "demo", "interactive", "examples"]
+
+page:node = <page(
+  <section @{type = "feature", layout = "stacked", level = 1} (
+    <kicker("Explore")>
+    <title("Open the parts of the language that are easiest to learn by trying.")>
+    <copy("This page groups together the hands-on surfaces for AEON: guided learning, lightweight editing, and example-driven features that are easier to understand through direct interaction.")>
+    <copy("Use it as the practical companion to the overview and the walkthrough pages.")>
+  )>
+
+  <section @{type = "cards"} (
+    <kicker("Entry Points")>
+    <title("Choose a way in.")>
+    <cards(
+      <card(
+        <topline("Walkthrough")>
+        <heading("Learn the language step by step")>
+        <copy("Start with the structured walkthrough, then continue into the more advanced features once the basic document model feels clear.")>
+        <href("/walkthrough.php")>
+        <cta("Open walkthrough")>
+      )>
+      <card(
+        <topline("Playground")>
+        <heading("Use a simplified editor")>
+        <copy("Try bindings, containers, anonymous child metadata, modes, and multiline text in a stripped-back editing surface with AEON highlighting.")>
+        <href("/playground.php")>
+        <cta("Open playground")>
+      )>
+      <card(
+        <topline("Processing")>
+        <heading("Trace source into runtime meaning")>
+        <copy("See a document move through canonical form, assignment events, schema checks, meaning validation, and Tonic materialization.")>
+        <href("/walkthrough-processing.php")>
+        <cta("Open processing")>
+      )>
+      <card(
+        <topline("Validation")>
+        <heading("Pair AEON with an AEOS schema")>
+        <copy("Edit source and schema side by side, seed rules from an AEON document, and watch validation diagnostics update.")>
+        <href("/aeos-playground.php")>
+        <cta("Open AEOS playground")>
+      )>
+      <card(
+        <topline("Addressing")>
+        <heading("Compose SANSA paths and selectors")>
+        <copy("Load AEON source, choose an exact path or selector, and inspect the AES paths and values that the address resolves to.")>
+        <href("/sansa-playground.php")>
+        <cta("Open SANSA playground")>
+      )>
+      <card(
+        <topline("SANSA")>
+        <heading("Learn the address syntax")>
+        <copy("Read the practical guide to exact paths, selectors, attributes, filters, qualifiers, and the sansa value type before testing combinations.")>
+        <href("/sansa-addressing.php")>
+        <cta("Open SANSA guide")>
+      )>
+      <card(
+        <topline("Templating")>
+        <heading("Render AEON nodes as HTML")>
+        <copy("See the AEON Matter template demo model: data files, node templates, semantic directive comments, and generated HTML.")>
+        <href("/templating.php")>
+        <cta("Open templating")>
+      )>
+      <card(
+        <topline("Versions")>
+        <heading("Find the current release line")>
+        <copy("See the current implementation version and the public helper repositories for packages, examples, tooling, CTS, and specs.")>
+        <href("/versions.php")>
+        <cta("Open versions")>
+      )>
+      <card(
+        <topline("AI")>
+        <heading("Use AEON around AI systems")>
+        <copy("Use AEON to support language understanding, deterministic implementation, typed agentic exchange, auditable tool runs, and structured model context.")>
+        <href("/ai.php")>
+        <cta("Open AI page")>
+      )>
+      <card(
+        <topline("Wiki")>
+        <heading("Read the public guide")>
+        <copy("Use the wiki when you want the fuller language guide, AEOS reference, examples, and links to the authority specs.")>
+        <href("https://github.com/AltoPelago/aeon/wiki")>
+        <cta("Open wiki")>
+      )>
+    )>
+  )>
+
+  <section @{type = "feature", layout = "stacked", id = "implementers"} (
+    <kicker("Implementers")>
+    <title("Build against the Aeonite specification surface.")>
+    <copy("If you are writing an AEON parser, validator, runtime, or CTS adapter, use Aeonite as the formal publication surface for the specifications this implementation follows.")>
+    <copy("AltoPelago maintains the implementation and learning surfaces; aeonite.org publishes the versioned specifications, conformance boundaries, licensing context, and source repositories.")>
+    <actions(
+      <action @{href = "https://aeonite.org", primary = true} ("Open aeonite.org")>
+      <action @{href = "https://aeonite.org/specifications.php"} ("View specifications")>
+    )>
+  )>
+
+  <section @{type = "copy"} (
+    <kicker("Recommended Flow")>
+    <title("A simple path through the interactive surfaces.")>
+    <copy("Start with the walkthrough if you want the language introduced in order.")>
+    <copy("Open the simplified playground once you want to type the syntax yourself.")>
+    <copy("Use the processing walkthrough when you want to see how the same document becomes validated, canonical, and materialized.")>
+    <copy("Use the templating example when you want to see AEON data and node-structured templates combine into rendered HTML.")>
+  )>
+)>

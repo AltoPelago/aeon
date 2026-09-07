@@ -1,0 +1,235 @@
+title:string = "AEON Type Reference"
+description:string = "A lookup reference for AEON value forms, syntax, accepted values, alternative type names, reserved names, SANSA addresses, and special literals."
+activePage:string = "language"
+keywords:list<string> = ["types", "reference", "reserved names", "string", "number", "toggle", "null", "nan", "infinity", "radix", "encoding", "date", "time", "sansa"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Type Reference")>
+    <title("A lookup list for every core AEON value form.")>
+    <copy("This page is intentionally dry. It is the reference list: syntax, accepted values, alternative type names, and reserved names. Use the value types page when you want the explanation behind special forms.")>
+    <typeIndex(
+      <item("String")>
+      <item("Trimtick / prose")>
+      <item("Number")>
+      <item("NaN")>
+      <item("Infinity")>
+      <item("Boolean")>
+      <item("Toggle")>
+      <item("Null")>
+      <item("Hex")>
+      <item("Radix")>
+      <item("Encoding")>
+      <item("SANSA address")>
+      <item("Date")>
+      <item("Time")>
+      <item("DateTime")>
+      <item("Separator")>
+      <item("Object")>
+      <item("List")>
+      <item("Tuple")>
+      <item("Node")>
+      <item("Clone reference")>
+      <item("Pointer reference")>
+    )>
+    <referenceList(
+      <item(
+        <name("String")>
+        <syntax("\"...\" or '...' or `...`")>
+        <accepted("Any quoted text value.")>
+        <aliases("string")>
+        <reserved("None")>
+        <example(`title:string = "Daily note"`)>
+      )>
+      <item(
+        <name("Trimtick / prose")>
+        <syntax("> `...` through >>>> `...`")>
+        <accepted("Multiline text with trimming behavior for prose-like content.")>
+        <aliases("trimtick; prose is the common prose label")>
+        <reserved("prose")>
+        <example("body:prose = >`\n  Hello\n  from AEON\n`")>
+      )>
+      <item(
+        <name("Number")>
+        <syntax("42, 3.14, .5, 1e3, 1_000")>
+        <accepted("Finite numeric literals.")>
+        <aliases("number, n")>
+        <reserved("int, uint, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float, float32, float64")>
+        <example(`port:number = 8080`)>
+      )>
+      <item(
+        <name("NaN")>
+        <syntax("NaN or -NaN")>
+        <accepted("Explicit not-a-number values.")>
+        <aliases("nan")>
+        <reserved("None")>
+        <example(`reading:nan = NaN`)>
+      )>
+      <item(
+        <name("Infinity")>
+        <syntax("Infinity or -Infinity")>
+        <accepted("Explicit infinite numeric edge values.")>
+        <aliases("infinity")>
+        <reserved("None")>
+        <example(`upperBound:infinity = Infinity`)>
+      )>
+      <item(
+        <name("Boolean")>
+        <syntax("true or false")>
+        <accepted("Truth values.")>
+        <aliases("boolean, bool")>
+        <reserved("None")>
+        <example(`published:boolean = true`)>
+      )>
+      <item(
+        <name("Toggle")>
+        <syntax("yes, no, on, off")>
+        <accepted("Human-readable toggles where the words matter.")>
+        <aliases("toggle")>
+        <reserved("None")>
+        <example(`enabled:toggle = on`)>
+      )>
+      <item(
+        <name("Null")>
+        <syntax("!none, !notSet, !notApplicable, !tombstone, !\"reason\"")>
+        <accepted("Absence with an explicit reason.")>
+        <aliases("null")>
+        <reserved("!none, !notSet, !notApplicable, !tombstone")>
+        <example(`middleName:null = !notApplicable`)>
+      )>
+      <item(
+        <name("Hex")>
+        <syntax("#ff00aa")>
+        <accepted("Hexadecimal byte/color-like literals.")>
+        <aliases("hex")>
+        <reserved("None")>
+        <example(`brandColor:hex = #ff00aa`)>
+      )>
+      <item(
+        <name("Radix")>
+        <syntax("%1011 with a separator such as :radix[2]")>
+        <accepted("Digits interpreted in an explicit base. The GP profile accepts exactly one numeric radix clarifier from 2 through 64.")>
+        <aliases("radix")>
+        <reserved("decimal, radix2, radix6, radix8, radix12")>
+        <example(`bits:radix[2] = %1011`)>
+      )>
+      <item(
+        <name("Encoding")>
+        <syntax("&QmFzZTY0IQ== with an encoding-name clarifier such as :encoding[\"base58\"]")>
+        <accepted("Encoded inline payloads. The GP profile accepts exactly one string clarifier on encoding, inline, and embed.")>
+        <aliases("encoding")>
+        <reserved("base64, embed, inline")>
+        <example(`code:encoding["base58"] = &FFF`)>
+      )>
+      <item(
+        <name("SANSA address")>
+        <syntax("$.path, ?.path, $.items.*.sku, $.items.**")>
+        <accepted("SANSA exact paths and selectors preserved as address literals. Resolution and selector evaluation belong to consumers.")>
+        <aliases("sansa")>
+        <reserved("None")>
+        <example(`path:sansa = $.contact.name
+selector:sansa = $.inventory.items.*.sku
+qualified:sansa = $.result:number|nan`)>
+      )>
+      <item(
+        <name("Date")>
+        <syntax("2026-05-05")>
+        <accepted("Calendar dates without a time of day.")>
+        <aliases("date")>
+        <reserved("None")>
+        <example(`shipDate:date = 2026-05-05`)>
+      )>
+      <item(
+        <name("Time")>
+        <syntax("09:, 09:30, 09:30Z, 09:30+10:00")>
+        <accepted("Times of day with optional UTC or offset information.")>
+        <aliases("time")>
+        <reserved("None")>
+        <example(`opensAt:time = 09:30`)>
+      )>
+      <item(
+        <name("DateTime")>
+        <syntax("2026-05-05T09:30:00Z")>
+        <accepted("Combined date and time values.")>
+        <aliases("datetime")>
+        <reserved("wtc for values with temporal context")>
+        <example(`published:datetime = 2026-05-05T09:30:00Z`)>
+      )>
+      <item(
+        <name("Separator")>
+        <syntax("^300x250 with a separator such as :sep[\"x\"]")>
+        <accepted("Separator-shaped literals where the separator has meaning.")>
+        <aliases("sep")>
+        <reserved("kadot")>
+        <example(`dimensions:sep["x"] = ^300x250`)>
+      )>
+      <item(
+        <name("Object")>
+        <syntax("{ key:type = value } or object<T>")>
+        <accepted("Named bindings grouped together. object<T> is a member-value claim: the object's member values are expected to satisfy T under schema, profile, or consumer validation.")>
+        <aliases("object, obj, o")>
+        <reserved("envelope")>
+        <example(`scores:object<number> = {
+  alice:number = 10
+  bob:number = 12
+}
+
+contact:object = {
+  name:string = "Bob"
+}`)>
+      )>
+      <item(
+        <name("List")>
+        <syntax("[1, 2, 3], [:number = 3], or list<T>")>
+        <accepted("Ordered repeated values. list<T> is an element-value claim preserved by Core and enforced by schema, profile, or consumer validation.")>
+        <aliases("list")>
+        <reserved("None")>
+        <example(`scores:list<number> = [3, 4, 5]`)>
+      )>
+      <item(
+        <name("Tuple")>
+        <syntax("(12, 42), (:number = 12, :number = 42), or tuple<T1, T2>")>
+        <accepted("Fixed positions where each slot has a role. tuple<T...> is a positional claim preserved by Core and enforced by schema, profile, or consumer validation.")>
+        <aliases("tuple")>
+        <reserved("triple")>
+        <example(`edge:triple<string, string, string> = ("subject", "predicate", "object")`)>
+      )>
+      <item(
+        <name("Node")>
+        <syntax("<tag(\"text\")>, binding:node<T>, or <tag:node<T>(...)>")>
+        <accepted("Tagged tree-shaped values. On ordinary bindings, node<T> claims the node value belongs to a profile, domain, or materialization target. On node heads, node<T> claims the expected child-content type.")>
+        <aliases("node")>
+        <reserved("None")>
+        <example(`doc:node<html> = <html(
+  <body("Hello")>
+)>
+
+title:node = <title:node<string>("Hello")>
+
+page:node = <section(
+  <title("Hello")>
+)>`)>
+      )>
+      <item(
+        <name("Clone reference")>
+        <syntax("~path.to.value")>
+        <accepted("Copy-intent reference to another value.")>
+        <aliases("Reference form, not a datatype label")>
+        <reserved("None")>
+        <example(`name:string = "Alice"
+displayName:string = ~name`)>
+      )>
+      <item(
+        <name("Pointer reference")>
+        <syntax("~>path.to.value")>
+        <accepted("Pointer-intent reference to another value.")>
+        <aliases("Reference form, not a datatype label")>
+        <reserved("None")>
+        <example(`contact:object = {
+  name:string = "Bob"
+}
+primaryContact:object = ~>contact`)>
+      )>
+    )>
+  )>
+)>

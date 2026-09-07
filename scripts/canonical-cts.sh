@@ -26,9 +26,11 @@ Usage: bash ./scripts/canonical-cts.sh [--mode <transport|strict|custom|all>] [-
 
 Runs the canonical conformance lane:
   1. TypeScript canonical package tests
-  2. Rust canonical package tests
-  3. Cross-implementation canonical snippet parity
-  4. Cross-implementation diagnostic snippet parity
+  2. Python implementation tests
+  3. Rust canonical package tests
+  4. Cross-implementation canonical snippet parity
+  5. Cross-implementation real-document canonical corpus parity
+  6. Cross-implementation diagnostic snippet parity
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -101,6 +103,14 @@ if [[ "$brief" -eq 1 ]]; then
   parity_cmd+=(--brief)
 fi
 "${parity_cmd[@]}"
+echo
+
+echo "-- Cross-implementation real-document canonical corpus parity"
+corpus_cmd=("$PYTHON_BIN" "$ROOT_DIR/scripts/stress-canonical-corpus.py")
+if [[ "$brief" -eq 1 ]]; then
+  corpus_cmd+=(--brief)
+fi
+"${corpus_cmd[@]}"
 echo
 
 echo "-- Cross-implementation diagnostic snippet parity"

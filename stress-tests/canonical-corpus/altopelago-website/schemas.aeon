@@ -1,0 +1,103 @@
+title:string = "AEON Schemas and Validation"
+description:string = "Learn how AEOS schemas validate AEON assignment streams with path rules, required fields, value kinds, attributes, and constraints."
+activePage:string = "schemas"
+keywords:list<string> = ["schemas", "validation", "AEOS", "rules", "constraints", "required", "closed world", "attributes"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Schemas")>
+    <title("Describe what a document is allowed to contain.")>
+    <copy("AEON keeps structure and validation separate. A document can stay readable and expressive, while [& AEOS] defines what paths, value kinds, reference forms, and attribute payloads are acceptable.")>
+    <copy("That makes validation visible rather than hidden inside application code.")>
+    <actions(
+      <action @{href:string = "#shape", primary:boolean = true} ("See the schema shape")>
+      <action @{href:string = "#flow"} ("See the validation flow")>
+      <action @{href:string = "/aeos-playground.php"} ("Open AEOS playground")>
+      <action @{href:string = "https://github.com/AltoPelago/aeon/wiki/AEOS-Schema-Validation"} ("Read the wiki page")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "shape"} (
+    <kicker("Schema Shape")>
+    <title("A schema can express the expected structure directly.")>
+    <copy("The [& schema|Schema] states required paths and the kinds of values they accept. A validator checks [& AES] against that [& contract|Contract] without changing the document itself.")>
+    <code(`
+aeos:schema = {
+  id:string = "altopelago.schema.example.v0.9"
+  version:string = "1"
+  world:string = "open"
+  rules:list<object> = [
+    {
+      path:sansa = $.document.title
+      constraints:object = {
+        required:boolean = true
+        type:string = "StringLiteral"
+        datatype:string = "string"
+      }
+    }
+    {
+      path:sansa = $.document.published
+      constraints:object = {
+        type:string = "BooleanLiteral"
+      }
+    }
+    {
+      path:sansa = $.document.tags
+      constraints:object = {
+        type:string = "ListNode"
+        type_is:string = "list"
+      }
+    }
+    {
+      path:sansa = $.document.measurements[0]
+      constraints:object = {
+        type:string = "NumberLiteral"
+        attributes:object = {
+          unit:object = {
+            required:boolean = true
+            type:string = "StringLiteral"
+          }
+        }
+        closed_attributes:boolean = true
+      }
+    }
+  ]
+}
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "flow"} (
+    <kicker("Validation Flow")>
+    <title("The document and the schema remain separate artifacts.")>
+    <copy("The document remains ordinary AEON. Validation is a later step that confirms whether the document satisfies the contract you chose to apply.")>
+    <code(`
+document:object = {
+  title:string = "Release notes"
+  published:boolean = true
+  tags:list = ["spec", "draft"]
+  measurements:list = [@{unit:string = "cm"}:number = 3]
+}
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Validation Result")>
+    <title("Failures stay explainable because the contract is explicit.")>
+    <copy("Because the schema is visible, validation failures can be explained in terms of the document itself: wrong value kind, missing path, unexpected binding, or missing attribute metadata. That is easier to reason about than hidden runtime assumptions.")>
+    <code(`
+document:object = {
+  title:string = "Release notes"
+  published:string = "yes"
+  tags:list = ["spec", 42]
+  measurements:list = [@{precision:number = 2}:number = 3]
+}
+`)>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Further Reference")>
+    <title("Use the full AEOS reference for validator detail.")>
+    <copy("The fuller AEOS reference covers constraints, exact SANSA paths, selector rules for repeated children, attribute-aware checks, result envelopes, diagnostic codes, and AEOS authority boundaries.")>
+    <copy("The formal specification and CTS remain the authority for normative validator behavior.")>
+  )>
+)>

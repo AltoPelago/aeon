@@ -1,0 +1,48 @@
+title:string = "AEON Logos and Licensing"
+description:string = "Download AEON logo assets and review the licensing terms for brand marks, website copy, and code examples."
+activePage:string = "logos"
+keywords:list<string> = ["AEON", "logo", "wordmark", "brand", "SVG", "download", "licensing", "CC-BY-4.0", "CC0-1.0"]
+
+page:node = <page(
+  <section @{type = "feature", layout = "stacked", level = 1} (
+    <kicker("Logos and Licensing")>
+    <title("Download the AEON marks and review what each license covers.")>
+    <copy("Use these SVG assets when you need to reference AEON in articles, documentation, integrations, examples, or project materials.")>
+    <copy("The logo files, website copy, and code examples are handled separately. The notes below describe which terms apply to each kind of material.")>
+  )>
+
+  <section @{type = "logoAssets"} (
+    <kicker("Assets")>
+    <title("Wordmark and compact logo.")>
+    <assets(
+      <asset @{src = "/assets/img/aeon-word-mark.svg", download = "/assets/img/aeon-word-mark.svg"} (
+        <topline("Wordmark")>
+        <heading("AEON wordmark")>
+        <copy("The horizontal wordmark used in the website header and footer. Best for pages, docs, and references where the full name should be visible.")>
+        <cta("Download SVG")>
+      )>
+      <asset @{src = "/assets/img/aeon-logo.svg", download = "/assets/img/aeon-logo.svg"} (
+        <topline("Logo")>
+        <heading("AEON compact logo")>
+        <copy("The compact AEON logo mark. Best for small placements, thumbnails, badges, and contexts where the surrounding copy already names AEON.")>
+        <cta("Download SVG")>
+      )>
+    )>
+  )>
+
+  <section @{type = "copy"} (
+    <kicker("Brand Usage")>
+    <title("Logo files are brand material.")>
+    <copy("AEON logo and wordmark files are copyrighted brand assets provided for identification and reference. Downloading them does not place them under CC0 or grant permission to use them as a product, service, or project identity.")>
+    <copy("Do not alter the marks, use them as your own identity, or use them in a way that implies endorsement, partnership, certification, or official status without permission.")>
+    <copy("The downloadable SVGs include file-specific copyright and usage metadata so the notice travels with the asset.")>
+  )>
+
+  <section @{type = "copy"} (
+    <kicker("Licensing")>
+    <title("Website copy and code examples use separate open terms.")>
+    <copy("Website copy means the explanatory prose on this site. It is licensed under CC-BY-4.0 unless a page or repository notice states otherwise.")>
+    <copy("Code examples means snippets, sample code, prompts, and example data intended to be copied into projects or AI workflows. These are licensed under CC0-1.0 unless a page or repository notice states otherwise.")>
+    <copy("Normative specifications and appendices may use CC-BY-4.0, conventions, fixtures, examples, and reusable vocabularies may use CC0-1.0, and website code or tooling may use permissive software licenses such as MIT. These open terms do not apply to the AEON logo and wordmark files unless an asset-specific notice says so.")>
+  )>
+)>

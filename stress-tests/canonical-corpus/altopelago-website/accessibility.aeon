@@ -1,0 +1,49 @@
+title:string = "Accessibility"
+description:string = "AltoPelago's accessibility goals, measures, assessment approach, known limitations, alternatives, and feedback channel for the AEON website."
+activePage:string = "accessibility"
+keywords:list<string> = ["accessibility", "WCAG", "keyboard", "screen reader", "alternative format", "feedback", "playground"]
+
+page:node = <page(
+  <section @{type = "copy", level = 1, id = "commitment"} (
+    <kicker("Accessibility")>
+    <title("Accessibility notice")>
+    <copy("AltoPelago aims to make the AEON website usable by as many people as reasonably possible, including people who use assistive technologies. The Web Content Accessibility Guidelines 2.2 at Level AA are the design and maintenance target.")>
+    <copy("Last reviewed: 7 September 2026.")>
+    <actions(
+      <action @{href = "https://www.w3.org/TR/WCAG22/"}("Read WCAG 2.2")>
+    )>
+  )>
+
+  <section @{type = "copy", id = "measures"} (
+    <kicker("Measures")>
+    <title("How accessibility is supported")>
+    <copy("The site uses semantic landmarks and headings, labelled native controls, a visible skip link, strong keyboard focus, keyboard-operable navigation and dialogs, responsive layouts, text resizing and reflow, and reduced-motion support.")>
+    <copy("AEON-authored pages are checked before deployment for required metadata and document structure. Rendered pages are checked for a single main heading, logical heading order, accessible control names, image alt attributes, iframe titles, table captions and headers, valid ARIA references, and usable dialog semantics.")>
+    <copy("Most authored pages also provide a Markdown view. The playground editors use labelled plain-text controls, and their results and diagnostics are exposed as named regions so they can be reached without relying on visual layout.")>
+  )>
+
+  <section @{type = "copy", id = "assessment"} (
+    <kicker("Assessment")>
+    <title("How the site is reviewed")>
+    <copy("Accessibility is reviewed through self-evaluation, automated Lighthouse checks, generated-output checks, keyboard testing, responsive-layout review, and inspection of the interactive playgrounds.")>
+    <copy("Automated results are useful evidence, but they do not by themselves establish complete WCAG conformance or replace testing by people who use assistive technologies.")>
+  )>
+
+  <section @{type = "copy", id = "limitations"} (
+    <kicker("Limitations")>
+    <title("Known limitations and alternatives")>
+    <copy("The AEON, AEOS, SANSA, and templating playgrounds are dense technical interfaces. Source code and structured output can require scrolling at high zoom or on a small screen, and some advanced editing workflows may take longer with assistive technology.")>
+    <copy("The templating playground renders user-edited markup in its preview. The accessibility of that preview depends on the template entered by the user; the surrounding playground remains labelled and its generated HTML is also available as text.")>
+    <copy("The site currently contains no charts, audio, or video requiring descriptive alternatives or captions. Logo previews are decorative because the adjacent text identifies and describes each asset. If meaningful images or media are added later, text alternatives or captions will be required by the generated-output checks.")>
+    <copy("Accessibility can vary across browsers and assistive technologies. If a page or format presents a barrier, contact AltoPelago and identify what you were trying to use. A reasonable effort will be made to correct the barrier or provide the information in a suitable alternative form.")>
+  )>
+
+  <section @{type = "copy", id = "feedback"} (
+    <kicker("Feedback")>
+    <title("Report an accessibility problem")>
+    <copy("Use the contact form to report an accessibility problem. If convenient, include the page, what you were trying to do, and the browser or assistive technology involved. You do not need to disclose a disability or provide sensitive personal information.")>
+    <actions(
+      <action @{href = "/contact.php", primary = true}("Contact AltoPelago")>
+    )>
+  )>
+)>

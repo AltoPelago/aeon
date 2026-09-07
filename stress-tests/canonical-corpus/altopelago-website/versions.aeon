@@ -1,0 +1,168 @@
+title:string = "Versions and Repositories"
+description:string = "Current AEON implementation version and the public AltoPelago repositories that support examples, tooling, PHP, Tonic, and conformance work."
+activePage:string = "versions"
+keywords:list<string> = ["version", "0.12.1", "repositories", "packages", "examples", "tooling", "npm", "github", "release"]
+
+page:node = <page(
+  <section @{type = "feature", layout = "stacked", level = 1} (
+    <kicker("Explore")>
+    <title("Current implementation line and supporting repositories.")>
+    <copy("AEON 0.12.1 is the current AltoPelago implementation line for the TypeScript packages and the related implementation work across Rust, Python, examples, tooling, PHP, and browser surfaces.")>
+    <copy("Use this page as a quick map for the public repositories around the implementation. The formal language specifications and CTS live with Aeonite; the implementation packages and learning surfaces live here.")>
+    <actions(
+      <action @{href = "https://www.npmjs.com/search?q=%40altopelago%2Faeon", primary = true} ("View npm packages")>
+      <action @{href = "https://github.com/AltoPelago/aeon"} ("Open implementation repo")>
+    )>
+  )>
+
+  <section @{type = "cards"} (
+    <kicker("Release Line")>
+    <title("0.12.1 at a glance.")>
+    <cards(
+      <card(
+        <topline("Current Version")>
+        <heading("AEON 0.12.1")>
+        <copy("Current release line for the npm package set and matching implementation hardening work. This patch adds portable AES projections across TypeScript, Rust, and Python, standardizes representation kinds such as NodeLiteral and NodeHead, and preserves structural identity as occurrence metadata.")>
+        <href("https://github.com/AltoPelago/aeon/tags")>
+        <cta("View releases")>
+      )>
+      <card(
+        <topline("Package Family")>
+        <heading("TypeScript packages")>
+        <copy("Lexer, parser, AES, canonicalization, finalization, AEOS validation, runtime, SDK, CLI, Tonic, and WebAssembly package surfaces under the @altopelago scope.")>
+        <href("https://www.npmjs.com/org/altopelago")>
+        <cta("Open npm scope")>
+      )>
+      <card(
+        <topline("Specification Target")>
+        <heading("Aeonite AEON specs")>
+        <copy("The implementation follows the public Aeonite specification and conformance repositories rather than treating implementation behavior as the authority.")>
+        <href("https://aeonite.org/specifications.php")>
+        <cta("Open specs")>
+      )>
+    )>
+  )>
+
+  <section @{type = "feature"} (
+    <kicker("Implementation Repositories")>
+    <title("Implementation repositories are split by language runtime.")>
+    <copy("These repositories are where AEON behavior becomes executable code. They track the Aeonite specs and CTS while exposing practical package surfaces for application builders.")>
+    <annotations(
+      <annotation(
+        <label("TypeScript")>
+        <copy("AltoPelago/aeon contains the current npm package line: lexer, parser, AES, AEOS, canonicalization, finalization, runtime, SDK, CLI, LSP, WebAssembly, tests, and release plumbing.")>
+      )>
+      <annotation(
+        <label("Rust")>
+        <copy("Rust work lives with the main implementation effort as a lower-level implementation surface for parser/runtime parity, conformance exploration, and future systems integration.")>
+      )>
+      <annotation(
+        <label("Python")>
+        <copy("Python work is tracked as an implementation surface for scripting, examples, data workflows, and cross-language conformance checks.")>
+      )>
+      <annotation(
+        <label("PHP")>
+        <copy("AltoPelago/aeon-php covers PHP lexer, parser, core behavior, AEOS, Tonic, CTS integration, and PHP application surfaces.")>
+      )>
+    )>
+    <actions(
+      <action @{href = "https://github.com/AltoPelago/aeon", primary = true} ("TypeScript, Rust, Python")>
+      <action @{href = "https://github.com/AltoPelago/aeon-php"} ("PHP implementation")>
+    )>
+  )>
+
+  <section @{type = "feature", layout = "stacked"} (
+    <kicker("Helper Repositories")>
+    <title("Helper repositories support learning, authoring, and inspection.")>
+    <copy("These repositories are not separate language definitions. They provide examples, editor support, grammar assets, converters, web highlighting, materialization experiments, and learning surfaces around the implementation line.")>
+  )>
+
+  <section @{type = "feature"} (
+    <kicker("Example Repo")>
+    <title("AltoPelago/aeon-examples")>
+    <copy("Example projects show how AEON is used from application code and small demos.")>
+    <annotations(
+      <annotation(
+        <label("Runtime examples")>
+        <copy("Small projects for TypeScript, Python, and Rust surfaces that demonstrate common parsing, validation, and runtime flows.")>
+      )>
+      <annotation(
+        <label("Schema examples")>
+        <copy("Shared schemas and validation fixtures for reference-safe documents and browser-facing demos.")>
+      )>
+      <annotation(
+        <label("Starter integrations")>
+        <copy("Compact examples intended to help a new adopter move from inspection to application code.")>
+      )>
+    )>
+    <actions(
+      <action @{href = "https://github.com/AltoPelago/aeon-examples", primary = true} ("Open examples")>
+    )>
+  )>
+
+  <section @{type = "feature"} (
+    <kicker("Tooling Repo")>
+    <title("AltoPelago/aeon-tooling")>
+    <copy("Tooling helps people author, highlight, inspect, and package AEON outside the runtime itself.")>
+    <annotations(
+      <annotation(
+        <label("Editor support")>
+        <copy("VS Code language extension, theme, grammar, diagnostics wiring, and bundled language-server packaging.")>
+      )>
+      <annotation(
+        <label("Grammar assets")>
+        <copy("Tree-sitter work and syntax grammar assets for editor and tooling integrations.")>
+      )>
+      <annotation(
+        <label("Web and conversion tools")>
+        <copy("Web highlighter, markdown-to-&ND converter, package scripts, and authoring utilities.")>
+      )>
+    )>
+    <actions(
+      <action @{href = "https://github.com/AltoPelago/aeon-tooling", primary = true} ("Open tooling")>
+    )>
+  )>
+
+  <section @{type = "feature"} (
+    <kicker("Tonics Repo")>
+    <title("AltoPelago/aeon-tonics")>
+    <copy("Tonic work sits above transport-level AEON and explores consumer-authorized materialization conventions.")>
+    <annotations(
+      <annotation(
+        <label("Materialization conventions")>
+        <copy("Conventions for turning validated AEON into accepted runtime or output forms under consumer policy.")>
+      )>
+      <annotation(
+        <label("Trusted output experiments")>
+        <copy("Experiments around how consumers accept, transform, and emit materialized data.")>
+      )>
+      <annotation(
+        <label("Examples above Core")>
+        <copy("Examples that deliberately sit above the core notation layer without redefining AEON itself.")>
+      )>
+    )>
+    <actions(
+      <action @{href = "https://github.com/AltoPelago/aeon-tonics", primary = true} ("Open Tonic work")>
+    )>
+  )>
+
+  <section @{type = "feature"} (
+    <kicker("Conformance")>
+    <title("The specs and CTS define the shared target.")>
+    <copy("Conformance work lives under Aeonite so implementation behavior can be checked against an independent specification and test surface. AltoPelago implementations should follow these repositories rather than becoming the authority themselves.")>
+    <annotations(
+      <annotation(
+        <label("aeonite-org/aeonite-specs")>
+        <copy("Specification source for AEON, AEOS, NEON, &ND, contracts, conventions, drafts, and supporting language artifacts.")>
+      )>
+      <annotation(
+        <label("aeonite-org/aeonite-cts")>
+        <copy("Conformance test suite used to compare implementations and keep behavior aligned across runtimes.")>
+      )>
+    )>
+    <actions(
+      <action @{href = "https://github.com/aeonite-org/aeonite-specs", primary = true} ("Open specs repo")>
+      <action @{href = "https://github.com/aeonite-org/aeonite-cts"} ("Open CTS")>
+    )>
+  )>
+)>

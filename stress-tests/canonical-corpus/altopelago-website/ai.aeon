@@ -1,0 +1,368 @@
+title:string = "AI and AEON"
+description:string = "Use AEON with AI for understanding the language, validating short snippets, implementing deterministic integrations, shaping agentic calls, auditing tool runs, and carrying structured context."
+activePage:string = "ai"
+keywords:list<string> = ["ai", "agents", "prompt", "context", "validator", "control ledger", "signed receipts", "deterministic", "semantic comments", "hallucination"]
+
+page:node = <page(
+  <section @{type:string = "feature", hero:boolean = true, id:string = "ai", level:string = "1"} (
+    <kicker("AI")>
+    <title("Use AI around AEON without blurring where authority lives.")>
+    <heading("AEON is useful around AI because it keeps claims explicit.")>
+    <copy("An AI can read or write AEON as ordinary text, while tools around the model can validate structure, resolve references, preserve semantic comments, and produce deterministic receipts.")>
+    <copy("The useful frame is not a ladder of AI authority. It is a set of boundaries: understanding AEON, implementing AEON, using AEON for agentic exchange, auditing through AEON, and carrying AEON-shaped context.")>
+    <actions(
+      <action @{href:string = "/ai-documentation-bundle.php", primary:boolean = true} ("Download AI docs zip")>
+      <action @{href:string = "/validate/"} ("Validate snippets")>
+      <action @{href:string = "#understanding-aeon"} ("Use the prompts")>
+    )>
+    <annotations(
+      <annotation(
+        <label("Understanding")>
+        <copy("I want AI to help me understand AEON before I rely on it.")>
+      )>
+      <annotation(
+        <label("Implementing")>
+        <copy("I write my own code and use AI to help me build, test, and integrate it.")>
+      )>
+      <annotation(
+        <label("Agentic")>
+        <copy("I want AI to act through typed, validated request shapes instead of vague prose.")>
+      )>
+      <annotation(
+        <label("Audit")>
+        <copy("I let AI use tools, but I need a record of what actually happened.")>
+      )>
+      <annotation(
+        <label("Context")>
+        <copy("I want AI to reason over structured AEON-shaped notes inside the conversation.")>
+      )>
+    )>
+    <typeIndex @{sticky:string = "page"} (
+      <item @{href:string = "#understanding-aeon"} ("Understanding AEON")>
+      <item @{href:string = "#implementing-aeon"} ("Implementing AEON")>
+      <item @{href:string = "#aeon-validator"} ("Snippet Validator")>
+      <item @{href:string = "#agentic-aeon"} ("Agentic AEON")>
+      <item @{href:string = "#audit-thru-aeon"} ("Audit thru AEON")>
+      <item @{href:string = "#aeon-in-context"} ("AEON in Context")>
+    )>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "understanding-aeon"} (
+    <kicker("Level I Understanding AEON")>
+    <title("Using AI to understand AEON.")>
+    <copy("In this mode, the author may still be hand coding. AI is used as a language-understanding assistant: it explains syntax, compares AEON with familiar formats, and helps the author reason about source meaning without taking over implementation.")>
+    <copy("Assume the AI has not been trained on AEON. The author should give it a small reference pack before asking questions, then ask it to cite the supplied material instead of guessing from similar languages.")>
+    <heading("Language Understanding Prompt")>
+    <info(`
+      You are helping me understand AEON.
+
+      Context:
+      You may not have AEON-specific training data. Treat the supplied AEON references as authoritative, and say when an answer is not supported by those references.
+
+      Supplied references:
+      - Read this first, semantic preservation primer: https://aeon.altopelago.com/rag-understanding-aeon.php?format=markdown
+      - Read this second, orthogonal grammar composition primer: https://aeon.altopelago.com/orthogonal-composition.php?format=markdown
+      - Start here, basic language walkthrough: https://aeon.altopelago.com/walkthrough.php?format=markdown
+      - Why AEON: https://aeon.altopelago.com/why-aeon.php?format=markdown
+      - AEON language reference: https://aeon.altopelago.com/aeon-language.php?format=markdown
+      - Value types: https://aeon.altopelago.com/value-types.php?format=markdown
+      - Type reference: https://aeon.altopelago.com/type-reference.php?format=markdown
+      - Processing walkthrough: https://aeon.altopelago.com/walkthrough-processing.php?format=markdown
+      - Annotation walkthrough: https://aeon.altopelago.com/walkthrough-annotations.php?format=markdown
+
+      Reading order:
+      Start with the semantic preservation primer and orthogonal grammar composition primer. Then use the basic language walkthrough to introduce AEON step by step: a binding, scalar values, optional type labels, objects, lists, tuples, whitespace, comments, and multiline strings. Only move to references, processing, annotations, schemas, or ecosystem topics after the basic document model is clear.
+
+      Working model:
+      AEON is a human-readable, typed, semantics-first data notation. It is designed for documents that need structure, references, validation, source-aware diagnostics, and deterministic processing without giving the document executable authority.
+
+      Boundaries:
+      - Do not assume AEON behaves like JSON, YAML, TOML, Markdown, or code unless the supplied references explicitly say so.
+      - Do not invent AEOS schema rules; only describe AEOS behavior when the supplied references explicitly define it.
+      - When uncertain, state the uncertainty instead of guessing.
+      - Cite references inline using short source labels and section/page names, for example: [Language walkthrough: Bindings].
+
+      Explain:
+      - What problem AEON solves compared with JSON, YAML, Markdown, and code.
+      - How typed bindings, objects, lists, tuples, references, nodes, annotations, and semantic comments fit together.
+      - Why deterministic processing matters when humans and AI systems both touch the same source.
+      - Where AEOS schemas, profiles, annotation streams, and Tonics belong in the ecosystem.
+
+      Style:
+      Be precise, avoid hype, and separate what AEON source says from what trusted processors prove.
+    `)>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "implementing-aeon"} (
+    <kicker("Level II Implementing AEON")>
+    <title("Using AI to help code deterministic AEON integrations.")>
+    <copy("In this mode, the author is using AI to help code some or all of an AEON integration into their project. The AI may draft adapters, schemas, fixtures, tests, and runtime calls, but the code itself remains deterministic and prescriptive.")>
+    <copy("The important boundary is that AI can assist development, while parser behavior, validation rules, reference handling, and emitted application data are accepted only through deterministic code and tests.")>
+    <copy("Again, assume the AI has not been trained on AEON implementation details. Give it implementation references, examples, and conformance expectations before asking it to write code.")>
+    <heading("Implementation Assistance Prompt")>
+    <info(`
+      You are helping me implement AEON tooling.
+
+      Context:
+      You may not have AEON-specific training data. Use only the supplied references and local project files as the basis for implementation advice. If a behavior is not specified, ask for the relevant reference or mark it as an assumption.
+
+      Supplied references:
+      - Read this first, semantic preservation primer: https://aeon.altopelago.com/rag-understanding-aeon.php?format=markdown
+      - Read this second, orthogonal grammar composition primer: https://aeon.altopelago.com/orthogonal-composition.php?format=markdown
+      - Developer start: https://aeon.altopelago.com/developer-start.php?format=markdown
+      - Processing walkthrough: https://aeon.altopelago.com/walkthrough-processing.php?format=markdown
+      - Schemas: https://aeon.altopelago.com/schemas.php?format=markdown
+      - AEOS playground notes: https://aeon.altopelago.com/aeos-playground.php?format=markdown
+      - Public short-snippet validator: https://aeon.altopelago.com/validate/
+      - Type reference: https://aeon.altopelago.com/type-reference.php?format=markdown
+      - Current versions and repositories: https://aeon.altopelago.com/versions.php?format=markdown
+      - AEON specification: https://github.com/aeonite-org/aeonite-specs
+      - CTS: https://github.com/aeonite-org/aeonite-cts
+      - TypeScript implementation: https://github.com/AltoPelago/aeon
+
+      Working model:
+      Treat AEON as a source language with explicit parsing, validation, diagnostics, canonicalization, and materialization phases. Do not infer meaning from loose prose when a typed binding, schema rule, reference, or annotation can carry it explicitly.
+
+      Boundaries:
+      - Do not infer missing AEON semantics from JSON, YAML, TOML, Markdown, or code.
+      - Do not define canonical form yourself; canonical behavior belongs to the AEON specification and CTS.
+      - When the supplied references do not define a behavior, state the uncertainty and propose a test or reference check.
+
+      Implementation goals:
+      - Preserve source spans for diagnostics and annotation streams.
+      - Parse comments and semantic instruction comments without mixing them into application data.
+      - Keep validation deterministic and fail closed for strict profiles.
+      - Resolve references through a specified processor step, not through model intuition.
+      - Emit plain application output only after syntax, typing, references, and schema/profile checks have passed.
+      - Add tests for canonical form, invalid fixtures, reference boundaries, and round-trip-safe examples.
+
+      Safety boundary:
+      An AI assistant may draft code and fixtures, but the implementation must be accepted by deterministic tests, validators, and published conformance cases.
+    `)>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "aeon-validator"} (
+    <kicker("Validator")>
+    <title("Use the public validator for short AI-generated snippets.")>
+    <copy("Some AI systems can produce plausible-looking AEON that is still syntactically invalid. The public validator gives web agents and local workflows a deterministic check for short snippets before a person or tool relies on them.")>
+    <copy("The endpoint validates AEON source shape and reports source-local diagnostics. It does not prove that a claim is true, authorized, meaningful in a domain, or safe to materialize.")>
+    <heading("Validator Prompt")>
+    <info(`
+      You are helping me write AEON.
+
+      Before presenting AEON source as valid, call the public short-snippet validator:
+
+      POST https://aeon.altopelago.com/validate/api/v1/aeon/validate-snippet
+      Content-Type: application/json
+
+      Request body:
+      {
+        "source": "<the AEON snippet>",
+        "mode": "strict"
+      }
+
+      Rules:
+      - Validate only short snippets: no more than 10 physical lines and 4096 bytes.
+      - If the validator returns valid: true, you may say the snippet is syntactically valid AEON.
+      - If the validator returns diagnostics, revise the AEON source using the reported phase, message, span, and path, then validate again.
+      - Do not claim that validation proves the snippet is true, authorized, schema-valid, domain-correct, or safe to materialize.
+      - If you cannot call the endpoint, say that the snippet has not been independently validated.
+
+      Output expectation:
+      Show the final AEON snippet and a short validation note. Include diagnostics only if validation failed or if you could not repair the snippet.
+    `)>
+    <annotations(
+      <annotation(
+        <label("Limit")>
+        <copy("The validator is intentionally narrow: snippets only, currently up to 10 physical lines and 4096 bytes.")>
+      )>
+      <annotation(
+        <label("Use")>
+        <copy("Ask an AI agent to call the endpoint after it drafts AEON, then repair the source from returned diagnostics before presenting it as valid.")>
+      )>
+      <annotation(
+        <label("Boundary")>
+        <copy("A valid snippet is parseable AEON. It is not automatically trusted, schema-valid, domain-correct, or authorized.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "agentic-aeon"} (
+    <kicker("Level III Agentic AEON")>
+    <title("Using typed AEON-shaped actions to reduce corrupt AI output.")>
+    <copy("Here, the AI interfaces with tools, APIs, or workflow systems to produce outcomes. Explicit typing, required fields, schema checks, and clear error messages help ensure the AI is not sending corrupt, incomplete, or ambiguous data into the system.")>
+    <copy("AEON is useful here as an instruction and exchange shape: the AI can be asked to produce typed source, the system can validate it deterministically, and diagnostics can be returned to the AI for correction before any action is accepted.")>
+    <heading("Typed API Request")>
+    <code(`
+      request:object = {
+        action:string = "create_invoice"
+        customer_id:string = "cus_1738"
+        currency:string = "AUD"
+        line_items:list<object> = [
+          {
+            description:string = "AEON integration support"
+            quantity:number = 2
+            unit_price:number = 180.00
+          }
+        ]
+        due_date:string = "2026-06-15"
+      }
+    `)>
+    <heading("Deterministic Error Feedback")>
+    <info(`
+      validation:error = {
+        path:string = "/request/line_items/0/unit_price"
+        expected:string = "decimal currency amount with two fractional digits"
+        received:string = "number"
+        message:string = "Use a currency-safe decimal string, for example \"180.00\"."
+      }
+    `)>
+    <annotations(
+      <annotation(
+        <label("Type")>
+        <copy("The AI has a concrete output shape to satisfy instead of a vague natural-language target.")>
+      )>
+      <annotation(
+        <label("Error")>
+        <copy("The system returns exact, source-local feedback that the AI can use to repair the request.")>
+      )>
+      <annotation(
+        <label("Boundary")>
+        <copy("The API receives only data that passes deterministic validation, not whatever the model happened to phrase plausibly.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "audit-thru-aeon"} (
+    <kicker("Level IV Audit thru AEON")>
+    <title("Auditing AI control over a run environment.")>
+    <copy("In this mode, the author gives the AI control of a run environment: for example, a filesystem plus a set of tools it can independently choose from. A signed AEON ledger gives reviewers an audit trail showing which tools were actually used and which outputs were produced.")>
+    <copy("AEON is particularly suitable for this because the same source can produce an AES event stream and a canonical representation. The event stream gives the audit record a stable sequence of recorded claims, while canonical form gives those claims deterministic bytes that can be hashed, signed, and verified later.")>
+    <copy("The ledger does not prove the AI reasoned correctly. It helps verify recorded computations and artifacts against signed tool events rather than accepting hallucinated outputs at face value.")>
+    <copy("The ledger is an audit boundary, not a security boundary. Access control, sandboxing, secret handling, and permission policy still belong to the surrounding run environment.")>
+    <copy("Annotation streams may accompany a ledger when reviewers need source-local notes, operator comments, or processor guidance, but the core audit record is the signed event ledger itself.")>
+    <heading("Run Environment Ledger")>
+    <code(`
+      run:object = {
+        id:string = "agent-run-2026-05-28T03:12:00Z"
+        objective:string = "inspect repository and summarize failing tests"
+        environment:object = {
+          filesystem_root:string = "/workspace/project"
+          allowed_tools:list<string> = ["rg", "pnpm test", "node"]
+        }
+        ai_claim:object = {
+          provider:string = "example-ai"
+          model:string = "reasoning-model"
+          prompt_digest:string = "sha256:a817..."
+          final_answer_digest:string = "sha256:ee91..."
+        }
+        tool_events:list<object> = [
+          {
+            tool:string = "rg"
+            args:list<string> = ["failing test"]
+            stdout_digest:string = "sha256:31cc..."
+            exit_code:number = 0
+          },
+          {
+            tool:string = "pnpm test"
+            args:list<string> = []
+            stdout_digest:string = "sha256:4a92..."
+            stderr_digest:string = "sha256:00ad..."
+            exit_code:number = 1
+          },
+          {
+            tool:string = "node"
+            args:list<string> = ["scripts/explain-failure.mjs"]
+            stdout_digest:string = "sha256:9c20..."
+            exit_code:number = 0
+          }
+        ]
+        receipts:list<object> = [
+          {
+            event:number = 0
+            canonical_event_digest:string = "sha256:b645..."
+            signature:string = "ed25519:..."
+          },
+          {
+            event:number = 1
+            canonical_event_digest:string = "sha256:6f7a..."
+            signature:string = "ed25519:..."
+          },
+          {
+            event:number = 2
+            canonical_event_digest:string = "sha256:f35b..."
+            signature:string = "ed25519:..."
+          }
+        ]
+      }
+    `)>
+    <annotations(
+      <annotation(
+        <label("Control")>
+        <copy("The ledger records tool choice, arguments, exit codes, output digests, and environment boundaries.")>
+      )>
+      <annotation(
+        <label("Receipt")>
+        <copy("A receipt signs the canonical digest of each AES event, so reviewers can verify that recorded outputs came from actual tool runs and were not rewritten after the fact.")>
+      )>
+      <annotation(
+        <label("Boundary")>
+        <copy("The proof is about execution and artifact identity, not about the AI being inherently trustworthy or the ledger acting as a sandbox.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "aeon-in-context"} (
+    <kicker("Level V AEON in Context")>
+    <title("Letting AI work with AEON-shaped text inside its own context.")>
+    <copy("In this mode, the author lets the AI reason over AEON-shaped material inside the model context itself. There is no assumption that AEON Core, AES, a parser, or a runtime is executing.")>
+    <copy("AEON is being used as structured language: a readable way for the model to create, edit, compare, and reason about typed claims in context.")>
+    <copy("Semantic instruction comments help the AI organize and prompt itself on how to handle nearby AEON-shaped text without becoming ordinary data fields.")>
+    <heading("Instruction Comment Example")>
+    <code(`
+      planning_note:object = {
+        /( processor = "ai"
+           intent = "organize_context"
+           rule = "Group facts, questions, and assumptions separately. Do not turn assumptions into facts." )/
+        facts:list<string> = [
+          "AEON source can carry typed bindings.",
+          "Semantic instruction comments are guidance for the AI in this context."
+        ]
+        questions:list<string> = [
+          "Which references define the current behavior?",
+          "Which claims need deterministic verification later?"
+        ]
+        assumptions:list<string> = [
+          "The author wants a concise explanation unless they ask for implementation detail."
+        ]
+        response_plan:list<string> = [
+          "Answer only from facts first.",
+          "Label assumptions explicitly.",
+          "Ask for missing references before making language-level claims."
+        ]
+      }
+    `)>
+    <heading("How the AI should process it")>
+    <info(`
+      Treat the AEON-shaped text as structured language inside your context, not as executable code.
+      Do not assume an AEON parser, AEON Core, AES, a validator, or a runtime is available.
+      Use the semantic instruction comment as guidance for your own reasoning.
+      Keep facts, questions, assumptions, and response plans distinct.
+      Do not move semantic instruction comments into the data fields you are summarizing.
+    `)>
+    <heading("Data Editing Example")>
+    <code(`
+      customer_summary:object = {
+        /( processor = "ai"
+           intent = "edit"
+           rule = "Improve clarity without changing field names or inventing values." )/
+        name:string = "Example Studio"
+        status:string = "active"
+        note:string = "Needs migration plan before launch."
+      }
+    `)>
+    <info(`
+      The AI may rewrite the note for clarity inside its response, but it should preserve field identity and avoid inventing new operational facts.
+    `)>
+  )>
+)>

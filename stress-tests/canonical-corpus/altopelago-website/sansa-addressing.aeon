@@ -1,0 +1,170 @@
+title:string = "SANSA Paths and Selectors"
+description:string = "Learn SANSA, the Semantic Address NameSpace Abstraction: exact paths, selectors, attributes, filters, qualifiers, and AEON sansa values."
+activePage:string = "sansa-addressing"
+keywords:list<string> = ["SANSA", "Semantic Address NameSpace Abstraction", "paths", "selectors", "addressing", "sansa type", "AEON"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("SANSA")>
+    <title("Portable paths and selectors for semantic namespaces.")>
+    <copy("SANSA means Semantic Address NameSpace Abstraction. It is the address language AEON uses when a document needs to carry a path or selector as data, and when tools need to select locations from an assignment stream.")>
+    <copy("An exact path identifies one location. A selector can match many locations. AEON references are related, but narrower: they use exact target paths after ~ or ~>, while SANSA values can carry richer selector syntax for consumers.")>
+    <code(`
+path:sansa = $.contact.name
+selector:sansa = $.inventory.items.*.sku
+deep:sansa = $.inventory.**
+attribute:sansa = $.reading.@.unit
+
+copy:string = ~contact.name
+pointer:object = ~>contact
+`)>
+    <actions(
+      <action @{href:string = "#paths", primary:boolean = true} ("Read syntax")>
+      <action @{href:string = "/sansa-playground.php"} ("Open playground")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "paths"} (
+    <kicker("Exact Paths")>
+    <title("Use exact paths when one location is intended.")>
+    <copy("A SANSA exact path begins at a root and follows member, quoted member, index, or attribute-space segments. Exact paths are the right form for canonical target identity and schema rules that name one location.")>
+    <code(`
+root:sansa = $
+contact:sansa = $.contact
+name:sansa = $.contact.name
+firstSku:sansa = $.inventory.items[0].sku
+quoted:sansa = $.inventory.["items.with.dots"][2]
+contextual:sansa = ?.name
+`)>
+    <referenceList(
+      <item(
+        <syntax("$")>
+        <name("Absolute root")>
+        <when("Starts from the root of the exposed namespace.")>
+      )>
+      <item(
+        <syntax("?")>
+        <name("Contextual root")>
+        <when("Starts from a consumer-supplied context rather than the global root.")>
+      )>
+      <item(
+        <syntax(".name")>
+        <name("Member")>
+        <when("Selects a bare member name.")>
+      )>
+      <item(
+        <syntax(".[\"name.with.dots\"]")>
+        <name("Quoted member")>
+        <when("Selects one member whose key contains punctuation, whitespace, or otherwise non-bare text.")>
+      )>
+      <item(
+        <syntax("[0]")>
+        <name("Position")>
+        <when("Selects a zero-based ordered position in a list, tuple, or node child space.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "selectors"} (
+    <kicker("Selectors")>
+    <title("Use selectors when a consumer should match a set.")>
+    <copy("Selectors are still addresses, but they describe a set of possible matches rather than one exact target. They are useful for schema rules, extraction tools, and resolver/query layers.")>
+    <code(`
+items:sansa = $.inventory.items.*
+skus:sansa = $.inventory.items.*.sku
+everythingBelowInventory:sansa = $.inventory.**
+matchingItems:sansa = $.items.("item?*").sku
+literalStar:sansa = $.items.("item\\*").sku
+literalQuestion:sansa = $.items.("item\\?").sku
+`)>
+    <copy("SANSA uses .* for direct child expansion and .** for descendant expansion. It deliberately does not use JSONPath-style [*].")>
+    <referenceList(
+      <item(
+        <syntax("*")>
+        <name("Direct expansion")>
+        <when("Matches direct children of the current location.")>
+      )>
+      <item(
+        <syntax("**")>
+        <name("Descendant expansion")>
+        <when("Matches descendants below the current location.")>
+      )>
+      <item(
+        <syntax("(\"item?*\")")>
+        <name("Name pattern")>
+        <when("Matches member names by pattern. ? matches one character; * matches zero or more characters. Use \\? and \\* inside the decoded pattern for literal wildcard characters.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "attributes"} (
+    <kicker("Attributes")>
+    <title("Attributes live in their own address space.")>
+    <copy("SANSA uses .@. to enter the attribute address space. That keeps attributes distinct from ordinary data members while allowing ordinary navigation to continue inside attribute values.")>
+    <code(`
+unit:sansa = $.reading.@.unit
+display:sansa = $.contact.name.@.["display.label"]
+allReadingAttributes:sansa = $.reading.@.*
+deepAttributes:sansa = $.record.**.@.*
+`)>
+    <copy("Compact forms such as $.reading@unit are not valid SANSA v1 addresses. Use .@.attribute for attribute-space traversal.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "filters"} (
+    <kicker("Filters")>
+    <title("Filters narrow selectors without changing the path shape.")>
+    <copy("SANSA supports filter syntax that consumers can evaluate when they understand the relevant metadata. Current AEON tooling distinguishes representation kind filters from semantic datatype filters.")>
+    <code(`
+strings:sansa = $.inventory.items.*%string
+objects:sansa = $.inventory.items.*%object
+declaredStrings:sansa = $.inventory.items.*#string
+`)>
+    <referenceList(
+      <item(
+        <syntax("%kind")>
+        <name("Representation kind filter")>
+        <when("Filters by observed value kind such as string, number, object, list, or boolean.")>
+      )>
+      <item(
+        <syntax("#type")>
+        <name("Semantic type filter")>
+        <when("Filters by declared datatype or semantic type where the source exposes one.")>
+      )>
+    )>
+    <copy("Parsing a filter is not the same as evaluating it. A consumer may interpret, ignore, or reject filters depending on its authority and capability surface.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "qualifiers"} (
+    <kicker("Qualifiers")>
+    <title("Qualified address literals carry structured possibility claims.")>
+    <copy("A SANSA address can carry an optional qualifier expression after a colon. The qualifier is syntax preserved with the address; SANSA does not force one global meaning for every qualifier term.")>
+    <code(`
+numberOrNan:sansa = $.result:number|nan
+tupleAddress:sansa = $.point:tuple<x><y>
+csvAddress:sansa = $.inventory:csv[","]
+external:sansa = $.value:type<type>["arg"]
+`)>
+    <copy("AEON can preserve SANSA qualifier syntax even when the qualifier is meant for another system. Host implementations still define the qualifier surface they accept.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "references"} (
+    <kicker("AEON Boundary")>
+    <title("A SANSA value is not an AEON reference.")>
+    <copy("The sansa datatype stores an address literal. It does not resolve anything by itself. AEON reference values use ~ and ~>, and those references must target already-bound exact paths.")>
+    <code(`
+target:sansa = $.contact.name
+
+contact:object = {
+  name:string = "Bob"
+}
+
+copy:string = ~contact.name
+pointer:object = ~>contact
+`)>
+    <copy("Use SANSA when an address or selector needs to be transported, stored, validated by a schema, or handed to a resolver. Use AEON references when the document itself declares a relationship to an existing value.")>
+    <actions(
+      <action @{href:string = "/sansa-playground.php", primary:boolean = true} ("Try in playground")>
+      <action @{href:string = "/type-reference.php"} ("Open type reference")>
+    )>
+  )>
+)>

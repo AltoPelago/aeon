@@ -109,6 +109,10 @@ function normalizeAesEvents(events) {
         : typeof e?.value?.type === 'string'
           ? e.value.type
           : null,
+    value:
+      typeof e?.kind === 'string' && typeof e?.value === 'string'
+        ? e.value
+        : null,
     reference:
       e?.kind === 'CloneReference' || e?.kind === 'PointerReference'
         ? (typeof e?.value === 'string' ? normalizePath(e.value) : null)

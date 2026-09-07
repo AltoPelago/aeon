@@ -1,0 +1,210 @@
+title:string = "AEON Annotation Walkthrough"
+description:string = "Trace AEON data, node templates, and semantic comments into an annotation stream and rendered HTML without hiding behavior in the data model."
+activePage:string = "walkthrough-annotations"
+keywords:list<string> = ["annotations", "semantic comments", "templates", "HTML", "renderer", "side channels", "matter"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Annotation Walkthrough")>
+    <title("Watch AEON data and node templates produce rendered HTML without hiding behavior in the data model.")>
+    <heading("Annotations are side channels, not secret bindings.")>
+    <copy("This walkthrough connects the language's semantic comment model to the templating demo. AEON Matter uses ordinary AEON data, AEON nodes, and semantic comments to describe rendering behavior without turning the template into a separate interpolation language.")>
+    <copy("The goal is to show how a reader can inspect the data, inspect the template, and still see where behavior enters the system.")>
+    <actions(
+      <action @{href:string = "#data", primary:boolean = true} ("Start with data")>
+      <action @{href:string = "/templating.php"} ("Open templating demo")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "data"} (
+    <kicker("Step 1")>
+    <title("Start with ordinary AEON data.")>
+    <copy("The data file should remain plain. It says what the document knows: a title, a status, and a list of todos. It does not contain loops, conditionals, CSS classes, or rendering instructions.")>
+    <code(`
+title:string = "Launch checklist"
+status:toggle = on
+
+todos:list = [
+  {
+    label:string = "Write copy"
+    done:boolean = true
+  }
+  {
+    label:string = "Review schema"
+    done:boolean = false
+  }
+]
+
+note:prose = "Keep the final pass short."
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 2")>
+    <title("The template is an AEON node tree.")>
+    <copy("The template keeps document structure in nodes. Native AEON references fill scalar content, so the template does not need a separate mustache-style interpolation syntax.")>
+    <code(`
+template:node =
+  <section (
+    <h1(~title)>
+    <p(~note)>
+    <ul (
+      <li(~item.label)>
+    )>
+  )>
+`)>
+    <copy("By itself this is just a node tree. The next step adds semantic annotations that a renderer may choose to understand.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 3")>
+    <title("Semantic comments describe rendering behavior.")>
+    <copy("AEON Matter currently treats a small set of annotation comments as template directives. They are not ordinary data, and AEON Core does not need to know their domain meaning.")>
+    <code(`
+template:node =
+  <section (
+    <h1(~title)>
+
+    /[ if $.status ]/
+    <p("Ready")>
+    /[ else ]/
+    <p("Paused")>
+    /[ end ]/
+
+    <ul (
+      /[ for $.todos ]/
+      <li (
+        /( class="todo-item" )/
+        ~item.label
+      )>
+      /[ end ]/
+    )>
+  )>
+`)>
+    <annotations(
+      <annotation(
+        <label("/[ if ]/")>
+        <copy("conditional rendering over document data.")>
+      )>
+      <annotation(
+        <label("/[ for ]/")>
+        <copy("loop rendering over a list path.")>
+      )>
+      <annotation(
+        <label("/( css )/")>
+        <copy("local element attributes for rendered HTML.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 4")>
+    <title("The renderer reads two streams: data and annotations.")>
+    <copy("The data stream stays about values. The annotation stream stays about rendering instructions. A renderer can combine them, but the source document still shows which parts are data claims and which parts are template behavior.")>
+    <code(`
+dataStream:object = {
+  "$.title":string = "Launch checklist"
+  "$.status":toggle = on
+  "$.todos[0].label":string = "Write copy"
+  "$.todos[1].label":string = "Review schema"
+}
+
+annotationStream:list = [
+  {
+    directive:string = "if"
+    expression:string = "$.status"
+  }
+  {
+    directive:string = "for"
+    expression:string = "$.todos"
+    local:string = "item"
+  }
+  {
+    directive:string = "elementAttributes"
+    value:string = "class=\"todo-item\""
+  }
+]
+`)>
+    <copy("That separation is the important part. The template can become powerful without making every AEON consumer accept a rendering language.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 5")>
+    <title("Consumers can define their own annotation languages.")>
+    <copy("The template directives are only one example. A financial reporting tool could define a spreadsheet-like annotation vocabulary for cell addresses, formulas, display currency, and audit hints. AEON Core still sees comments and data; the finance consumer decides which annotations it understands.")>
+    <code(`
+//@ finance.sheet("quarterly-report")
+//@ finance.currency("USD")
+//@ finance.cell("$.report.revenue", "B2")
+//@ finance.cell("$.report.expenses", "B3")
+//@ finance.formula("$.report.profit", "B2 - B3")
+//@ finance.formula("$.report.margin", "B4 / B2")
+
+report:object = {
+  quarter:string = "Q1 2026"
+  revenue:number = 7_000
+  expenses:number = 4_250
+  profit:number = 2_750
+  margin:number = 0.3928
+}
+`)>
+    <annotations(
+      <annotation(
+        <label("Custom language")>
+        <copy("The finance.* annotations belong to the reporting consumer, not to AEON Core.")>
+      )>
+      <annotation(
+        <label("Spreadsheet projection")>
+        <copy("A spreadsheet Tonic can map paths to cells and formulas while preserving the source values.")>
+      )>
+      <annotation(
+        <label("Validation boundary")>
+        <copy("A schema can still validate report.revenue as a number before any formula engine evaluates it.")>
+      )>
+    )>
+    <code(`
+spreadsheet:projection = {
+  cells:list = [
+    {
+      address:string = "B2"
+      sourcePath:string = "$.report.revenue"
+      value:number = 7000
+    }
+    {
+      address:string = "B3"
+      sourcePath:string = "$.report.expenses"
+      value:number = 4250
+    }
+    {
+      address:string = "B4"
+      sourcePath:string = "$.report.profit"
+      formula:string = "B2 - B3"
+      value:number = 2750
+    }
+  ]
+}
+`)>
+    <copy("This is the larger idea: annotations let a community build a language around AEON without forcing every AEON parser, validator, or consumer to accept that language.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Step 6")>
+    <title("Materialization produces HTML as a chosen output.")>
+    <copy("After parsing, validating, and applying the renderer's annotation rules, the Tonic can materialize HTML. Another Tonic could materialize Markdown or &ND from the same page-shaped source.")>
+    <code(`
+rendered:node =
+  <section (
+    <h1("Launch checklist")>
+    <p("Ready")>
+    <ul (
+      <li@{class:string = "todo-item"} ("Write copy")>
+      <li@{class:string = "todo-item"} ("Review schema")>
+    )>
+  )>
+`)>
+    <actions(
+      <action @{href:string = "/templating.php", primary:boolean = true} ("Open templating demo")>
+      <action @{href:string = "/walkthrough-processing.php"} ("Back to processing")>
+    )>
+  )>
+)>
