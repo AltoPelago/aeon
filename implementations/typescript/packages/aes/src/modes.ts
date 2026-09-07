@@ -339,14 +339,11 @@ function shouldSkipHeaderEvent(event: AssignmentEvent, header: Header | null): b
     if (!header) {
         return false;
     }
-    return isHeaderEvent(event);
-}
-
-function isHeaderEvent(event: AssignmentEvent): boolean {
-    return event.path.segments.length >= 2
-        && event.path.segments[0]?.type === 'root'
-        && event.path.segments[1]?.type === 'member'
-        && event.path.segments[1].key.startsWith('aeon:');
+    const segment = event.path.segments[1];
+    return event.path.segments[0]?.type === 'root'
+        && segment?.type === 'member'
+        && segment.key.startsWith('aeon:')
+        && header.fields.has(segment.key.slice('aeon:'.length));
 }
 
 // Legacy export for backward compatibility

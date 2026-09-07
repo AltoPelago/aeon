@@ -24,7 +24,9 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
     let mut order = Vec::new();
     let mut spans = BTreeMap::new();
     for binding in bindings {
-        if let Some(key) = binding.key.strip_prefix("aeon:") {
+        if binding.is_header
+            && let Some(key) = binding.key.strip_prefix("aeon:")
+        {
             order.push(key.to_owned());
             let _ = fields.insert(String::from(key), binding.value.clone());
             let _ = spans.insert(String::from(key), binding.span);
@@ -38,10 +40,12 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
 }
 
 pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagnostic> {
-    let structured_header = bindings.iter().find(|binding| binding.key == "aeon:header");
+    let structured_header = bindings
+        .iter()
+        .find(|binding| binding.is_header && binding.key == "aeon:header");
     let shorthand_header = bindings
         .iter()
-        .find(|binding| binding.key.starts_with("aeon:") && binding.key != "aeon:header");
+        .find(|binding| binding.is_header && binding.key != "aeon:header");
     if let (Some(structured_header), Some(shorthand_header)) = (structured_header, shorthand_header)
     {
         return Err(Diagnostic::new(
@@ -54,7 +58,7 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
     let mut lowered = Vec::new();
     let mut seen_body = false;
     for binding in bindings {
-        if binding.key == "aeon:header" {
+        if binding.is_header && binding.key == "aeon:header" {
             if seen_body {
                 return Err(Diagnostic::new(
                     "SYNTAX_ERROR",
@@ -79,6 +83,7 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
                 };
                 lowered.push(Binding {
                     key: mapped_key,
+                    is_header: true,
                     ..header
                 });
             }

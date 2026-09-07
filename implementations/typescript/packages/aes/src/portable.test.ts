@@ -64,6 +64,27 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.equal(document.events[1]?.path, '$.a');
     });
 
+    it('keeps the direct portable projection body-only', () => {
+        const parsed = parse(tokenize('aeon:mode = "transport"\na = 1').tokens);
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        assert.deepEqual(projectPortableEvents(emitted.events).map((event) => event.path), ['$.a']);
+    });
+
+    it('uses retained header fields to preserve quoted aeon-prefixed payload keys', () => {
+        const parsed = parse(tokenize('aeon:mode = "transport"\n"aeon:payload" = 1').tokens);
+        assert.ok(parsed.document?.header);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, {
+            headerFieldNames: [...parsed.document.header.fields.keys()],
+        });
+        assert.deepEqual(converted.events.map((event) => event.path), ['$.["aeon:payload"]']);
+    });
+
     it('derives an exact origin and converts native UTF-16 ranges to UTF-8 byte spans', () => {
         const source = [
             '\uFEFF' + String.raw`a = <tag\HEAD\@{role = "café"}:node("😀")>`,

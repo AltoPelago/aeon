@@ -189,7 +189,7 @@ Options:
   --portable-aes     Emit portable flat AES node projection (inspect JSON only)
   --source-provenance  Include exact-source origin/span (requires --portable-aes or --telex)
   --telex            Emit Telex instead of the inspect report
-  --include-headers  Include AEON headers in Telex's explicit header plane
+  --include-headers  Include AEON headers in the explicit document projection
     --annotations      Include annotation stream records in inspect/bind output
     --annotations-only Output only annotation stream records in inspect output
     --sort-annotations Sort annotation records deterministically before output (inspect/bind)
@@ -502,8 +502,8 @@ function inspect(args: string[]): void {
         console.error(inspectUsage);
         process.exit(2);
     }
-    if (includeHeaders && !telexOutput) {
-        console.error('Error: --include-headers requires --telex');
+    if (includeHeaders && !telexOutput && !(jsonOutput && portableAes)) {
+        console.error('Error: --include-headers requires --telex or --json --portable-aes');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -606,6 +606,7 @@ function inspect(args: string[]): void {
     if (telexOutput && result.errors.length === 0) {
         process.stdout.write(exportTelex(result.events, {
             includeHeaders,
+            headerFieldNames: result.header ? [...result.header.fields.keys()] : [],
             ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
         }));
     } else if (jsonOutput) {
@@ -614,6 +615,7 @@ function inspect(args: string[]): void {
             annotationsOnly,
             sortAnnotations,
             portableAes,
+            includeHeaders,
             ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
         }, headerInfo);
     } else {
@@ -1527,7 +1529,7 @@ function integritySign(args: string[]): void {
  */
 function outputJSON(
     result: CompileResult,
-    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean; sourceBytes?: Uint8Array },
+    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean; includeHeaders: boolean; sourceBytes?: Uint8Array },
     headerInfo?: HeaderInfo,
 ): void {
     const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
@@ -1548,9 +1550,12 @@ function outputJSON(
             message: string;
         }>;
         annotations?: NonNullable<CompileResult['annotations']>;
+        projection?: 'aeon.document.v0';
     } = {
         events: options.portableAes
-            ? [...adaptTypeScriptAssignmentEventsToPortableAes(visibleEvents, {
+            ? [...adaptTypeScriptAssignmentEventsToPortableAes(options.includeHeaders ? result.events : visibleEvents, {
+                includeHeaders: options.includeHeaders,
+                headerFieldNames: result.header ? [...result.header.fields.keys()] : [],
                 ...(options.sourceBytes === undefined ? {} : { sourceBytes: options.sourceBytes }),
             }).events]
             : visibleEvents.map(event => ({
@@ -1573,6 +1578,9 @@ function outputJSON(
             message: error.message,
         })),
     };
+    if (options.portableAes && options.includeHeaders) {
+        output.projection = 'aeon.document.v0';
+    }
     if (options.includeAnnotations) {
         output.annotations = annotations;
     }
@@ -2181,7 +2189,10 @@ function readSchemaContractAeonFile(file: string, expectedSchemaId?: string): Lo
         process.exit(2);
     }
 
-    const finalized = finalizeJson(compiled.events, { mode: 'strict' });
+    const finalized = finalizeJson(compiled.events, {
+        mode: 'strict',
+        ...(compiled.header ? { header: compiled.header } : {}),
+    });
     if ((finalized.meta?.errors?.length ?? 0) > 0) {
         console.error(`Error: Schema contract AEON file failed to finalize: ${file}`);
         for (const error of finalized.meta?.errors ?? []) {

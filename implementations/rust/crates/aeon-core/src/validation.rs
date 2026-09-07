@@ -405,9 +405,6 @@ pub(crate) fn validate_datatypes(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
-        if event.key.starts_with("aeon:") {
-            continue;
-        }
         if let Some(datatype) = &event.datatype {
             if let Some(error) =
                 validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
@@ -606,7 +603,7 @@ pub(crate) fn validate_typed_mode_rules(
 
 pub(crate) fn extract_behavior_mode(bindings: &[Binding]) -> BehaviorMode {
     for binding in bindings {
-        if binding.key != "aeon:mode" {
+        if !binding.is_header || binding.key != "aeon:mode" {
             continue;
         }
         if let Value::StringLiteral { value, .. } = &binding.value {
@@ -815,12 +812,10 @@ fn validate_typed_mode_rules_in_scope(
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
-        if matches!(parent.segments.as_slice(), [crate::PathSegment::Root])
-            && binding.key.starts_with("aeon:")
-        {
+        if matches!(parent.segments.as_slice(), [crate::PathSegment::Root]) && binding.is_header {
             continue;
         }
-        let should_emit_untyped_value_error = !binding.key.starts_with("aeon:")
+        let should_emit_untyped_value_error = !binding.is_header
             && binding.datatype.is_none()
             && !(matches!(mode, BehaviorMode::Strict)
                 && matches!(binding.value, Value::ToggleLiteral { .. }));

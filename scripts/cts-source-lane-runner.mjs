@@ -92,7 +92,8 @@ function normalizeAesEvents(events) {
   return events
     .filter((e) => !isNodeChildProjection(e, eventByPath))
     .map((e) => ({
-    path: normalizePath(String(e?.path ?? '')),
+    path: typeof e?.path === 'string' ? normalizePath(e.path) : null,
+    header: typeof e?.header === 'string' ? normalizePath(e.header) : null,
     identity:
       typeof e?.identity === 'string'
         ? e.identity
@@ -219,12 +220,12 @@ function compareExpectedArray(expected, actual, label) {
     const exp = expected[i];
     const got = actual[i];
     for (const k of Object.keys(exp)) {
-      const ev = (k === 'path' || k === 'reference') && typeof exp[k] === 'string'
+      const ev = (k === 'path' || k === 'header' || k === 'reference') && typeof exp[k] === 'string'
         ? normalizePath(exp[k])
         : k === 'datatype' && typeof exp[k] === 'string'
           ? normalizeDatatype(exp[k])
         : exp[k];
-      const gv = (k === 'path' || k === 'reference') && typeof got?.[k] === 'string'
+      const gv = (k === 'path' || k === 'header' || k === 'reference') && typeof got?.[k] === 'string'
         ? normalizePath(got[k])
         : k === 'datatype' && typeof got?.[k] === 'string'
           ? normalizeDatatype(got[k])
@@ -341,7 +342,7 @@ function renderLimitsFile(limits) {
     .join('\n\n') + '\n';
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, sourceProvenance, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, sourceProvenance, includeHeaders, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -359,6 +360,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portabl
   if (rich) args.push('--rich');
   if (portableAes) args.push('--portable-aes');
   if (sourceProvenance) args.push('--source-provenance');
+  if (includeHeaders) args.push('--include-headers');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
@@ -609,6 +611,7 @@ async function main() {
       const rich = Boolean(test.input?.options?.rich);
       const portableAes = Boolean(test.input?.options?.portable_aes);
       const sourceProvenance = Boolean(test.input?.options?.source_provenance);
+      const includeHeaders = Boolean(test.input?.options?.include_headers);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
@@ -684,6 +687,7 @@ async function main() {
           rich,
           portableAes,
           sourceProvenance,
+          includeHeaders,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
@@ -711,6 +715,7 @@ async function main() {
           rich,
           portableAes,
           sourceProvenance,
+          includeHeaders,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
@@ -738,6 +743,7 @@ async function main() {
                 }
             : {
                 events: ok ? normalizeAesEvents(inspect.parse.events) : [],
+                projection: inspect.parse.projection ?? null,
               };
       }
 
@@ -780,6 +786,10 @@ async function main() {
         failures.push(...compareExpectedArray(test.expected?.result?.bindings, result.bindings, 'bindings'));
       } else {
         failures.push(...compareExpectedArray(test.expected?.result?.events, result.events, 'events'));
+        if ('projection' in (test.expected?.result ?? {})
+          && (test.expected.result.projection ?? null) !== (result.projection ?? null)) {
+          failures.push(`projection mismatch: expected ${JSON.stringify(test.expected.result.projection ?? null)}, got ${JSON.stringify(result.projection ?? null)}`);
+        }
       }
 
       if (failures.length > 0) {
@@ -791,6 +801,9 @@ async function main() {
         }
         if (args.lane === 'core' && failures.some((failure) => failure.startsWith('bindings'))) {
           console.log(`   - actual bindings: ${result.bindings.map((binding) => `${binding.path}:${binding.datatype ?? '-'}`).join(', ')}`);
+        }
+        if (args.lane === 'aes' && failures.some((failure) => failure.startsWith('events'))) {
+          console.log(`   - actual events: ${JSON.stringify(result.events)}`);
         }
       } else {
         pass += 1;

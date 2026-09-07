@@ -228,7 +228,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
     profile_errors = (
-        validate_gp_datatype_clarifiers(resolved_bindings)
+        validate_gp_datatype_clarifiers(parse_result.document, resolved_bindings)
         if uses_gp_profile(opts, parse_result.document)
         else []
     )
@@ -245,8 +245,8 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         )
     events = [
         event
-        for event in internal_events
-        if not str(event["key"]).startswith("aeon:")
+        for index, event in enumerate(internal_events)
+        if not should_skip_header_binding_for_mode(parse_result.document, resolved_bindings[index])
     ]
     return CompileResult(
         events=events,
@@ -449,10 +449,10 @@ def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
     return isinstance(profile, StringLiteral) and profile.value == AEON_GP_PROFILE_ID
 
 
-def validate_gp_datatype_clarifiers(bindings: list[ResolvedBinding]) -> list[AeonError]:
+def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedBinding]) -> list[AeonError]:
     errors: list[AeonError] = []
     for binding in bindings:
-        if binding.key.startswith("aeon:") or binding.datatype is None:
+        if should_skip_header_binding_for_mode(document, binding) or binding.datatype is None:
             continue
         surface = parse_gp_datatype_surface(binding.datatype)
         if surface is None:
@@ -993,11 +993,12 @@ def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode
 
 
 def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBinding) -> bool:
-    if not binding.key.startswith("aeon:"):
-        return False
     if document.header is None:
         return False
-    return True
+    prefix = "aeon:"
+    if not binding.key.startswith(prefix):
+        return False
+    return binding.key[len(prefix) :] in document.header.fields
 
 
 def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: int) -> list[AeonError]:

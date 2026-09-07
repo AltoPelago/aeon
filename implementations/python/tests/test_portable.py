@@ -83,6 +83,49 @@ class PortableProjectionTests(unittest.TestCase):
         self.assertEqual("25:30", source_backed["events"][1]["span"])
         self.assertTrue(source_backed["report"]["provenanceLossless"])
 
+    def test_document_projection_completes_structured_header_containers(self) -> None:
+        result = compile_source(
+            'aeon:header = {\n  mode = "transport"\n'
+            '  conventions = ["one", "two"]\n}\na = 1\n',
+            CompileOptions(mode="transport"),
+        )
+        self.assertEqual([], result.errors)
+
+        document = adapt_python_assignment_events_to_portable_aes(
+            result.events,
+            header=result.header,
+            include_headers=True,
+        )
+        self.assertEqual(
+            [
+                '$.["aeon:mode"]',
+                '$.["aeon:conventions"]',
+                '$.["aeon:conventions"][0]',
+                '$.["aeon:conventions"][1]',
+            ],
+            [event.get("header") for event in document["events"][:4]],
+        )
+        self.assertEqual(
+            ["StringLiteral", "ListNode", "StringLiteral", "StringLiteral"],
+            [event["kind"] for event in document["events"][:4]],
+        )
+        self.assertEqual("$.a", document["events"][4]["path"])
+
+    def test_quoted_aeon_prefix_key_remains_in_the_body_plane(self) -> None:
+        result = compile_source('aeon:mode = "transport"\n"aeon:payload" = 1\n')
+        self.assertEqual([], result.errors)
+        self.assertEqual(["aeon:payload"], [event["key"] for event in result.events])
+
+        document = adapt_python_assignment_events_to_portable_aes(
+            result.events,
+            header=result.header,
+            include_headers=True,
+        )
+        self.assertEqual(
+            ['$.["aeon:mode"]', '$.["aeon:payload"]'],
+            [event.get("header") or event.get("path") for event in document["events"]],
+        )
+
     def test_converts_code_point_ranges_to_exact_utf8_byte_spans(self) -> None:
         source = (
             "\ufeff"

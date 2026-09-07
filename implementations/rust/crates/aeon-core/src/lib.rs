@@ -555,6 +555,7 @@ impl AttributeValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binding {
     pub key: String,
+    pub is_header: bool,
     pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub attributes: BTreeMap<String, AttributeValue>,
@@ -995,7 +996,8 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
         return true;
     }
     bindings.iter().any(|binding| {
-        binding.key == "aeon:profile"
+        binding.is_header
+            && binding.key == "aeon:profile"
             && matches!(
                 &binding.value,
                 Value::StringLiteral { value, .. } if value == AEON_GP_PROFILE_ID

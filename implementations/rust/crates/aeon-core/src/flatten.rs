@@ -222,7 +222,7 @@ fn flatten_validation_bindings(
             &binding.value,
             shallow_event_values,
         );
-        if !binding.key.starts_with("aeon:") {
+        if !binding.is_header {
             events.push(ValidationEvent {
                 path: path_text.clone(),
                 datatype: binding.datatype.clone(),
@@ -500,7 +500,7 @@ fn flatten_bindings(
             &binding.value,
             shallow_event_values,
         );
-        let visible = !binding.key.starts_with("aeon:");
+        let visible = !binding.is_header;
         if visible {
             events.push(AssignmentEvent {
                 path: path.clone(),

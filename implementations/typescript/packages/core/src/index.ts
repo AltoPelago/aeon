@@ -26,7 +26,6 @@ import {
     AEON_DOCUMENT_PROJECTION,
     adaptTypeScriptAssignmentEventsToPortableAes,
     encodeTelex,
-    projectPortableEvents,
     type AssignmentEvent,
     type PortableAesEvent,
     type TelexEncodeOptions,
@@ -208,6 +207,8 @@ export interface CompileToTelexOptions {
 export interface ExportTelexOptions extends TelexEncodeOptions {
     /** Include AEON document headers in the explicit header plane. Default: false. */
     readonly includeHeaders?: boolean;
+    /** Exact unprefixed fields from a retained AEON header model. */
+    readonly headerFieldNames?: readonly string[] | ReadonlySet<string>;
     /** Exact source bytes asserted to correspond to the supplied native events. */
     readonly sourceBytes?: Uint8Array;
 }
@@ -416,6 +417,7 @@ export function compileToTelex(
         compileResult.events,
         options.includeHeaders ?? false,
         options.sourceBytes,
+        compileResult.header ? [...compileResult.header.fields.keys()] : [],
     );
     const telexOptions: TelexEncodeOptions = {
         ...options.telex,
@@ -435,8 +437,8 @@ export function exportTelex(
     options: ExportTelexOptions = {},
 ): string {
     const includeHeaders = options.includeHeaders ?? false;
-    const { includeHeaders: _includeHeaders, sourceBytes, ...encodeOptions } = options;
-    return encodeTelex(projectAssignmentEventsToTelex(events, includeHeaders, sourceBytes), includeHeaders
+    const { includeHeaders: _includeHeaders, headerFieldNames, sourceBytes, ...encodeOptions } = options;
+    return encodeTelex(projectAssignmentEventsToTelex(events, includeHeaders, sourceBytes, headerFieldNames), includeHeaders
         ? { ...encodeOptions, projection: AEON_DOCUMENT_PROJECTION }
         : encodeOptions);
 }
@@ -445,23 +447,13 @@ function projectAssignmentEventsToTelex(
     events: readonly AssignmentEvent[],
     includeHeaders: boolean,
     sourceBytes?: Uint8Array,
+    headerFieldNames?: readonly string[] | ReadonlySet<string>,
 ): readonly (TelexRecord | PortableAesEvent)[] {
-    if (sourceBytes !== undefined) {
-        return adaptTypeScriptAssignmentEventsToPortableAes(events, { includeHeaders, sourceBytes }).events
-            .map((event): TelexRecord => ({ ...event }));
-    }
-    const isHeaderEvent = (event: AssignmentEvent): boolean => {
-        const first = event.path.segments[1];
-        return first?.type === 'member' && first.key.startsWith('aeon:');
-    };
-    const bodyRecords = projectPortableEvents(events.filter((event) => !isHeaderEvent(event)));
-    const headerRecords: TelexRecord[] = includeHeaders
-        ? projectPortableEvents(events.filter(isHeaderEvent)).map((record: PortableAesEvent) => {
-            const { path, ...fields } = record;
-            return { header: path, ...fields };
-        })
-        : [];
-    return [...headerRecords, ...bodyRecords];
+    return adaptTypeScriptAssignmentEventsToPortableAes(events, {
+        includeHeaders,
+        ...(headerFieldNames === undefined ? {} : { headerFieldNames }),
+        ...(sourceBytes === undefined ? {} : { sourceBytes }),
+    }).events.map((event): TelexRecord => ({ ...event }));
 }
 
 function compilePortabilityWarnings(options: {

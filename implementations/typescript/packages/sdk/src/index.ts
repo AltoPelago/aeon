@@ -63,6 +63,7 @@ export function readAeon(input: string, options: ReadAeonOptions = {}): ReadAeon
   const finalized = finalizeJson(compileResult.events, {
     mode: 'strict',
     ...(options.finalize ?? {}),
+    ...(compileResult.header ? { header: compileResult.header } : {}),
   });
 
   return {

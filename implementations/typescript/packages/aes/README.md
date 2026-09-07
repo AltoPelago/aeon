@@ -31,11 +31,13 @@ if (result.errors.length === 0) {
 ## API
 
 - `emitAssignmentEvents(input, options?)`
-- `projectPortableEvents(events)`
+- `projectPortableEvents(events)` emits the default body-only portable
+  projection
 - `adaptTypeScriptAssignmentEventsToPortableAes(events, options?)` returns the
   named `aeon.typescript.assignment-events.v0-to-aes.events.v0` compatibility
   result and its conversion report; optional exact `sourceBytes` derive a
-  SHA-256 origin and convert native UTF-16 ranges to UTF-8 byte spans
+  SHA-256 origin and convert native UTF-16 ranges to UTF-8 byte spans;
+  `includeHeaders: true` selects `aeon.document.v0`
 - `parseTelex(input, options?)`
 - `encodeTelex(records, options?)`
 - `canonicalizeTelex(input, options?)`

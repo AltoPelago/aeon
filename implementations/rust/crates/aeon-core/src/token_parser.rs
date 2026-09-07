@@ -202,7 +202,7 @@ impl<'a> TokenParser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let start = self.peek().span.start;
-        let key = self.parse_key()?;
+        let (key, is_header) = self.parse_key()?;
         self.skip_newlines();
         let structural_id = self.parse_optional_structural_identity()?;
         self.skip_newlines();
@@ -242,6 +242,7 @@ impl<'a> TokenParser<'a> {
         let end = self.previous().span.end;
         Ok(Binding {
             key,
+            is_header,
             structural_id,
             datatype,
             attributes,
@@ -251,7 +252,7 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_key(&mut self) -> Result<String, Diagnostic> {
+    fn parse_key(&mut self) -> Result<(String, bool), Diagnostic> {
         let token = self.peek();
         match token.kind {
             kind if is_bare_key_kind(kind) => {
@@ -266,11 +267,11 @@ impl<'a> TokenParser<'a> {
                             TokenKind::Identifier,
                             "Expected header field after `aeon:`",
                         )?;
-                        return Ok(format!("aeon:{}", field.text));
+                        return Ok((format!("aeon:{}", field.text), true));
                     }
                     self.current = saved;
                 }
-                Ok(self.advance().text.clone())
+                Ok((self.advance().text.clone(), false))
             }
             TokenKind::String => {
                 if token.quote == Some('`') {
@@ -283,7 +284,7 @@ impl<'a> TokenParser<'a> {
                         .at_path("$")
                         .with_span(token.span));
                 }
-                Ok(key)
+                Ok((key, false))
             }
             _ => Err(self.error_at_current("Expected key")),
         }
@@ -1276,7 +1277,7 @@ impl<'a> TokenParser<'a> {
         while !self.check(terminator) {
             let key_span = self.peek().span;
             let entry_start = key_span.start;
-            let key = self.parse_key()?;
+            let (key, _) = self.parse_key()?;
             if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }

@@ -501,6 +501,11 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "Error: --source-provenance requires --portable-aes or --telex\n{INSPECT_USAGE}"
         ));
     }
+    if include_headers && !telex_output && !(json_output && portable_aes) {
+        return Err(format!(
+            "Error: --include-headers requires --telex or --json --portable-aes\n{INSPECT_USAGE}"
+        ));
+    }
     if telex_output
         && (json_output
             || portable_aes
@@ -619,8 +624,9 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                     let converted = adapt_rust_assignment_events_to_portable_aes(
                         &result.events,
                         &PortableAesCompatibilityOptions {
+                            include_headers,
+                            header: result.header.clone(),
                             source_bytes: source_provenance.then(|| source.as_bytes().to_vec()),
-                            ..PortableAesCompatibilityOptions::default()
                         },
                     )
                     .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
@@ -631,6 +637,10 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             );
             println!("  \"errors\": {},", render_errors(&result.errors));
             println!("  \"warnings\": {}", render_errors(&result.warnings));
+            if portable_aes && include_headers {
+                println!(",");
+                println!("  \"projection\": \"aeon.document.v0\"");
+            }
             if let Some(contracts) = declared_contracts {
                 println!(",");
                 println!(

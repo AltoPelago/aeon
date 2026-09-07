@@ -94,8 +94,15 @@ export interface PortableAesCompatibilityResultV0 {
 
 export interface PortableAesCompatibilityOptions {
     readonly includeHeaders?: boolean;
+    /** Exact unprefixed fields from the retained AEON header model. */
+    readonly headerFieldNames?: readonly string[] | ReadonlySet<string>;
     /** Exact, unnormalized UTF-8 source artifact used to derive origin and byte spans. */
     readonly sourceBytes?: Uint8Array;
+}
+
+export interface PortableAesProjectionOptions {
+    /** Exact unprefixed fields from the retained AEON header model. */
+    readonly headerFieldNames?: readonly string[] | ReadonlySet<string>;
 }
 
 export class PortableAesSourceError extends Error {
@@ -121,8 +128,12 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
     options: PortableAesCompatibilityOptions = {},
 ): PortableAesCompatibilityResultV0 {
     const includeHeaders = options.includeHeaders === true;
-    const body = events.filter((event) => !isLegacyHeaderEvent(event));
-    const headers = includeHeaders ? events.filter(isLegacyHeaderEvent) : [];
+    const headerFieldNames = options.headerFieldNames === undefined
+        ? undefined
+        : new Set(options.headerFieldNames);
+    const isHeader = (event: AssignmentEvent): boolean => isLegacyHeaderEvent(event, headerFieldNames);
+    const body = events.filter((event) => !isHeader(event));
+    const headers = includeHeaders ? events.filter(isHeader) : [];
     const provenance = options.sourceBytes === undefined ? null : createPortableSourceContext(options.sourceBytes);
     const bodyEvents = projectPortableEventsWithLocalSpans(body)
         .map((event) => applyPortableProvenance(event, provenance));
@@ -138,7 +149,14 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
         return { header: path, ...rest, ...(event.span !== undefined ? { span: event.span } : {}) };
     });
     const projected = [...headerEvents, ...bodyEvents];
-    const changes = compatibilityChanges(events, body, projected, includeHeaders, provenance !== null);
+    const changes = compatibilityChanges(
+        events,
+        body,
+        projected,
+        includeHeaders,
+        provenance !== null,
+        headerFieldNames,
+    );
     const provenanceLossless = events.length === 0 || (
         provenance !== null
         && projected.length > 0
@@ -169,10 +187,21 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
  * synthetic `NodeHead` event. Source child paths gain the NodeHead index,
  * recursively, while ordinary member/list/tuple paths remain unchanged.
  * Binding, anonymous-head, and node-head attributes are emitted as ordinary
- * events beneath their owning path's `.@` address space.
+ * events beneath their owning path's `.@` address space. The default portable
+ * projection is body-only; use the named compatibility adapter with
+ * `includeHeaders: true` to select the explicit document projection.
  */
-export function projectPortableEvents(events: readonly AssignmentEvent[]): readonly PortableAesEvent[] {
-    return projectPortableEventsWithLocalSpans(events).map((projected) => projected.event);
+export function projectPortableEvents(
+    events: readonly AssignmentEvent[],
+    options: PortableAesProjectionOptions = {},
+): readonly PortableAesEvent[] {
+    const headerFieldNames = options.headerFieldNames === undefined
+        ? undefined
+        : new Set(options.headerFieldNames);
+    return projectPortableEventsWithLocalSpans(
+        events.filter((event) => !isLegacyHeaderEvent(event, headerFieldNames)),
+    )
+        .map((projected) => projected.event);
 }
 
 interface PortableEventWithLocalSpan {
@@ -522,9 +551,13 @@ function translateReferenceTarget(
     return out;
 }
 
-function isLegacyHeaderEvent(event: AssignmentEvent): boolean {
+function isLegacyHeaderEvent(
+    event: AssignmentEvent,
+    headerFieldNames?: ReadonlySet<string>,
+): boolean {
     const segment = event.path.segments[1];
-    return segment?.type === 'member' && segment.key.startsWith('aeon:');
+    if (segment?.type !== 'member' || !segment.key.startsWith('aeon:')) return false;
+    return headerFieldNames === undefined || headerFieldNames.has(segment.key.slice('aeon:'.length));
 }
 
 function compatibilityChanges(
@@ -533,13 +566,14 @@ function compatibilityChanges(
     projected: readonly PortableAesCompatibilityEvent[],
     includeHeaders: boolean,
     sourceBacked: boolean,
+    headerFieldNames?: ReadonlySet<string>,
 ): readonly PortableAesConversionChange[] {
     const changes: PortableAesConversionChange[] = [];
     const pathMap = createPortableEventPathMap(bodyEvents);
 
     for (const event of sourceEvents) {
         const sourcePath = formatPath(event.path);
-        const header = isLegacyHeaderEvent(event);
+        const header = isLegacyHeaderEvent(event, headerFieldNames);
         const targetPath = header && includeHeaders ? sourcePath : pathMap.get(sourcePath);
         if (!sourceBacked) {
             changes.push({

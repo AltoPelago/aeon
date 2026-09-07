@@ -119,8 +119,8 @@ def inspect(args: list[str]) -> int:
     if telex_output and (json_output or portable_aes or include_annotations):
         print("Error: --telex cannot be combined with JSON or annotation output flags", file=sys.stderr)
         return 2
-    if include_headers and not telex_output:
-        print("Error: --include-headers requires --telex", file=sys.stderr)
+    if include_headers and not telex_output and not (json_output and portable_aes):
+        print("Error: --include-headers requires --telex or --json --portable-aes", file=sys.stderr)
         return 2
     if portable_aes and not json_output:
         print("Error: --portable-aes requires --json", file=sys.stderr)
@@ -193,6 +193,7 @@ def inspect(args: list[str]) -> int:
                 adapt_python_assignment_events_to_portable_aes(
                     result.events,
                     header=result.header,
+                    include_headers=include_headers,
                     source_bytes=source_bytes if source_provenance else None,
                 )["events"]
                 if portable_aes
@@ -202,6 +203,8 @@ def inspect(args: list[str]) -> int:
         }
         if include_annotations:
             payload["annotations"] = annotations
+        if portable_aes and include_headers:
+            payload["projection"] = "aeon.document.v0"
         print(json.dumps(payload, indent=2))
     else:
         for error in result.errors:

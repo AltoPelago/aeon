@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
@@ -112,16 +112,18 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
         .as_deref()
         .map(create_source_context)
         .transpose()?;
-    let has_legacy_header_source = events.iter().any(is_legacy_header_event);
+    let is_header =
+        |event: &AssignmentEvent| is_legacy_header_event(event, options.header.as_ref());
+    let has_legacy_header_source = events.iter().any(is_header);
     let body = events
         .iter()
-        .filter(|event| !is_legacy_header_event(event))
+        .filter(|event| !is_header(event))
         .cloned()
         .collect::<Vec<_>>();
     let headers = if options.include_headers {
         events
             .iter()
-            .filter(|event| is_legacy_header_event(event))
+            .filter(|event| is_header(event))
             .cloned()
             .collect::<Vec<_>>()
     } else {
@@ -129,10 +131,14 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
     };
     let mut projected_headers = project_portable_events(&headers);
     if options.include_headers
-        && projected_headers.is_empty()
         && let Some(header) = options.header.as_ref()
     {
-        projected_headers = project_header_fields(header);
+        // Expanded legacy events may contain only inline descendants of a
+        // structured header value. The retained header model establishes the
+        // complete ordered plane; matching legacy records overlay it to keep
+        // their richer local metadata.
+        projected_headers =
+            merge_header_projections(project_header_fields(header), projected_headers);
     }
     let mut projected = projected_headers
         .into_iter()
@@ -150,6 +156,7 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
         &projected,
         options.include_headers,
         source_context.is_some(),
+        options.header.as_ref(),
     );
     if options.header.is_some() && headers.is_empty() && !options.include_headers {
         changes.push(compatibility_change(
@@ -352,6 +359,27 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
     }
     split_projected_datatypes(&mut projected);
     projected
+}
+
+fn merge_header_projections(
+    retained: Vec<PortableAesEvent>,
+    legacy: Vec<PortableAesEvent>,
+) -> Vec<PortableAesEvent> {
+    let mut legacy_by_path = legacy
+        .iter()
+        .cloned()
+        .map(|event| (event.path.clone(), event))
+        .collect::<HashMap<_, _>>();
+    let mut merged = retained
+        .into_iter()
+        .map(|event| legacy_by_path.remove(&event.path).unwrap_or(event))
+        .collect::<Vec<_>>();
+    merged.extend(
+        legacy
+            .into_iter()
+            .filter(|event| legacy_by_path.contains_key(&event.path)),
+    );
+    merged
 }
 
 fn compatibility_event_to_telex(
@@ -902,8 +930,14 @@ fn translate_reference_target(
     output
 }
 
-fn is_legacy_header_event(event: &AssignmentEvent) -> bool {
-    matches!(event.path.segments.get(1), Some(PathSegment::Member(key)) if key.starts_with("aeon:"))
+fn is_legacy_header_event(event: &AssignmentEvent, header: Option<&crate::HeaderFields>) -> bool {
+    let Some(PathSegment::Member(key)) = event.path.segments.get(1) else {
+        return false;
+    };
+    let Some(field) = key.strip_prefix("aeon:") else {
+        return false;
+    };
+    header.is_none_or(|header| header.fields.contains_key(field))
 }
 
 struct PortableSourceContext<'a> {
@@ -1014,6 +1048,7 @@ fn compatibility_changes(
     projected: &[PortableAesCompatibilityEvent],
     include_headers: bool,
     source_backed: bool,
+    header: Option<&crate::HeaderFields>,
 ) -> Vec<PortableAesConversionChange> {
     let mut changes = Vec::new();
     let node_source_paths = body_events
@@ -1033,8 +1068,8 @@ fn compatibility_changes(
 
     for event in source_events {
         let source_path = format_path(&event.path);
-        let header = is_legacy_header_event(event);
-        let target_path = if header && include_headers {
+        let header_event = is_legacy_header_event(event, header);
+        let target_path = if header_event && include_headers {
             Some(source_path.clone())
         } else {
             path_map.get(&source_path).cloned()
@@ -1057,7 +1092,7 @@ fn compatibility_changes(
             Some(source_path.clone()),
             target_path.clone(),
         ));
-        if header && !include_headers {
+        if header_event && !include_headers {
             changes.push(compatibility_change(
                 "omitted",
                 "AES_COMPAT_HEADER_EXCLUDED",
@@ -1068,7 +1103,7 @@ fn compatibility_changes(
             ));
             continue;
         }
-        if header {
+        if header_event {
             changes.push(compatibility_change(
                 "transformed",
                 "AES_COMPAT_HEADER_PROJECTED",
@@ -1289,6 +1324,53 @@ mod tests {
         assert_eq!(source_backed.events[0].span.as_deref(), Some("0:23"));
         assert_eq!(source_backed.events[1].span.as_deref(), Some("25:30"));
         assert!(source_backed.report.provenance_lossless);
+    }
+
+    #[test]
+    fn document_projection_completes_structured_header_containers() {
+        let source = concat!(
+            "aeon:header = {\n",
+            "  mode = \"transport\"\n",
+            "  conventions = [\"one\", \"two\"]\n",
+            "}\n",
+            "a = 1\n",
+        );
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let document = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                include_headers: true,
+                header: result.header.clone(),
+                ..PortableAesCompatibilityOptions::default()
+            },
+        )
+        .expect("document projection");
+        assert_eq!(
+            document.events[..4]
+                .iter()
+                .map(|event| event.header.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("$.[\"aeon:mode\"]"),
+                Some("$.[\"aeon:conventions\"]"),
+                Some("$.[\"aeon:conventions\"][0]"),
+                Some("$.[\"aeon:conventions\"][1]"),
+            ]
+        );
+        assert_eq!(
+            document.events[..4]
+                .iter()
+                .map(|event| event.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                "StringLiteral",
+                "ListNode",
+                "StringLiteral",
+                "StringLiteral"
+            ]
+        );
+        assert_eq!(document.events[4].path.as_deref(), Some("$.a"));
     }
 
     fn shapes(events: &[PortableAesEvent]) -> Vec<(&str, &str, Option<&str>)> {
@@ -1609,5 +1691,29 @@ mod tests {
         let telex = result.telex.expect("encoded Telex");
         assert!(telex.contains("projection=aeon.document.v0"));
         assert!(telex.contains("header=$.[\"aeon:mode\"]"), "{telex}");
+    }
+
+    #[test]
+    fn quoted_aeon_prefix_key_remains_in_the_body_plane() {
+        let result = compile_to_telex(
+            "aeon:mode = \"transport\"\n\"aeon:payload\" = 1",
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    include_headers: true,
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        assert!(
+            result.compile.errors.is_empty(),
+            "{:?}",
+            result.compile.errors
+        );
+        assert_eq!(result.compile.events.len(), 1);
+        assert_eq!(result.compile.events[0].key, "aeon:payload");
+        let telex = result.telex.expect("encoded Telex");
+        assert!(telex.contains("header=$.[\"aeon:mode\"]"), "{telex}");
+        assert!(telex.contains("path=$.[\"aeon:payload\"]"), "{telex}");
     }
 }

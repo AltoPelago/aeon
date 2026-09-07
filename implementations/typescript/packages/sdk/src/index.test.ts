@@ -143,6 +143,7 @@ test('readAeon compiles and finalizes aeon text', () => {
   assert.equal(doc.app, 'todo');
   assert.equal(doc.version, 1);
   assert.ok(Array.isArray(doc.todos));
+  assert.equal(doc['aeon:mode'], undefined);
 });
 
 test('readAeonChecked throws on compile/finalize errors and indexes events by canonical path', () => {

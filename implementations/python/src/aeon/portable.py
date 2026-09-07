@@ -30,13 +30,24 @@ def adapt_python_assignment_events_to_portable_aes(
     """Run the named Python legacy adapter and return events plus its report."""
 
     source_events = list(events)
-    has_legacy_header_source = any(is_legacy_header_event(event) for event in source_events)
-    body = [event for event in source_events if not is_legacy_header_event(event)]
-    headers = [event for event in source_events if is_legacy_header_event(event)] if include_headers else []
+    fields = header.get("fields") if header is not None else None
+    header_field_names = set(fields) if isinstance(fields, dict) else None
+    has_legacy_header_source = any(is_legacy_header_event(event, header_field_names) for event in source_events)
+    body = [event for event in source_events if not is_legacy_header_event(event, header_field_names)]
+    headers = [
+        event for event in source_events if is_legacy_header_event(event, header_field_names)
+    ] if include_headers else []
     projected_body = project_portable_events(body)
     projected_headers = project_portable_events(headers)
-    if include_headers and not projected_headers and header is not None:
-        projected_headers = project_header_records(header)
+    if include_headers and header is not None:
+        # Expanded legacy events may contain only inline descendants of a
+        # structured header value. Use the retained header model to establish
+        # the complete ordered plane, then overlay any matching legacy records
+        # so their richer local metadata is preserved.
+        projected_headers = merge_header_projections(
+            project_header_records(header),
+            projected_headers,
+        )
     normalized_headers: list[PortableEvent] = []
     for event in projected_headers:
         portable = dict(event)
@@ -55,6 +66,7 @@ def adapt_python_assignment_events_to_portable_aes(
         projected,
         include_headers,
         source_backed=source_context is not None,
+        header_field_names=header_field_names,
     )
     if header is not None and not headers and not include_headers:
         changes.append(conversion_change(
@@ -595,7 +607,10 @@ def stringify_value(value: object) -> str | None:
     return str(value)
 
 
-def is_legacy_header_event(event: dict[str, object]) -> bool:
+def is_legacy_header_event(
+    event: dict[str, object],
+    header_field_names: set[str] | None = None,
+) -> bool:
     path = event.get("path")
     if not isinstance(path, str):
         return False
@@ -603,7 +618,9 @@ def is_legacy_header_event(event: dict[str, object]) -> bool:
         segments = parse_canonical_path(path)
     except (TypeError, ValueError):
         return False
-    return bool(segments) and isinstance(segments[0], str) and segments[0].startswith("aeon:")
+    if not segments or not isinstance(segments[0], str) or not segments[0].startswith("aeon:"):
+        return False
+    return header_field_names is None or segments[0][len("aeon:"):] in header_field_names
 
 
 def create_source_context(source_bytes: bytes | bytearray | memoryview) -> tuple[str, list[int]]:
@@ -701,6 +718,7 @@ def compatibility_changes(
     include_headers: bool,
     *,
     source_backed: bool,
+    header_field_names: set[str] | None = None,
 ) -> list[dict[str, object]]:
     changes: list[dict[str, object]] = []
     node_source_paths = {
@@ -714,7 +732,7 @@ def compatibility_changes(
     }
     for event in source_events:
         source_path = str(event.get("path", "$"))
-        header = is_legacy_header_event(event)
+        header = is_legacy_header_event(event, header_field_names)
         target_path = source_path if header and include_headers else path_map.get(source_path)
         if not source_backed:
             changes.append(conversion_change(
@@ -870,6 +888,32 @@ def project_header_records(header: dict[str, object]) -> list[PortableEvent]:
                 record["header"] = address
                 projected_header.append(_ordered_portable_record(record, "header"))
     return projected_header
+
+
+def merge_header_projections(
+    retained: list[PortableEvent],
+    legacy: list[PortableEvent],
+) -> list[PortableEvent]:
+    """Fill an incomplete legacy header expansion from the retained model."""
+
+    legacy_by_address = {
+        str(record.get("header") or record.get("path")): record
+        for record in legacy
+        if record.get("header") is not None or record.get("path") is not None
+    }
+    merged: list[PortableEvent] = []
+    used: set[str] = set()
+    for record in retained:
+        address = str(record.get("header") or record.get("path"))
+        replacement = legacy_by_address.get(address)
+        merged.append(replacement if replacement is not None else record)
+        used.add(address)
+    merged.extend(
+        record
+        for record in legacy
+        if str(record.get("header") or record.get("path")) not in used
+    )
+    return merged
 
 
 def export_telex(
