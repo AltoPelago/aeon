@@ -1042,6 +1042,25 @@ mod tests {
     }
 
     #[test]
+    fn sdk_telex_export_supports_exact_source_provenance() {
+        let source = "\u{feff}answer = \"😀\"";
+        let mut options = CompileToTelexOptions::default();
+        options.telex.source_bytes = Some(source.as_bytes().to_vec());
+        let result = aeon_to_telex(source, options);
+        assert!(
+            result.compile.errors.is_empty(),
+            "{:?}",
+            result.compile.errors
+        );
+        assert!(result.encode_error.is_none(), "{:?}", result.encode_error);
+        assert_eq!(
+            result.records[0].get("origin"),
+            Some("sha256:c1c6f9dfcbb991dadfd099abb19a091d85e5f1e2b722634dfb83e56f73f57a18")
+        );
+        assert_eq!(result.records[0].get("span"), Some("3:18"));
+    }
+
+    #[test]
     fn rejects_partial_telex_at_the_materialization_boundary() {
         let wire = "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n";
         let error = load_telex_str::<JsonValue>(wire, TelexLoadOptions::default())

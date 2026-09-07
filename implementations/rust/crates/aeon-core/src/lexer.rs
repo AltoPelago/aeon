@@ -156,6 +156,22 @@ impl<'a> Lexer<'a> {
     fn scan_token(&mut self) {
         let start = self.current_position();
         let ch = self.advance();
+
+        if ch == '\u{feff}' && start.offset == 0 {
+            return;
+        }
+        if ch == '#'
+            && self.peek() == '!'
+            && start.line == 1
+            && (start.offset == 0
+                || (self.input.starts_with('\u{feff}') && start.offset == '\u{feff}'.len_utf8()))
+        {
+            while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
+                self.advance();
+            }
+            return;
+        }
+
         match ch {
             ' ' | '\t' => {}
             '\n' => {

@@ -28,6 +28,7 @@ aeon-cli = { path = "crates/aeon-cli", version = "0.12.1" }
 aeon-core = { path = "crates/aeon-core", version = "0.12.1" }
 aeon-finalize = { path = "crates/aeon-finalize", version = "0.12.1" }
 aeon-wasm = { path = "crates/aeon-wasm", version = "0.12.1" }
+sha2 = "0.11.0"
 
 [workspace.lints.clippy]
 dbg_macro = "deny"

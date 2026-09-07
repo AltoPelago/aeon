@@ -23,10 +23,10 @@ pub use pathing::format_path;
 pub use portable::{
     CompileToTelexOptions, CompileToTelexResult, ExportTelexOptions, PortableAesCompatibilityEvent,
     PortableAesCompatibilityOptions, PortableAesCompatibilityResultV0, PortableAesConversionChange,
-    PortableAesConversionReportV0, PortableAesEvent, RUST_ASSIGNMENT_EVENTS_CONTRACT_V0,
-    RUST_PORTABLE_AES_ADAPTER_V0, RUST_PORTABLE_AES_ADAPTER_VERSION_V0,
-    adapt_rust_assignment_events_to_portable_aes, compile_to_telex, export_telex,
-    project_portable_events, project_telex_records,
+    PortableAesConversionReportV0, PortableAesEvent, PortableAesSourceError,
+    RUST_ASSIGNMENT_EVENTS_CONTRACT_V0, RUST_PORTABLE_AES_ADAPTER_V0,
+    RUST_PORTABLE_AES_ADAPTER_VERSION_V0, adapt_rust_assignment_events_to_portable_aes,
+    compile_to_telex, export_telex, project_portable_events, project_telex_records,
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
@@ -70,8 +70,11 @@ fn trace_compile(message: impl AsRef<str>) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
+    /// One-based source line.
     pub line: usize,
+    /// One-based Unicode-scalar column.
     pub column: usize,
+    /// Zero-based UTF-8 byte offset into the exact source artifact.
     pub offset: usize,
 }
 
@@ -357,6 +360,7 @@ pub enum Value {
         attribute_order: Vec<String>,
         datatype: Option<String>,
         children: Vec<Value>,
+        head_span: Span,
     },
     ListNode {
         items: Vec<Value>,
@@ -473,6 +477,7 @@ pub struct AttributeValue {
     pub nested_attr_order: Vec<String>,
     pub object_members: BTreeMap<String, AttributeValue>,
     pub object_member_order: Vec<String>,
+    pub span: Option<Span>,
 }
 
 impl AttributeValue {
@@ -486,6 +491,7 @@ impl AttributeValue {
             nested_attr_order: Vec::new(),
             object_members: BTreeMap::new(),
             object_member_order: Vec::new(),
+            span: None,
         }
     }
 
@@ -502,6 +508,7 @@ impl AttributeValue {
             nested_attr_order,
             object_members: BTreeMap::new(),
             object_member_order: Vec::new(),
+            span: None,
         }
     }
 
@@ -518,6 +525,7 @@ impl AttributeValue {
             nested_attr_order: Vec::new(),
             object_members,
             object_member_order,
+            span: None,
         }
     }
 
@@ -539,6 +547,7 @@ impl AttributeValue {
             nested_attr_order,
             object_members,
             object_member_order,
+            span: None,
         }
     }
 }
@@ -577,6 +586,7 @@ pub struct BindingProjection {
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
     pub order: Vec<String>,
+    pub spans: BTreeMap<String, Span>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -607,7 +617,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         let actual_bytes = input.len();
         if actual_bytes > max_bytes {
             return CompileResult {
-                source: strip_preamble(&strip_leading_bom(input)),
+                source: input.to_owned(),
                 events: Vec::new(),
                 errors: vec![Diagnostic {
                     code: String::from("INPUT_SIZE_EXCEEDED"),
@@ -625,8 +635,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    let source = strip_leading_bom(input);
-    let source = strip_preamble(&source);
+    let source = input.to_owned();
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     let parsed = parse_document_from_tokens_recovery(
@@ -1428,11 +1437,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strips_leading_bom_before_processing() {
+    fn retains_leading_bom_in_exact_source_coordinates() {
         let result = compile("\u{feff}hello = 1", CompileOptions::default());
-        assert_eq!(result.source, "hello = 1");
+        assert_eq!(result.source, "\u{feff}hello = 1");
         assert!(result.errors.is_empty());
         assert!(result.warnings.is_empty());
+        assert_eq!(result.events[0].span.start.offset, 3);
+        assert_eq!(result.events[0].span.start.column, 2);
+    }
+
+    #[test]
+    fn retains_preamble_and_crlf_in_exact_source_coordinates() {
+        let source = "\u{feff}#!/usr/bin/env aeon\r\n//! format:aeon.test.v1\r\nvalue = 1";
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.source, source);
+        assert_eq!(
+            result.events[0].span.start.offset,
+            source.find("value").expect("value")
+        );
+        assert_eq!(result.events[0].span.start.line, 3);
+        assert_eq!(result.events[0].span.start.column, 1);
     }
 
     #[test]

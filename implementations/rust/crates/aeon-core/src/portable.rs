@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, HashSet};
+use std::error::Error;
+use std::fmt;
 
 use aes_telex::{
     AEON_DOCUMENT_PROJECTION, DatatypeClarifier, DatatypeDescriptor, GenericArgument,
     TelexEncodeError, TelexLimits, TelexRecord, encode_telex_with_projection_and_limits,
     parse_datatype_descriptor,
 };
+use sha2::{Digest, Sha256};
 
 use crate::pathing::{format_path, render_member_segment};
 use crate::{
@@ -28,6 +31,20 @@ pub struct PortableAesEvent {
 pub const RUST_ASSIGNMENT_EVENTS_CONTRACT_V0: &str = "aeon.rust.assignment-events.v0";
 pub const RUST_PORTABLE_AES_ADAPTER_V0: &str = "aeon.rust.assignment-events.v0-to-aes.events.v0";
 pub const RUST_PORTABLE_AES_ADAPTER_VERSION_V0: &str = "0.1.0-candidate";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortableAesSourceError {
+    pub code: &'static str,
+    pub detail: String,
+}
+
+impl fmt::Display for PortableAesSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.detail)
+    }
+}
+
+impl Error for PortableAesSourceError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortableAesCompatibilityEvent {
@@ -73,6 +90,8 @@ pub struct PortableAesConversionReportV0 {
 pub struct PortableAesCompatibilityOptions {
     pub include_headers: bool,
     pub header: Option<crate::HeaderFields>,
+    /// Exact, unnormalized UTF-8 source artifact used for optional provenance.
+    pub source_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,11 +103,16 @@ pub struct PortableAesCompatibilityResultV0 {
 /// Run the named Rust legacy adapter and return a strict portable stream plus
 /// its conversion report. Existing projection helpers retain their local span
 /// behavior for same-process callers.
-#[must_use]
 pub fn adapt_rust_assignment_events_to_portable_aes(
     events: &[AssignmentEvent],
     options: &PortableAesCompatibilityOptions,
-) -> PortableAesCompatibilityResultV0 {
+) -> Result<PortableAesCompatibilityResultV0, PortableAesSourceError> {
+    let source_context = options
+        .source_bytes
+        .as_deref()
+        .map(create_source_context)
+        .transpose()?;
+    let has_legacy_header_source = events.iter().any(is_legacy_header_event);
     let body = events
         .iter()
         .filter(|event| !is_legacy_header_event(event))
@@ -112,14 +136,21 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
     }
     let mut projected = projected_headers
         .into_iter()
-        .map(|event| compatibility_event(event, true))
-        .collect::<Vec<_>>();
+        .map(|event| compatibility_event(event, true, source_context.as_ref()))
+        .collect::<Result<Vec<_>, _>>()?;
     projected.extend(
         project_portable_events(&body)
             .into_iter()
-            .map(|event| compatibility_event(event, false)),
+            .map(|event| compatibility_event(event, false, source_context.as_ref()))
+            .collect::<Result<Vec<_>, _>>()?,
     );
-    let mut changes = compatibility_changes(events, &body, &projected, options.include_headers);
+    let mut changes = compatibility_changes(
+        events,
+        &body,
+        &projected,
+        options.include_headers,
+        source_context.is_some(),
+    );
     if options.header.is_some() && headers.is_empty() && !options.include_headers {
         changes.push(compatibility_change(
             "omitted",
@@ -130,8 +161,15 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
             None,
         ));
     }
-    let has_header_source = !headers.is_empty() || options.header.is_some();
-    PortableAesCompatibilityResultV0 {
+    let has_header_source = has_legacy_header_source || options.header.is_some();
+    let no_source_records = events.is_empty() && !has_header_source;
+    let all_source_records_included = options.include_headers || !has_header_source;
+    let provenance_lossless = no_source_records
+        || (source_context.is_some()
+            && all_source_records_included
+            && !projected.is_empty()
+            && projected.iter().all(|event| event.span.is_some()));
+    Ok(PortableAesCompatibilityResultV0 {
         events: projected,
         report: PortableAesConversionReportV0 {
             source_contract: RUST_ASSIGNMENT_EVENTS_CONTRACT_V0,
@@ -142,11 +180,11 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
             projection: options.include_headers.then_some(AEON_DOCUMENT_PROJECTION),
             semantic_lossless: true,
             record_lossless: events.is_empty() && !has_header_source,
-            provenance_lossless: events.is_empty() && !has_header_source,
+            provenance_lossless,
             semantic_loss_authorized: false,
             changes,
         },
-    }
+    })
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -156,6 +194,8 @@ pub struct ExportTelexOptions {
     pub profile: Option<String>,
     pub projection: Option<String>,
     pub limits: TelexLimits,
+    /// Exact, unnormalized UTF-8 source artifact used for optional provenance.
+    pub source_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -186,6 +226,27 @@ pub fn compile_to_telex(input: &str, mut options: CompileToTelexOptions) -> Comp
             records: Vec::new(),
             telex: None,
             encode_error: None,
+        };
+    }
+    if options
+        .telex
+        .source_bytes
+        .as_deref()
+        .is_some_and(|bytes| std::str::from_utf8(bytes).is_ok() && bytes != input.as_bytes())
+    {
+        return CompileToTelexResult {
+            compile,
+            records: Vec::new(),
+            telex: None,
+            encode_error: Some(TelexEncodeError {
+                code: "AES_COMPAT_SOURCE_MISMATCH",
+                detail: String::from(
+                    "Exact source_bytes must match the AEON string compiled for Telex export.",
+                ),
+                counter: None,
+                observed: None,
+                limit: None,
+            }),
         };
     }
     if options.telex.include_headers {
@@ -249,36 +310,20 @@ pub fn project_telex_records(
     events: &[AssignmentEvent],
     options: &ExportTelexOptions,
 ) -> Result<Vec<TelexRecord>, TelexEncodeError> {
-    let is_header = |event: &AssignmentEvent| matches!(event.path.segments.get(1), Some(PathSegment::Member(key)) if key.starts_with("aeon:"));
-    let body = project_portable_events(
-        &events
-            .iter()
-            .filter(|event| !is_header(event))
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
-    let mut records = Vec::new();
-    if options.include_headers {
-        let mut header = project_portable_events(
-            &events
-                .iter()
-                .filter(|event| is_header(event))
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-        if header.is_empty()
-            && let Some(fields) = options.header.as_ref()
-        {
-            header = project_header_fields(fields);
-        }
-        for event in &header {
-            records.push(portable_to_telex(event, "header")?);
-        }
-    }
-    for event in &body {
-        records.push(portable_to_telex(event, "path")?);
-    }
-    Ok(records)
+    let converted = adapt_rust_assignment_events_to_portable_aes(
+        events,
+        &PortableAesCompatibilityOptions {
+            include_headers: options.include_headers,
+            header: options.header.clone(),
+            source_bytes: options.source_bytes.clone(),
+        },
+    )
+    .map_err(source_error_to_telex)?;
+    converted
+        .events
+        .iter()
+        .map(compatibility_event_to_telex)
+        .collect()
 }
 
 fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> {
@@ -299,7 +344,7 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
                 identity: None,
                 datatype: None,
                 attributes: None,
-                span: None,
+                span: header.spans.get(key).copied(),
             },
             &mut projected,
             &node_source_paths,
@@ -309,12 +354,26 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
     projected
 }
 
-fn portable_to_telex(
-    event: &PortableAesEvent,
-    address_field: &str,
+fn compatibility_event_to_telex(
+    event: &PortableAesCompatibilityEvent,
 ) -> Result<TelexRecord, TelexEncodeError> {
+    let (address_field, address) = match (&event.path, &event.header) {
+        (Some(path), None) => ("path", path),
+        (None, Some(header)) => ("header", header),
+        _ => {
+            return Err(TelexEncodeError {
+                code: "AES_COMPAT_ADDRESS_INVALID",
+                detail: String::from(
+                    "Portable compatibility events require exactly one path or header address.",
+                ),
+                counter: None,
+                observed: None,
+                limit: None,
+            });
+        }
+    };
     let mut fields = vec![
-        (address_field.to_owned(), event.path.clone()),
+        (address_field.to_owned(), address.clone()),
         ("kind".to_owned(), event.kind.to_owned()),
     ];
     let datatype = event.datatype.as_ref().map(|datatype| DatatypeDescriptor {
@@ -330,6 +389,12 @@ fn portable_to_telex(
     }
     if let Some(value) = &event.value {
         fields.push(("value".to_owned(), value.clone()));
+    }
+    if let Some(origin) = &event.origin {
+        fields.push(("origin".to_owned(), origin.clone()));
+    }
+    if let Some(span) = &event.span {
+        fields.push(("span".to_owned(), span.clone()));
     }
     Ok(match datatype {
         Some(datatype) => TelexRecord::with_datatype(fields, datatype),
@@ -376,6 +441,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
             attributes,
             attribute_order,
             datatype,
+            head_span,
             ..
         } = value
         {
@@ -388,7 +454,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
                 generics: Vec::new(),
                 clarifiers: Vec::new(),
                 value: Some(tag.clone()),
-                span: None,
+                span: Some(*head_span),
             });
             project_node_attributes(
                 attributes,
@@ -424,6 +490,10 @@ fn project_event(
     node_source_paths: &HashSet<String>,
 ) -> PortableAesEvent {
     let (kind, projected_value) = project_value(value, node_source_paths);
+    // Rust v0 assignment events inherit their owner's span for anonymous
+    // sequence occurrences. That range is not occurrence-exact provenance.
+    let span =
+        (!matches!(event.path.segments.last(), Some(PathSegment::Index(_)))).then_some(event.span);
     PortableAesEvent {
         path,
         kind,
@@ -432,7 +502,7 @@ fn project_event(
         generics: Vec::new(),
         clarifiers: Vec::new(),
         value: projected_value,
-        span: Some(event.span),
+        span,
     }
 }
 
@@ -490,7 +560,7 @@ fn project_attribute_value(
         generics: Vec::new(),
         clarifiers: Vec::new(),
         value,
-        span: None,
+        span: entry.span,
     });
     project_attributes(
         &entry.nested_attrs,
@@ -588,6 +658,7 @@ fn project_value_children(
             attribute_order,
             datatype,
             children,
+            head_span,
             ..
         } => {
             let head_path = format!("{path}[0]");
@@ -599,7 +670,7 @@ fn project_value_children(
                 generics: Vec::new(),
                 clarifiers: Vec::new(),
                 value: Some(tag.clone()),
-                span: None,
+                span: Some(*head_span),
             });
             project_node_attributes(
                 attributes,
@@ -835,8 +906,45 @@ fn is_legacy_header_event(event: &AssignmentEvent) -> bool {
     matches!(event.path.segments.get(1), Some(PathSegment::Member(key)) if key.starts_with("aeon:"))
 }
 
-fn compatibility_event(event: PortableAesEvent, header: bool) -> PortableAesCompatibilityEvent {
-    PortableAesCompatibilityEvent {
+struct PortableSourceContext<'a> {
+    source: &'a str,
+    origin: String,
+}
+
+fn create_source_context(
+    source_bytes: &[u8],
+) -> Result<PortableSourceContext<'_>, PortableAesSourceError> {
+    let source = std::str::from_utf8(source_bytes).map_err(|_| PortableAesSourceError {
+        code: "AES_SOURCE_INVALID_UTF8",
+        detail: String::from("Portable source provenance requires a valid UTF-8 artifact."),
+    })?;
+    let digest = Sha256::digest(source_bytes);
+    let origin = format!(
+        "sha256:{}",
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    Ok(PortableSourceContext { source, origin })
+}
+
+fn compatibility_event(
+    event: PortableAesEvent,
+    header: bool,
+    source_context: Option<&PortableSourceContext<'_>>,
+) -> Result<PortableAesCompatibilityEvent, PortableAesSourceError> {
+    let (origin, span) = match source_context {
+        None => (None, None),
+        Some(context) => {
+            let span = event
+                .span
+                .map(|span| validate_portable_source_span(span, context.source))
+                .transpose()?;
+            (Some(context.origin.clone()), span)
+        }
+    };
+    Ok(PortableAesCompatibilityEvent {
         path: (!header).then(|| event.path.clone()),
         header: header.then_some(event.path),
         kind: event.kind,
@@ -845,8 +953,39 @@ fn compatibility_event(event: PortableAesEvent, header: bool) -> PortableAesComp
         generics: event.generics,
         clarifiers: event.clarifiers,
         value: event.value,
-        origin: None,
-        span: None,
+        origin,
+        span,
+    })
+}
+
+fn validate_portable_source_span(
+    span: Span,
+    source: &str,
+) -> Result<String, PortableAesSourceError> {
+    let start = span.start.offset;
+    let end = span.end.offset;
+    if start >= end
+        || end > source.len()
+        || !source.is_char_boundary(start)
+        || !source.is_char_boundary(end)
+    {
+        return Err(PortableAesSourceError {
+            code: "AES_COMPAT_SOURCE_RANGE_INVALID",
+            detail: format!(
+                "Native source span {start}:{end} is outside the exact UTF-8 artifact, is not positive, or splits a Unicode scalar."
+            ),
+        });
+    }
+    Ok(format!("{start}:{end}"))
+}
+
+fn source_error_to_telex(error: PortableAesSourceError) -> TelexEncodeError {
+    TelexEncodeError {
+        code: error.code,
+        detail: error.detail,
+        counter: None,
+        observed: None,
+        limit: None,
     }
 }
 
@@ -874,6 +1013,7 @@ fn compatibility_changes(
     body_events: &[AssignmentEvent],
     projected: &[PortableAesCompatibilityEvent],
     include_headers: bool,
+    source_backed: bool,
 ) -> Vec<PortableAesConversionChange> {
     let mut changes = Vec::new();
     let node_source_paths = body_events
@@ -899,14 +1039,16 @@ fn compatibility_changes(
         } else {
             path_map.get(&source_path).cloned()
         };
-        changes.push(compatibility_change(
-            "omitted",
-            "AES_COMPAT_PROVENANCE_OMITTED",
-            "span",
-            "The local source span is omitted because it is not bound to an immutable portable origin.",
-            Some(source_path.clone()),
-            target_path.clone(),
-        ));
+        if !source_backed {
+            changes.push(compatibility_change(
+                "omitted",
+                "AES_COMPAT_PROVENANCE_OMITTED",
+                "span",
+                "The local source span is omitted because it is not bound to an immutable portable origin.",
+                Some(source_path.clone()),
+                target_path.clone(),
+            ));
+        }
         changes.push(compatibility_change(
             "transformed",
             "AES_COMPAT_SOURCE_REPRESENTATION_REDUCED",
@@ -968,6 +1110,28 @@ fn compatibility_changes(
 
     for event in projected {
         let target_path = event.path.clone().or_else(|| event.header.clone());
+        if source_backed {
+            changes.push(compatibility_change(
+                if event.span.is_some() {
+                    "retained"
+                } else {
+                    "omitted"
+                },
+                if event.span.is_some() {
+                    "AES_COMPAT_UTF8_BYTE_SPAN_RETAINED"
+                } else {
+                    "AES_COMPAT_PROVENANCE_RANGE_OMITTED"
+                },
+                "span",
+                if event.span.is_some() {
+                    "The native UTF-8 byte range is retained against the exact source artifact."
+                } else {
+                    "The exact source is identified, but this occurrence has no independently retained source range."
+                },
+                None,
+                target_path.clone(),
+            ));
+        }
         if event.header.is_some() {
             changes.push(compatibility_change(
                 "transformed",
@@ -1045,7 +1209,8 @@ mod tests {
         let converted = adapt_rust_assignment_events_to_portable_aes(
             &result.events,
             &PortableAesCompatibilityOptions::default(),
-        );
+        )
+        .expect("portable adaptation");
         assert_eq!(
             converted.report.source_contract,
             RUST_ASSIGNMENT_EVENTS_CONTRACT_V0
@@ -1077,10 +1242,8 @@ mod tests {
 
     #[test]
     fn named_legacy_adapter_keeps_headers_opt_in() {
-        let result = compile(
-            "aeon:mode = \"transport\"\na = 1",
-            CompileOptions::default(),
-        );
+        let source = "aeon:mode = \"transport\"\r\na = 1";
+        let result = compile(source, CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         let body = adapt_rust_assignment_events_to_portable_aes(
             &result.events,
@@ -1088,7 +1251,8 @@ mod tests {
                 header: result.header.clone(),
                 ..PortableAesCompatibilityOptions::default()
             },
-        );
+        )
+        .expect("body projection");
         assert_eq!(body.events.len(), 1);
         assert_eq!(body.events[0].path.as_deref(), Some("$.a"));
         assert!(
@@ -1102,14 +1266,29 @@ mod tests {
             &PortableAesCompatibilityOptions {
                 include_headers: true,
                 header: result.header.clone(),
+                ..PortableAesCompatibilityOptions::default()
             },
-        );
+        )
+        .expect("document projection");
         assert_eq!(document.report.projection, Some(AEON_DOCUMENT_PROJECTION));
         assert_eq!(
             document.events[0].header.as_deref(),
             Some("$.[\"aeon:mode\"]")
         );
         assert_eq!(document.events[1].path.as_deref(), Some("$.a"));
+
+        let source_backed = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                include_headers: true,
+                header: result.header.clone(),
+                source_bytes: Some(source.as_bytes().to_vec()),
+            },
+        )
+        .expect("source-backed document projection");
+        assert_eq!(source_backed.events[0].span.as_deref(), Some("0:23"));
+        assert_eq!(source_backed.events[1].span.as_deref(), Some("25:30"));
+        assert!(source_backed.report.provenance_lossless);
     }
 
     fn shapes(events: &[PortableAesEvent]) -> Vec<(&str, &str, Option<&str>)> {
@@ -1121,7 +1300,8 @@ mod tests {
 
     #[test]
     fn separates_node_identities_at_expanded_paths() {
-        let events = project(r#"a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>"#);
+        let source = r#"a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>"#;
+        let events = project(source);
         assert_eq!(
             shapes(&events),
             vec![
@@ -1132,7 +1312,121 @@ mod tests {
         );
         assert_eq!(events[0].value, None);
         assert_eq!(events[1].value.as_deref(), Some("tag"));
-        assert_eq!(events[1].span, None);
+        let span = events[1].span.expect("node-head span");
+        assert_eq!(&source[span.start.offset..span.end.offset], r#"tag\HEAD\"#);
+    }
+
+    #[test]
+    fn node_head_span_excludes_layout_after_datatype() {
+        let source = "a = <tag:node\n(\"value\")>";
+        let events = project(source);
+        let head = events
+            .iter()
+            .find(|event| event.path == "$.a[0]")
+            .expect("node head");
+        let span = head.span.expect("node-head span");
+        assert_eq!(&source[span.start.offset..span.end.offset], "tag:node");
+    }
+
+    #[test]
+    fn retains_exact_utf8_byte_ranges_and_unicode_scalar_columns() {
+        let source = concat!(
+            "\u{feff}",
+            r#"a = <tag\HEAD\@{role = "café"}:node("😀")>"#,
+            "\r\n",
+            "b = \"nai\u{308}ve\"",
+        );
+        let result = compile(
+            source,
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.source, source);
+        assert_eq!(result.events[0].span.start.offset, 3);
+        assert_eq!(result.events[0].span.start.column, 2);
+        let b_event = result
+            .events
+            .iter()
+            .find(|event| format_path(&event.path) == "$.b")
+            .expect("b event");
+        assert_eq!(b_event.span.start.offset, 50);
+        assert_eq!(b_event.span.start.line, 2);
+        assert_eq!(b_event.span.start.column, 1);
+
+        let projected = project_portable_events(&result.events);
+        let head = projected
+            .iter()
+            .find(|event| event.path == "$.a[0]")
+            .expect("node head");
+        let head_span = head.span.expect("node-head span");
+        assert_eq!((head_span.start.offset, head_span.end.offset), (8, 39));
+        assert_eq!(head_span.start.column, 7);
+        let role = projected
+            .iter()
+            .find(|event| event.path == "$.a[0].@.role")
+            .expect("role attribute");
+        assert_eq!(
+            role.span.map(|span| (span.start.offset, span.end.offset)),
+            Some((19, 33))
+        );
+
+        let converted = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                source_bytes: Some(source.as_bytes().to_vec()),
+                ..PortableAesCompatibilityOptions::default()
+            },
+        )
+        .expect("source-backed projection");
+        let origin = "sha256:c9063ff2481e76331f175afa8a6bd4d7f850048591e737047d8a0b6fc2a701b7";
+        assert!(
+            converted
+                .events
+                .iter()
+                .all(|event| event.origin.as_deref() == Some(origin))
+        );
+        assert_eq!(converted.events[0].span.as_deref(), Some("3:48"));
+        assert_eq!(converted.events[1].span.as_deref(), Some("8:39"));
+        assert_eq!(converted.events[2].span.as_deref(), Some("19:33"));
+        assert_eq!(converted.events[3].span, None);
+        assert_eq!(converted.events[4].span.as_deref(), Some("50:63"));
+        assert!(!converted.report.provenance_lossless);
+        assert!(converted.report.changes.iter().any(|change| {
+            change.code == "AES_COMPAT_PROVENANCE_RANGE_OMITTED"
+                && change.target_path.as_deref() == Some("$.a[0][0]")
+        }));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_and_invalid_native_source_ranges() {
+        let source = "a = \"😀\"";
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let invalid_utf8 = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                source_bytes: Some(vec![0xff]),
+                ..PortableAesCompatibilityOptions::default()
+            },
+        )
+        .expect_err("invalid UTF-8 must fail");
+        assert_eq!(invalid_utf8.code, "AES_SOURCE_INVALID_UTF8");
+
+        let mut invalid_events = result.events.clone();
+        invalid_events[0].span.end.offset = 99;
+        let invalid_range = adapt_rust_assignment_events_to_portable_aes(
+            &invalid_events,
+            &PortableAesCompatibilityOptions {
+                source_bytes: Some(source.as_bytes().to_vec()),
+                ..PortableAesCompatibilityOptions::default()
+            },
+        )
+        .expect_err("out-of-range span must fail");
+        assert_eq!(invalid_range.code, "AES_COMPAT_SOURCE_RANGE_INVALID");
     }
 
     #[test]
@@ -1230,6 +1524,55 @@ mod tests {
             telex.contains("path=$.a\nkind=ListNode\ndatatype=list<int>"),
             "{telex}"
         );
+    }
+
+    #[test]
+    fn compiles_to_telex_with_exact_source_backed_provenance() {
+        let source = "\u{feff}answer = \"😀\"";
+        let result = compile_to_telex(
+            source,
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    source_bytes: Some(source.as_bytes().to_vec()),
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        assert!(
+            result.compile.errors.is_empty(),
+            "{:?}",
+            result.compile.errors
+        );
+        assert!(result.encode_error.is_none(), "{:?}", result.encode_error);
+        assert_eq!(
+            result.records[0].get("origin"),
+            Some("sha256:c1c6f9dfcbb991dadfd099abb19a091d85e5f1e2b722634dfb83e56f73f57a18")
+        );
+        assert_eq!(result.records[0].get("span"), Some("3:18"));
+        let telex = result.telex.expect("encoded Telex");
+        assert!(telex.contains("origin=sha256:"), "{telex}");
+        assert!(telex.contains("span=3:18"), "{telex}");
+    }
+
+    #[test]
+    fn compile_to_telex_rejects_a_different_source_artifact() {
+        let result = compile_to_telex(
+            "answer = 1",
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    source_bytes: Some(b"answer = 2".to_vec()),
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        assert_eq!(
+            result.encode_error.map(|error| error.code),
+            Some("AES_COMPAT_SOURCE_MISMATCH")
+        );
+        assert!(result.records.is_empty());
+        assert!(result.telex.is_none());
     }
 
     #[test]

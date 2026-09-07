@@ -1086,15 +1086,21 @@ impl<'a> TokenParser<'a> {
         let start_index = self.current;
         self.consume(TokenKind::LeftAngle, "Expected `<`")?;
         self.skip_newlines();
+        let head_start = self.peek().span.start;
         let tag = self.parse_node_tag()?;
+        let mut head_end = self.previous().span.end;
         self.skip_newlines();
         let structural_id = self.parse_optional_structural_identity()?;
+        if structural_id.is_some() {
+            head_end = self.previous().span.end;
+        }
 
         let mut attributes = Vec::new();
         let mut attribute_order = Vec::new();
         self.skip_newlines();
         if self.check(TokenKind::At) {
             let (attribute_map, parsed_order) = self.parse_attribute_block(1)?;
+            head_end = self.previous().span.end;
             attributes.push(attribute_map);
             attribute_order = parsed_order;
             self.skip_newlines();
@@ -1108,6 +1114,7 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             let parsed = self.parse_simple_datatype()?;
+            head_end = self.previous_non_newline().span.end;
             let base = datatype_base(&parsed);
             if (parsed.contains('<') && base != "node")
                 || !datatype_bracket_specs(&parsed).is_empty()
@@ -1131,6 +1138,10 @@ impl<'a> TokenParser<'a> {
                 attribute_order,
                 datatype,
                 children,
+                head_span: Span {
+                    start: head_start,
+                    end: head_end,
+                },
             });
         }
 
@@ -1150,6 +1161,10 @@ impl<'a> TokenParser<'a> {
             attribute_order,
             datatype,
             children,
+            head_span: Span {
+                start: head_start,
+                end: head_end,
+            },
         })
     }
 
@@ -1260,6 +1275,7 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         while !self.check(terminator) {
             let key_span = self.peek().span;
+            let entry_start = key_span.start;
             let key = self.parse_key()?;
             if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
@@ -1296,6 +1312,7 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Equals, equals_message)?;
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
+            let entry_end = self.previous().span.end;
             if members.contains_key(&key) {
                 return Err(
                     Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{key}'"))
@@ -1303,18 +1320,20 @@ impl<'a> TokenParser<'a> {
                         .with_span(key_span),
                 );
             }
-            members.insert(
-                key.clone(),
-                AttributeValue::with_parts(
-                    structural_id,
-                    datatype,
-                    value.value,
-                    nested_attrs,
-                    nested_attr_order,
-                    value.object_members,
-                    value.object_member_order,
-                ),
+            let mut entry = AttributeValue::with_parts(
+                structural_id,
+                datatype,
+                value.value,
+                nested_attrs,
+                nested_attr_order,
+                value.object_members,
+                value.object_member_order,
             );
+            entry.span = Some(Span {
+                start: entry_start,
+                end: entry_end,
+            });
+            members.insert(key.clone(), entry);
             if !member_order.contains(&key) {
                 member_order.push(key);
             }
@@ -1427,6 +1446,14 @@ impl<'a> TokenParser<'a> {
 
     fn previous(&self) -> &'a Token {
         &self.tokens[self.current.saturating_sub(1)]
+    }
+
+    fn previous_non_newline(&self) -> &'a Token {
+        self.tokens[..self.current]
+            .iter()
+            .rev()
+            .find(|token| token.kind != TokenKind::Newline)
+            .unwrap_or_else(|| self.previous())
     }
 
     fn peek(&self) -> &'a Token {

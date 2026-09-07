@@ -127,7 +127,12 @@ Implementation note:
   `aeon.rust.assignment-events.v0-to-aes.events.v0` compatibility result; it
   returns strict portable events plus semantic, record, and provenance fidelity
   evidence. The compatibility options carry the separate compile-result header
-  when the document projection is selected.
+  when the document projection is selected. Native offsets are UTF-8 bytes and
+  columns count Unicode scalars. Optional exact `source_bytes` derive a
+  portable lowercase `sha256:` origin and retain independently proven byte
+  spans; invalid UTF-8 or ranges fail closed. Anonymous sequence occurrences
+  in the v0 assignment-event contract retain origin-only evidence because their
+  inherited owner spans are not occurrence-exact.
 - the Rust SDK exposes `load_telex_str`, `load_telex_file`, and `write_telex`; complete streams are validated and materialized directly from flat AES records.
 - AEOS accepts Telex records without treating structural identities as path segments, including attribute-space selection and flat-container cardinality.
 - the Rust/WASM bridge exposes Telex validation, completeness, canonicalization, and direct materialization.
@@ -155,9 +160,10 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
-`core` runs the consolidated next Core target. Use `core-released` to run the
-immutable `core-cts-v1-snapshot-0.2` compatibility target explicitly; it is not
-part of the default current-development run.
+`core` and `aes` run their consolidated next targets. Use `core-released` or
+`aes-released` to run the corresponding immutable compatibility target
+explicitly; released snapshots are not part of the default current-development
+run.
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before
