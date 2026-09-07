@@ -102,11 +102,18 @@ function normalizeAesEvents(events) {
             ? e.structural_id
             : null,
     datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
-    value_kind: typeof e?.value?.type === 'string' ? e.value.type : null,
+    value_kind:
+      typeof e?.kind === 'string'
+        ? e.kind
+        : typeof e?.value?.type === 'string'
+          ? e.value.type
+          : null,
     reference:
-      e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
-        ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
-        : null,
+      e?.kind === 'CloneReference' || e?.kind === 'PointerReference'
+        ? (typeof e?.value === 'string' ? normalizePath(e.value) : null)
+        : e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
+          ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
+          : null,
     }));
 }
 
@@ -418,6 +425,30 @@ async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, mater
   }
 }
 
+async function runTelexMaterialize({ sutPath, telex, scope }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-telex-materialize-'));
+  const file = path.join(dir, 'input.telex.aes');
+  fs.writeFileSync(file, telex, 'utf8');
+
+  const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
+  const command = isJs ? process.execPath : sutPath;
+  const args = isJs
+    ? [sutPath, 'telex', 'materialize', file, '--scope', scope]
+    : ['telex', 'materialize', file, '--scope', scope];
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
+
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  try {
+    return { ok: true, parse: JSON.parse(stdout), stderr, code };
+  } catch {
+    if (code !== 0) {
+      return { ok: false, parse: null, stderr: `${stderr}\nSUT exited ${code} without valid JSON envelope`, code };
+    }
+    return { ok: false, parse: null, stderr: `${stderr}\nInvalid JSON: ${stdout}`, code };
+  }
+}
+
 async function runFmt({ sutPath, source }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-fmt-'));
   const file = path.join(dir, 'input.aeon');
@@ -540,9 +571,9 @@ function loadManifest(ctsPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.sut || !args.cts || !args.lane) {
-    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical|finalize-json|finalize-map|inspect-json|sansa-address>');
+    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|aes-path-translation|canonical|finalize-json|finalize-map|inspect-json|sansa-address>');
   }
-  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json' && args.lane !== 'sansa-address') {
+  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'aes-path-translation' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json' && args.lane !== 'sansa-address') {
     fail(`Unsupported lane: ${args.lane}`);
   }
 
@@ -559,6 +590,11 @@ async function main() {
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
       if (excludedTests.has(test.id)) continue;
+      if (args.lane === 'aes-path-translation'
+        && test.operation !== 'project-aeon'
+        && test.operation !== 'materialize-telex') {
+        fail(`Unsupported aes-path-translation operation in ${test.id}: ${String(test.operation)}`);
+      }
       const source = String(test.input?.source ?? '');
       const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
@@ -576,7 +612,23 @@ async function main() {
       let ok = false;
       let result;
 
-      if (args.lane === 'canonical') {
+      if (args.lane === 'aes-path-translation' && test.operation === 'materialize-telex') {
+        const finalized = await runTelexMaterialize({
+          sutPath: args.sut,
+          telex: String(test.input?.telex ?? ''),
+          scope: typeof test.input?.options?.scope === 'string' ? test.input.options.scope : 'payload',
+        });
+        if (!finalized.ok || !finalized.parse) {
+          console.error(`❌ ${test.id}: harness failure`);
+          if (finalized.stderr) console.error(finalized.stderr.trim());
+          process.exit(3);
+        }
+
+        errors = normalizeFinalizeDiagnostics(finalized.parse.meta, 'errors');
+        warnings = normalizeFinalizeDiagnostics(finalized.parse.meta, 'warnings');
+        ok = errors.length === 0;
+        result = { document: finalized.parse.document ?? null };
+      } else if (args.lane === 'canonical') {
         const formatted = await runFmt({ sutPath: args.sut, source });
         if (!formatted.ok) {
           console.error(`❌ ${test.id}: harness failure`);

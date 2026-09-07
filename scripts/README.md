@@ -41,7 +41,8 @@ For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 | `repo_paths.py` | Python resolver for CTS/spec/tooling sibling roots and env defaults. | imported by other scripts |
 | `run-with-repo-paths.mjs` | Runs a command with repo-path env defaults and normalized `--cts` argument. | `node ./scripts/run-with-repo-paths.mjs node ... --cts ...` |
 | `ensure-typescript-build.mjs` | Verifies required TypeScript dist artifacts exist before CTS/test runs. | `node ./scripts/ensure-typescript-build.mjs` |
-| `cts-source-lane-runner.mjs` | Shared runner for source lanes (`core`, `aes`, `canonical`) via CLI `inspect --json`. | `node ./scripts/cts-source-lane-runner.mjs --sut ... --cts ... --lane core` |
+| `cts-source-lane-runner.mjs` | Shared CLI runner for source, finalization, SANSA-address, and AES path-translation lanes. | `node ./scripts/cts-source-lane-runner.mjs --sut ... --cts ... --lane core` |
+| `aes-path-translation-cts.sh` | Runs recursive AES source/event path translation and synthetic-head rejection vectors across TypeScript, Rust, Python, and PHP. | `bash ./scripts/aes-path-translation-cts.sh` |
 | `canonical-cts.sh` | Canonical conformance composite runner (TS + Rust + cross-implementation parity). | `bash ./scripts/canonical-cts.sh --mode all --brief` |
 | `compare-canonical-implementations.py` | Compares TypeScript and Python canonical `fmt` output across fixture corpora. | `python3 ./scripts/compare-canonical-implementations.py` |
 
