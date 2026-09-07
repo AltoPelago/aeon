@@ -2,8 +2,12 @@
 
 Canonical hash utilities for AEON integrity envelopes.
 
-This package computes deterministic hashes over the Assignment Event Stream
-(AES), excluding the top-level `:envelope` binding when present.
+This package computes deterministic hashes over the legacy TypeScript AEON
+assignment-event projection, excluding the top-level `:envelope` binding when
+present. The projection predates portable `aes.events.v0`: it covers canonical
+AEON source paths and values, not event kind, structural identity, expanded
+datatype structure, profile/projection, or an AES ordering-policy identifier.
+It must not be presented or verified as a portable AES semantic hash.
 
 ## Quick Start
 
@@ -42,7 +46,7 @@ console.log(receipt.canonical.digest, receipt.canonical.payload);
 
 ## Common Patterns
 
-### Hash the canonical AES stream
+### Hash the legacy AEON canonical projection
 
 ```ts
 const result = computeCanonicalHash(aes, { algorithm: 'sha-256' });
@@ -75,5 +79,9 @@ if (validation.errors.length > 0) {
 
 ## Notes
 
-- Canonical hashing is based on the AES stream, not on source text.
+- Canonical hashing is based on the legacy AEON assignment projection, not on
+  source text.
+- Portable AES hashes and signatures require a separately versioned logical-byte
+  and integrity contract bound to `aes.events.v0`, the effective profile and
+  projection, and the selected ordering policy.
 - References are preserved as `~` / `~>` tokens in canonical values.

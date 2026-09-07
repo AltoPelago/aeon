@@ -1135,7 +1135,7 @@ function integrityVerify(args: string[]): void {
                     diagnostics.errors.push({
                         level: 'error',
                         code: 'ENVELOPE_HASH_MISMATCH',
-                        message: 'canonical_hash does not match computed AES hash',
+                        message: 'canonical_hash does not match computed legacy AEON canonical hash',
                     });
                 }
             }

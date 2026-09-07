@@ -1193,7 +1193,9 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
     if normalize_hash(&expected_hash) != normalize_hash(&computed.hash) {
         errors.push(EnvelopeDiagnostic {
             code: "ENVELOPE_HASH_MISMATCH",
-            message: String::from("canonical_hash does not match computed AES hash"),
+            message: String::from(
+                "canonical_hash does not match computed legacy AEON canonical hash",
+            ),
         });
     }
     if let Some(signature) = signature {
@@ -2527,6 +2529,9 @@ fn current_receipt_timestamp() -> String {
         .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
 }
 
+// Legacy AEON envelope/receipt projection. This is not the portable
+// `aes.events.v0` logical-byte contract: it serializes source paths and
+// canonical AEON values and intentionally excludes the top-level envelope.
 fn compute_canonical_hash(events: &[AssignmentEvent], algorithm: &str) -> CanonicalHashResult {
     let stream = serialize_canonical_events(events);
     let mut hasher = Sha256::new();
