@@ -28,9 +28,10 @@ Runs the canonical conformance lane:
   1. TypeScript canonical package tests
   2. Python implementation tests
   3. Rust canonical package tests
-  4. Cross-implementation canonical snippet parity
-  5. Cross-implementation real-document canonical corpus parity
-  6. Cross-implementation diagnostic snippet parity
+  4. Canonical CTS manifest against TypeScript, Python, and Rust
+  5. Cross-implementation canonical snippet parity
+  6. Cross-implementation real-document canonical corpus parity
+  7. Cross-implementation diagnostic snippet parity
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -95,6 +96,19 @@ echo
 
 echo "-- Rust canonical package tests"
 (cd "$RUST_DIR" && cargo test -p aeon-canonical -- --nocapture)
+echo
+
+echo "-- Canonical CTS manifest across all implementations"
+for sut in \
+  "$TS_DIR/packages/cli/dist/main.js" \
+  "$PY_DIR/bin/aeon-python" \
+  "$RUST_DIR/target/debug/aeon-rust"; do
+  node "$ROOT_DIR/scripts/run-with-repo-paths.mjs" \
+    node "$ROOT_DIR/scripts/cts-source-lane-runner.mjs" \
+    --sut "$sut" \
+    --cts "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.json" \
+    --lane canonical
+done
 echo
 
 echo "-- Cross-implementation canonical snippet parity"

@@ -438,7 +438,25 @@ def format_string_lines(value: str, indent: int) -> list[str]:
         return [format_string(value)]
     prefix = " " * indent
     body_prefix = " " * (indent + 2)
-    return [">`", *(f"{body_prefix}{line}" for line in value.split("\n")), f"{prefix}`"]
+    return [">`", *(f"{body_prefix}{format_trimtick_line(line)}" for line in value.split("\n")), f"{prefix}`"]
+
+
+def format_trimtick_line(value: str) -> str:
+    out: list[str] = []
+    for char in value:
+        if char == "\\":
+            out.append("\\\\")
+        elif char == "`":
+            out.append("\\`")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        elif ord(char) < 0x20:
+            out.append(f"\\u{ord(char):04x}")
+        else:
+            out.append(char)
+    return "".join(out)
 
 
 def format_number(raw: str) -> str:

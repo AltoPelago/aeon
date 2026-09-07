@@ -530,7 +530,7 @@ export class Lexer {
             }
 
             const codePoint = parseInt(hex, 16);
-            if (codePoint > 0x10FFFF) {
+            if (codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
                 this.errors.push(new InvalidEscapeSequenceError(
                     `\\u{${hex}}`,
                     createSpan(start, this.currentPosition())

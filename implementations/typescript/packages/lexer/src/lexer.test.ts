@@ -156,6 +156,19 @@ describe('Lexer', () => {
             assert.strictEqual(nonEofTokens.length, 0);
             assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
         });
+
+        it('should reject surrogate code points in braced unicode escapes', () => {
+            for (const source of [
+                String.raw`"\u{D800}"`,
+                String.raw`"\u{DFFF}"`,
+                String.raw`"\u{D800}\uDC00"`,
+            ]) {
+                const result = tokenize(source);
+                const nonEofTokens = result.tokens.filter(token => token.type !== TokenType.EOF);
+                assert.strictEqual(nonEofTokens.length, 0);
+                assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
+            }
+        });
     });
 
     describe('numeric literals', () => {

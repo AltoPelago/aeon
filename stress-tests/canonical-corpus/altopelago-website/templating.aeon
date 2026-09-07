@@ -1,0 +1,72 @@
+title:string = "AEON Template Demo"
+description:string = "Edit AEON data and node templates side by side, then render HTML from the browser using AEON Matter template directives."
+activePage:string = "templating"
+keywords:list<string> = ["templating", "template", "matter", "HTML", "nodes", "renderer", "directives", "preview"]
+
+dataCode:string = `title = \"AEON Matter Template Demo\"
+showSubtitle = true
+subtitle = \"Rendering HTML from AEON data and template files\"
+todos = [
+  { title = \"Buy tea\", done = false }
+  { title = \"Read annotation stream docs\", done = true }
+  { title = \"Ship tiny template demo\", done = false }
+]
+note:prose = >\`
+  &ND v1
+
+  ## Notes
+
+  This [*prose value] comes from [$data.aeon].
+  It is rendered below the todo block by the template which is also an aeon document.
+
+  - The template only references [$~note].
+  - The demo renderer sees class [$note] and parses the &ND syntax.
+\``
+
+templateCode:prose = >`
+  //# This template integrates a custom DSL through the semantic
+  //# commenting system.
+
+  /( max-width: 42rem; margin: 2rem auto; padding: 1.5rem; font-family: sans-serif; color: #ece7df; background: #111111; border: 1px solid #272727; border-radius: 20px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); )/
+  page = <main@{class = "shell"}(
+    <h1(~title)>
+
+    /[ if $.showSubtitle ]/
+    /( color: #8ec7d9; margin: 0 2rem; )/
+    <p(~subtitle)>
+    /[ else ]/
+    <p("Subtitle disabled.")>
+    /[ end ]/
+
+    <ul@{class = "todo-list"}(
+      /[ for $.todos ]/
+      /( padding: 0.5rem 0; border-bottom: 1px solid #2f2f2f; )/
+      <li(
+        ~item.title
+        /[ if item.done ]/
+        /( color: #8bd450; )/
+        <span(" done")>
+        /[ end ]/
+      )>
+      /[ end ]/
+    )>
+
+    /( margin-top: 1rem; white-space: pre-wrap; color: #d9c58b; )/
+    <section@{class = "note"}(~note)>
+  )>
+  `
+
+explainer:list<object> = [
+  {
+    heading:string = "What this shows"
+    copy:string = "The demo parses ordinary AEON data, materializes a node-structured AEON template, and renders HTML from the real $.page node."
+  }
+  {
+    heading:string = "Template directives"
+    copy:string = "The directive language is custom to this demo, not AEON Core. It uses semantic directive comments as an extension surface for control flow: /[ if ... ]/, /[ else ]/, /[ end ]/, and /[ for ... ]/. In this demo renderer only, instruction comments like /( ... )/ are converted into inline styles after the renderer opts into that behavior."
+  }
+  {
+    heading:string = "Scope"
+    copy:string = "Document data uses paths like $.todos. Loop-local data uses item.title in directives and ~item.title in node references."
+  }
+]

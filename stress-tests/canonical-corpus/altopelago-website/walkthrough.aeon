@@ -1,0 +1,166 @@
+title:string = "AEON Language Walkthrough"
+description:string = "Learn AEON step by step, starting with bindings, scalar values, containers, comments, multiline text, and the basic document model."
+activePage:string = "walkthrough"
+keywords:list<string> = ["walkthrough", "basics", "bindings", "containers", "comments", "strings", "objects", "lists", "tuples"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Language Walkthrough")>
+    <title("Learn AEON step by step.")>
+    <heading("Basic features.")>
+    <copy("This first page covers the smallest useful document, the core container shapes, and the authoring features that make the language comfortable to read and write.")>
+    <copy("AEON is small at the surface, but deep in capability. The depth comes from orthogonality, not from hidden rules.")>
+    <copy("That complexity is meant to be predictable, deterministic, explicit, composable, non-magical, and non-executable: the opposite of surprising implicit behavior.")>
+    <copy("The second page continues with attributes, anonymous child metadata, separator values, references, and nodes once the basic document model is clear.")>
+    <actions(
+      <action @{href:string = "#step-1", primary:boolean = true} ("Start with the basics")>
+      <action @{href:string = "/walkthrough-advanced.php"} ("Go to advanced features")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-1"} (
+    <kicker("Step 1")>
+    <title("The smallest AEON document")>
+    <copy("The smallest useful AEON document is a single binding. If you understand the shape of one binding, you understand the foundation of the language: a name, an equals sign, and a value.")>
+    <code("hi = \"Hello World!\"")>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-2"} (
+    <kicker("Step 2")>
+    <title("Basic scalar values")>
+    <copy("Most AEON documents begin as ordinary data. Strings, numbers, booleans, toggles, and numeric literals are straightforward, so simple documents stay simple.")>
+    <code(`
+name = "Alice"
+score = 23
+enabled = true
+ratio = 3.14e-2
+large = 1_000_000
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-3"} (
+    <kicker("Step 3")>
+    <title("Optional type labels")>
+    <copy("AEON can carry explicit type labels when a document needs them. That lets a producer state intent without turning the document into executable logic.")>
+    <code(`
+hi:string = "Hello World!"
+score:number = 23
+isWinning:boolean = false
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-4"} (
+    <kicker("Step 4")>
+    <title("Objects and nesting")>
+    <copy("Once you know a single binding, the next step is nested structure. Objects group related bindings together and form the backbone of most structured AEON documents.")>
+    <code(`
+contact = {
+  name = "Bob"
+  occupation = "patissier"
+}
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-5"} (
+    <kicker("Step 5")>
+    <title("Lists and tuples")>
+    <copy("After objects, the next natural step is ordered containers. Lists are for repeated values of the same general kind, while tuples are for fixed positions where each slot has a defined role.")>
+    <code(`
+animals:list = ["cat", "dog", "mouse"]
+
+measurements:list = [
+  3
+  4
+]
+`)>
+    <copy("When every element has the same intended type, a generic type annotation on the list is the compact form.")>
+    <code("measurements:list<number> = [3, 4, 5]")>
+    <code(`
+sound:tuple = ("cat", "meow")
+
+point:tuple = (12, 42)
+`)>
+    <copy("Tuples can also declare the intended type of each position with a generic type annotation.")>
+    <code(`sound:tuple<string, string, number> = ("cat", "meow", .7)`)>
+    <copy("Tuples look similar at a glance, but they represent a positional record rather than a sequence of interchangeable items.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-6"} (
+    <kicker("Step 6")>
+    <title("Whitespace, newlines, and commas")>
+    <copy("AEON is meant to be authored, not just generated. You can write structures across multiple lines, inline with commas, or with trailing commas when that makes editing easier.")>
+    <code(`
+version = "2.1.1", contact = { name = "Bob", occupation = "patissier" }
+
+contact = {
+  name = "Bob",
+  occupation = "patissier",
+}
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-7"} (
+    <kicker("Step 7")>
+    <title("Comments")>
+    <copy("Comments are part of the normal authoring experience. They let teams leave notes, preserve review context, and keep explanatory material alongside the data without changing the data itself.")>
+    <code(`
+// single-line comment
+/*
+multi-line
+comment block
+*/
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-8"} (
+    <kicker("Step 8")>
+    <title("Multiline strings")>
+    <copy("Multiline strings belong in the basic toolkit because real documents carry longer text. Once you know bindings and containers, block text becomes straightforward to read and author.")>
+    <code(`story = \`
+Long
+story
+told
+word
+for
+word
+per
+line
+\``)>
+    <copy("Use plain backticks when you want the text exactly as written. Use trimticks when you want to indent the source neatly without keeping that leading indentation in the resulting value. The reserved prose label marks formatted trimtick text while richer interpretation stays with profiles or applications.")>
+    <code(`story:prose = >\`
+  Long
+  story
+  told
+  word
+  for
+  word
+  per
+  line
+\``)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-9"} (
+    <kicker("Step 9")>
+    <title("Try writing a small AEON document.")>
+    <copy("Now that the basic shapes are familiar, edit a short document and let the walkthrough check whether the source still parses cleanly.")>
+    <editor @{verify:boolean = true} (
+      <heading("Try it")>
+      <copy("Edit the source and check the verification line below the editor.")>
+      <initial(`hi = "Hello World!"
+contact = {
+  name = "Bob"
+  occupation = "patissier"
+}
+measurements:list<number> = [3, 4, 5]`)>
+    )>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Next")>
+    <title("Continue with the advanced language features.")>
+    <copy("When the basic document model is comfortable, the next page introduces custom type labels, attributes, separator values, references, nodes, and semantic comment channels.")>
+    <actions(
+      <action @{href:string = "/walkthrough-advanced.php", primary:boolean = true} ("Open advanced walkthrough")>
+    )>
+  )>
+)>

@@ -686,6 +686,17 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
         self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
+    def test_braced_unicode_surrogate_escape_fails_closed(self) -> None:
+        for source in (
+            r'value = "\u{D800}"',
+            r'value = "\u{DFFF}"',
+            r'value = "\u{D800}\uDC00"',
+        ):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
+                self.assertEqual("Invalid unicode escape", result.errors[0].message)
+
     def test_strict_mode_untyped_toggle_uses_aligned_message(self) -> None:
         result = compile_source('aeon:mode = "strict"\ndebug = yes')
         self.assertEqual(["UNTYPED_TOGGLE_LITERAL"], [error.code for error in result.errors])

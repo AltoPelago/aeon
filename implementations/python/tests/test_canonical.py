@@ -40,6 +40,17 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('  Line', result.text)
         self.assertIn('  Break', result.text)
 
+    def test_escapes_trimticks_backslashes_and_controls_in_multiline_output(self) -> None:
+        result = canonicalize('value = "line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b"')
+        self.assertEqual([], result.errors)
+        self.assertIn(
+            'value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`',
+            result.text,
+        )
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
     def test_canonicalizes_hex_and_tuple_layout_like_typescript(self) -> None:
         source = 'hexes = [#FF00AA, #00FF00]\ntuples = [\n  (\n    1,\n    2\n  )\n]'
         result = canonicalize(source)

@@ -26,9 +26,10 @@ Pipeline:
 1. TypeScript canonical package tests
 2. Python implementation tests
 3. Rust canonical package tests
-4. Cross-implementation canonical snippet parity
-5. Cross-implementation real-document canonical corpus parity
-6. Cross-implementation diagnostic snippet parity
+4. External canonical CTS manifest against TypeScript, Python, and Rust
+5. Cross-implementation canonical snippet parity
+6. Cross-implementation real-document canonical corpus parity
+7. Cross-implementation diagnostic snippet parity
 
 `--brief` keeps failure output concise for CI or quick local loops.
 
@@ -43,8 +44,9 @@ python3 ./scripts/stress-canonical-corpus.py [--corpus <directory>] [--brief]
 ```
 
 The default drop directory is `stress-tests/canonical-corpus/`. The checked-in
-seed is a positive snapshot of AltoPelago website content; its source commit and
-pending drift cases are recorded beside the fixtures.
+seed is a positive snapshot of all AltoPelago website content; its source commit
+and the corrections prompted by the initial import are recorded beside the
+fixtures.
 
 ## `stress-fixtures.py`
 

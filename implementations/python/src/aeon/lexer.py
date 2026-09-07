@@ -326,7 +326,7 @@ class Lexer:
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         codepoint = int("".join(hex_digits), 16)
-                        if codepoint > 0x10FFFF:
+                        if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
                             self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return

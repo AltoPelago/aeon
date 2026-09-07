@@ -1,0 +1,85 @@
+title:string = "AEON Playground"
+description:string = "Try AEON in the browser with source editing, AEON Composer, transport, custom and strict modes, AES output, data output, annotations, and canonical rendering."
+activePage:string = "playground"
+keywords:list<string> = ["playground", "composer", "editor", "schema", "AES", "annotations", "canonical", "data", "try AEON"]
+
+sample:string = `//# Playground source
+//# Use AEON Composer above when you want help adding bindings,
+//# attributes, comments, and values.
+//# You can also edit the source directly; the output updates as you type.
+contact:object = {
+  name:string = \"Bob\"
+  occupation:string = \"patissier\"
+}
+
+status:boolean = true
+measurements:list<number> = [3, 4, 5]
+summary:prose = >\`
+  Hello
+  from
+  AEON
+\``
+
+examples:list<object> = [
+  {
+    key:string = "transport"
+    label:string = "Transport"
+    mode:string = "transport"
+    source:string = `//# Transport example
+name = \"Alice\"
+count = 3
+tags = [\"draft\", \"public\"]
+
+note = >\`
+  Transport mode can carry broad AEON-shaped data.
+\``
+  }
+  {
+    key:string = "custom"
+    label:string = "Custom"
+    mode:string = "custom"
+    source:string = `aeon:mode = \"custom\"
+
+location:geoPoint = {
+  lat:number = -37.8136
+  lon:number = 144.9631
+}
+
+status:trafficLight = \"green\"`
+  }
+  {
+    key:string = "strict"
+    label:string = "Strict"
+    mode:string = "strict"
+    source:string = `aeon:mode = \"strict\"
+
+contact:object = {
+  name:string = \"Bob\"
+  active:boolean = true
+}
+
+measurements:list<number> = [3, 4, 5]`
+  }
+  {
+    key:string = "full"
+    label:string = "Full strict"
+    mode:string = "strict"
+    source:string = `aeon:mode = \"strict\"
+aeon:profile = \"example.daily.v1\"
+
+entry:object = {
+  title:string = \"Daily check\"
+  published:boolean = false
+  state:toggle = on
+  count:number = 3
+  tags:list<string> = [\"field\", \"review\"]
+  point:tuple<number, number> = (12, 42)
+  note:prose = >\`
+    AEON keeps the readable source, the typed value,
+    and later interpretation visibly separate.
+  \`
+}
+
+copy:string = ~entry.title`
+  }
+]

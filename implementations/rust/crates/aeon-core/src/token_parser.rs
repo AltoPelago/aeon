@@ -1663,7 +1663,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
 }
 
 fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
-    if token.text.starts_with('"') && token.text[1..token.text.len() - 1].contains(['\n', '\r']) {
+    if !token.text.starts_with('`') && token.text[1..token.text.len() - 1].contains(['\n', '\r']) {
         return Err(
             Diagnostic::new("UNTERMINATED_STRING", "Unterminated string")
                 .at_path("$")
@@ -2276,9 +2276,11 @@ group:object = {
 
     #[test]
     fn rejects_literal_newlines_inside_quoted_strings() {
-        let error = parse("value = \"line1\nline2\"\n").expect_err("expected unterminated string");
-        assert_eq!(error.code, "UNTERMINATED_STRING");
-        assert_eq!(error.message, "Unterminated string");
+        for source in ["value = \"line1\nline2\"\n", "value = 'line1\nline2'\n"] {
+            let error = parse(source).expect_err("expected unterminated string");
+            assert_eq!(error.code, "UNTERMINATED_STRING", "{source}");
+            assert_eq!(error.message, "Unterminated string", "{source}");
+        }
     }
 
     #[test]

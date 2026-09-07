@@ -745,9 +745,27 @@ function formatTrimticks(value: string, indent: number): string[] {
     const bodyPrefix = ' '.repeat(indent + 2);
     return [
         '>`',
-        ...value.split('\n').map((line) => `${bodyPrefix}${line}`),
+        ...value.split('\n').map((line) => `${bodyPrefix}${formatTrimtickLine(line)}`),
         `${prefix}\``,
     ];
+}
+
+function formatTrimtickLine(value: string): string {
+    let out = '';
+    for (const ch of value) {
+        switch (ch) {
+            case '\\': out += '\\\\'; break;
+            case '`': out += '\\`'; break;
+            case '\r': out += '\\r'; break;
+            case '\t': out += '\\t'; break;
+            default: {
+                const code = ch.codePointAt(0)!;
+                out += code < 0x20 ? `\\u${code.toString(16).padStart(4, '0')}` : ch;
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 function formatBoolean(value: Extract<Value, { type: 'BooleanLiteral' }>): string {

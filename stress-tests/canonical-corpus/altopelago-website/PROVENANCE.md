@@ -1,12 +1,10 @@
 # AltoPelago Website Corpus
 
-These fixtures were copied from `AltoPelago/aeon-website/content` at commit
-`9c2e1479652a634b67cd2f8733a739cac732b0f3` on 8 September 2026.
+These fixtures were derived from `AltoPelago/aeon-website/content` at commit
+`9c2e1479652a634b67cd2f8733a739cac732b0f3` on 8 September 2026. The snapshot
+includes all 35 website documents.
 
-This initial positive corpus contains the 27 website documents that all three
-canonical formatters accept and render identically. The following website
-documents exposed pre-existing parser or canonicalization differences during
-import and remain pending until those differences are resolved:
+The initial import exposed issues in eight documents:
 
 - `developer-start.aeon`
 - `language.aeon`
@@ -17,6 +15,8 @@ import and remain pending until those differences are resolved:
 - `walkthrough-advanced.aeon`
 - `walkthrough.aeon`
 
-Keeping pending documents out of the positive corpus ensures the lane remains
-a regression gate. They should be added as their cross-implementation behavior
-is aligned.
+Those sources were corrected alongside this corpus: literal backslashes in
+embedded AEON examples are escaped, multiline embedded source uses backtick
+strings, and the JavaScript newline escape is represented as `\\n`. Rust's
+canonical string parser was aligned with the TypeScript and Python behavior.
+All 35 snapshots are now part of the positive three-implementation gate.

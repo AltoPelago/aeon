@@ -595,9 +595,28 @@ fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let body_prefix = " ".repeat(indent + 2);
     let mut lines = vec![String::from(">`")];
-    lines.extend(value.split('\n').map(|line| format!("{body_prefix}{line}")));
+    lines.extend(
+        value
+            .split('\n')
+            .map(|line| format!("{body_prefix}{}", escape_trimtick_line(line))),
+    );
     lines.push(format!("{prefix}`"));
     lines
+}
+
+fn escape_trimtick_line(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '`' => out.push_str("\\`"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn apply_trimticks(raw: &str, marker_width: usize) -> String {
@@ -1893,6 +1912,12 @@ impl<'a> Parser<'a> {
                 self.index += 1;
                 return Ok(value);
             }
+            if matches!(byte, b'\n' | b'\r') && quote != '`' {
+                return Err(self.error(
+                    "UNTERMINATED_STRING",
+                    &format!("Unterminated string literal (started with {quote})"),
+                ));
+            }
             if byte == b'\\' {
                 value.push_str(
                     std::str::from_utf8(&self.source[chunk_start..self.index])
@@ -1914,7 +1939,7 @@ impl<'a> Parser<'a> {
                     'f' => value.push('\u{000c}'),
                     'u' => {
                         self.index += 1;
-                        let codepoint = if self.peek() == Some('{') {
+                        let (codepoint, permits_surrogate_pair) = if self.peek() == Some('{') {
                             self.index += 1;
                             let hex_start = self.index;
                             let mut hex_digits = 0usize;
@@ -1923,33 +1948,74 @@ impl<'a> Parser<'a> {
                                 hex_digits += 1;
                             }
                             if hex_digits == 0 || hex_digits > 6 || self.peek() != Some('}') {
-                                return Err(self.syntax_error("Invalid unicode escape"));
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
                             }
                             let hex = std::str::from_utf8(&self.source[hex_start..self.index])
                                 .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
                             self.index += 1;
-                            u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                            (
+                                u32::from_str_radix(hex, 16).map_err(|_| {
+                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                })?,
+                                false,
+                            )
                         } else {
                             let hex_start = self.index;
                             for _ in 0..4 {
                                 if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
-                                    return Err(self.syntax_error("Invalid unicode escape"));
+                                    return Err(
+                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                    );
                                 }
                                 self.index += 1;
                             }
                             let hex = std::str::from_utf8(&self.source[hex_start..self.index])
                                 .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                            u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                            (
+                                u32::from_str_radix(hex, 16).map_err(|_| {
+                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                })?,
+                                true,
+                            )
                         };
-                        let decoded = char::from_u32(codepoint)
-                            .ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
+                        let codepoint = if permits_surrogate_pair
+                            && (0xD800..=0xDBFF).contains(&codepoint)
+                        {
+                            if self.peek() != Some('\\') || self.peek_next() != Some('u') {
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                            }
+                            self.index += 2;
+                            let low_start = self.index;
+                            for _ in 0..4 {
+                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                    return Err(
+                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                    );
+                                }
+                                self.index += 1;
+                            }
+                            let low_hex = std::str::from_utf8(&self.source[low_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                            let low = u32::from_str_radix(low_hex, 16).map_err(|_| {
+                                self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                            })?;
+                            if !(0xDC00..=0xDFFF).contains(&low) {
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                            }
+                            0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
+                        } else if (0xDC00..=0xDFFF).contains(&codepoint) {
+                            return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                        } else {
+                            codepoint
+                        };
+                        let decoded = char::from_u32(codepoint).ok_or_else(|| {
+                            self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                        })?;
                         value.push(decoded);
                         chunk_start = self.index;
                         continue;
                     }
-                    _ => return Err(self.syntax_error("Invalid escape sequence")),
+                    _ => return Err(self.error("INVALID_ESCAPE", "Invalid escape sequence")),
                 }
                 self.index += 1;
                 chunk_start = self.index;
@@ -1972,19 +2038,8 @@ impl<'a> Parser<'a> {
         if self.peek() != Some('`') {
             return Err(self.syntax_error("Expected trimtick opener"));
         }
-        self.index += 1;
-        let start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == '`' {
-                let raw = std::str::from_utf8(&self.source[start..self.index])
-                    .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-                    .to_owned();
-                self.index += 1;
-                return Ok(apply_trimticks(&raw, marker_width.max(1)));
-            }
-            self.index += 1;
-        }
-        Err(self.syntax_error("Unterminated trimtick"))
+        let decoded = self.parse_quoted_string()?;
+        Ok(apply_trimticks(&decoded, marker_width.max(1)))
     }
 
     fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
@@ -2303,7 +2358,11 @@ impl<'a> Parser<'a> {
     }
 
     fn syntax_error(&self, message: &str) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new("SYNTAX_ERROR", message).at_path("$");
+        self.error("SYNTAX_ERROR", message)
+    }
+
+    fn error(&self, code: &str, message: &str) -> Diagnostic {
+        let mut diagnostic = Diagnostic::new(code, message).at_path("$");
         diagnostic.span = Some(self.current_span());
         diagnostic
     }
@@ -2455,6 +2514,45 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = \"\"\n"
         );
+    }
+
+    #[test]
+    fn decodes_the_complete_escape_vocabulary_in_trimticks() {
+        let source = r#"value = >`\"\'\`\\\n\r\t\b\f\u0041\u{1F600}\uD83D\uDE00`"#;
+        let bindings = Parser::new(source).parse_document().expect("parse");
+        assert_eq!(
+            bindings[0].value,
+            Value::String(String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_escapes_in_every_string_delimiter() {
+        for source in [
+            r#"value = "\q""#,
+            r#"value = '\q'"#,
+            r#"value = `\q`"#,
+            r#"value = >`\q`"#,
+            r#"value = "\u{D800}\uDC00""#,
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "INVALID_ESCAPE", "{source}");
+        }
+    }
+
+    #[test]
+    fn rejects_literal_newlines_in_ordinary_quoted_strings() {
+        for source in [
+            "value = \"line one\nline two\"",
+            "value = 'line one\nline two'",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "UNTERMINATED_STRING", "{source}");
+        }
     }
 
     #[test]
@@ -2880,6 +2978,20 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\ntext = >`\n  alpha\n  \n  beta\n`\n"
         );
+    }
+
+    #[test]
+    fn escapes_trimtick_delimiters_backslashes_and_controls_in_multiline_output() {
+        let result = canonicalize("value = \"line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b\"");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result.text.contains(
+                "value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`"
+            )
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
     }
 
     #[test]

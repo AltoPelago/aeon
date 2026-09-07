@@ -163,6 +163,16 @@ test('canonicalizes multiline strings as spaces-only trimticks', () => {
     ].join('\n') + '\n');
 });
 
+test('escapes trimtick delimiters, backslashes, and controls in multiline output', () => {
+    const result = canonicalize('value = "line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b"');
+
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.text.includes('value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`'));
+    const repeated = canonicalize(result.text);
+    assert.equal(repeated.errors.length, 0);
+    assert.equal(repeated.text, result.text);
+});
+
 test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
     const input = [
         'notes:list<trimtick> = [',

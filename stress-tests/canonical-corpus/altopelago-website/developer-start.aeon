@@ -1,0 +1,132 @@
+title:string = "Developer Start"
+description:string = "Start using AEON as a developer with the TypeScript runtime, strict validation, JSON output projection, annotations, and playground examples."
+activePage:string = "developer-start"
+keywords:list<string> = ["developer", "runtime", "npm", "typescript", "install", "json", "validation", "quickstart"]
+
+page:node = <page(
+  <section @{type:string = "feature", hero:boolean = true, id:string = "developer-start", level:string = "1"} (
+    <kicker("Developer Start")>
+    <title("See the whole loop: source text in, accepted JSON projection out.")>
+    <heading("Start with one document and one runtime call.")>
+    <copy("If you are evaluating AEON as a developer, the first useful question is: what do I write, what does the runtime produce, and where does validation happen?")>
+    <info(>`
+      import { runRuntime } from "@altopelago/aeon-runtime";
+
+      const source = [
+        'app:object = {',
+        '  name:string = "AEON demo"',
+        '  port:number = 8080',
+        '  enabled:boolean = true',
+        '}'
+      ].join("\\n");
+
+      const result = runRuntime(source, {
+        mode: "strict",
+        output: "json",
+        includeAnnotations: true
+      });
+
+      if (result.meta.errors.length === 0) {
+        console.log(result.document);
+      }
+    `)>
+    <copy("The finalized JSON projection is plain application data produced after AEON has checked the source claims.")>
+    <info(>`
+      {
+        "app": {
+          "name": "AEON demo",
+          "port": 8080,
+          "enabled": true
+        }
+      }
+    `)>
+    <annotations(
+      <annotation(
+        <label("Write")>
+        <copy("Start with typed bindings, objects, lists, tuples, references, and prose blocks in the playground.")>
+      )>
+      <annotation(
+        <label("Validate")>
+        <copy("Run in strict mode when you want reserved datatypes, explicit structure, and fail-closed diagnostics.")>
+      )>
+      <annotation(
+        <label("Materialize")>
+        <copy("Ask for JSON when you want ordinary application data after AEON has preserved and checked the source claims.")>
+      )>
+      <annotation(
+        <label("Inspect")>
+        <copy("Turn on annotations when tooling needs source spans, comments, or parallel metadata without changing the data.")>
+      )>
+    )>
+    <actions(
+      <action @{href:string = "/playground.php", primary:boolean = true} ("Open playground")>
+      <action @{href:string = "/walkthrough.php"} ("Learn syntax")>
+      <action @{href:string = "https://www.npmjs.com/package/@altopelago/aeon-runtime"} ("Runtime package")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "install"} (
+    <kicker("Install")>
+    <title("Use the published runtime from npm.")>
+    <copy("For most applications, the runtime package is the simplest entry point because it coordinates compile, validation, reference handling, finalization, and diagnostics.")>
+    <code(>`
+      npm install @altopelago/aeon-runtime
+    `)>
+    <actions(
+      <action @{href:string = "https://www.npmjs.com/package/@altopelago/aeon-runtime", primary:boolean = true} ("Open npm")>
+      <action @{href:string = "https://github.com/AltoPelago/aeon/tree/main/implementations/typescript"} ("TypeScript workspace")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "examples"} (
+    <kicker("Examples")>
+    <title("Learn the language from small working examples.")>
+    <copy("The examples repository is the best next stop when you want to see AEON source beside runnable code. Start with the Hello World examples, then move into typed objects, schemas, validation, and runtime output.")>
+    <annotations(
+      <annotation(
+        <label("Hello World")>
+        <copy("Begin with the smallest source files to see how bindings and scalar values become application data.")>
+      )>
+      <annotation(
+        <label("Runtime loops")>
+        <copy("Compare source input, validation diagnostics, and accepted JSON projections in compact examples before wiring AEON into a larger project.")>
+      )>
+      <annotation(
+        <label("Language patterns")>
+        <copy("Use the examples to learn objects, lists, references, schemas, and browser demos in practical context.")>
+      )>
+    )>
+    <actions(
+      <action @{href:string = "https://github.com/AltoPelago/aeon-examples", primary:boolean = true} ("Open examples repo")>
+      <action @{href:string = "/walkthrough.php"} ("Read walkthrough")>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "next"} (
+    <kicker("Next")>
+    <title("Move from the runtime loop into the language and system model.")>
+    <cards(
+      <card(
+        <topline("Walkthrough")>
+        <heading("Learn the syntax in order")>
+        <copy("Walk through bindings, scalar values, containers, types, comments, and multiline text before moving into references and nodes.")>
+        <href("/walkthrough.php")>
+        <cta("Start walkthrough")>
+      )>
+      <card(
+        <topline("Language Layer")>
+        <heading("Understand the meaning model")>
+        <copy("Read how vocabulary, grammar, profiles, schemas, conventions, and Tonics add meaning without giving documents authority over themselves.")>
+        <href("/aeon-language.php#language-layer")>
+        <cta("Open language layer")>
+      )>
+      <card(
+        <topline("Playground")>
+        <heading("Experiment without setup")>
+        <copy("Use the playground to switch modes, inspect AES and data output, and see annotation stream behavior while you edit.")>
+        <href("/playground.php")>
+        <cta("Open playground")>
+      )>
+    )>
+  )>
+)>
