@@ -4,7 +4,7 @@ import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents } from './events.js';
 import { resolvePaths } from './paths.js';
-import { projectPortableEvents } from './portable.js';
+import { createPortableEventPathMap, projectPortableEvents } from './portable.js';
 
 function project(input: string) {
     const parsed = parse(tokenize(input).tokens, { maxAttributeDepth: 8 });
@@ -15,6 +15,18 @@ function project(input: string) {
 }
 
 describe('portable AES projection', () => {
+    it('publishes structure-aware native-to-portable event path mappings', () => {
+        const parsed = parse(tokenize('a:node = <outer(<inner("leaf")>)>').tokens, { maxAttributeDepth: 8 });
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        assert.deepEqual([...createPortableEventPathMap(emitted.events)], [
+            ['$.a', '$.a'],
+            ['$.a[0]', '$.a[0][0]'],
+            ['$.a[0][0]', '$.a[0][0][0][0]'],
+        ]);
+    });
     it('separates binding, node-head, and child identities at expanded paths', () => {
         const events = project(String.raw`a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>`);
 

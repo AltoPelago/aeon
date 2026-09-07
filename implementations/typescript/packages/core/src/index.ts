@@ -664,6 +664,7 @@ export {
     validateTelex,
     validateTelexRecords,
     projectPortableEvents,
+    createPortableEventPathMap,
 } from '@altopelago/aeon-aes';
 
 function stripLeadingBom(input: string): string {

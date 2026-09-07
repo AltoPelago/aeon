@@ -89,6 +89,25 @@ export function projectPortableEvents(events: readonly AssignmentEvent[]): reado
     return projected;
 }
 
+/**
+ * Map native AssignmentEvent paths to their portable AES occurrence paths.
+ *
+ * The map is structure-aware: every indexed source segment beneath a node
+ * gains the synthetic NodeHead index. Synthetic NodeHead paths themselves do
+ * not have a native AssignmentEvent counterpart and are therefore absent.
+ */
+export function createPortableEventPathMap(events: readonly AssignmentEvent[]): ReadonlyMap<string, string> {
+    const nodeSourcePaths = new Set(
+        events
+            .filter((event) => unwrapTypedValue(event.value).type === 'NodeLiteral')
+            .map((event) => formatPath(event.path)),
+    );
+    return new Map(events.map((event) => [
+        formatPath(event.path),
+        formatPath(translateNodePath(event.path, nodeSourcePaths)),
+    ]));
+}
+
 /** Compatibility name retained while downstream callers adopt the complete projection name. */
 export const projectPortableNodeEvents = projectPortableEvents;
 

@@ -256,9 +256,9 @@ function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
-            for (const child of value.children) {
-                yield* findReferences(child);
-            }
+            // Node children have their own indexed AssignmentEvents. Validating
+            // them again through the outer node would duplicate diagnostics and
+            // report the collapsed owner path instead of the child's occurrence.
             return;
 
         default:
