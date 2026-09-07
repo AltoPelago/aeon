@@ -8,6 +8,60 @@ from .telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_datatype_descri
 
 PortableEvent = dict[str, object]
 
+PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0 = "aeon.python.assignment-events.v0"
+PYTHON_PORTABLE_AES_ADAPTER_V0 = "aeon.python.assignment-events.v0-to-aes.events.v0"
+PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0 = "0.1.0-candidate"
+
+
+def adapt_python_assignment_events_to_portable_aes(
+    events: Iterable[dict[str, object]],
+    *,
+    header: dict[str, object] | None = None,
+    include_headers: bool = False,
+) -> dict[str, object]:
+    """Run the named Python legacy adapter and return events plus its report."""
+
+    source_events = list(events)
+    body = [event for event in source_events if not is_legacy_header_event(event)]
+    headers = [event for event in source_events if is_legacy_header_event(event)] if include_headers else []
+    projected_body = [strip_local_span(event) for event in project_portable_events(body)]
+    projected_headers = project_portable_events(headers)
+    if include_headers and not projected_headers and header is not None:
+        projected_headers = project_telex_records([], header=header, include_headers=True)
+    normalized_headers: list[PortableEvent] = []
+    for event in projected_headers:
+        portable = strip_local_span(event)
+        if "header" not in portable:
+            address = portable.pop("path")
+            portable = {"header": address, **portable}
+        normalized_headers.append(portable)
+    projected = [*normalized_headers, *projected_body]
+    changes = compatibility_changes(source_events, body, projected, include_headers)
+    if header is not None and not headers and not include_headers:
+        changes.append(conversion_change(
+            "omitted",
+            "AES_COMPAT_HEADER_EXCLUDED",
+            "header",
+            "The separate AEON header is excluded by the default body-only projection.",
+        ))
+    has_header_source = bool(headers) or header is not None
+    return {
+        "events": projected,
+        "report": {
+            "sourceContract": PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0,
+            "targetContract": "aes.events.v0",
+            "adapter": PYTHON_PORTABLE_AES_ADAPTER_V0,
+            "adapterVersion": PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0,
+            "profile": "aes.complete.v0",
+            "projection": AEON_DOCUMENT_PROJECTION if include_headers else None,
+            "semanticLossless": True,
+            "recordLossless": len(source_events) == 0 and not has_header_source,
+            "provenanceLossless": len(source_events) == 0 and not has_header_source,
+            "semanticLossAuthorized": False,
+            "changes": changes,
+        },
+    }
+
 
 def project_portable_events(events: Iterable[dict[str, object]]) -> list[PortableEvent]:
     """Project legacy Python AES events into the portable flat event shape."""
@@ -510,6 +564,158 @@ def stringify_value(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def is_legacy_header_event(event: dict[str, object]) -> bool:
+    path = event.get("path")
+    if not isinstance(path, str):
+        return False
+    try:
+        segments = parse_canonical_path(path)
+    except (TypeError, ValueError):
+        return False
+    return bool(segments) and isinstance(segments[0], str) and segments[0].startswith("aeon:")
+
+
+def strip_local_span(event: PortableEvent) -> PortableEvent:
+    return {key: value for key, value in event.items() if key != "span"}
+
+
+def conversion_change(
+    kind: str,
+    code: str,
+    field: str,
+    message: str,
+    *,
+    source_path: str | None = None,
+    target_path: str | None = None,
+) -> dict[str, object]:
+    change: dict[str, object] = {
+        "kind": kind,
+        "code": code,
+        "field": field,
+        "message": message,
+        "requiresAuthorization": kind == "semantic-loss",
+    }
+    if source_path is not None:
+        change["sourcePath"] = source_path
+    if target_path is not None:
+        change["targetPath"] = target_path
+    return change
+
+
+def compatibility_changes(
+    source_events: list[dict[str, object]],
+    body_events: list[dict[str, object]],
+    projected: list[PortableEvent],
+    include_headers: bool,
+) -> list[dict[str, object]]:
+    changes: list[dict[str, object]] = []
+    node_source_paths = {
+        str(event.get("path"))
+        for event in body_events
+        if value_type(unwrap_typed_value(event.get("value"))) == "NodeLiteral"
+    }
+    path_map = {
+        str(event.get("path", "$")): translate_node_path(str(event.get("path", "$")), node_source_paths)
+        for event in body_events
+    }
+    for event in source_events:
+        source_path = str(event.get("path", "$"))
+        header = is_legacy_header_event(event)
+        target_path = source_path if header and include_headers else path_map.get(source_path)
+        changes.append(conversion_change(
+            "omitted",
+            "AES_COMPAT_PROVENANCE_OMITTED",
+            "span",
+            "The local source span is omitted because it is not bound to an immutable portable origin.",
+            source_path=source_path,
+            target_path=target_path,
+        ))
+        changes.append(conversion_change(
+            "transformed",
+            "AES_COMPAT_SOURCE_REPRESENTATION_REDUCED",
+            "normalizedPath,value",
+            "Implementation-specific navigation fields and AST representation are reduced to portable AES fields.",
+            source_path=source_path,
+            target_path=target_path,
+        ))
+        if header and not include_headers:
+            changes.append(conversion_change(
+                "omitted",
+                "AES_COMPAT_HEADER_EXCLUDED",
+                "event",
+                "The synthetic AEON header event is excluded by the default body-only projection.",
+                source_path=source_path,
+            ))
+            continue
+        if header:
+            changes.append(conversion_change(
+                "transformed",
+                "AES_COMPAT_HEADER_PROJECTED",
+                "path",
+                "The recognized synthetic AEON header event is moved to the header address plane.",
+                source_path=source_path,
+                target_path=source_path,
+            ))
+        elif target_path is not None and target_path != source_path:
+            changes.append(conversion_change(
+                "transformed",
+                "AES_COMPAT_PATH_TRANSLATED",
+                "path",
+                "The source occurrence path is translated through the explicit portable node-head level.",
+                source_path=source_path,
+                target_path=target_path,
+            ))
+        value = unwrap_typed_value(event.get("value"))
+        if isinstance(value, dict) and value_type(value) in {"CloneReference", "PointerReference"}:
+            source_target = translate_reference_target(value.get("path"), set())
+            portable_target = translate_reference_target(value.get("path"), node_source_paths)
+            if source_target != portable_target:
+                changes.append(conversion_change(
+                    "transformed",
+                    "AES_COMPAT_REFERENCE_TRANSLATED",
+                    "value.path",
+                    f"The reference target is translated from {source_target} to {portable_target}.",
+                    source_path=source_path,
+                    target_path=target_path,
+                ))
+
+    for event in projected:
+        target_path = optional_string(event.get("path")) or optional_string(event.get("header"))
+        if "header" in event:
+            changes.append(conversion_change(
+                "transformed",
+                "AES_COMPAT_HEADER_PROJECTED",
+                "header",
+                "The recognized AEON header field is emitted in the header address plane.",
+                target_path=target_path,
+            ))
+        if event.get("kind") == "NodeHead":
+            changes.append(conversion_change(
+                "synthesized",
+                "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
+                "NodeHead",
+                "The implicit implementation node tag is emitted as an explicit portable NodeHead event.",
+                target_path=target_path,
+            ))
+        if target_path is not None and ".@" in target_path:
+            changes.append(conversion_change(
+                "transformed",
+                "AES_COMPAT_ATTRIBUTE_FLATTENED",
+                "attributes",
+                "The nested implementation attribute entry is emitted as an ordinary flat AES event.",
+                target_path=target_path,
+            ))
+        if "datatype" in event:
+            changes.append(conversion_change(
+                "transformed",
+                "AES_COMPAT_DATATYPE_EXPANDED",
+                "datatype",
+                "The combined datatype descriptor is expanded into datatype, generics, and clarifiers.",
+                target_path=target_path,
+            ))
+    return changes
 
 
 def project_telex_records(

@@ -650,6 +650,11 @@ export type {
     TelexLimitOptions,
     TelexValidationOptions,
     TelexValidationResult,
+    PortableAesCompatibilityEvent,
+    PortableAesCompatibilityOptions,
+    PortableAesCompatibilityResultV0,
+    PortableAesConversionChange,
+    PortableAesConversionReportV0,
 } from '@altopelago/aeon-aes';
 export type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export type { Span, Position } from '@altopelago/aeon-lexer';
@@ -665,6 +670,10 @@ export {
     validateTelexRecords,
     projectPortableEvents,
     createPortableEventPathMap,
+    adaptTypeScriptAssignmentEventsToPortableAes,
+    TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
+    TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
+    TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0,
 } from '@altopelago/aeon-aes';
 
 function stripLeadingBom(input: string): string {

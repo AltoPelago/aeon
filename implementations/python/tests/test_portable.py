@@ -10,10 +10,67 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from aeon.core import CompileOptions, compile_source
-from aeon.portable import project_portable_events
+from aeon.portable import (
+    PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0,
+    PYTHON_PORTABLE_AES_ADAPTER_V0,
+    adapt_python_assignment_events_to_portable_aes,
+    project_portable_events,
+)
 
 
 class PortableProjectionTests(unittest.TestCase):
+    def test_named_legacy_adapter_returns_an_explicit_conversion_report(self) -> None:
+        result = compile_source(
+            'a@{role = "root"} = <tag("child")>\ncopy = ~a[0]\nitems:list<int> = [1]',
+            CompileOptions(max_attribute_depth=8),
+        )
+        self.assertEqual([], result.errors)
+
+        converted = adapt_python_assignment_events_to_portable_aes(result.events)
+        report = converted["report"]
+        self.assertIsInstance(report, dict)
+        assert isinstance(report, dict)
+        self.assertEqual(PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0, report["sourceContract"])
+        self.assertEqual("aes.events.v0", report["targetContract"])
+        self.assertEqual(PYTHON_PORTABLE_AES_ADAPTER_V0, report["adapter"])
+        self.assertEqual("aes.complete.v0", report["profile"])
+        self.assertIsNone(report["projection"])
+        self.assertTrue(report["semanticLossless"])
+        self.assertFalse(report["recordLossless"])
+        self.assertFalse(report["provenanceLossless"])
+        events = converted["events"]
+        self.assertIsInstance(events, list)
+        assert isinstance(events, list)
+        self.assertFalse(any("span" in event for event in events))
+        changes = report["changes"]
+        self.assertIsInstance(changes, list)
+        assert isinstance(changes, list)
+        codes = {change["code"] for change in changes}
+        self.assertTrue({
+            "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
+            "AES_COMPAT_ATTRIBUTE_FLATTENED",
+            "AES_COMPAT_DATATYPE_EXPANDED",
+            "AES_COMPAT_REFERENCE_TRANSLATED",
+            "AES_COMPAT_PROVENANCE_OMITTED",
+        }.issubset(codes))
+
+    def test_named_legacy_adapter_keeps_headers_opt_in(self) -> None:
+        result = compile_source('aeon:mode = "transport"\na = 1')
+        self.assertEqual([], result.errors)
+        body = adapt_python_assignment_events_to_portable_aes(result.events, header=result.header)
+        self.assertEqual(["$.a"], [event.get("path") for event in body["events"]])
+        self.assertIn("AES_COMPAT_HEADER_EXCLUDED", [
+            change["code"] for change in body["report"]["changes"]
+        ])
+        document = adapt_python_assignment_events_to_portable_aes(
+            result.events,
+            header=result.header,
+            include_headers=True,
+        )
+        self.assertEqual("aeon.document.v0", document["report"]["projection"])
+        self.assertEqual('$.["aeon:mode"]', document["events"][0]["header"])
+        self.assertEqual("$.a", document["events"][1]["path"])
+
     def project(self, source: str) -> list[dict[str, object]]:
         result = compile_source(source, CompileOptions(max_attribute_depth=8))
         self.assertEqual([], result.errors)

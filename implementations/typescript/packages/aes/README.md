@@ -32,6 +32,9 @@ if (result.errors.length === 0) {
 
 - `emitAssignmentEvents(input, options?)`
 - `projectPortableEvents(events)`
+- `adaptTypeScriptAssignmentEventsToPortableAes(events, options?)` returns the
+  named `aeon.typescript.assignment-events.v0-to-aes.events.v0` compatibility
+  result and its conversion report
 - `parseTelex(input, options?)`
 - `encodeTelex(records, options?)`
 - `canonicalizeTelex(input, options?)`

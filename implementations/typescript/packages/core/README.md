@@ -86,6 +86,12 @@ console.log(direct.telex);
 Headers are excluded by default. Set `includeHeaders: true` to use the explicit
 `aeon.document.v0` header plane.
 
+For a legacy assignment-event boundary that also needs compatibility evidence,
+use `adaptTypeScriptAssignmentEventsToPortableAes()`. It returns strict
+portable events and a conversion report under the named
+`aeon.typescript.assignment-events.v0-to-aes.events.v0` adapter. Local spans
+without an immutable origin are omitted and reported.
+
 ### Inspect the file preamble without full parsing
 
 Use `inspectFilePreamble()` to read only the allowed file-header slot for:

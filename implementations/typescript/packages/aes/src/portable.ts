@@ -49,6 +49,89 @@ export interface PortableAesEvent {
     readonly span?: string;
 }
 
+export const TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0 = 'aeon.typescript.assignment-events.v0' as const;
+export const TYPESCRIPT_PORTABLE_AES_ADAPTER_V0 =
+    'aeon.typescript.assignment-events.v0-to-aes.events.v0' as const;
+export const TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0 = '0.1.0-candidate' as const;
+
+export type PortableAesConversionChangeKind = 'transformed' | 'synthesized' | 'omitted' | 'semantic-loss';
+
+export interface PortableAesConversionChange {
+    readonly kind: PortableAesConversionChangeKind;
+    readonly code: string;
+    readonly field: string;
+    readonly message: string;
+    readonly sourcePath?: string;
+    readonly targetPath?: string;
+    readonly requiresAuthorization: boolean;
+}
+
+export interface PortableAesConversionReportV0 {
+    readonly sourceContract: typeof TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0;
+    readonly targetContract: 'aes.events.v0';
+    readonly adapter: typeof TYPESCRIPT_PORTABLE_AES_ADAPTER_V0;
+    readonly adapterVersion: typeof TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0;
+    readonly profile: 'aes.complete.v0';
+    readonly projection: null | 'aeon.document.v0';
+    readonly semanticLossless: boolean;
+    readonly recordLossless: boolean;
+    readonly provenanceLossless: boolean;
+    readonly semanticLossAuthorized: boolean;
+    readonly changes: readonly PortableAesConversionChange[];
+}
+
+export interface PortableAesCompatibilityEvent extends Omit<PortableAesEvent, 'path' | 'span'> {
+    readonly path?: string;
+    readonly header?: string;
+}
+
+export interface PortableAesCompatibilityResultV0 {
+    readonly events: readonly PortableAesCompatibilityEvent[];
+    readonly report: PortableAesConversionReportV0;
+}
+
+export interface PortableAesCompatibilityOptions {
+    readonly includeHeaders?: boolean;
+}
+
+/**
+ * Named, report-bearing compatibility adapter for the serialized TypeScript
+ * assignment-event contract. Existing projection helpers remain unchanged for
+ * same-process callers. Local source spans are omitted because the source
+ * contract does not bind them to an immutable portable origin.
+ */
+export function adaptTypeScriptAssignmentEventsToPortableAes(
+    events: readonly AssignmentEvent[],
+    options: PortableAesCompatibilityOptions = {},
+): PortableAesCompatibilityResultV0 {
+    const includeHeaders = options.includeHeaders === true;
+    const body = events.filter((event) => !isLegacyHeaderEvent(event));
+    const headers = includeHeaders ? events.filter(isLegacyHeaderEvent) : [];
+    const bodyEvents = projectPortableEvents(body).map(stripLocalSpan);
+    const headerEvents = projectPortableEvents(headers).map((event): PortableAesCompatibilityEvent => {
+        const { path, span: _span, ...rest } = event;
+        return { header: path, ...rest };
+    });
+    const projected = [...headerEvents, ...bodyEvents];
+    const changes = compatibilityChanges(events, body, projected, includeHeaders);
+    return {
+        events: projected,
+        report: {
+            sourceContract: TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
+            targetContract: 'aes.events.v0',
+            adapter: TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
+            adapterVersion: TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0,
+            profile: 'aes.complete.v0',
+            projection: includeHeaders ? 'aeon.document.v0' : null,
+            semanticLossless: true,
+            recordLossless: events.length === 0,
+            provenanceLossless: events.length === 0,
+            semanticLossAuthorized: false,
+            changes,
+        },
+    };
+}
+
 /**
  * Project legacy TypeScript AssignmentEvents into the portable flat shape.
  *
@@ -391,6 +474,138 @@ function translateReferenceTarget(
     }
 
     return out;
+}
+
+function isLegacyHeaderEvent(event: AssignmentEvent): boolean {
+    const segment = event.path.segments[1];
+    return segment?.type === 'member' && segment.key.startsWith('aeon:');
+}
+
+function stripLocalSpan(event: PortableAesEvent): PortableAesCompatibilityEvent {
+    const { span: _span, ...portable } = event;
+    return portable;
+}
+
+function compatibilityChanges(
+    sourceEvents: readonly AssignmentEvent[],
+    bodyEvents: readonly AssignmentEvent[],
+    projected: readonly PortableAesCompatibilityEvent[],
+    includeHeaders: boolean,
+): readonly PortableAesConversionChange[] {
+    const changes: PortableAesConversionChange[] = [];
+    const pathMap = createPortableEventPathMap(bodyEvents);
+
+    for (const event of sourceEvents) {
+        const sourcePath = formatPath(event.path);
+        const header = isLegacyHeaderEvent(event);
+        const targetPath = header && includeHeaders ? sourcePath : pathMap.get(sourcePath);
+        changes.push({
+            kind: 'omitted',
+            code: 'AES_COMPAT_PROVENANCE_OMITTED',
+            field: 'span',
+            message: 'The local source span is omitted because it is not bound to an immutable portable origin.',
+            sourcePath,
+            ...(targetPath !== undefined ? { targetPath } : {}),
+            requiresAuthorization: false,
+        });
+        changes.push({
+            kind: 'transformed',
+            code: 'AES_COMPAT_SOURCE_REPRESENTATION_REDUCED',
+            field: 'key,normalizedPath,value',
+            message: 'Implementation-specific navigation fields and AST representation are reduced to portable AES fields.',
+            sourcePath,
+            ...(targetPath !== undefined ? { targetPath } : {}),
+            requiresAuthorization: false,
+        });
+        if (header && !includeHeaders) {
+            changes.push({
+                kind: 'omitted',
+                code: 'AES_COMPAT_HEADER_EXCLUDED',
+                field: 'event',
+                message: 'The synthetic AEON header event is excluded by the default body-only projection.',
+                sourcePath,
+                requiresAuthorization: false,
+            });
+            continue;
+        }
+        if (header) {
+            changes.push({
+                kind: 'transformed',
+                code: 'AES_COMPAT_HEADER_PROJECTED',
+                field: 'path',
+                message: 'The recognized synthetic AEON header event is moved to the header address plane.',
+                sourcePath,
+                targetPath: sourcePath,
+                requiresAuthorization: false,
+            });
+        } else if (targetPath !== undefined && targetPath !== sourcePath) {
+            changes.push({
+                kind: 'transformed',
+                code: 'AES_COMPAT_PATH_TRANSLATED',
+                field: 'path',
+                message: 'The source occurrence path is translated through the explicit portable node-head level.',
+                sourcePath,
+                targetPath,
+                requiresAuthorization: false,
+            });
+        }
+
+        const value = unwrapTypedValue(event.value);
+        if (value.type === 'CloneReference' || value.type === 'PointerReference') {
+            const sourceTarget = translateReferenceTarget(value.path, new Set());
+            const nodePaths = new Set(bodyEvents
+                .filter((candidate) => unwrapTypedValue(candidate.value).type === 'NodeLiteral')
+                .map((candidate) => formatPath(candidate.path)));
+            const portableTarget = translateReferenceTarget(value.path, nodePaths);
+            if (sourceTarget !== portableTarget) {
+                changes.push({
+                    kind: 'transformed',
+                    code: 'AES_COMPAT_REFERENCE_TRANSLATED',
+                    field: 'value.path',
+                    message: `The reference target is translated from ${sourceTarget} to ${portableTarget}.`,
+                    sourcePath,
+                    ...(targetPath !== undefined ? { targetPath } : {}),
+                    requiresAuthorization: false,
+                });
+            }
+        }
+    }
+
+    for (const event of projected) {
+        const targetPath = event.path ?? event.header;
+        if (event.kind === 'NodeHead') {
+            changes.push({
+                kind: 'synthesized',
+                code: 'AES_COMPAT_NODE_HEAD_SYNTHESIZED',
+                field: 'NodeHead',
+                message: 'The implicit implementation node tag is emitted as an explicit portable NodeHead event.',
+                ...(targetPath !== undefined ? { targetPath } : {}),
+                requiresAuthorization: false,
+            });
+        }
+        if (targetPath?.includes('.@')) {
+            changes.push({
+                kind: 'transformed',
+                code: 'AES_COMPAT_ATTRIBUTE_FLATTENED',
+                field: 'attributes',
+                message: 'The nested implementation attribute entry is emitted as an ordinary flat AES event.',
+                targetPath,
+                requiresAuthorization: false,
+            });
+        }
+        if (event.datatype !== undefined) {
+            changes.push({
+                kind: 'transformed',
+                code: 'AES_COMPAT_DATATYPE_EXPANDED',
+                field: 'datatype',
+                message: 'The combined datatype descriptor is expanded into datatype, generics, and clarifiers.',
+                ...(targetPath !== undefined ? { targetPath } : {}),
+                requiresAuthorization: false,
+            });
+        }
+    }
+
+    return changes;
 }
 
 function unwrapTypedValue(value: Value): Value {

@@ -25,6 +25,130 @@ pub struct PortableAesEvent {
     pub span: Option<Span>,
 }
 
+pub const RUST_ASSIGNMENT_EVENTS_CONTRACT_V0: &str = "aeon.rust.assignment-events.v0";
+pub const RUST_PORTABLE_AES_ADAPTER_V0: &str = "aeon.rust.assignment-events.v0-to-aes.events.v0";
+pub const RUST_PORTABLE_AES_ADAPTER_VERSION_V0: &str = "0.1.0-candidate";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortableAesCompatibilityEvent {
+    pub path: Option<String>,
+    pub header: Option<String>,
+    pub kind: &'static str,
+    pub identity: Option<String>,
+    pub datatype: Option<String>,
+    pub generics: Vec<GenericArgument>,
+    pub clarifiers: Vec<DatatypeClarifier>,
+    pub value: Option<String>,
+    pub origin: Option<String>,
+    pub span: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortableAesConversionChange {
+    pub kind: &'static str,
+    pub code: &'static str,
+    pub field: &'static str,
+    pub message: String,
+    pub source_path: Option<String>,
+    pub target_path: Option<String>,
+    pub requires_authorization: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortableAesConversionReportV0 {
+    pub source_contract: &'static str,
+    pub target_contract: &'static str,
+    pub adapter: &'static str,
+    pub adapter_version: &'static str,
+    pub profile: &'static str,
+    pub projection: Option<&'static str>,
+    pub semantic_lossless: bool,
+    pub record_lossless: bool,
+    pub provenance_lossless: bool,
+    pub semantic_loss_authorized: bool,
+    pub changes: Vec<PortableAesConversionChange>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PortableAesCompatibilityOptions {
+    pub include_headers: bool,
+    pub header: Option<crate::HeaderFields>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortableAesCompatibilityResultV0 {
+    pub events: Vec<PortableAesCompatibilityEvent>,
+    pub report: PortableAesConversionReportV0,
+}
+
+/// Run the named Rust legacy adapter and return a strict portable stream plus
+/// its conversion report. Existing projection helpers retain their local span
+/// behavior for same-process callers.
+#[must_use]
+pub fn adapt_rust_assignment_events_to_portable_aes(
+    events: &[AssignmentEvent],
+    options: &PortableAesCompatibilityOptions,
+) -> PortableAesCompatibilityResultV0 {
+    let body = events
+        .iter()
+        .filter(|event| !is_legacy_header_event(event))
+        .cloned()
+        .collect::<Vec<_>>();
+    let headers = if options.include_headers {
+        events
+            .iter()
+            .filter(|event| is_legacy_header_event(event))
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let mut projected_headers = project_portable_events(&headers);
+    if options.include_headers
+        && projected_headers.is_empty()
+        && let Some(header) = options.header.as_ref()
+    {
+        projected_headers = project_header_fields(header);
+    }
+    let mut projected = projected_headers
+        .into_iter()
+        .map(|event| compatibility_event(event, true))
+        .collect::<Vec<_>>();
+    projected.extend(
+        project_portable_events(&body)
+            .into_iter()
+            .map(|event| compatibility_event(event, false)),
+    );
+    let mut changes = compatibility_changes(events, &body, &projected, options.include_headers);
+    if options.header.is_some() && headers.is_empty() && !options.include_headers {
+        changes.push(compatibility_change(
+            "omitted",
+            "AES_COMPAT_HEADER_EXCLUDED",
+            "header",
+            "The separate AEON header is excluded by the default body-only projection.",
+            None,
+            None,
+        ));
+    }
+    let has_header_source = !headers.is_empty() || options.header.is_some();
+    PortableAesCompatibilityResultV0 {
+        events: projected,
+        report: PortableAesConversionReportV0 {
+            source_contract: RUST_ASSIGNMENT_EVENTS_CONTRACT_V0,
+            target_contract: "aes.events.v0",
+            adapter: RUST_PORTABLE_AES_ADAPTER_V0,
+            adapter_version: RUST_PORTABLE_AES_ADAPTER_VERSION_V0,
+            profile: "aes.complete.v0",
+            projection: options.include_headers.then_some(AEON_DOCUMENT_PROJECTION),
+            semantic_lossless: true,
+            record_lossless: events.is_empty() && !has_header_source,
+            provenance_lossless: events.is_empty() && !has_header_source,
+            semantic_loss_authorized: false,
+            changes,
+        },
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExportTelexOptions {
     pub include_headers: bool,
@@ -707,6 +831,190 @@ fn translate_reference_target(
     output
 }
 
+fn is_legacy_header_event(event: &AssignmentEvent) -> bool {
+    matches!(event.path.segments.get(1), Some(PathSegment::Member(key)) if key.starts_with("aeon:"))
+}
+
+fn compatibility_event(event: PortableAesEvent, header: bool) -> PortableAesCompatibilityEvent {
+    PortableAesCompatibilityEvent {
+        path: (!header).then(|| event.path.clone()),
+        header: header.then_some(event.path),
+        kind: event.kind,
+        identity: event.identity,
+        datatype: event.datatype,
+        generics: event.generics,
+        clarifiers: event.clarifiers,
+        value: event.value,
+        origin: None,
+        span: None,
+    }
+}
+
+fn compatibility_change(
+    kind: &'static str,
+    code: &'static str,
+    field: &'static str,
+    message: impl Into<String>,
+    source_path: Option<String>,
+    target_path: Option<String>,
+) -> PortableAesConversionChange {
+    PortableAesConversionChange {
+        kind,
+        code,
+        field,
+        message: message.into(),
+        source_path,
+        target_path,
+        requires_authorization: kind == "semantic-loss",
+    }
+}
+
+fn compatibility_changes(
+    source_events: &[AssignmentEvent],
+    body_events: &[AssignmentEvent],
+    projected: &[PortableAesCompatibilityEvent],
+    include_headers: bool,
+) -> Vec<PortableAesConversionChange> {
+    let mut changes = Vec::new();
+    let node_source_paths = body_events
+        .iter()
+        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
+        .map(|event| format_path(&event.path))
+        .collect::<HashSet<_>>();
+    let path_map = body_events
+        .iter()
+        .map(|event| {
+            (
+                format_path(&event.path),
+                format_path(&translate_node_path(&event.path, &node_source_paths)),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for event in source_events {
+        let source_path = format_path(&event.path);
+        let header = is_legacy_header_event(event);
+        let target_path = if header && include_headers {
+            Some(source_path.clone())
+        } else {
+            path_map.get(&source_path).cloned()
+        };
+        changes.push(compatibility_change(
+            "omitted",
+            "AES_COMPAT_PROVENANCE_OMITTED",
+            "span",
+            "The local source span is omitted because it is not bound to an immutable portable origin.",
+            Some(source_path.clone()),
+            target_path.clone(),
+        ));
+        changes.push(compatibility_change(
+            "transformed",
+            "AES_COMPAT_SOURCE_REPRESENTATION_REDUCED",
+            "key,value",
+            "Implementation-specific navigation fields and AST representation are reduced to portable AES fields.",
+            Some(source_path.clone()),
+            target_path.clone(),
+        ));
+        if header && !include_headers {
+            changes.push(compatibility_change(
+                "omitted",
+                "AES_COMPAT_HEADER_EXCLUDED",
+                "event",
+                "The synthetic AEON header event is excluded by the default body-only projection.",
+                Some(source_path),
+                None,
+            ));
+            continue;
+        }
+        if header {
+            changes.push(compatibility_change(
+                "transformed",
+                "AES_COMPAT_HEADER_PROJECTED",
+                "path",
+                "The recognized synthetic AEON header event is moved to the header address plane.",
+                Some(source_path.clone()),
+                Some(source_path.clone()),
+            ));
+        } else if target_path.as_deref() != Some(source_path.as_str()) {
+            changes.push(compatibility_change(
+                "transformed",
+                "AES_COMPAT_PATH_TRANSLATED",
+                "path",
+                "The source occurrence path is translated through the explicit portable node-head level.",
+                Some(source_path.clone()),
+                target_path.clone(),
+            ));
+        }
+        match unwrap_typed_value(&event.value) {
+            Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
+                let source_target = translate_reference_target(segments, &HashSet::new());
+                let portable_target = translate_reference_target(segments, &node_source_paths);
+                if source_target != portable_target {
+                    changes.push(compatibility_change(
+                        "transformed",
+                        "AES_COMPAT_REFERENCE_TRANSLATED",
+                        "value.segments",
+                        format!(
+                            "The reference target is translated from {source_target} to {portable_target}."
+                        ),
+                        Some(source_path),
+                        target_path,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for event in projected {
+        let target_path = event.path.clone().or_else(|| event.header.clone());
+        if event.header.is_some() {
+            changes.push(compatibility_change(
+                "transformed",
+                "AES_COMPAT_HEADER_PROJECTED",
+                "header",
+                "The recognized AEON header field is emitted in the header address plane.",
+                None,
+                target_path.clone(),
+            ));
+        }
+        if event.kind == "NodeHead" {
+            changes.push(compatibility_change(
+                "synthesized",
+                "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
+                "NodeHead",
+                "The implicit implementation node tag is emitted as an explicit portable NodeHead event.",
+                None,
+                target_path.clone(),
+            ));
+        }
+        if target_path
+            .as_deref()
+            .is_some_and(|path| path.contains(".@"))
+        {
+            changes.push(compatibility_change(
+                "transformed",
+                "AES_COMPAT_ATTRIBUTE_FLATTENED",
+                "attributes",
+                "The nested implementation attribute entry is emitted as an ordinary flat AES event.",
+                None,
+                target_path.clone(),
+            ));
+        }
+        if event.datatype.is_some() {
+            changes.push(compatibility_change(
+                "transformed",
+                "AES_COMPAT_DATATYPE_EXPANDED",
+                "datatype",
+                "The combined datatype descriptor is expanded into datatype, generics, and clarifiers.",
+                None,
+                target_path,
+            ));
+        }
+    }
+    changes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,6 +1030,86 @@ mod tests {
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         project_portable_events(&result.events)
+    }
+
+    #[test]
+    fn named_legacy_adapter_returns_an_explicit_conversion_report() {
+        let result = compile(
+            "a@{role = \"root\"} = <tag(\"child\")>\ncopy = ~a[0]\nitems:list<int> = [1]",
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let converted = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions::default(),
+        );
+        assert_eq!(
+            converted.report.source_contract,
+            RUST_ASSIGNMENT_EVENTS_CONTRACT_V0
+        );
+        assert_eq!(converted.report.target_contract, "aes.events.v0");
+        assert_eq!(converted.report.adapter, RUST_PORTABLE_AES_ADAPTER_V0);
+        assert_eq!(converted.report.profile, "aes.complete.v0");
+        assert_eq!(converted.report.projection, None);
+        assert!(converted.report.semantic_lossless);
+        assert!(!converted.report.record_lossless);
+        assert!(!converted.report.provenance_lossless);
+        assert!(converted.events.iter().all(|event| event.span.is_none()));
+        let codes = converted
+            .report
+            .changes
+            .iter()
+            .map(|change| change.code)
+            .collect::<HashSet<_>>();
+        for expected in [
+            "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
+            "AES_COMPAT_ATTRIBUTE_FLATTENED",
+            "AES_COMPAT_DATATYPE_EXPANDED",
+            "AES_COMPAT_REFERENCE_TRANSLATED",
+            "AES_COMPAT_PROVENANCE_OMITTED",
+        ] {
+            assert!(codes.contains(expected), "missing {expected}: {codes:?}");
+        }
+    }
+
+    #[test]
+    fn named_legacy_adapter_keeps_headers_opt_in() {
+        let result = compile(
+            "aeon:mode = \"transport\"\na = 1",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let body = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                header: result.header.clone(),
+                ..PortableAesCompatibilityOptions::default()
+            },
+        );
+        assert_eq!(body.events.len(), 1);
+        assert_eq!(body.events[0].path.as_deref(), Some("$.a"));
+        assert!(
+            body.report
+                .changes
+                .iter()
+                .any(|change| change.code == "AES_COMPAT_HEADER_EXCLUDED")
+        );
+        let document = adapt_rust_assignment_events_to_portable_aes(
+            &result.events,
+            &PortableAesCompatibilityOptions {
+                include_headers: true,
+                header: result.header.clone(),
+            },
+        );
+        assert_eq!(document.report.projection, Some(AEON_DOCUMENT_PROJECTION));
+        assert_eq!(
+            document.events[0].header.as_deref(),
+            Some("$.[\"aeon:mode\"]")
+        );
+        assert_eq!(document.events[1].path.as_deref(), Some("$.a"));
     }
 
     fn shapes(events: &[PortableAesEvent]) -> Vec<(&str, &str, Option<&str>)> {

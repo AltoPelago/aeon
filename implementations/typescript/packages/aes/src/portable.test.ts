@@ -4,7 +4,13 @@ import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents } from './events.js';
 import { resolvePaths } from './paths.js';
-import { createPortableEventPathMap, projectPortableEvents } from './portable.js';
+import {
+    TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
+    TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
+    adaptTypeScriptAssignmentEventsToPortableAes,
+    createPortableEventPathMap,
+    projectPortableEvents,
+} from './portable.js';
 
 function project(input: string) {
     const parsed = parse(tokenize(input).tokens, { maxAttributeDepth: 8 });
@@ -15,6 +21,49 @@ function project(input: string) {
 }
 
 describe('portable AES projection', () => {
+    it('exposes the named legacy adapter with an explicit conversion report', () => {
+        const parsed = parse(tokenize(String.raw`a@{role = "root"} = <tag("child")>
+copy = ~a[0]
+items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events);
+
+        assert.equal(converted.report.sourceContract, TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0);
+        assert.equal(converted.report.targetContract, 'aes.events.v0');
+        assert.equal(converted.report.adapter, TYPESCRIPT_PORTABLE_AES_ADAPTER_V0);
+        assert.equal(converted.report.profile, 'aes.complete.v0');
+        assert.equal(converted.report.projection, null);
+        assert.equal(converted.report.semanticLossless, true);
+        assert.equal(converted.report.recordLossless, false);
+        assert.equal(converted.report.provenanceLossless, false);
+        assert.equal(converted.events.some((event) => 'span' in event), false);
+        const codes = new Set(converted.report.changes.map((change) => change.code));
+        assert.equal(codes.has('AES_COMPAT_NODE_HEAD_SYNTHESIZED'), true);
+        assert.equal(codes.has('AES_COMPAT_ATTRIBUTE_FLATTENED'), true);
+        assert.equal(codes.has('AES_COMPAT_DATATYPE_EXPANDED'), true);
+        assert.equal(codes.has('AES_COMPAT_REFERENCE_TRANSLATED'), true);
+        assert.equal(codes.has('AES_COMPAT_PROVENANCE_OMITTED'), true);
+    });
+
+    it('keeps headers opt-in on the named compatibility adapter', () => {
+        const parsed = parse(tokenize('aeon:mode = "transport"\na = 1').tokens);
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        const body = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events);
+        assert.deepEqual(body.events.map((event) => event.path), ['$.a']);
+        assert.equal(body.report.changes.some((change) => change.code === 'AES_COMPAT_HEADER_EXCLUDED'), true);
+
+        const document = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, { includeHeaders: true });
+        assert.equal(document.report.projection, 'aeon.document.v0');
+        assert.equal(document.events[0]?.header, '$.["aeon:mode"]');
+        assert.equal(document.events[1]?.path, '$.a');
+    });
+
     it('publishes structure-aware native-to-portable event path mappings', () => {
         const parsed = parse(tokenize('a:node = <outer(<inner("leaf")>)>').tokens, { maxAttributeDepth: 8 });
         assert.ok(parsed.document);

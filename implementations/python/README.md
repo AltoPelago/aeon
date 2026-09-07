@@ -46,6 +46,10 @@ Current CTS status:
 Implementation note:
 
 - AEOS reference-form behavior is part of shared conformance.
+- `adapt_python_assignment_events_to_portable_aes` exposes the named
+  `aeon.python.assignment-events.v0-to-aes.events.v0` compatibility result and
+  returns strict portable events plus its conversion report. Pass the separate
+  compile-result `header` when selecting `include_headers=True`.
 - `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
 - `max_reference_depth` and `--max-reference-depth` are processor controls, not AEON Core or AEOS conformance requirements.
 

@@ -123,6 +123,11 @@ Implementation note:
 - `--max-reference-depth` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - the Rust SDK can now load AEOS schema documents directly from `.aeos` and project them into the internal `Schema` model before validation.
 - Core exposes additive `compile_to_telex` and `export_telex` APIs while retaining the native event workflow.
+- Core exposes `adapt_rust_assignment_events_to_portable_aes` for the named
+  `aeon.rust.assignment-events.v0-to-aes.events.v0` compatibility result; it
+  returns strict portable events plus semantic, record, and provenance fidelity
+  evidence. The compatibility options carry the separate compile-result header
+  when the document projection is selected.
 - the Rust SDK exposes `load_telex_str`, `load_telex_file`, and `write_telex`; complete streams are validated and materialized directly from flat AES records.
 - AEOS accepts Telex records without treating structural identities as path segments, including attribute-space selection and flat-container cardinality.
 - the Rust/WASM bridge exposes Telex validation, completeness, canonicalization, and direct materialization.

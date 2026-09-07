@@ -22,7 +22,16 @@ from .core import CompileOptions, CompileResult, compile_source
 from .limits import AeonicLimitsV1, aeon_compile_limits, load_aeonic_limits, telex_limits
 from .finalize import FinalizeOptions, finalize_json
 from .preamble import FilePreambleInfo, HostDirective, inspect_file_preamble
-from .portable import PortableEvent, export_telex, project_portable_events, project_telex_records
+from .portable import (
+    PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0,
+    PYTHON_PORTABLE_AES_ADAPTER_V0,
+    PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0,
+    PortableEvent,
+    adapt_python_assignment_events_to_portable_aes,
+    export_telex,
+    project_portable_events,
+    project_telex_records,
+)
 from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
 from .telex import (
     AEON_DOCUMENT_PROJECTION,
@@ -62,10 +71,14 @@ __all__ = [
     "ParsedTelex",
     "PortableFinalizeOptions",
     "PortableEvent",
+    "PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0",
+    "PYTHON_PORTABLE_AES_ADAPTER_V0",
+    "PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0",
     "COMPLETE_AES_PROFILE",
     "PARTIAL_AES_PROFILE",
     "AEON_DOCUMENT_PROJECTION",
     "aeon_to_telex",
+    "adapt_python_assignment_events_to_portable_aes",
     "canonicalize_telex",
     "check_prefix_completeness",
     "check_telex_completeness",

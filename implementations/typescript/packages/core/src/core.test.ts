@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
+    adaptTypeScriptAssignmentEventsToPortableAes,
     compile,
     compileToTelex,
     checkTelexCompleteness,
@@ -49,6 +50,15 @@ describe('API Surface', () => {
         assert.strictEqual(result.records.length, 1);
         assert.match(result.telex ?? '', /^telex\.aes=0\n/u);
         assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
+    });
+
+    it('should expose the named legacy-to-portable compatibility adapter', () => {
+        const compiled = compile('a = 1');
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(compiled.events);
+
+        assert.strictEqual(converted.report.sourceContract, 'aeon.typescript.assignment-events.v0');
+        assert.strictEqual(converted.report.targetContract, 'aes.events.v0');
+        assert.deepStrictEqual(converted.events.map(({ path }) => path), ['$.a']);
     });
 
     it('should expose the quick Telex completeness check', () => {
