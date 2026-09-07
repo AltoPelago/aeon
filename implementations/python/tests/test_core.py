@@ -660,6 +660,7 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("\ufeffvalue:number = 1")
         self.assertEqual([], result.errors)
         self.assertEqual(["$.value"], [event["path"] for event in result.events])
+        self.assertEqual(1, result.events[0]["span"]["start"]["offset"])
 
     def test_leading_bom_before_shebang_and_host_directive_is_accepted(self) -> None:
         result = compile_source("\ufeff#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1")

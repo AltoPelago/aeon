@@ -4,6 +4,8 @@ from ._compat import dataclass
 
 @dataclass(frozen=True)
 class Position:
+    """A 1-based line/column and 0-based Unicode code-point offset."""
+
     line: int
     column: int
     offset: int
@@ -36,6 +38,8 @@ def span_from_offsets(source: str, start_offset: int, end_offset: int) -> Span:
 
 
 def position_from_offset(source: str, offset: int) -> Position:
+    """Resolve a Python string (Unicode code-point) offset to a position."""
+
     line = 1
     column = 1
     index = 0

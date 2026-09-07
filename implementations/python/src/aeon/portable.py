@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Iterable
 
@@ -13,30 +14,48 @@ PYTHON_PORTABLE_AES_ADAPTER_V0 = "aeon.python.assignment-events.v0-to-aes.events
 PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0 = "0.1.0-candidate"
 
 
+class PortableAesSourceError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def adapt_python_assignment_events_to_portable_aes(
     events: Iterable[dict[str, object]],
     *,
     header: dict[str, object] | None = None,
     include_headers: bool = False,
+    source_bytes: bytes | bytearray | memoryview | None = None,
 ) -> dict[str, object]:
     """Run the named Python legacy adapter and return events plus its report."""
 
     source_events = list(events)
+    has_legacy_header_source = any(is_legacy_header_event(event) for event in source_events)
     body = [event for event in source_events if not is_legacy_header_event(event)]
     headers = [event for event in source_events if is_legacy_header_event(event)] if include_headers else []
-    projected_body = [strip_local_span(event) for event in project_portable_events(body)]
+    projected_body = project_portable_events(body)
     projected_headers = project_portable_events(headers)
     if include_headers and not projected_headers and header is not None:
-        projected_headers = project_telex_records([], header=header, include_headers=True)
+        projected_headers = project_header_records(header)
     normalized_headers: list[PortableEvent] = []
     for event in projected_headers:
-        portable = strip_local_span(event)
+        portable = dict(event)
         if "header" not in portable:
             address = portable.pop("path")
             portable = {"header": address, **portable}
         normalized_headers.append(portable)
-    projected = [*normalized_headers, *projected_body]
-    changes = compatibility_changes(source_events, body, projected, include_headers)
+    source_context = create_source_context(source_bytes) if source_bytes is not None else None
+    projected = [
+        apply_source_provenance(event, source_context)
+        for event in [*normalized_headers, *projected_body]
+    ]
+    changes = compatibility_changes(
+        source_events,
+        body,
+        projected,
+        include_headers,
+        source_backed=source_context is not None,
+    )
     if header is not None and not headers and not include_headers:
         changes.append(conversion_change(
             "omitted",
@@ -44,7 +63,15 @@ def adapt_python_assignment_events_to_portable_aes(
             "header",
             "The separate AEON header is excluded by the default body-only projection.",
         ))
-    has_header_source = bool(headers) or header is not None
+    has_header_source = has_legacy_header_source or header is not None
+    no_source_records = len(source_events) == 0 and not has_header_source
+    all_source_records_included = include_headers or not has_header_source
+    provenance_lossless = no_source_records or (
+        source_context is not None
+        and all_source_records_included
+        and bool(projected)
+        and all("origin" in event and "span" in event for event in projected)
+    )
     return {
         "events": projected,
         "report": {
@@ -56,7 +83,7 @@ def adapt_python_assignment_events_to_portable_aes(
             "projection": AEON_DOCUMENT_PROJECTION if include_headers else None,
             "semanticLossless": True,
             "recordLossless": len(source_events) == 0 and not has_header_source,
-            "provenanceLossless": len(source_events) == 0 and not has_header_source,
+            "provenanceLossless": provenance_lossless,
             "semanticLossAuthorized": False,
             "changes": changes,
         },
@@ -104,6 +131,7 @@ def project_portable_events(events: Iterable[dict[str, object]]) -> list[Portabl
                     identity=optional_string(value.get("structuralId")),
                     datatype=format_datatype(value.get("datatype")),
                     value=optional_string(value.get("tag")),
+                    span=value.get("headSpan"),
                 )
             )
             project_parser_attributes(
@@ -175,7 +203,7 @@ def project_mapped_attributes(
             datatype=optional_string(raw_entry.get("datatype")),
             mapped_attributes=raw_entry.get("annotations"),
             parser_attributes=None,
-            span=None,
+            span=raw_entry.get("span"),
             projected=projected,
             node_source_paths=node_source_paths,
         )
@@ -205,7 +233,7 @@ def project_parser_attributes(
                 datatype=format_datatype(raw_entry.get("datatype")),
                 mapped_attributes=None,
                 parser_attributes=raw_entry.get("attributes"),
-                span=None,
+                span=raw_entry.get("span"),
                 projected=projected,
                 node_source_paths=node_source_paths,
             )
@@ -275,6 +303,7 @@ def project_value_children(
                 identity=optional_string(value.get("structuralId")),
                 datatype=format_datatype(value.get("datatype")),
                 value=optional_string(value.get("tag")),
+                span=value.get("headSpan"),
             )
         )
         project_parser_attributes(
@@ -577,8 +606,69 @@ def is_legacy_header_event(event: dict[str, object]) -> bool:
     return bool(segments) and isinstance(segments[0], str) and segments[0].startswith("aeon:")
 
 
-def strip_local_span(event: PortableEvent) -> PortableEvent:
-    return {key: value for key, value in event.items() if key != "span"}
+def create_source_context(source_bytes: bytes | bytearray | memoryview) -> tuple[str, list[int]]:
+    try:
+        artifact = bytes(source_bytes)
+    except (TypeError, ValueError) as error:
+        raise PortableAesSourceError(
+            "AES_COMPAT_SOURCE_REQUIRED",
+            "Portable source provenance requires exact UTF-8 bytes.",
+        ) from error
+    try:
+        source = artifact.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise PortableAesSourceError(
+            "AES_SOURCE_INVALID_UTF8",
+            "Portable source provenance requires a valid UTF-8 artifact.",
+        ) from error
+
+    byte_offsets = [0]
+    for character in source:
+        byte_offsets.append(byte_offsets[-1] + len(character.encode("utf-8")))
+    origin = f"sha256:{hashlib.sha256(artifact).hexdigest()}"
+    return origin, byte_offsets
+
+
+def apply_source_provenance(
+    event: PortableEvent,
+    source_context: tuple[str, list[int]] | None,
+) -> PortableEvent:
+    local_span = event.get("span")
+    portable = {key: value for key, value in event.items() if key != "span"}
+    if source_context is None:
+        return portable
+
+    origin, byte_offsets = source_context
+    portable["origin"] = origin
+    if local_span is None:
+        return portable
+    if not isinstance(local_span, dict):
+        raise invalid_source_range(local_span)
+    start_position = local_span.get("start")
+    end_position = local_span.get("end")
+    if not isinstance(start_position, dict) or not isinstance(end_position, dict):
+        raise invalid_source_range(local_span)
+    start_offset = start_position.get("offset")
+    end_offset = end_position.get("offset")
+    if (
+        isinstance(start_offset, bool)
+        or isinstance(end_offset, bool)
+        or not isinstance(start_offset, int)
+        or not isinstance(end_offset, int)
+        or start_offset < 0
+        or end_offset >= len(byte_offsets)
+        or start_offset >= end_offset
+    ):
+        raise invalid_source_range(local_span)
+    portable["span"] = f"{byte_offsets[start_offset]}:{byte_offsets[end_offset]}"
+    return portable
+
+
+def invalid_source_range(span: object) -> PortableAesSourceError:
+    return PortableAesSourceError(
+        "AES_COMPAT_SOURCE_RANGE_INVALID",
+        f"Native source span {span!r} is outside the exact UTF-8 artifact or is not a positive code-point range.",
+    )
 
 
 def conversion_change(
@@ -609,6 +699,8 @@ def compatibility_changes(
     body_events: list[dict[str, object]],
     projected: list[PortableEvent],
     include_headers: bool,
+    *,
+    source_backed: bool,
 ) -> list[dict[str, object]]:
     changes: list[dict[str, object]] = []
     node_source_paths = {
@@ -624,14 +716,15 @@ def compatibility_changes(
         source_path = str(event.get("path", "$"))
         header = is_legacy_header_event(event)
         target_path = source_path if header and include_headers else path_map.get(source_path)
-        changes.append(conversion_change(
-            "omitted",
-            "AES_COMPAT_PROVENANCE_OMITTED",
-            "span",
-            "The local source span is omitted because it is not bound to an immutable portable origin.",
-            source_path=source_path,
-            target_path=target_path,
-        ))
+        if not source_backed:
+            changes.append(conversion_change(
+                "omitted",
+                "AES_COMPAT_PROVENANCE_OMITTED",
+                "span",
+                "The local source span is omitted because it is not bound to an immutable portable origin.",
+                source_path=source_path,
+                target_path=target_path,
+            ))
         changes.append(conversion_change(
             "transformed",
             "AES_COMPAT_SOURCE_REPRESENTATION_REDUCED",
@@ -683,6 +776,18 @@ def compatibility_changes(
 
     for event in projected:
         target_path = optional_string(event.get("path")) or optional_string(event.get("header"))
+        if source_backed:
+            changes.append(conversion_change(
+                "transformed" if "span" in event else "omitted",
+                "AES_COMPAT_CODEPOINT_SPAN_CONVERTED" if "span" in event else "AES_COMPAT_PROVENANCE_RANGE_OMITTED",
+                "span",
+                (
+                    "The native code-point source range is converted to an exact UTF-8 byte range."
+                    if "span" in event
+                    else "The exact source is identified, but this occurrence has no independently retained source range."
+                ),
+                target_path=target_path,
+            ))
         if "header" in event:
             changes.append(conversion_change(
                 "transformed",
@@ -723,18 +828,24 @@ def project_telex_records(
     *,
     header: dict[str, object] | None = None,
     include_headers: bool = False,
+    source_bytes: bytes | bytearray | memoryview | None = None,
 ) -> list[PortableEvent]:
     """Create portable AES records suitable for Telex encoding."""
 
-    # The legacy Python projection exposes character ranges without an origin.
-    # Such spans remain useful to local inspect consumers, but are not portable
-    # AES evidence and therefore must not cross the Telex boundary.
-    body = [
-        {key: value for key, value in record.items() if key != "span"}
-        for record in project_portable_events(events)
-    ]
-    if not include_headers or header is None:
-        return body
+    converted = adapt_python_assignment_events_to_portable_aes(
+        events,
+        header=header,
+        include_headers=include_headers,
+        source_bytes=source_bytes,
+    )
+    projected = converted["events"]
+    assert isinstance(projected, list)
+    return projected
+
+
+def project_header_records(header: dict[str, object]) -> list[PortableEvent]:
+    """Project the separate Python header result while retaining local ranges."""
+
     projected_header: list[PortableEvent] = []
     bindings = header.get("bindings")
     if isinstance(bindings, list):
@@ -750,7 +861,7 @@ def project_telex_records(
                 datatype=format_datatype(raw_binding.get("datatype")),
                 mapped_attributes=None,
                 parser_attributes=raw_binding.get("attributes"),
-                span=None,
+                span=raw_binding.get("span"),
                 projected=temporary,
                 node_source_paths=set(),
             )
@@ -758,7 +869,7 @@ def project_telex_records(
                 address = record.pop("path")
                 record["header"] = address
                 projected_header.append(_ordered_portable_record(record, "header"))
-    return [*projected_header, *body]
+    return projected_header
 
 
 def export_telex(
@@ -768,8 +879,14 @@ def export_telex(
     include_headers: bool = False,
     profile: str | None = None,
     limits: object = None,
+    source_bytes: bytes | bytearray | memoryview | None = None,
 ) -> str:
-    records = project_telex_records(events, header=header, include_headers=include_headers)
+    records = project_telex_records(
+        events,
+        header=header,
+        include_headers=include_headers,
+        source_bytes=source_bytes,
+    )
     return encode_telex(
         records,
         profile=profile,

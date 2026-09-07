@@ -266,6 +266,7 @@ def aeon_to_telex(
     include_headers: bool = False,
     profile: str | None = None,
     limits: object = None,
+    source_bytes: bytes | bytearray | memoryview | None = None,
 ) -> str:
     compiled = compile_source(source, compile_options)
     if compiled.errors:
@@ -277,6 +278,7 @@ def aeon_to_telex(
         include_headers=include_headers,
         profile=profile,
         limits=limits,
+        source_bytes=source_bytes,
     )
 
 

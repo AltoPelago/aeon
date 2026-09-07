@@ -49,7 +49,10 @@ Implementation note:
 - `adapt_python_assignment_events_to_portable_aes` exposes the named
   `aeon.python.assignment-events.v0-to-aes.events.v0` compatibility result and
   returns strict portable events plus its conversion report. Pass the separate
-  compile-result `header` when selecting `include_headers=True`.
+  compile-result `header` when selecting `include_headers=True`. Native source
+  locations use Unicode code-point offsets; optional exact `source_bytes`
+  derive the portable `sha256:` origin and convert retained ranges to UTF-8
+  byte spans.
 - `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
 - `max_reference_depth` and `--max-reference-depth` are processor controls, not AEON Core or AEOS conformance requirements.
 
@@ -142,6 +145,22 @@ print(wire, end='')
 print(loaded.document)
 PY
 ```
+
+`origin` and `span` are optional. To include exact source-backed provenance,
+pass the original, unnormalized UTF-8 artifact alongside the source string:
+
+```python
+from pathlib import Path
+
+source_bytes = Path("document.aeon").read_bytes()
+source = source_bytes.decode("utf-8")
+wire = aeon_to_telex(source, source_bytes=source_bytes)
+```
+
+At the lower-level `export_telex()` boundary, `source_bytes` is an assertion
+that the supplied bytes are the exact artifact from which the native events
+were compiled. Invalid UTF-8 and native ranges outside that artifact are
+rejected rather than emitted as portable provenance.
 
 Headers remain opt-in and use the `aeon.document.v0` projection:
 

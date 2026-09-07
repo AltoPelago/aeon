@@ -102,6 +102,9 @@ class Lexer:
         start = self.current_position()
         char = self.advance()
 
+        if char == "\ufeff" and start.offset == 0:
+            return
+
         if char == "." and self.peek().isdigit():
             self.scan_numeric_like(start, char)
             return
@@ -416,7 +419,14 @@ class Lexer:
         self.add_token(kind, "".join(chars), start)
 
     def is_leading_shebang_start(self, start: Position) -> bool:
-        return start.offset == 0 and start.line == 1 and start.column == 1
+        return start.line == 1 and (
+            (start.offset == 0 and start.column == 1)
+            or (
+                self.source.startswith("\ufeff")
+                and start.offset == 1
+                and start.column == 2
+            )
+        )
 
     def scan_prefixed_literal(self, start: Position, prefix: str, kind: str, predicate, validator) -> None:
         chars = [prefix]

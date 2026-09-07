@@ -229,6 +229,7 @@ class Parser:
         has_shorthand = False
         end = start
         while self.is_header_start():
+            field_start = self.peek().span.start
             self.advance()
             self.skip_separators()
             self.consume("COLON", "Expected ':' after 'aeon'")
@@ -253,7 +254,7 @@ class Parser:
                         value=value,
                         datatype=None,
                         attributes=[],
-                        span=Span(start=field_token.span.start, end=value.span.end if value.span else end),
+                        span=Span(start=field_start, end=value.span.end if value.span else end),
                     )
                 )
                 fields[field_name] = value
@@ -301,6 +302,7 @@ class Parser:
         self.skip_layout()
         while not self.check("RBRACE"):
             key_token = self.consume_key_token("Expected attribute key")
+            entry_start = key_token.span.start
             key = self.key_from_token(key_token)
             if key in RESERVED_ATTRIBUTE_KEYS:
                 raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
@@ -325,7 +327,13 @@ class Parser:
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
             value = self.parse_value()
-            entries[key] = AttributeEntry(value=value, datatype=datatype, attributes=attributes, structural_id=structural_id)
+            entries[key] = AttributeEntry(
+                value=value,
+                datatype=datatype,
+                attributes=attributes,
+                structural_id=structural_id,
+                span=Span(start=entry_start, end=value.span.end if value.span else self.previous().span.end),
+            )
             self.consume_member_delimiter("RBRACE", "Expected attribute delimiter")
         end = self.consume("RBRACE", "Expected '}' to close attribute").span.end
         return Attribute(entries=entries, span=Span(start=start, end=end))
@@ -339,7 +347,9 @@ class Parser:
             components = [0]
         self.count_datatype_component(components, self.peek().span)
         start = self.peek().span.start
-        name = self.consume("IDENT", "Expected type name").value
+        name_token = self.consume("IDENT", "Expected type name")
+        name = name_token.value
+        end = name_token.span.end
         generic_args: list[str] = []
         clarifiers: list[str | int | float] = []
         self.skip_layout()
@@ -359,7 +369,7 @@ class Parser:
                 generic_args.append(self.parse_generic_argument(generic_depth, components))
                 self.enforce_generic_argument_count(len(generic_args))
                 self.skip_layout()
-            self.consume("RANGLE", "Expected '>' to close generic arguments")
+            end = self.consume("RANGLE", "Expected '>' to close generic arguments").span.end
             self.skip_layout()
         if self.check("LBRACKET"):
             self.advance()
@@ -386,12 +396,17 @@ class Parser:
                     break
                 self.consume("COMMA", "Expected ',' between clarifier values")
                 self.skip_layout()
-            self.consume("RBRACKET", "Expected ']' to close datatype clarifier")
+            end = self.consume("RBRACKET", "Expected ']' to close datatype clarifier").span.end
             self.skip_layout()
             if self.check("LBRACKET"):
                 raise SyntaxError('Datatype clarifiers must use a single bracketed list like \'sep["/", "."]\'', self.peek().span)
         self.validate_reserved_datatype_adornments(name, generic_args)
-        return TypeAnnotation(name=name, generic_args=generic_args, clarifiers=clarifiers, span=Span(start=start, end=self.previous().span.end))
+        return TypeAnnotation(
+            name=name,
+            generic_args=generic_args,
+            clarifiers=clarifiers,
+            span=Span(start=start, end=end),
+        )
 
     def parse_generic_argument(self, generic_depth: int, components: list[int]) -> str:
         token = self.peek()
@@ -623,13 +638,19 @@ class Parser:
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
-        tag = self.key_from_token(self.consume_key_token("Expected node tag after '<'"))
+        tag_token = self.consume_key_token("Expected node tag after '<'")
+        tag = self.key_from_token(tag_token)
+        head_start = tag_token.span.start
+        head_end = tag_token.span.end
         self.skip_layout()
         structural_id = self.parse_optional_structural_identity()
+        if structural_id is not None:
+            head_end = self.previous().span.end
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
+            head_end = attributes[-1].span.end
             self.skip_layout()
             if self.check("AT"):
                 raise SyntaxError("Only one attribute block is allowed before a node datatype", self.peek().span)
@@ -638,13 +659,22 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
+            head_end = datatype.span.end
             if (datatype.generic_args and datatype.name != "node") or datatype.clarifiers:
                 raise SyntaxError("Node head datatypes must be simple labels or node<T> without clarifiers", datatype.span)
             self.skip_layout()
         children: list[Value] = []
         if self.check("RANGLE"):
             end = self.advance().span.end
-            return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end), structural_id=structural_id)
+            return NodeLiteral(
+                tag=tag,
+                attributes=attributes,
+                datatype=datatype,
+                children=children,
+                span=Span(start=start, end=end),
+                structural_id=structural_id,
+                head_span=Span(start=head_start, end=head_end),
+            )
         self.consume("LPAREN", "Expected '(' or '>' after node tag")
         self.skip_layout()
         while not self.check("RPAREN"):
@@ -653,7 +683,15 @@ class Parser:
         self.consume("RPAREN", "Expected ')' to close node children")
         self.skip_layout()
         end = self.consume("RANGLE", "Expected '>' after node children").span.end
-        return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end), structural_id=structural_id)
+        return NodeLiteral(
+            tag=tag,
+            attributes=attributes,
+            datatype=datatype,
+            children=children,
+            span=Span(start=start, end=end),
+            structural_id=structural_id,
+            head_span=Span(start=head_start, end=head_end),
+        )
 
     def parse_object(self) -> ObjectNode:
         start = self.consume("LBRACE", "Expected '{'").span.start

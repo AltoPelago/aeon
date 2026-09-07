@@ -184,7 +184,6 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
             zero = Position(line=1, column=1, offset=0)
             error = InputSizeExceededError(actual_bytes, opts.max_input_bytes, Span(start=zero, end=zero))
             return CompileResult(events=[], errors=[error], warnings=warnings)
-    source = strip_leading_bom(source)
     lex_result = tokenize(source)
     if lex_result.errors and not opts.recovery:
         return CompileResult(events=[], errors=lex_result.errors, warnings=warnings)
@@ -418,10 +417,6 @@ def header_to_result(document: Document) -> dict[str, object] | None:
         "order": [binding.key for binding in document.header.bindings],
         "span": document.header.span.to_json(),
     }
-
-
-def strip_leading_bom(source: str) -> str:
-    return source[1:] if source.startswith("\ufeff") else source
 
 
 def coerce_error(error: Exception) -> AeonError:
@@ -755,6 +750,7 @@ def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object
                 "value": entry.value,
                 "datatype": format_datatype(entry.datatype),
                 "structuralId": entry.structural_id,
+                "span": entry.span,
             }
             nested = build_annotations(entry.attributes)
             if nested is not None:
@@ -784,6 +780,7 @@ def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, 
             "value": value_to_json(entry["value"]),
             "datatype": entry["datatype"],
             "structuralId": entry["structuralId"],
+            "span": entry["span"].to_json() if isinstance(entry.get("span"), Span) else None,
         }
         nested = entry.get("annotations")
         if isinstance(nested, dict):
@@ -804,6 +801,8 @@ def value_to_json(value: Value) -> dict[str, object]:
                 continue
             if key == "span":
                 payload[key] = raw.to_json() if raw is not None else None
+            elif key == "head_span":
+                payload["headSpan"] = raw.to_json() if raw is not None else None
             elif key == "datatype":
                 payload[key] = type_annotation_to_json(raw)
             elif key == "structural_id":
@@ -847,6 +846,7 @@ def attribute_to_json(attribute: Attribute) -> dict[str, object]:
                 "datatype": type_annotation_to_json(entry.datatype),
                 "attributes": [attribute_to_json(item) for item in entry.attributes],
                 "value": value_to_json(entry.value),
+                "span": entry.span.to_json() if entry.span is not None else None,
             }
             for key, entry in attribute.entries.items()
         },

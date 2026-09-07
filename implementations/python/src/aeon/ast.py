@@ -21,6 +21,7 @@ class AttributeEntry:
     datatype: TypeAnnotation | None
     attributes: list["Attribute"] = field(default_factory=list)
     structural_id: str | None = None
+    span: Span | None = None
 
 
 @dataclass(slots=True)
@@ -214,6 +215,7 @@ class NodeLiteral:
     children: list["Value"] = field(default_factory=list)
     span: Span | None = None
     structural_id: str | None = None
+    head_span: Span | None = None
 
 
 @dataclass(slots=True)

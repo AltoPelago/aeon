@@ -169,6 +169,21 @@ class TelexConformanceTests(unittest.TestCase):
             self.assertTrue(reread.ok, reread.errors)
             self.assertEqual(loaded.document, reread.document)
 
+    def test_sdk_exports_exact_source_backed_provenance(self) -> None:
+        source = "\ufeffanswer = \"😀\""
+        source_bytes = source.encode("utf-8")
+        encoded = aeon_to_telex(source, source_bytes=source_bytes)
+        parsed = parse_telex(encoded)
+
+        self.assertEqual(1, len(parsed.records))
+        self.assertEqual(
+            "sha256:c1c6f9dfcbb991dadfd099abb19a091d85e5f1e2b722634dfb83e56f73f57a18",
+            parsed.records[0]["origin"],
+        )
+        self.assertEqual(f"3:{len(source_bytes)}", parsed.records[0]["span"])
+        self.assertIn("origin=sha256:", encoded)
+        self.assertIn(f"span=3:{len(source_bytes)}", encoded)
+
     def test_portable_materializer_rejects_sparse_indexes_and_unsafe_numbers(self) -> None:
         sparse = [
             {"path": "$.values", "kind": "ListNode"},
