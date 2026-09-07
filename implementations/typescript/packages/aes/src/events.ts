@@ -43,6 +43,8 @@ export interface AttributeEntry {
     readonly value: Value;
     readonly datatype?: string;
     readonly annotations?: ReadonlyMap<string, AttributeEntry>;
+    /** Native UTF-16 source range retained for explicit portable conversion. */
+    readonly span?: Span;
 }
 
 /**
@@ -165,6 +167,7 @@ function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string,
             const attrEntry: AttributeEntry = {
                 ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
                 value: entry.value,
+                ...(entry.span !== undefined ? { span: entry.span } : {}),
             };
             if (entry.datatype) {
                 (attrEntry as { datatype: string }).datatype = formatDatatypeAnnotation(entry.datatype);

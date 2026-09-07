@@ -709,6 +709,25 @@ describe('Lexer', () => {
             assert.strictEqual(tokens[1]!.span.start.line, 2);
             assert.strictEqual(tokens[1]!.span.start.column, 1);
         });
+
+        it('should expose JavaScript UTF-16 offsets and columns without claiming byte offsets', () => {
+            const result = tokenize('"😀" alpha');
+            const identifier = result.tokens.find(token => token.type === TokenType.Identifier);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(identifier?.span.start, { line: 1, column: 6, offset: 5 });
+            assert.deepStrictEqual(identifier?.span.end, { line: 1, column: 11, offset: 10 });
+        });
+
+        it('should retain a leading BOM in native coordinates while skipping it as syntax', () => {
+            const result = tokenize('\uFEFF#!/usr/bin/env aeon\r\nvalue = 1', { includeComments: true });
+            const comment = result.tokens.find(token => token.type === TokenType.LineComment);
+            const identifier = result.tokens.find(token => token.type === TokenType.Identifier);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(comment?.span.start, { line: 1, column: 2, offset: 1 });
+            assert.deepStrictEqual(identifier?.span.start, { line: 2, column: 1, offset: 22 });
+        });
     });
 
     describe('complete binding', () => {

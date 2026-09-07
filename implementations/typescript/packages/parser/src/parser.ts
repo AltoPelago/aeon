@@ -234,6 +234,7 @@ class Parser {
 
         // Parse header lines (aeon:xxx = ...)
         while (this.isHeaderStart()) {
+            const fieldStart = this.peek().span.start;
             this.advance(); // consume 'aeon'
             this.consume(TokenType.Colon, "Expected ':' after 'aeon'");
             const fieldToken = this.consume(TokenType.Identifier, "Expected header field name");
@@ -253,7 +254,7 @@ class Parser {
             } else {
                 hasShorthand = true;
                 const value = this.parseValue();
-                const bindingSpan = createSpan(fieldToken.span.start, value.span.end);
+                const bindingSpan = createSpan(fieldStart, value.span.end);
                 bindings.push({
                     type: 'Binding',
                     key: fieldName,
@@ -375,6 +376,7 @@ class Parser {
 
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
             const attrKeyToken = this.consumeKeyToken("Expected attribute key");
+            const entryStart = attrKeyToken.span.start;
             const attrKey = this.keyFromToken(attrKeyToken);
             if (RESERVED_ATTRIBUTE_KEYS.has(attrKey)) {
                 throw new SyntaxError(
@@ -411,7 +413,13 @@ class Parser {
             if (entries.has(attrKey)) {
                 this.errors.push(new DuplicateKeyError(attrKey, attrKeyToken.span));
             }
-            entries.set(attrKey, { structuralId, value: attrValue, datatype: attrDatatype, attributes });
+            entries.set(attrKey, {
+                structuralId,
+                value: attrValue,
+                datatype: attrDatatype,
+                attributes,
+                span: createSpan(entryStart, attrValue.span.end),
+            });
 
             if (!this.check(TokenType.RightBrace)) {
                 this.consumeSeparatorOrLineBreak(TokenType.RightBrace, 'Expected \',\' or newline between attribute entries');
@@ -764,12 +772,16 @@ class Parser {
     private parseNode(): NodeLiteral {
         const start = this.peek().span.start;
         this.consume(TokenType.LeftAngle, "Expected '<' to start node literal");
+        const headStart = this.peek().span.start;
         const tag = this.parseNodeTag();
+        let headEnd = this.previous().span.end;
         const structuralId = this.parseOptionalStructuralIdentity();
+        if (structuralId !== null) headEnd = this.previous().span.end;
 
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
             attributes.push(this.parseAttribute(1));
+            headEnd = attributes[attributes.length - 1]!.span.end;
             if (this.check(TokenType.At)) {
                 throw new SyntaxError(
                     'Only one attribute block is allowed before a node datatype',
@@ -784,6 +796,7 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            headEnd = datatype.span.end;
             if (datatype.genericArgs.length > 0 && datatype.name !== 'node') {
                 throw new SyntaxError(
                     'Generic node head datatypes must use node<T>',
@@ -809,6 +822,7 @@ class Parser {
             return {
                 type: 'NodeLiteral',
                 tag,
+                headSpan: createSpan(headStart, headEnd),
                 structuralId,
                 attributes,
                 datatype,
@@ -832,6 +846,7 @@ class Parser {
         return {
             type: 'NodeLiteral',
             tag,
+            headSpan: createSpan(headStart, headEnd),
             structuralId,
             attributes,
             datatype,

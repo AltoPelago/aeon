@@ -228,6 +228,29 @@ describe('Parser', () => {
             assert.strictEqual(binding.value.structuralId, 'HEAD');
         });
 
+        it('should retain the exact node-head and attribute-entry ranges independently', () => {
+            const source = String.raw`value = <"tag😀"\HEAD\@{role:string = "café"}:node("child")>`;
+            const result = parse(tokenize(source).tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            if (value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(
+                source.slice(value.headSpan!.start.offset, value.headSpan!.end.offset),
+                String.raw`"tag😀"\HEAD\@{role:string = "café"}:node`,
+            );
+            const role = value.attributes[0]!.entries.get('role')!;
+            assert.strictEqual(
+                source.slice(role.span!.start.offset, role.span!.end.offset),
+                'role:string = "café"',
+            );
+            assert.strictEqual(
+                source.slice(value.span.start.offset, value.span.end.offset),
+                String.raw`<"tag😀"\HEAD\@{role:string = "café"}:node("child")>`,
+            );
+        });
+
         it('should reject duplicate structural identities across attribute-entry and node heads', () => {
             const tokens = tokenize(String.raw`value@{source\same\ = "user"} = <tag\same\>`).tokens;
             const result = parse(tokens);

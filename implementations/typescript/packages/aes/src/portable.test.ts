@@ -64,6 +64,99 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.equal(document.events[1]?.path, '$.a');
     });
 
+    it('derives an exact origin and converts native UTF-16 ranges to UTF-8 byte spans', () => {
+        const source = [
+            '\uFEFF' + String.raw`a = <tag\HEAD\@{role = "café"}:node("😀")>`,
+            'b = "nai\u0308ve"',
+        ].join('\r\n');
+        const sourceBytes = Buffer.from(source, 'utf8');
+        const parsed = parse(tokenize(source).tokens, { maxAttributeDepth: 8 });
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, { sourceBytes });
+        const origin = 'sha256:c9063ff2481e76331f175afa8a6bd4d7f850048591e737047d8a0b6fc2a701b7';
+        const expectedLexemes = new Map([
+            ['$.a', String.raw`a = <tag\HEAD\@{role = "café"}:node("😀")>`],
+            ['$.a[0]', String.raw`tag\HEAD\@{role = "café"}:node`],
+            ['$.a[0].@.role', 'role = "café"'],
+            ['$.a[0][0]', '"😀"'],
+            ['$.b', 'b = "nai\u0308ve"'],
+        ]);
+
+        assert.strictEqual(converted.report.provenanceLossless, true);
+        assert.strictEqual(
+            converted.report.changes.some(change => change.code === 'AES_COMPAT_PROVENANCE_OMITTED'),
+            false,
+        );
+        for (const event of converted.events) {
+            assert.strictEqual(event.origin, origin);
+            const path = event.path;
+            assert.ok(path);
+            const lexeme = expectedLexemes.get(path);
+            if (lexeme === undefined) assert.fail(path);
+            const utf16Start = source.indexOf(lexeme);
+            assert.notStrictEqual(utf16Start, -1);
+            const start = Buffer.byteLength(source.slice(0, utf16Start), 'utf8');
+            const end = start + Buffer.byteLength(lexeme, 'utf8');
+            assert.strictEqual(event.span, `${start}:${end}`, path);
+        }
+    });
+
+    it('preserves source-backed header ranges in the explicit document projection', () => {
+        const source = ['aeon:mode = "transport"', 'a = 1'].join('\r\n');
+        const parsed = parse(tokenize(source).tokens);
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, {
+            includeHeaders: true,
+            sourceBytes: Buffer.from(source, 'utf8'),
+        });
+
+        assert.strictEqual(converted.events[0]?.header, '$.["aeon:mode"]');
+        assert.strictEqual(converted.events[0]?.span, '0:23');
+        assert.strictEqual(converted.events[1]?.path, '$.a');
+        assert.strictEqual(converted.events[1]?.span, '25:30');
+        assert.strictEqual(converted.report.provenanceLossless, true);
+    });
+
+    it('rejects invalid UTF-8 artifacts and native ranges that split a Unicode scalar', () => {
+        const source = 'a = "😀"';
+        const parsed = parse(tokenize(source).tokens);
+        assert.ok(parsed.document);
+        const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepStrictEqual(emitted.errors, []);
+
+        assert.throws(
+            () => adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, {
+                sourceBytes: Uint8Array.from([0xFF]),
+            }),
+            (error: unknown) => error instanceof Error
+                && 'code' in error
+                && error.code === 'AES_SOURCE_INVALID_UTF8',
+        );
+
+        const event = emitted.events[0]!;
+        const splitRange = {
+            ...event,
+            span: {
+                start: { line: 1, column: 7, offset: 6 },
+                end: event.span.end,
+            },
+        };
+        assert.throws(
+            () => adaptTypeScriptAssignmentEventsToPortableAes([splitRange], {
+                sourceBytes: Buffer.from(source, 'utf8'),
+            }),
+            (error: unknown) => error instanceof Error
+                && 'code' in error
+                && error.code === 'AES_COMPAT_SOURCE_RANGE_INVALID',
+        );
+    });
+
     it('publishes structure-aware native-to-portable event path mappings', () => {
         const parsed = parse(tokenize('a:node = <outer(<inner("leaf")>)>').tokens, { maxAttributeDepth: 8 });
         assert.ok(parsed.document);

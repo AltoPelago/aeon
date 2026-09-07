@@ -34,7 +34,8 @@ if (result.errors.length === 0) {
 - `projectPortableEvents(events)`
 - `adaptTypeScriptAssignmentEventsToPortableAes(events, options?)` returns the
   named `aeon.typescript.assignment-events.v0-to-aes.events.v0` compatibility
-  result and its conversion report
+  result and its conversion report; optional exact `sourceBytes` derive a
+  SHA-256 origin and convert native UTF-16 ranges to UTF-8 byte spans
 - `parseTelex(input, options?)`
 - `encodeTelex(records, options?)`
 - `canonicalizeTelex(input, options?)`

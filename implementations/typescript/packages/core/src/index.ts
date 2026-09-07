@@ -24,6 +24,7 @@ import {
     formatPath,
     EventEmissionError,
     AEON_DOCUMENT_PROJECTION,
+    adaptTypeScriptAssignmentEventsToPortableAes,
     encodeTelex,
     projectPortableEvents,
     type AssignmentEvent,
@@ -200,11 +201,15 @@ export interface CompileToTelexOptions {
     readonly telex?: TelexEncodeOptions;
     /** Include AEON document headers in the explicit header plane. Default: false. */
     readonly includeHeaders?: boolean;
+    /** Exact, unnormalized UTF-8 source bytes used for optional portable provenance. */
+    readonly sourceBytes?: Uint8Array;
 }
 
 export interface ExportTelexOptions extends TelexEncodeOptions {
     /** Include AEON document headers in the explicit header plane. Default: false. */
     readonly includeHeaders?: boolean;
+    /** Exact source bytes asserted to correspond to the supplied native events. */
+    readonly sourceBytes?: Uint8Array;
 }
 
 export interface CompileToTelexResult {
@@ -271,8 +276,6 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
             return { events: [], errors: allErrors, warnings };
         }
     }
-
-    input = stripLeadingBom(input);
 
     // Phase 1: Lexing
     const lexResult = tokenize(input, { includeComments: false });
@@ -409,16 +412,20 @@ export function compileToTelex(
         return { compile: compileResult, records: [], telex: null };
     }
 
-    const records = projectAssignmentEventsToTelex(compileResult.events, options.includeHeaders ?? false);
-    const telexOptions: ExportTelexOptions = {
+    const records = projectAssignmentEventsToTelex(
+        compileResult.events,
+        options.includeHeaders ?? false,
+        options.sourceBytes,
+    );
+    const telexOptions: TelexEncodeOptions = {
         ...options.telex,
-        ...(options.includeHeaders !== undefined ? { includeHeaders: options.includeHeaders } : {}),
+        ...(options.includeHeaders === true ? { projection: AEON_DOCUMENT_PROJECTION } : {}),
     };
 
     return {
         compile: compileResult,
         records,
-        telex: exportTelex(compileResult.events, telexOptions),
+        telex: encodeTelex(records, telexOptions),
     };
 }
 
@@ -428,8 +435,8 @@ export function exportTelex(
     options: ExportTelexOptions = {},
 ): string {
     const includeHeaders = options.includeHeaders ?? false;
-    const { includeHeaders: _includeHeaders, ...encodeOptions } = options;
-    return encodeTelex(projectAssignmentEventsToTelex(events, includeHeaders), includeHeaders
+    const { includeHeaders: _includeHeaders, sourceBytes, ...encodeOptions } = options;
+    return encodeTelex(projectAssignmentEventsToTelex(events, includeHeaders, sourceBytes), includeHeaders
         ? { ...encodeOptions, projection: AEON_DOCUMENT_PROJECTION }
         : encodeOptions);
 }
@@ -437,7 +444,12 @@ export function exportTelex(
 function projectAssignmentEventsToTelex(
     events: readonly AssignmentEvent[],
     includeHeaders: boolean,
+    sourceBytes?: Uint8Array,
 ): readonly (TelexRecord | PortableAesEvent)[] {
+    if (sourceBytes !== undefined) {
+        return adaptTypeScriptAssignmentEventsToPortableAes(events, { includeHeaders, sourceBytes }).events
+            .map((event): TelexRecord => ({ ...event }));
+    }
     const isHeaderEvent = (event: AssignmentEvent): boolean => {
         const first = event.path.segments[1];
         return first?.type === 'member' && first.key.startsWith('aeon:');
@@ -671,14 +683,11 @@ export {
     projectPortableEvents,
     createPortableEventPathMap,
     adaptTypeScriptAssignmentEventsToPortableAes,
+    PortableAesSourceError,
     TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
     TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
     TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0,
 } from '@altopelago/aeon-aes';
-
-function stripLeadingBom(input: string): string {
-    return input.startsWith('\uFEFF') ? input.slice(1) : input;
-}
 
 function collectSpanTargets(document: Document): readonly { readonly start: { readonly line: number; readonly column: number; readonly offset: number }; readonly end: { readonly line: number; readonly column: number; readonly offset: number } }[] {
     const spans: Array<{ readonly start: { readonly line: number; readonly column: number; readonly offset: number }; readonly end: { readonly line: number; readonly column: number; readonly offset: number } }> = [];
@@ -790,21 +799,24 @@ function collectSpanTargets(document: Document): readonly { readonly start: { re
                 }
                 break;
             case 'NodeLiteral':
+                if (value.headSpan) {
+                    addSpan(value.headSpan);
+                }
                 for (const attribute of value.attributes) {
                     addSpan(attribute.span);
-                for (const [, entry] of attribute.entries) {
-                    for (const nestedAttribute of entry.attributes) {
-                        addSpan(nestedAttribute.span);
-                        for (const [, nestedEntry] of nestedAttribute.entries) {
-                            addSpan(nestedEntry.value.span);
-                            if (nestedEntry.datatype) {
-                                addSpan(nestedEntry.datatype.span);
+                    for (const [, entry] of attribute.entries) {
+                        for (const nestedAttribute of entry.attributes) {
+                            addSpan(nestedAttribute.span);
+                            for (const [, nestedEntry] of nestedAttribute.entries) {
+                                addSpan(nestedEntry.value.span);
+                                if (nestedEntry.datatype) {
+                                    addSpan(nestedEntry.datatype.span);
+                                }
                             }
                         }
-                    }
-                    addSpan(entry.value.span);
-                    if (entry.datatype) {
-                        addSpan(entry.datatype.span);
+                        addSpan(entry.value.span);
+                        if (entry.datatype) {
+                            addSpan(entry.datatype.span);
                         }
                     }
                 }

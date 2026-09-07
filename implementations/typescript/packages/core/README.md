@@ -86,11 +86,20 @@ console.log(direct.telex);
 Headers are excluded by default. Set `includeHeaders: true` to use the explicit
 `aeon.document.v0` header plane.
 
+`origin` and `span` remain optional. Pass the exact, unnormalized UTF-8 artifact
+as `sourceBytes` to `compileToTelex()` or `exportTelex()` to derive a
+`sha256:<digest>` origin and convert Core's native UTF-16 source indexes to
+portable UTF-8 byte ranges. The supplied bytes are an assertion that they are
+the artifact from which the native events were compiled; do not pass a
+normalized or re-encoded substitute.
+
 For a legacy assignment-event boundary that also needs compatibility evidence,
 use `adaptTypeScriptAssignmentEventsToPortableAes()`. It returns strict
 portable events and a conversion report under the named
 `aeon.typescript.assignment-events.v0-to-aes.events.v0` adapter. Local spans
-without an immutable origin are omitted and reported.
+without an immutable origin are omitted and reported. Its optional
+`sourceBytes` input enables the same source-backed conversion while preserving
+the report.
 
 ### Inspect the file preamble without full parsing
 

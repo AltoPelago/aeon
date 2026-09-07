@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { Span } from '@altopelago/aeon-lexer';
 import type { Attribute, Binding, Value } from '@altopelago/aeon-parser';
 import { formatDatatypeAnnotation } from './datatype.js';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
@@ -80,7 +82,7 @@ export interface PortableAesConversionReportV0 {
     readonly changes: readonly PortableAesConversionChange[];
 }
 
-export interface PortableAesCompatibilityEvent extends Omit<PortableAesEvent, 'path' | 'span'> {
+export interface PortableAesCompatibilityEvent extends Omit<PortableAesEvent, 'path'> {
     readonly path?: string;
     readonly header?: string;
 }
@@ -92,13 +94,27 @@ export interface PortableAesCompatibilityResultV0 {
 
 export interface PortableAesCompatibilityOptions {
     readonly includeHeaders?: boolean;
+    /** Exact, unnormalized UTF-8 source artifact used to derive origin and byte spans. */
+    readonly sourceBytes?: Uint8Array;
+}
+
+export class PortableAesSourceError extends Error {
+    readonly code: string;
+
+    constructor(code: string, message: string) {
+        super(message);
+        this.name = 'PortableAesSourceError';
+        this.code = code;
+    }
 }
 
 /**
  * Named, report-bearing compatibility adapter for the serialized TypeScript
  * assignment-event contract. Existing projection helpers remain unchanged for
- * same-process callers. Local source spans are omitted because the source
- * contract does not bind them to an immutable portable origin.
+ * same-process callers. Native spans are UTF-16 string indexes. They are
+ * omitted unless exact sourceBytes are supplied, in which case this boundary
+ * derives the source digest and converts scalar-aligned positions to UTF-8
+ * byte offsets.
  */
 export function adaptTypeScriptAssignmentEventsToPortableAes(
     events: readonly AssignmentEvent[],
@@ -107,13 +123,27 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
     const includeHeaders = options.includeHeaders === true;
     const body = events.filter((event) => !isLegacyHeaderEvent(event));
     const headers = includeHeaders ? events.filter(isLegacyHeaderEvent) : [];
-    const bodyEvents = projectPortableEvents(body).map(stripLocalSpan);
-    const headerEvents = projectPortableEvents(headers).map((event): PortableAesCompatibilityEvent => {
+    const provenance = options.sourceBytes === undefined ? null : createPortableSourceContext(options.sourceBytes);
+    const bodyEvents = projectPortableEventsWithLocalSpans(body)
+        .map((event) => applyPortableProvenance(event, provenance));
+    const headerEvents = projectPortableEventsWithLocalSpans(headers).map((local): PortableAesCompatibilityEvent => {
+        const event = applyPortableProvenance(local, provenance);
         const { path, span: _span, ...rest } = event;
-        return { header: path, ...rest };
+        if (path === undefined) {
+            throw new PortableAesSourceError(
+                'AES_COMPAT_HEADER_PATH_MISSING',
+                'A projected legacy header event must retain its source path.',
+            );
+        }
+        return { header: path, ...rest, ...(event.span !== undefined ? { span: event.span } : {}) };
     });
     const projected = [...headerEvents, ...bodyEvents];
-    const changes = compatibilityChanges(events, body, projected, includeHeaders);
+    const changes = compatibilityChanges(events, body, projected, includeHeaders, provenance !== null);
+    const provenanceLossless = events.length === 0 || (
+        provenance !== null
+        && projected.length > 0
+        && projected.every((event) => event.origin !== undefined && event.span !== undefined)
+    );
     return {
         events: projected,
         report: {
@@ -125,7 +155,7 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
             projection: includeHeaders ? 'aeon.document.v0' : null,
             semanticLossless: true,
             recordLossless: events.length === 0,
-            provenanceLossless: events.length === 0,
+            provenanceLossless,
             semanticLossAuthorized: false,
             changes,
         },
@@ -142,29 +172,40 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
  * events beneath their owning path's `.@` address space.
  */
 export function projectPortableEvents(events: readonly AssignmentEvent[]): readonly PortableAesEvent[] {
+    return projectPortableEventsWithLocalSpans(events).map((projected) => projected.event);
+}
+
+interface PortableEventWithLocalSpan {
+    readonly event: PortableAesEvent;
+    readonly sourceSpan?: Span;
+}
+
+function projectPortableEventsWithLocalSpans(
+    events: readonly AssignmentEvent[],
+): readonly PortableEventWithLocalSpan[] {
     const nodeSourcePaths = new Set(
         events
             .filter((event) => unwrapTypedValue(event.value).type === 'NodeLiteral')
             .map((event) => formatPath(event.path)),
     );
-    const projected: PortableAesEvent[] = [];
+    const projected: PortableEventWithLocalSpan[] = [];
 
     for (const event of events) {
         const translatedPath = translateNodePath(event.path, nodeSourcePaths);
         const translatedPathText = formatPath(translatedPath);
         const value = unwrapTypedValue(event.value);
-        projected.push(projectEvent(event, translatedPath, value, nodeSourcePaths));
+        pushProjected(projected, projectEvent(event, translatedPath, value, nodeSourcePaths), event.span);
         projectMappedAttributes(event.annotations, translatedPathText, projected, nodeSourcePaths);
 
         if (value.type === 'NodeLiteral') {
             const headPath = `${translatedPathText}[0]`;
-            projected.push({
+            pushProjected(projected, {
                 path: headPath,
                 kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
                 ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
                 value: value.tag,
-            });
+            }, value.headSpan);
             projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
         }
     }
@@ -197,7 +238,7 @@ export const projectPortableNodeEvents = projectPortableEvents;
 function projectMappedAttributes(
     attributes: ReadonlyMap<string, AttributeEntry> | undefined,
     ownerPath: string,
-    projected: PortableAesEvent[],
+    projected: PortableEventWithLocalSpan[],
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     if (!attributes) return;
@@ -209,6 +250,7 @@ function projectMappedAttributes(
                 ...(entry.structuralId != null ? { identity: entry.structuralId } : {}),
                 ...(entry.datatype !== undefined ? { datatype: entry.datatype } : {}),
                 ...(entry.annotations !== undefined ? { mappedAttributes: entry.annotations } : {}),
+                ...(entry.span !== undefined ? { sourceSpan: entry.span } : {}),
             },
             projected,
             nodeSourcePaths,
@@ -219,7 +261,7 @@ function projectMappedAttributes(
 function projectParserAttributes(
     attributes: readonly Attribute[],
     ownerPath: string,
-    projected: PortableAesEvent[],
+    projected: PortableEventWithLocalSpan[],
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     for (const attribute of attributes) {
@@ -231,6 +273,7 @@ function projectParserAttributes(
                     ...(entry.structuralId !== null ? { identity: entry.structuralId } : {}),
                     ...(entry.datatype !== null ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
                     parserAttributes: entry.attributes,
+                    ...(entry.span !== undefined ? { sourceSpan: entry.span } : {}),
                 },
                 projected,
                 nodeSourcePaths,
@@ -244,24 +287,25 @@ interface ValueTreeMetadata {
     readonly datatype?: string;
     readonly mappedAttributes?: ReadonlyMap<string, AttributeEntry>;
     readonly parserAttributes?: readonly Attribute[];
+    readonly sourceSpan?: Span;
 }
 
 function projectValueTree(
     path: string,
     rawValue: Value,
     metadata: ValueTreeMetadata,
-    projected: PortableAesEvent[],
+    projected: PortableEventWithLocalSpan[],
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     const value = unwrapTypedValue(rawValue);
     const portableValue = projectValue(value, nodeSourcePaths);
-    projected.push({
+    pushProjected(projected, {
         path,
         kind: portableValue.kind,
         ...(metadata.identity !== undefined ? { identity: metadata.identity } : {}),
         ...projectDatatype(metadata.datatype),
         ...(portableValue.value !== undefined ? { value: portableValue.value } : {}),
-    });
+    }, metadata.sourceSpan ?? rawValue.span);
     projectMappedAttributes(metadata.mappedAttributes, path, projected, nodeSourcePaths);
     projectParserAttributes(metadata.parserAttributes ?? [], path, projected, nodeSourcePaths);
 
@@ -279,13 +323,13 @@ function projectValueTree(
             return;
         case 'NodeLiteral': {
             const headPath = `${path}[0]`;
-            projected.push({
+            pushProjected(projected, {
                 path: headPath,
                 kind: 'NodeHead',
                 ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
                 ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
                 value: value.tag,
-            });
+            }, value.headSpan);
             projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
             for (let index = 0; index < value.children.length; index += 1) {
                 projectAnonymousTree(`${headPath}[${index}]`, value.children[index]!, projected, nodeSourcePaths);
@@ -300,7 +344,7 @@ function projectValueTree(
 function projectBindingTree(
     path: string,
     binding: Binding,
-    projected: PortableAesEvent[],
+    projected: PortableEventWithLocalSpan[],
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     projectValueTree(
@@ -310,6 +354,7 @@ function projectBindingTree(
             ...(binding.structuralId !== null ? { identity: binding.structuralId } : {}),
             ...(binding.datatype !== null ? { datatype: formatDatatypeAnnotation(binding.datatype) } : {}),
             parserAttributes: binding.attributes,
+            sourceSpan: binding.span,
         },
         projected,
         nodeSourcePaths,
@@ -319,11 +364,11 @@ function projectBindingTree(
 function projectAnonymousTree(
     path: string,
     rawValue: Value,
-    projected: PortableAesEvent[],
+    projected: PortableEventWithLocalSpan[],
     nodeSourcePaths: ReadonlySet<string>,
 ): void {
     if (rawValue.type !== 'TypedValue') {
-        projectValueTree(path, rawValue, {}, projected, nodeSourcePaths);
+        projectValueTree(path, rawValue, { sourceSpan: rawValue.span }, projected, nodeSourcePaths);
         return;
     }
     projectValueTree(
@@ -333,6 +378,7 @@ function projectAnonymousTree(
             ...(rawValue.structuralId !== null ? { identity: rawValue.structuralId } : {}),
             ...(rawValue.datatype !== null ? { datatype: formatDatatypeAnnotation(rawValue.datatype) } : {}),
             parserAttributes: rawValue.attributes,
+            sourceSpan: rawValue.span,
         },
         projected,
         nodeSourcePaths,
@@ -481,16 +527,12 @@ function isLegacyHeaderEvent(event: AssignmentEvent): boolean {
     return segment?.type === 'member' && segment.key.startsWith('aeon:');
 }
 
-function stripLocalSpan(event: PortableAesEvent): PortableAesCompatibilityEvent {
-    const { span: _span, ...portable } = event;
-    return portable;
-}
-
 function compatibilityChanges(
     sourceEvents: readonly AssignmentEvent[],
     bodyEvents: readonly AssignmentEvent[],
     projected: readonly PortableAesCompatibilityEvent[],
     includeHeaders: boolean,
+    sourceBacked: boolean,
 ): readonly PortableAesConversionChange[] {
     const changes: PortableAesConversionChange[] = [];
     const pathMap = createPortableEventPathMap(bodyEvents);
@@ -499,15 +541,17 @@ function compatibilityChanges(
         const sourcePath = formatPath(event.path);
         const header = isLegacyHeaderEvent(event);
         const targetPath = header && includeHeaders ? sourcePath : pathMap.get(sourcePath);
-        changes.push({
-            kind: 'omitted',
-            code: 'AES_COMPAT_PROVENANCE_OMITTED',
-            field: 'span',
-            message: 'The local source span is omitted because it is not bound to an immutable portable origin.',
-            sourcePath,
-            ...(targetPath !== undefined ? { targetPath } : {}),
-            requiresAuthorization: false,
-        });
+        if (!sourceBacked) {
+            changes.push({
+                kind: 'omitted',
+                code: 'AES_COMPAT_PROVENANCE_OMITTED',
+                field: 'span',
+                message: 'The local source span is omitted because it is not bound to an immutable portable origin.',
+                sourcePath,
+                ...(targetPath !== undefined ? { targetPath } : {}),
+                requiresAuthorization: false,
+            });
+        }
         changes.push({
             kind: 'transformed',
             code: 'AES_COMPAT_SOURCE_REPRESENTATION_REDUCED',
@@ -573,6 +617,23 @@ function compatibilityChanges(
 
     for (const event of projected) {
         const targetPath = event.path ?? event.header;
+        if (sourceBacked) {
+            changes.push(event.span === undefined ? {
+                kind: 'omitted',
+                code: 'AES_COMPAT_PROVENANCE_RANGE_OMITTED',
+                field: 'span',
+                message: 'The exact source is identified, but this occurrence has no independently retained source range.',
+                ...(targetPath !== undefined ? { targetPath } : {}),
+                requiresAuthorization: false,
+            } : {
+                kind: 'transformed',
+                code: 'AES_COMPAT_UTF8_SPAN_CONVERTED',
+                field: 'span',
+                message: 'The native UTF-16 source range is converted to an exact UTF-8 byte range.',
+                ...(targetPath !== undefined ? { targetPath } : {}),
+                requiresAuthorization: false,
+            });
+        }
         if (event.kind === 'NodeHead') {
             changes.push({
                 kind: 'synthesized',
@@ -606,6 +667,77 @@ function compatibilityChanges(
     }
 
     return changes;
+}
+
+interface PortableSourceContext {
+    readonly origin: string;
+    readonly byteOffsets: readonly (number | null)[];
+}
+
+function createPortableSourceContext(sourceBytes: Uint8Array): PortableSourceContext {
+    if (!(sourceBytes instanceof Uint8Array)) {
+        throw new PortableAesSourceError(
+            'AES_COMPAT_SOURCE_REQUIRED',
+            'Portable source provenance requires exact UTF-8 bytes.',
+        );
+    }
+    const bytes = Uint8Array.from(sourceBytes);
+    let source: string;
+    try {
+        source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+        throw new PortableAesSourceError(
+            'AES_SOURCE_INVALID_UTF8',
+            'Portable source provenance requires a valid UTF-8 artifact.',
+        );
+    }
+    const byteOffsets: Array<number | null> = new Array(source.length + 1).fill(null);
+    let utf16Offset = 0;
+    let byteOffset = 0;
+    byteOffsets[0] = 0;
+    while (utf16Offset < source.length) {
+        const codePoint = source.codePointAt(utf16Offset)!;
+        const codeUnitWidth = codePoint > 0xFFFF ? 2 : 1;
+        byteOffset += utf8CodePointWidth(codePoint);
+        utf16Offset += codeUnitWidth;
+        byteOffsets[utf16Offset] = byteOffset;
+    }
+    return {
+        origin: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        byteOffsets,
+    };
+}
+
+function utf8CodePointWidth(codePoint: number): number {
+    if (codePoint <= 0x7F) return 1;
+    if (codePoint <= 0x7FF) return 2;
+    if (codePoint <= 0xFFFF) return 3;
+    return 4;
+}
+
+function applyPortableProvenance(
+    projected: PortableEventWithLocalSpan,
+    source: PortableSourceContext | null,
+): PortableAesCompatibilityEvent {
+    if (source === null) return projected.event;
+    if (projected.sourceSpan === undefined) return { ...projected.event, origin: source.origin };
+    const start = source.byteOffsets[projected.sourceSpan.start.offset];
+    const end = source.byteOffsets[projected.sourceSpan.end.offset];
+    if (start === undefined || end === undefined || start === null || end === null || start >= end) {
+        throw new PortableAesSourceError(
+            'AES_COMPAT_SOURCE_RANGE_INVALID',
+            `Native source span ${projected.sourceSpan.start.offset}:${projected.sourceSpan.end.offset} is outside the exact UTF-8 artifact or splits a Unicode scalar.`,
+        );
+    }
+    return { ...projected.event, origin: source.origin, span: `${start}:${end}` };
+}
+
+function pushProjected(
+    projected: PortableEventWithLocalSpan[],
+    event: PortableAesEvent,
+    sourceSpan?: Span,
+): void {
+    projected.push({ event, ...(sourceSpan !== undefined ? { sourceSpan } : {}) });
 }
 
 function unwrapTypedValue(value: Value): Value {

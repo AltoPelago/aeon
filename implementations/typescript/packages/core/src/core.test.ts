@@ -52,6 +52,17 @@ describe('API Surface', () => {
         assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
     });
 
+    it('should opt into source-backed UTF-8 provenance when exact bytes are supplied', () => {
+        const source = '\uFEFFanswer = "😀"';
+        const sourceBytes = Buffer.from(source, 'utf8');
+        const result = compileToTelex(source, { sourceBytes });
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.strictEqual(result.records[0]?.span, `3:${sourceBytes.length}`);
+        assert.match(String(result.records[0]?.origin), /^sha256:[0-9a-f]{64}$/u);
+        assert.match(result.telex ?? '', /origin=sha256:[0-9a-f]{64}\nspan=3:18/u);
+    });
+
     it('should expose the named legacy-to-portable compatibility adapter', () => {
         const compiled = compile('a = 1');
         const converted = adaptTypeScriptAssignmentEventsToPortableAes(compiled.events);
@@ -410,6 +421,7 @@ describe('Core - compile()', () => {
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(result.events.map((event) => formatPath(event.path)), ['$.value']);
+            assert.strictEqual(result.events[0]?.span.start.offset, 1);
         });
 
         it('should accept a leading BOM before shebang and host directive', () => {
