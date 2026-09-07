@@ -30,6 +30,12 @@ class CliTests(unittest.TestCase):
                 text=True,
                 cwd=str(ROOT),
             )
+            source_backed = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex", "--source-provenance"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
 
         self.assertEqual(0, body.returncode, body.stderr)
         self.assertNotIn("header=", body.stdout)
@@ -37,6 +43,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, full.returncode, full.stderr)
         self.assertIn("projection=aeon.document.v0", full.stdout)
         self.assertIn('header=$.["aeon:mode"]', full.stdout)
+        self.assertEqual(0, source_backed.returncode, source_backed.stderr)
+        self.assertRegex(source_backed.stdout, r"origin=sha256:[0-9a-f]{64}")
+        self.assertIn("span=21:39", source_backed.stdout)
 
     def test_telex_decode_canonicalize_and_materialize(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

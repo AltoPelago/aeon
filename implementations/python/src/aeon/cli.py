@@ -10,7 +10,7 @@ from .canonical import canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
 from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits
-from .portable import export_telex, project_portable_events
+from .portable import adapt_python_assignment_events_to_portable_aes, export_telex
 from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
 from .telex import TelexSyntaxError, canonicalize_telex, parse_telex, validate_telex_records
 
@@ -59,6 +59,7 @@ def inspect(args: list[str]) -> int:
     telex_output = "--telex" in args
     include_headers = "--include-headers" in args
     portable_aes = "--portable-aes" in args
+    source_provenance = "--source-provenance" in args
     recovery = "--recovery" in args
     annotations_only = "--annotations-only" in args
     include_annotations = "--annotations" in args or annotations_only
@@ -124,11 +125,15 @@ def inspect(args: list[str]) -> int:
     if portable_aes and not json_output:
         print("Error: --portable-aes requires --json", file=sys.stderr)
         return 2
+    if source_provenance and not portable_aes and not telex_output:
+        print("Error: --source-provenance requires --portable-aes or --telex", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
         print("Error: No file specified", file=sys.stderr)
         return 2
-    source = Path(file_arg).read_text(encoding="utf-8")
+    source_bytes = Path(file_arg).read_bytes()
+    source = source_bytes.decode("utf-8")
     compile_kwargs: dict[str, object] = {}
     if limits_file is not None:
         loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
@@ -173,13 +178,26 @@ def inspect(args: list[str]) -> int:
     if sort_annotations:
         annotations = sort_annotation_records(annotations)
     if telex_output and not result.errors:
-        sys.stdout.write(export_telex(result.events, header=result.header, include_headers=include_headers))
+        sys.stdout.write(export_telex(
+            result.events,
+            header=result.header,
+            include_headers=include_headers,
+            source_bytes=source_bytes if source_provenance else None,
+        ))
     elif json_output:
         if annotations_only:
             print(json.dumps({"annotations": annotations}, indent=2))
             return 0
         payload = {
-            "events": project_portable_events(result.events) if portable_aes else result.events,
+            "events": (
+                adapt_python_assignment_events_to_portable_aes(
+                    result.events,
+                    header=result.header,
+                    source_bytes=source_bytes if source_provenance else None,
+                )["events"]
+                if portable_aes
+                else result.events
+            ),
             "errors": [error.to_json() for error in result.errors],
         }
         if include_annotations:
@@ -441,7 +459,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
     )
 
 

@@ -14,10 +14,13 @@ use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::{canonicalize, canonicalize_telex};
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesEvent, ReferenceSegment, VERSION,
-    Value, aeon_compile_limits, compile, export_telex, finalization_limits, format_path,
-    load_aeonic_limits, normalize_number_literal, project_portable_events,
+    ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesCompatibilityEvent,
+    PortableAesCompatibilityOptions, ReferenceSegment, VERSION, Value,
+    adapt_rust_assignment_events_to_portable_aes, aeon_compile_limits, compile, export_telex,
+    finalization_limits, format_path, load_aeonic_limits, normalize_number_literal,
 };
+#[cfg(test)]
+use aeon_core::{PortableAesEvent, project_portable_events};
 use aeon_finalize::{
     FinalizeMode, FinalizeOptions, FinalizePortableJsonOptions, FinalizeScope, Materialization,
     finalize_json, finalize_map, finalize_portable_json, value_to_ast_json,
@@ -351,11 +354,12 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
     let telex_output = args.iter().any(|arg| arg == "--telex");
     let include_headers = args.iter().any(|arg| arg == "--include-headers");
     let portable_aes = args.iter().any(|arg| arg == "--portable-aes");
+    let source_provenance = args.iter().any(|arg| arg == "--source-provenance");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
@@ -492,6 +496,11 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             "Error: --portable-aes requires --json\n{INSPECT_USAGE}"
         ));
     }
+    if source_provenance && !portable_aes && !telex_output {
+        return Err(format!(
+            "Error: --source-provenance requires --portable-aes or --telex\n{INSPECT_USAGE}"
+        ));
+    }
     if telex_output
         && (json_output
             || portable_aes
@@ -574,6 +583,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             &ExportTelexOptions {
                 include_headers,
                 header: result.header.clone(),
+                source_bytes: source_provenance.then(|| source.as_bytes().to_vec()),
                 ..ExportTelexOptions::default()
             },
         )
@@ -606,7 +616,15 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             println!(
                 "  \"events\": {},",
                 if portable_aes {
-                    render_portable_events(&project_portable_events(&result.events))
+                    let converted = adapt_rust_assignment_events_to_portable_aes(
+                        &result.events,
+                        &PortableAesCompatibilityOptions {
+                            source_bytes: source_provenance.then(|| source.as_bytes().to_vec()),
+                            ..PortableAesCompatibilityOptions::default()
+                        },
+                    )
+                    .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+                    render_portable_compatibility_events(&converted.events)
                 } else {
                     render_events(&result.events)
                 }
@@ -2765,7 +2783,7 @@ fn print_help() {
     );
     println!("  doctor [--json] [--contract-registry <registry.json>]");
     println!(
-        "  inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+        "  inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
@@ -3055,6 +3073,7 @@ fn render_events(events: &[AssignmentEvent]) -> String {
     out
 }
 
+#[cfg(test)]
 fn render_portable_events(events: &[PortableAesEvent]) -> String {
     let items = events
         .iter()
@@ -3118,6 +3137,70 @@ fn render_portable_events(events: &[PortableAesEvent]) -> String {
                         },
                     }),
                 );
+            }
+            JsonValue::Object(object)
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&items).unwrap_or_else(|_| String::from("[]"))
+}
+
+fn render_portable_compatibility_events(events: &[PortableAesCompatibilityEvent]) -> String {
+    let items = events
+        .iter()
+        .map(|event| {
+            let mut object = Map::new();
+            if let Some(path) = &event.path {
+                object.insert(String::from("path"), JsonValue::String(path.clone()));
+            }
+            if let Some(header) = &event.header {
+                object.insert(String::from("header"), JsonValue::String(header.clone()));
+            }
+            object.insert(
+                String::from("kind"),
+                JsonValue::String(event.kind.to_owned()),
+            );
+            if let Some(identity) = &event.identity {
+                object.insert(
+                    String::from("identity"),
+                    JsonValue::String(identity.clone()),
+                );
+            }
+            if let Some(datatype) = &event.datatype {
+                object.insert(
+                    String::from("datatype"),
+                    JsonValue::String(datatype.clone()),
+                );
+                object.insert(
+                    String::from("generics"),
+                    JsonValue::Array(event.generics.iter().map(generic_argument_json).collect()),
+                );
+                object.insert(
+                    String::from("clarifiers"),
+                    JsonValue::Array(
+                        event
+                            .clarifiers
+                            .iter()
+                            .map(|clarifier| {
+                                json!({
+                                    "kind": match clarifier.kind {
+                                        ClarifierKind::StringLiteral => "StringLiteral",
+                                        ClarifierKind::NumberLiteral => "NumberLiteral",
+                                    },
+                                    "value": clarifier.value,
+                                })
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(value) = &event.value {
+                object.insert(String::from("value"), JsonValue::String(value.clone()));
+            }
+            if let Some(origin) = &event.origin {
+                object.insert(String::from("origin"), JsonValue::String(origin.clone()));
+            }
+            if let Some(span) = &event.span {
+                object.insert(String::from("span"), JsonValue::String(span.clone()));
             }
             JsonValue::Object(object)
         })

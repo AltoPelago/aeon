@@ -20,6 +20,7 @@
  * Flags:
  * - --json         Output as JSON (inspect/finalize/integrity)
  * - --portable-aes Emit the portable flat AES projection (inspect JSON only)
+ * - --source-provenance Bind portable origin/span to the exact inspected UTF-8 source
  * - --telex        Export the portable AES stream as Telex (inspect only)
  * - --contract-registry Trusted contract registry JSON path (doctor/bind)
  * - --write        Write formatted output back to file (fmt only)
@@ -64,8 +65,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
-import { canonicalizeTelex, parseTelex, projectPortableEvents, validateTelex } from '@altopelago/aeon-aes';
+import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { canonicalizeTelex, parseTelex, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -186,6 +187,7 @@ Options:
   --contract-registry Trusted contract registry JSON path (doctor/bind)
   --json             Output as JSON (inspect/finalize)
   --portable-aes     Emit portable flat AES node projection (inspect JSON only)
+  --source-provenance  Include exact-source origin/span (requires --portable-aes or --telex)
   --telex            Emit Telex instead of the inspect report
   --include-headers  Include AEON headers in Telex's explicit header plane
     --annotations      Include annotation stream records in inspect/bind output
@@ -455,12 +457,13 @@ function telex(args: string[]): void {
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
+    const inspectUsage = 'Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
     const file = findFileWithValueFlags(args, ['--datatype-policy', '--limits-file', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-clarifier-values', '--max-separator-depth', '--max-generic-depth', '--max-generic-arguments', '--max-datatype-components', '--max-value-nesting-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
     const telexOutput = args.includes('--telex');
     const includeHeaders = args.includes('--include-headers');
     const portableAes = args.includes('--portable-aes');
+    const sourceProvenance = args.includes('--source-provenance');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
      const includeAnnotations = args.includes('--annotations');
@@ -486,6 +489,11 @@ function inspect(args: string[]): void {
     }
     if (portableAes && !jsonOutput) {
         console.error('Error: --portable-aes requires --json');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (sourceProvenance && !portableAes && !telexOutput) {
+        console.error('Error: --source-provenance requires --portable-aes or --telex');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -596,9 +604,18 @@ function inspect(args: string[]): void {
     const mode = headerInfo.mode;
 
     if (telexOutput && result.errors.length === 0) {
-        process.stdout.write(exportTelex(result.events, { includeHeaders }));
+        process.stdout.write(exportTelex(result.events, {
+            includeHeaders,
+            ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
+        }));
     } else if (jsonOutput) {
-        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations, portableAes }, headerInfo);
+        outputJSON(result, {
+            includeAnnotations,
+            annotationsOnly,
+            sortAnnotations,
+            portableAes,
+            ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
+        }, headerInfo);
     } else {
         outputMarkdown(file, result, {
             recovery,
@@ -1510,7 +1527,7 @@ function integritySign(args: string[]): void {
  */
 function outputJSON(
     result: CompileResult,
-    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean },
+    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean; sourceBytes?: Uint8Array },
     headerInfo?: HeaderInfo,
 ): void {
     const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
@@ -1533,7 +1550,9 @@ function outputJSON(
         annotations?: NonNullable<CompileResult['annotations']>;
     } = {
         events: options.portableAes
-            ? [...projectPortableEvents(visibleEvents)]
+            ? [...adaptTypeScriptAssignmentEventsToPortableAes(visibleEvents, {
+                ...(options.sourceBytes === undefined ? {} : { sourceBytes: options.sourceBytes }),
+            }).events]
             : visibleEvents.map(event => ({
                 path: formatPath(event.path),
                 key: event.key,

@@ -114,6 +114,13 @@ function normalizeAesEvents(events) {
         : e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
           ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
           : null,
+    origin: typeof e?.origin === 'string' ? e.origin : null,
+    span:
+      typeof e?.span === 'string'
+        ? e.span
+        : normalizeSpan(e?.span) === null
+          ? null
+          : normalizeSpan(e.span).join(':'),
     }));
 }
 
@@ -334,7 +341,7 @@ function renderLimitsFile(limits) {
     .join('\n\n') + '\n';
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, sourceProvenance, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -351,6 +358,7 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portabl
   else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
   if (portableAes) args.push('--portable-aes');
+  if (sourceProvenance) args.push('--source-provenance');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
@@ -600,6 +608,7 @@ async function main() {
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
       const portableAes = Boolean(test.input?.options?.portable_aes);
+      const sourceProvenance = Boolean(test.input?.options?.source_provenance);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
@@ -674,6 +683,7 @@ async function main() {
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
           portableAes,
+          sourceProvenance,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
@@ -700,6 +710,7 @@ async function main() {
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
           portableAes,
+          sourceProvenance,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,

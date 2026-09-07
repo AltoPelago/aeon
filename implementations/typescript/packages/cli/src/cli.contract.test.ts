@@ -833,6 +833,11 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(withHeaders.code, 0);
             assert.match(withHeaders.stdout, /projection=aeon\.document\.v0/u);
             assert.match(withHeaders.stdout, /header=\$\.\["aeon:mode"\]/u);
+
+            const withSourceProvenance = await runCli(['inspect', file, '--telex', '--source-provenance']);
+            assert.strictEqual(withSourceProvenance.code, 0);
+            assert.match(withSourceProvenance.stdout, /origin=sha256:[0-9a-f]{64}/u);
+            assert.match(withSourceProvenance.stdout, /span=24:35/u);
         });
 
         it('decodes and canonicalizes Telex input', async () => {
