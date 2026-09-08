@@ -61,9 +61,9 @@ pnpm test:cts:annotations
 pnpm test:cts:all
 ```
 
-`test:cts:core` runs the consolidated next Core target used by current development.
-`test:cts:core:released` pins the immutable `core-cts-v1-snapshot-0.2`
-compatibility target. The CTS commands check for the required built outputs first
+`test:cts:core` and `test:cts:core:released` pin the immutable
+`core-cts-v1-snapshot-0.3` compatibility target. Use
+`test:cts:core:legacy` only to check the historical 0.2 limit semantics. The CTS commands check for the required built outputs first
 and will tell you to run `pnpm build` if those artifacts are missing.
 
 Package-scoped examples from this workspace:

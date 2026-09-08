@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 /implementations/rust/fuzz/corpus/compile
 /implementations/rust/fuzz/corpus/token_parse
+/stress-tests/canonical-corpus

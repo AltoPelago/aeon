@@ -39,13 +39,27 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
-                cts_manifest("core", "v1", "core-cts.v1.next.json"),
+                cts_manifest("core", "v1", "core-cts.v1.snapshot-0.3.json"),
                 "--lane",
                 "core",
             ],
         ),
         LaneCommand(
             name="core-released",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("core", "v1", "core-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "core",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="core-legacy",
             command=[
                 "node",
                 str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
