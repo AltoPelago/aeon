@@ -49,6 +49,7 @@ describe('AEOS Telex validation', () => {
         const result = validateTelex(
             'telex.aes=0\n\npath=$.value\nkind=NumberLiteral\nidentity=BINDING\nvalue=3\n\npath=$.value.@.settings\nkind=StringLiteral\nidentity=SETTINGS\nvalue=display\n\npath=$.value.@.settings.@.unit\nkind=StringLiteral\nidentity=UNIT\nvalue=ms\n',
             schema,
+            { maxAttributeDepth: 2 },
         );
         assert.equal(result.ok, true, JSON.stringify(result.errors));
     });

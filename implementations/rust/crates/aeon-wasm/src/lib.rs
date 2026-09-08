@@ -57,6 +57,12 @@ struct TelexOptions {
     max_decoded_payload_bytes: Option<usize>,
     max_path_depth: Option<usize>,
     max_path_characters: Option<usize>,
+    max_attribute_depth: Option<usize>,
+    max_value_nesting_depth: Option<usize>,
+    max_string_codepoints: Option<usize>,
+    max_key_segment_codepoints: Option<usize>,
+    max_list_items: Option<usize>,
+    max_tuple_items: Option<usize>,
     max_generic_depth: Option<usize>,
     max_generic_arguments: Option<usize>,
     max_clarifier_values: Option<usize>,
@@ -262,6 +268,20 @@ fn telex_limits(options: &TelexOptions) -> TelexLimits {
     limits.max_path_characters = options
         .max_path_characters
         .unwrap_or(limits.max_path_characters);
+    limits.max_attribute_depth = options
+        .max_attribute_depth
+        .unwrap_or(limits.max_attribute_depth);
+    limits.max_value_nesting_depth = options
+        .max_value_nesting_depth
+        .unwrap_or(limits.max_value_nesting_depth);
+    limits.max_string_codepoints = options
+        .max_string_codepoints
+        .unwrap_or(limits.max_string_codepoints);
+    limits.max_key_segment_codepoints = options
+        .max_key_segment_codepoints
+        .unwrap_or(limits.max_key_segment_codepoints);
+    limits.max_list_items = options.max_list_items.unwrap_or(limits.max_list_items);
+    limits.max_tuple_items = options.max_tuple_items.unwrap_or(limits.max_tuple_items);
     limits.max_generic_depth = options
         .max_generic_depth
         .unwrap_or(limits.max_generic_depth);

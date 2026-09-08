@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use aes_telex::TelexLimits;
+
 use crate::token_parser::parse_document_from_tokens;
 use crate::{Binding, CompileOptions, NullLiteralMode, Value, compile};
 
@@ -282,6 +284,28 @@ pub const fn finalization_limits(limits: &AeonicLimitsV1) -> FinalizationLimits 
         max_reference_depth: optional_processing(limits.processing.max_reference_depth),
         max_materialized_weight: optional_processing(limits.processing.max_materialized_weight),
     }
+}
+
+pub fn telex_limits(limits: &AeonicLimitsV1) -> Result<TelexLimits, LimitsDiagnostic> {
+    Ok(TelexLimits {
+        max_input_bytes: bounded(limits.telex.max_input_bytes, 67_108_864, 1_073_741_824, "max_input_bytes")?,
+        max_line_bytes: bounded(limits.telex.max_line_bytes, 1_048_576, 67_108_864, "max_line_bytes")?,
+        max_fields_per_event: bounded(limits.telex.max_fields_per_event, 64, 4_096, "max_fields_per_event")?,
+        max_events: bounded(limits.processing.max_events, 100_000, 1_000_000, "max_events")?,
+        max_decoded_payload_bytes: bounded(limits.telex.max_decoded_payload_bytes, 33_554_432, 1_073_741_824, "max_decoded_payload_bytes")?,
+        max_path_depth: bounded(limits.structure.max_path_depth, 1_024, 4_096, "max_path_depth")?,
+        max_path_characters: bounded(limits.structure.max_path_characters, 8_192, 65_536, "max_path_characters")?,
+        max_attribute_depth: bounded(limits.structure.max_attribute_depth, 1, 64, "max_attribute_depth")?,
+        max_value_nesting_depth: bounded(limits.structure.max_value_nesting_depth, 256, 512, "max_value_nesting_depth")?,
+        max_string_codepoints: bounded(limits.structure.max_string_codepoints, 1_048_576, 16_777_216, "max_string_codepoints")?,
+        max_key_segment_codepoints: bounded(limits.structure.max_key_segment_codepoints, 1_024, 65_536, "max_key_segment_codepoints")?,
+        max_list_items: bounded(limits.structure.max_list_items, 65_536, 1_000_000, "max_list_items")?,
+        max_tuple_items: bounded(limits.structure.max_tuple_items, 65_536, 1_000_000, "max_tuple_items")?,
+        max_generic_depth: bounded(limits.structure.max_generic_depth, 1, 64, "max_generic_depth")?,
+        max_generic_arguments: bounded(limits.structure.max_generic_arguments, 32, 4_096, "max_generic_arguments")?,
+        max_clarifier_values: bounded(limits.structure.max_clarifier_values, 1, 4_096, "max_clarifier_values")?,
+        max_datatype_components: bounded(limits.structure.max_datatype_components, 64, 4_096, "max_datatype_components")?,
+    })
 }
 
 fn validate_bindings(bindings: &[Binding]) -> Result<AeonicLimitsV1, LimitsDiagnostic> {
@@ -584,7 +608,9 @@ fn diagnostic(
 
 #[cfg(test)]
 mod tests {
-    use super::{LimitSetting, aeon_compile_limits, finalization_limits, load_aeonic_limits};
+    use super::{
+        LimitSetting, aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits,
+    };
 
     const SOURCE: &str = r#"limits_id = "altopelago.aeonic-limits.v1"
 limits_version = "1.0.0"
@@ -624,6 +650,13 @@ transport = { max_frame_bytes = 16777216, max_buffer_bytes = 33554432, max_heade
         let finalize = finalization_limits(&limits);
         assert_eq!(finalize.max_reference_depth, Some(64));
         assert_eq!(finalize.max_materialized_weight, Some(1_000_000));
+        let telex = telex_limits(&limits).expect("effective Telex limits");
+        assert_eq!(telex.max_attribute_depth, 1);
+        assert_eq!(telex.max_value_nesting_depth, 256);
+        assert_eq!(telex.max_string_codepoints, 1_048_576);
+        assert_eq!(telex.max_key_segment_codepoints, 1_024);
+        assert_eq!(telex.max_list_items, 65_536);
+        assert_eq!(telex.max_tuple_items, 65_536);
     }
 
     #[test]

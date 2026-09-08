@@ -11,6 +11,7 @@ import {
     encodeTelex,
     parseTelex,
     validateTelex,
+    validateTelexRecords,
 } from './telex.js';
 
 describe('telex.aes v0', () => {
@@ -76,6 +77,33 @@ describe('telex.aes v0', () => {
                 && 'code' in error
                 && error.code === 'TELEX_LIMIT_EXCEEDED',
         );
+    });
+
+    it('enforces the shared structural counters on direct Telex validation', () => {
+        const cases = [
+            ['maxAttributeDepth', [{ path: '$.a.@.x.@.y', kind: 'NumberLiteral', value: '1' }]],
+            ['maxValueNestingDepth', [
+                { path: '$.a', kind: 'ObjectNode' },
+                { path: '$.a.b', kind: 'ListNode' },
+            ]],
+            ['maxStringCodepoints', [{ path: '$.a', kind: 'StringLiteral', value: '😀x' }]],
+            ['maxKeySegmentCodepoints', [{ path: '$.["😀x"]', kind: 'NumberLiteral', value: '1' }]],
+            ['maxListItems', [
+                { path: '$.a', kind: 'ListNode' },
+                { path: '$.a[0]', kind: 'NumberLiteral', value: '1' },
+                { path: '$.a[1]', kind: 'NumberLiteral', value: '2' },
+            ]],
+            ['maxTupleItems', [
+                { path: '$.a', kind: 'TupleLiteral' },
+                { path: '$.a[0]', kind: 'NumberLiteral', value: '1' },
+                { path: '$.a[1]', kind: 'NumberLiteral', value: '2' },
+            ]],
+        ] as const;
+        for (const [limit, records] of cases) {
+            const result = validateTelexRecords(records, { [limit]: 1 });
+            assert.equal(result.valid, false, limit);
+            assert.ok(result.diagnostics.some(({ code }) => code === 'AES_LIMIT_EXCEEDED'), limit);
+        }
     });
 
     it('projects AEON into records that can be encoded directly', () => {

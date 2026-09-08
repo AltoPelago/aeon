@@ -245,6 +245,14 @@ class TelexConformanceTests(unittest.TestCase):
                     self.assert_vector(vector)
         self.assertEqual(50, observed)
 
+    def test_draft_telex_resource_limit_vectors(self) -> None:
+        suite_path = ROOT.parents[2] / "aes" / "conformance" / "telex" / "v0" / "suites" / "03-resource-limits.json"
+        suite = json.loads(suite_path.read_text(encoding="utf-8"))
+        for vector in suite["tests"]:
+            with self.subTest(vector=vector["id"]):
+                self.assert_vector(vector)
+        self.assertEqual(34, len(suite["tests"]))
+
     def assert_vector(self, vector: dict[str, object]) -> None:
         payload = vector["input"]
         expected = vector["expected"]

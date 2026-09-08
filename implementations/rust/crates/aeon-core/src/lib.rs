@@ -49,7 +49,7 @@ pub use limits::{
     AEONIC_LIMITS_ID, AEONIC_LIMITS_VERSION, AeonCompileLimits, AeonFormatLimits, AeonicLimitsV1,
     FinalizationLimits, LIMITS_BOOTSTRAP, LimitSetting, LimitsBootstrap, LimitsDiagnostic,
     ProcessingLimits, StructureLimits, TelexFormatLimits, TransportLimits, aeon_compile_limits,
-    finalization_limits, load_aeonic_limits,
+    finalization_limits, load_aeonic_limits, telex_limits,
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::parse_document_from_tokens_recovery;

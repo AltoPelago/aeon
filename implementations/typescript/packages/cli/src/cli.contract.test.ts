@@ -873,6 +873,24 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(canonical.stdout, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
         });
 
+        it('applies the common limits file to direct Telex ingress', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-limits-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            const limitsFile = path.join(dir, 'limits.aeon');
+            const sharedPolicy = path.resolve(__dirname, '../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon');
+            fs.writeFileSync(file, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n', 'utf-8');
+            fs.writeFileSync(
+                limitsFile,
+                fs.readFileSync(sharedPolicy, 'utf-8').replace('max_string_codepoints = 1048576', 'max_string_codepoints = 1'),
+                'utf-8',
+            );
+
+            const decoded = await runCli(['telex', 'decode', file, '--limits-file', limitsFile]);
+            assert.strictEqual(decoded.code, 1);
+            const payload = JSON.parse(decoded.stdout) as { validation: { diagnostics: Array<{ counter?: string }> } };
+            assert.ok(payload.validation.diagnostics.some(({ counter }) => counter === 'max_string_codepoints'));
+        });
+
         it('materializes complete Telex input', async () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-materialize-'));
             const file = path.join(dir, 'stream.telex.aes');

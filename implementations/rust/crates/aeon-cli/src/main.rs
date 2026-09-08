@@ -11,13 +11,13 @@ use aeon_aeos::{
     SpanInput, ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
-use aeon_canonical::{canonicalize, canonicalize_telex};
+use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesCompatibilityEvent,
     PortableAesCompatibilityOptions, ReferenceSegment, VERSION, Value,
     adapt_rust_assignment_events_to_portable_aes, aeon_compile_limits, compile, export_telex,
-    finalization_limits, format_path, load_aeonic_limits, normalize_number_literal,
+    finalization_limits, format_path, load_aeonic_limits, normalize_number_literal, telex_limits,
 };
 #[cfg(test)]
 use aeon_core::{PortableAesEvent, project_portable_events};
@@ -26,8 +26,9 @@ use aeon_finalize::{
     finalize_json, finalize_map, finalize_portable_json, value_to_ast_json,
 };
 use aes_telex::{
-    ClarifierKind, DatatypeDescriptor, GenericArgument, TelexRecord, parse_telex,
-    validate_telex_records_with_projection,
+    ClarifierKind, DatatypeDescriptor, GenericArgument, TelexLimits, TelexRecord,
+    canonicalize_telex_with_limits, parse_telex_with_limits,
+    validate_telex_records_with_projection_and_limits,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -131,7 +132,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
 }
 
 fn telex(args: &[String]) -> Result<ExitCode, String> {
-    const USAGE: &str = "Usage: aeon telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
+    const USAGE: &str = "Usage: aeon telex <decode|canonicalize|materialize> <file> [--limits-file <path>] [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
     let Some(action @ ("decode" | "canonicalize" | "materialize")) =
         args.first().map(String::as_str)
     else {
@@ -140,21 +141,48 @@ fn telex(args: &[String]) -> Result<ExitCode, String> {
     let Some(file) = args.get(1).filter(|file| !file.starts_with("--")) else {
         return Err(USAGE.to_owned());
     };
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let (limits, policy_max_materialized_weight, policy_max_reference_depth) =
+        if let Some(path) = limits_file.as_deref() {
+            let limits_source = fs::read_to_string(path)
+                .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+            let selected = load_aeonic_limits(&limits_source).map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
+            let telex = telex_limits(&selected)
+                .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?;
+            let finalization = finalization_limits(&selected);
+            (
+                telex,
+                finalization.max_materialized_weight,
+                finalization.max_reference_depth,
+            )
+        } else {
+            (TelexLimits::default(), None, None)
+        };
     let source =
         fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
     if action == "canonicalize" {
-        let output = canonicalize_telex(&source)
+        let output = canonicalize_telex_with_limits(&source, &limits)
             .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
         print!("{output}");
         return Ok(ExitCode::SUCCESS);
     }
-    let parsed =
-        parse_telex(&source).map_err(|error| format!("[{}] {}", error.code, error.detail))?;
-    let validation = validate_telex_records_with_projection(
+    let parsed = parse_telex_with_limits(&source, &limits)
+        .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+    let validation = validate_telex_records_with_projection_and_limits(
         &parsed.records,
         &parsed.profile,
         parsed.projection.as_deref(),
         &[],
+        &limits,
     );
     if action == "decode" {
         println!(
@@ -183,9 +211,11 @@ fn telex(args: &[String]) -> Result<ExitCode, String> {
     let scope = resolve_finalize_scope(flag_value(args, "--scope").as_deref())
         .map_err(|message| format!("Error: {message}\n{USAGE}"))?;
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight")
-        .map_err(|_| format!("Error: Invalid --max-materialized-weight\n{USAGE}"))?;
+        .map_err(|_| format!("Error: Invalid --max-materialized-weight\n{USAGE}"))?
+        .or(policy_max_materialized_weight);
     let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth")
-        .map_err(|_| format!("Error: Invalid --max-reference-depth\n{USAGE}"))?;
+        .map_err(|_| format!("Error: Invalid --max-reference-depth\n{USAGE}"))?
+        .or(policy_max_reference_depth);
     let finalized = finalize_portable_json(
         &parsed.records,
         FinalizePortableJsonOptions {
@@ -193,6 +223,7 @@ fn telex(args: &[String]) -> Result<ExitCode, String> {
             scope,
             profile: parsed.profile,
             projection: parsed.projection,
+            limits,
             max_materialized_weight,
             max_reference_depth,
             ..FinalizePortableJsonOptions::default()
@@ -5039,6 +5070,37 @@ mod tests {
             .expect("Telex command");
             assert_eq!(result, ExitCode::SUCCESS);
         }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn telex_decode_applies_the_common_limits_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-limits-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.telex.aes");
+        let limits_file = dir.join("limits.aeon");
+        fs::write(
+            &file,
+            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n",
+        )
+        .expect("Telex fixture");
+        let limits = include_str!("../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon")
+            .replace("max_string_codepoints = 1048576", "max_string_codepoints = 1");
+        fs::write(&limits_file, limits).expect("limits fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "telex".to_owned(),
+            "decode".to_owned(),
+            file.to_string_lossy().into_owned(),
+            "--limits-file".to_owned(),
+            limits_file.to_string_lossy().into_owned(),
+        ])
+        .expect("Telex command");
+        assert_eq!(result, ExitCode::from(1));
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -91,6 +91,26 @@ export interface FinalizationLimits {
     readonly maxMaterializedWeight?: number;
 }
 
+export interface AeonTelexLimits {
+    readonly maxInputBytes: number;
+    readonly maxLineBytes: number;
+    readonly maxFieldsPerEvent: number;
+    readonly maxEvents: number;
+    readonly maxDecodedPayloadBytes: number;
+    readonly maxPathDepth: number;
+    readonly maxPathCharacters: number;
+    readonly maxAttributeDepth: number;
+    readonly maxValueNestingDepth: number;
+    readonly maxStringCodepoints: number;
+    readonly maxKeySegmentCodepoints: number;
+    readonly maxListItems: number;
+    readonly maxTupleItems: number;
+    readonly maxGenericDepth: number;
+    readonly maxGenericArguments: number;
+    readonly maxClarifierValues: number;
+    readonly maxDatatypeComponents: number;
+}
+
 export interface AeonTransportLimits {
     readonly maxFrameBytes: number;
     readonly maxBufferBytes: number;
@@ -178,6 +198,29 @@ export function finalizationLimits(limits: AeonicLimitsV1): FinalizationLimits {
     return {
         ...optionalProcessing(limits.processing.maxReferenceDepth, 'maxReferenceDepth'),
         ...optionalProcessing(limits.processing.maxMaterializedWeight, 'maxMaterializedWeight'),
+    };
+}
+
+/** Resolve the shared structural, processing, and Telex-format subsets. */
+export function telexLimits(limits: AeonicLimitsV1): AeonTelexLimits {
+    return {
+        maxInputBytes: bounded(limits.formats.telex.maxInputBytes, 67_108_864, 1_073_741_824, 'max_input_bytes'),
+        maxLineBytes: bounded(limits.formats.telex.maxLineBytes, 1_048_576, 67_108_864, 'max_line_bytes'),
+        maxFieldsPerEvent: bounded(limits.formats.telex.maxFieldsPerEvent, 64, 4_096, 'max_fields_per_event'),
+        maxDecodedPayloadBytes: bounded(limits.formats.telex.maxDecodedPayloadBytes, 33_554_432, 1_073_741_824, 'max_decoded_payload_bytes'),
+        maxEvents: bounded(limits.processing.maxEvents, 100_000, 1_000_000, 'max_events'),
+        maxPathDepth: bounded(limits.structure.maxPathDepth, 1_024, 4_096, 'max_path_depth'),
+        maxPathCharacters: bounded(limits.structure.maxPathCharacters, 8_192, 65_536, 'max_path_characters'),
+        maxAttributeDepth: bounded(limits.structure.maxAttributeDepth, 1, 64, 'max_attribute_depth'),
+        maxValueNestingDepth: bounded(limits.structure.maxValueNestingDepth, 256, 512, 'max_value_nesting_depth'),
+        maxStringCodepoints: bounded(limits.structure.maxStringCodepoints, 1_048_576, 16_777_216, 'max_string_codepoints'),
+        maxKeySegmentCodepoints: bounded(limits.structure.maxKeySegmentCodepoints, 1_024, 65_536, 'max_key_segment_codepoints'),
+        maxListItems: bounded(limits.structure.maxListItems, 65_536, 1_000_000, 'max_list_items'),
+        maxTupleItems: bounded(limits.structure.maxTupleItems, 65_536, 1_000_000, 'max_tuple_items'),
+        maxGenericDepth: bounded(limits.structure.maxGenericDepth, 1, 64, 'max_generic_depth'),
+        maxGenericArguments: bounded(limits.structure.maxGenericArguments, 32, 4_096, 'max_generic_arguments'),
+        maxClarifierValues: bounded(limits.structure.maxClarifierValues, 1, 4_096, 'max_clarifier_values'),
+        maxDatatypeComponents: bounded(limits.structure.maxDatatypeComponents, 64, 4_096, 'max_datatype_components'),
     };
 }
 

@@ -71,6 +71,7 @@ const VALUE_KINDS = new Set([
 ]);
 const VALUELESS_KINDS = new Set(['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral']);
 const INDEX_CONTAINER_KINDS = new Set(['ListNode', 'TupleLiteral', 'NodeHead']);
+const VALUE_CONTAINER_KINDS = new Set(['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral']);
 const EXACT_VALUES = new Map([
   ['InfinityLiteral', new Set(['Infinity', '-Infinity'])],
   ['NaNLiteral', new Set(['NaN', '-NaN'])],
@@ -569,6 +570,8 @@ export function validateTelexRecords(records, options = {}) {
 
   const bodyEvents = events.filter(({ addressField }) => addressField === 'path');
   const headerEvents = events.filter(({ addressField }) => addressField === 'header');
+  validateRepresentedStructuralLimits(bodyEvents, limits, diagnostics);
+  validateRepresentedStructuralLimits(headerEvents, limits, diagnostics);
   if (profile === COMPLETE_AES_PROFILE) {
     validateCompleteStream(bodyEvents, diagnostics);
     validateReferenceTargets(
@@ -615,6 +618,10 @@ function validateEventValue(event, index, diagnostics, limits) {
   }
   if (typeof event.value !== 'string') return;
 
+  if (event.kind === 'StringLiteral') {
+    validateCodepointLimit('max_string_codepoints', event.value, limits.maxStringCodepoints, diagnostics, context, 'value');
+  }
+
   const exact = EXACT_VALUES.get(event.kind);
   if (exact !== undefined && !exact.has(event.value)) {
     diagnostics.push(diagnostic(
@@ -636,6 +643,9 @@ function validateEventValue(event, index, diagnostics, limits) {
       'Node tags must not be empty',
       { ...context, field: 'value' },
     ));
+  }
+  if (event.kind === 'NodeHead') {
+    validateCodepointLimit('max_key_segment_codepoints', event.value, limits.maxKeySegmentCodepoints, diagnostics, context, 'value');
   }
   if (event.kind === 'WTCDateTimeLiteral') {
     const separator = event.value.lastIndexOf('&');
@@ -706,6 +716,8 @@ function validateOptionalCoreFields(event, index, diagnostics, datatypeLimits) {
         { ...context, field: 'datatype' },
       ));
     }
+    validateDatatypeStringLimits(event.generics, datatypeLimits, diagnostics, context);
+    validateDatatypeStringLimits(event.clarifiers, datatypeLimits, diagnostics, context);
   }
 
   if (typeof event.origin === 'string' && !/^sha256:[0-9a-f]{64}$/u.test(event.origin)) {
@@ -908,6 +920,77 @@ function validatePathLimits(path, details, limits, diagnostics, context, field) 
       { ...context, field },
     ));
   }
+  let attributeDepth = 0;
+  let currentAttributeDepth = 0;
+  for (const segment of details.segments) {
+    currentAttributeDepth = segment.type === 'attribute' ? currentAttributeDepth + 1 : 0;
+    attributeDepth = Math.max(attributeDepth, currentAttributeDepth);
+  }
+  if (attributeDepth > limits.maxAttributeDepth) {
+    diagnostics.push(limitDiagnostic('max_attribute_depth', attributeDepth, limits.maxAttributeDepth, { ...context, field }));
+  }
+  for (const segment of details.segments) {
+    if ((segment.type === 'member' || segment.type === 'attribute') && typeof segment.value === 'string') {
+      validateCodepointLimit('max_key_segment_codepoints', segment.value, limits.maxKeySegmentCodepoints, diagnostics, context, field);
+    }
+  }
+}
+
+function validateCodepointLimit(counter, value, limit, diagnostics, context, field) {
+  const observed = [...value].length;
+  if (observed > limit) diagnostics.push(limitDiagnostic(counter, observed, limit, { ...context, field }));
+}
+
+function validateDatatypeStringLimits(items, limits, diagnostics, context) {
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    if (item?.kind === 'StringLiteral' && typeof item.value === 'string') {
+      validateCodepointLimit('max_string_codepoints', item.value, limits.maxStringCodepoints, diagnostics, context, 'clarifiers');
+    } else if (item !== null && typeof item === 'object') {
+      validateDatatypeStringLimits(item.generics, limits, diagnostics, context);
+      validateDatatypeStringLimits(item.clarifiers, limits, diagnostics, context);
+    }
+  }
+}
+
+function validateRepresentedStructuralLimits(events, limits, diagnostics) {
+  const byPath = new Map();
+  for (const candidate of events) {
+    if (candidate.pathDetails !== undefined && typeof candidate.address === 'string' && !byPath.has(candidate.address)) {
+      byPath.set(candidate.address, candidate);
+    }
+  }
+  const directItems = new Map();
+  for (const candidate of byPath.values()) {
+    if (VALUE_CONTAINER_KINDS.has(candidate.event.kind)) {
+      let depth = 1;
+      for (let prefixIndex = candidate.pathDetails.prefixes.length - 2; prefixIndex >= 0; prefixIndex -= 1) {
+        const parent = byPath.get(candidate.pathDetails.prefixes[prefixIndex]);
+        if (parent !== undefined && VALUE_CONTAINER_KINDS.has(parent.event.kind)) depth += 1;
+      }
+      if (depth > limits.maxValueNestingDepth) {
+        diagnostics.push(limitDiagnostic('max_value_nesting_depth', depth, limits.maxValueNestingDepth, {
+          record: candidate.index, path: candidate.address, field: candidate.addressField,
+        }));
+      }
+    }
+    if (candidate.pathDetails.segments.at(-1)?.type !== 'index' || candidate.pathDetails.prefixes.length < 2) continue;
+    const parentPath = candidate.pathDetails.prefixes.at(-2);
+    directItems.set(parentPath, (directItems.get(parentPath) ?? 0) + 1);
+  }
+  for (const [path, observed] of directItems) {
+    const parent = byPath.get(path);
+    const entry = parent?.event.kind === 'ListNode'
+      ? ['max_list_items', limits.maxListItems]
+      : parent?.event.kind === 'TupleLiteral'
+        ? ['max_tuple_items', limits.maxTupleItems]
+        : undefined;
+    if (entry !== undefined && observed > entry[1]) {
+      diagnostics.push(limitDiagnostic(entry[0], observed, entry[1], {
+        record: parent.index, path, field: parent.addressField,
+      }));
+    }
+  }
 }
 
 function limitDiagnostic(counter, observed, limit, context = {}) {
@@ -1062,17 +1145,19 @@ function parseCanonicalDataPath(path) {
     const start = cursor;
     if (path.startsWith('.@.', cursor)) {
       cursor += 3;
-      cursor = readMemberEnd(path, cursor);
-      segments.push({ type: 'attribute' });
+      const member = readMember(path, cursor);
+      cursor = member.end;
+      segments.push({ type: 'attribute', value: member.value });
     } else if (path[cursor] === '.') {
       cursor += 1;
-      cursor = readMemberEnd(path, cursor);
-      segments.push({ type: 'member' });
+      const member = readMember(path, cursor);
+      cursor = member.end;
+      segments.push({ type: 'member', value: member.value });
     } else if (path[cursor] === '[') {
       const index = path.slice(cursor).match(/^\[(?:0|[1-9][0-9]*)\]/u);
       if (!index) throw new TypeError(`Invalid canonical index in path: ${path}`);
       cursor += index[0].length;
-      segments.push({ type: 'index' });
+      segments.push({ type: 'index', value: Number(index[0].slice(1, -1)) });
     } else {
       throw new TypeError(`Invalid canonical path segment in: ${path}`);
     }
@@ -1081,7 +1166,7 @@ function parseCanonicalDataPath(path) {
   return { prefixes, segments };
 }
 
-function readMemberEnd(path, cursor) {
+function readMember(path, cursor) {
   if (path[cursor] === '[') {
     if (path[cursor + 1] !== '"') {
       throw new TypeError(`Expected a quoted canonical member in path: ${path}`);
@@ -1115,12 +1200,12 @@ function readMemberEnd(path, cursor) {
       || JSON.stringify(decoded) !== encoded) {
       throw new TypeError(`Non-canonical quoted member in path: ${path}`);
     }
-    return quoteEnd + 2;
+    return { end: quoteEnd + 2, value: decoded };
   }
 
   const member = path.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*/u);
   if (!member) throw new TypeError(`Invalid canonical member in path: ${path}`);
-  return cursor + member[0].length;
+  return { end: cursor + member[0].length, value: member[0] };
 }
 
 function hasLoneSurrogate(value) {

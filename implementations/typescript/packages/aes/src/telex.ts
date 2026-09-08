@@ -46,6 +46,12 @@ export interface TelexLimits {
     readonly maxDecodedPayloadBytes: number;
     readonly maxPathDepth: number;
     readonly maxPathCharacters: number;
+    readonly maxAttributeDepth: number;
+    readonly maxValueNestingDepth: number;
+    readonly maxStringCodepoints: number;
+    readonly maxKeySegmentCodepoints: number;
+    readonly maxListItems: number;
+    readonly maxTupleItems: number;
     readonly maxGenericDepth: number;
     readonly maxGenericArguments: number;
     readonly maxClarifierValues: number;

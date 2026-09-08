@@ -50,6 +50,12 @@ class TelexLimits:
     max_decoded_payload_bytes: int = 33_554_432
     max_path_depth: int = 1_024
     max_path_characters: int = 8_192
+    max_attribute_depth: int = 1
+    max_value_nesting_depth: int = 256
+    max_string_codepoints: int = 1_048_576
+    max_key_segment_codepoints: int = 1_024
+    max_list_items: int = 65_536
+    max_tuple_items: int = 65_536
     max_generic_depth: int = 1
     max_generic_arguments: int = 32
     max_clarifier_values: int = 1
@@ -152,6 +158,9 @@ def normalize_telex_limits(limits: TelexLimits | Mapping[str, object] | None = N
         "maxFieldsPerEvent": "max_fields_per_event", "maxEvents": "max_events",
         "maxDecodedPayloadBytes": "max_decoded_payload_bytes", "maxPathDepth": "max_path_depth",
         "maxPathCharacters": "max_path_characters", "maxGenericDepth": "max_generic_depth",
+        "maxAttributeDepth": "max_attribute_depth", "maxValueNestingDepth": "max_value_nesting_depth",
+        "maxStringCodepoints": "max_string_codepoints", "maxKeySegmentCodepoints": "max_key_segment_codepoints",
+        "maxListItems": "max_list_items", "maxTupleItems": "max_tuple_items",
         "maxGenericArguments": "max_generic_arguments", "maxClarifierValues": "max_clarifier_values",
         "maxDatatypeComponents": "max_datatype_components",
     }
@@ -665,6 +674,8 @@ def validate_telex_records(
         candidates.append(_Candidate(event, index, address_field, address if isinstance(address, str) else None, path_details))
     body = [candidate for candidate in candidates if candidate.address_field == "path"]
     header = [candidate for candidate in candidates if candidate.address_field == "header"]
+    _validate_represented_structural_limits(body, opts, diagnostics)
+    _validate_represented_structural_limits(header, opts, diagnostics)
     if profile == COMPLETE_AES_PROFILE:
         _validate_complete_stream(body, diagnostics)
         _validate_reference_targets(body + (header if projection == AEON_DOCUMENT_PROJECTION else []), body, diagnostics)
@@ -793,12 +804,16 @@ def _validate_event_value(event: dict[str, object], index: int, diagnostics: lis
     value = event.get("value")
     if not isinstance(value, str):
         return
+    if kind == "StringLiteral":
+        _validate_codepoint_limit("max_string_codepoints", value, limits.max_string_codepoints, diagnostics, context, "value")
     if kind in EXACT_VALUES and value not in EXACT_VALUES[str(kind)]:
         diagnostics.append(_diagnostic("AES_INVALID_VALUE", f"Invalid '{kind}' payload: {value}", **context, field="value"))
     if kind == "HexLiteral" and re.fullmatch(r"[0-9a-f]+", value) is None:
         diagnostics.append(_diagnostic("AES_INVALID_VALUE", "Hex payloads require one or more lowercase hexadecimal digits", **context, field="value"))
     if kind == "NodeHead" and not value:
         diagnostics.append(_diagnostic("AES_INVALID_VALUE", "Node tags must not be empty", **context, field="value"))
+    if kind == "NodeHead":
+        _validate_codepoint_limit("max_key_segment_codepoints", value, limits.max_key_segment_codepoints, diagnostics, context, "value")
     if kind == "WTCDateTimeLiteral" and "&" in value:
         reference = value.rsplit("&", 1)[1]
         if reference.lower() == "local" and reference != "local":
@@ -830,6 +845,8 @@ def _validate_optional_fields(event: dict[str, object], index: int, diagnostics:
             )
         except DatatypeError as error:
             diagnostics.append(_diagnostic(error.code, str(error), **context, field="datatype"))
+        _validate_datatype_string_limits(event.get("generics"), limits, diagnostics, context)
+        _validate_datatype_string_limits(event.get("clarifiers"), limits, diagnostics, context)
     origin = event.get("origin")
     if isinstance(origin, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", origin) is None:
         diagnostics.append(_diagnostic("AES_INVALID_ORIGIN", "Origin must be 'sha256:' followed by 64 lowercase hexadecimal digits", **context, field="origin"))
@@ -942,6 +959,61 @@ def _validate_path_limits(path: str, details: _PathDetails, limits: TelexLimits,
         diagnostics.append(_limit_diagnostic("max_path_depth", len(details.segments), limits.max_path_depth, **context, field=field_name))
     if len(path) > limits.max_path_characters:
         diagnostics.append(_limit_diagnostic("max_path_characters", len(path), limits.max_path_characters, **context, field=field_name))
+    attribute_depth = current_attribute_depth = 0
+    for kind, _ in details.segments:
+        current_attribute_depth = current_attribute_depth + 1 if kind == "attribute" else 0
+        attribute_depth = max(attribute_depth, current_attribute_depth)
+    if attribute_depth > limits.max_attribute_depth:
+        diagnostics.append(_limit_diagnostic("max_attribute_depth", attribute_depth, limits.max_attribute_depth, **context, field=field_name))
+    for kind, value in details.segments:
+        if kind in {"member", "attribute"} and isinstance(value, str):
+            _validate_codepoint_limit("max_key_segment_codepoints", value, limits.max_key_segment_codepoints, diagnostics, context, field_name)
+
+
+def _validate_codepoint_limit(counter: str, value: str, limit: int, diagnostics: list[dict[str, object]], context: Mapping[str, object], field_name: str) -> None:
+    observed = len(value)
+    if observed > limit:
+        diagnostics.append(_limit_diagnostic(counter, observed, limit, **context, field=field_name))
+
+
+def _validate_datatype_string_limits(items: object, limits: TelexLimits, diagnostics: list[dict[str, object]], context: Mapping[str, object]) -> None:
+    if not isinstance(items, list):
+        return
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("kind") == "StringLiteral" and isinstance(item.get("value"), str):
+            _validate_codepoint_limit("max_string_codepoints", str(item["value"]), limits.max_string_codepoints, diagnostics, context, "clarifiers")
+        else:
+            _validate_datatype_string_limits(item.get("generics"), limits, diagnostics, context)
+            _validate_datatype_string_limits(item.get("clarifiers"), limits, diagnostics, context)
+
+
+def _validate_represented_structural_limits(events: list[_Candidate], limits: TelexLimits, diagnostics: list[dict[str, object]]) -> None:
+    by_path = {item.address: item for item in reversed(events) if item.path_details is not None and item.address is not None}
+    direct_items: dict[str, int] = {}
+    containers = {"ObjectNode", "ListNode", "TupleLiteral", "NodeLiteral"}
+    for candidate in by_path.values():
+        assert candidate.path_details is not None and candidate.address is not None
+        if candidate.event.get("kind") in containers:
+            depth = 1
+            for parent_path in candidate.path_details.prefixes[:-1]:
+                parent = by_path.get(parent_path)
+                if parent is not None and parent.event.get("kind") in containers:
+                    depth += 1
+            if depth > limits.max_value_nesting_depth:
+                diagnostics.append(_limit_diagnostic("max_value_nesting_depth", depth, limits.max_value_nesting_depth, record=candidate.index, path=candidate.address, field=candidate.address_field))
+        if len(candidate.path_details.prefixes) >= 2 and candidate.path_details.segments[-1][0] == "index":
+            parent_path = candidate.path_details.prefixes[-2]
+            direct_items[parent_path] = direct_items.get(parent_path, 0) + 1
+    for path, observed in direct_items.items():
+        parent = by_path.get(path)
+        if parent is None:
+            continue
+        if parent.event.get("kind") == "ListNode" and observed > limits.max_list_items:
+            diagnostics.append(_limit_diagnostic("max_list_items", observed, limits.max_list_items, record=parent.index, path=path, field=parent.address_field))
+        elif parent.event.get("kind") == "TupleLiteral" and observed > limits.max_tuple_items:
+            diagnostics.append(_limit_diagnostic("max_tuple_items", observed, limits.max_tuple_items, record=parent.index, path=path, field=parent.address_field))
 
 
 def _diagnostic(code: str, message: str, **context: object) -> dict[str, object]:

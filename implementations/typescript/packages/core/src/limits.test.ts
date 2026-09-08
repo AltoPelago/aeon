@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aeonCompileLimits, aeonTransportLimits, finalizationLimits, loadAeonicLimits } from './limits.js';
+import { aeonCompileLimits, aeonTransportLimits, finalizationLimits, loadAeonicLimits, telexLimits } from './limits.js';
 
 const SOURCE = `limits_id = "altopelago.aeonic-limits.v1"
 limits_version = "1.0.0"
@@ -52,6 +52,25 @@ test('loads and normalizes the closed v1 limits file under bootstrap policy', ()
     assert.deepStrictEqual(finalizationLimits(loaded.limits), {
         maxReferenceDepth: 64,
         maxMaterializedWeight: 1000000,
+    });
+    assert.deepStrictEqual(telexLimits(loaded.limits), {
+        maxInputBytes: 67108864,
+        maxLineBytes: 1048576,
+        maxFieldsPerEvent: 64,
+        maxDecodedPayloadBytes: 33554432,
+        maxEvents: 100000,
+        maxPathDepth: 1024,
+        maxPathCharacters: 8192,
+        maxAttributeDepth: 1,
+        maxValueNestingDepth: 256,
+        maxStringCodepoints: 1048576,
+        maxKeySegmentCodepoints: 1024,
+        maxListItems: 65536,
+        maxTupleItems: 65536,
+        maxGenericDepth: 1,
+        maxGenericArguments: 32,
+        maxClarifierValues: 1,
+        maxDatatypeComponents: 64,
     });
     assert.deepStrictEqual(aeonTransportLimits(loaded.limits), {
         maxFrameBytes: 16777216,

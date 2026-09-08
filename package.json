@@ -10,6 +10,7 @@
     "ci:full": "npm run ci && npm run ci:rust",
     "tests:all": "npm run ci:full && python3 ./scripts/stress-combinations.py --run both --brief --failures-only",
     "test:canonical:corpus": "python3 ./scripts/stress-canonical-corpus.py",
+    "test:canonical:corpus:php": "python3 ./scripts/stress-canonical-corpus.py --php",
     "validate:cts-claims": "node ./scripts/validate-cts-claims.mjs",
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
     "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run"

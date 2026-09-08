@@ -65,7 +65,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, telexLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
 import { canonicalizeTelex, parseTelex, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
@@ -403,7 +403,7 @@ function fmt(args: string[]): void {
 function telex(args: string[]): void {
     const action = args[0];
     const file = args[1];
-    const usage = 'Usage: aeon telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--transport] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const usage = 'Usage: aeon telex <decode|canonicalize|materialize> <file> [--limits-file <path>] [--scope <payload|header|full>] [--strict|--transport] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
     if ((action !== 'decode' && action !== 'canonicalize' && action !== 'materialize') || !file || file.startsWith('--')) {
         console.error(usage);
         process.exit(2);
@@ -413,20 +413,45 @@ function telex(args: string[]): void {
     const scope = resolveFinalizeScope(args);
     const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
     const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
     if (mode === null || scope === null || maxMaterializedWeight === null || maxReferenceDepth === null) {
         console.error(usage);
         process.exit(2);
     }
+    if (args.includes('--limits-file') && !limitsFile) {
+        console.error('Error: --limits-file requires a path');
+        process.exit(2);
+    }
 
-    const input = readFile(file);
+    let selectedTelexLimits: ReturnType<typeof telexLimits> | undefined;
+    let selectedFinalizationLimits: ReturnType<typeof finalizationLimits> | undefined;
+    if (limitsFile) {
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            selectedTelexLimits = telexLimits(loaded.limits);
+            selectedFinalizationLimits = finalizationLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const input = selectedTelexLimits
+        ? readFileWithLimit(file, selectedTelexLimits.maxInputBytes)
+        : readFile(file);
     try {
         if (action === 'canonicalize') {
-            process.stdout.write(canonicalizeTelex(input));
+            process.stdout.write(canonicalizeTelex(input, selectedTelexLimits));
             return;
         }
 
-        const parsed = parseTelex(input);
+        const parsed = parseTelex(input, selectedTelexLimits);
         const validation = validateTelex(parsed, {
+            ...selectedTelexLimits,
             profile: parsed.profile,
             projection: parsed.projection,
         });
@@ -436,6 +461,8 @@ function telex(args: string[]): void {
                 projection: parsed.projection,
                 mode,
                 scope,
+                ...selectedTelexLimits,
+                ...selectedFinalizationLimits,
                 ...(maxMaterializedWeight !== undefined ? { maxMaterializedWeight } : {}),
                 ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
             });

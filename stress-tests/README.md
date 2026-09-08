@@ -118,7 +118,7 @@ python3 ./scripts/stress-fixtures.py --cts-ready
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
 | Combination corpora | `python3 ./scripts/stress-combinations.py --run both` | expands mode-aware combination matrices into generated positive/negative snippet corpora and can immediately run them |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
-| Canonical corpus parity | `python3 ./scripts/stress-canonical-corpus.py` | every real-world corpus document must canonicalize successfully and identically across TypeScript, Python, and Rust |
+| Canonical corpus parity | `python3 ./scripts/stress-canonical-corpus.py` | every real-world corpus document must canonicalize successfully and identically across TypeScript, Python, and Rust; `--php` additionally requires byte-identical TypeScript/PHP canonical Telex |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
 | Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
 | Comment injection parity | `python3 ./scripts/stress-comment-injection.py` | compact grammar-rich source with structured comments at every marked legal trivia slot must keep canonical and annotation output aligned |
@@ -399,6 +399,12 @@ Run canonical parity across the positive structural snippet corpora:
 python3 ./scripts/stress-canonical-snippets.py
 python3 ./scripts/stress-canonical-snippets.py --mode strict
 python3 ./scripts/stress-canonical-snippets.py --brief
+```
+
+Run the real-document corpus with the sibling PHP implementation included:
+
+```bash
+npm run test:canonical:corpus:php -- --brief
 ```
 
 Run diagnostic parity across the curated syntax corpus:

@@ -21,6 +21,12 @@ export interface TelexOptions {
   maxDecodedPayloadBytes?: number;
   maxPathDepth?: number;
   maxPathCharacters?: number;
+  maxAttributeDepth?: number;
+  maxValueNestingDepth?: number;
+  maxStringCodepoints?: number;
+  maxKeySegmentCodepoints?: number;
+  maxListItems?: number;
+  maxTupleItems?: number;
   maxGenericDepth?: number;
   maxGenericArguments?: number;
   maxClarifierValues?: number;
