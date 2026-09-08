@@ -47,9 +47,10 @@ pub use lexer::{
 };
 pub use limits::{
     AEONIC_LIMITS_ID, AEONIC_LIMITS_VERSION, AeonCompileLimits, AeonFormatLimits, AeonicLimitsV1,
-    FinalizationLimits, LIMITS_BOOTSTRAP, LimitSetting, LimitsBootstrap, LimitsDiagnostic,
-    ProcessingLimits, StructureLimits, TelexFormatLimits, TransportLimits, aeon_compile_limits,
-    finalization_limits, load_aeonic_limits, telex_limits,
+    EffectiveTelexConfiguration, FinalizationLimits, LIMITS_BOOTSTRAP, LimitSetting,
+    LimitsBootstrap, LimitsDiagnostic, ProcessingLimits, StructureLimits, TelexFormatLimits,
+    TransportLimits, aeon_compile_limits, effective_telex_configuration, finalization_limits,
+    load_aeonic_limits, telex_limits,
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::parse_document_from_tokens_recovery;
@@ -1028,7 +1029,13 @@ fn validate_gp_datatype_clarifiers(
             .get(index)
             .cloned()
             .unwrap_or_else(|| format_path(&event.path));
-        validate_gp_datatype_surface(&surface, &rendered_path, event.span, errors);
+        validate_gp_datatype_surface(
+            &surface,
+            &rendered_path,
+            event.span,
+            errors,
+            gp_custom_clarifier_literal(&event.value),
+        );
     }
 }
 
@@ -1043,7 +1050,13 @@ fn validate_gp_validation_datatype_clarifiers(
         let Some(surface) = parse_gp_datatype_surface(datatype) else {
             continue;
         };
-        validate_gp_datatype_surface(&surface, &event.path, event.span, errors);
+        validate_gp_datatype_surface(
+            &surface,
+            &event.path,
+            event.span,
+            errors,
+            gp_custom_clarifier_literal(&event.value),
+        );
     }
 }
 
@@ -1052,6 +1065,7 @@ fn validate_gp_datatype_surface(
     rendered_path: &str,
     span: Span,
     errors: &mut Vec<Diagnostic>,
+    custom_clarifier_literal: bool,
 ) {
     if let Some(clarifiers) = &datatype.clarifiers {
         match gp_datatype_clarifier_rule(&datatype.name) {
@@ -1106,6 +1120,7 @@ fn validate_gp_datatype_surface(
                     );
                 }
             }
+            None if custom_clarifier_literal => {}
             Some(GpDatatypeClarifierRule::None) | None => {
                 errors.push(
                     Diagnostic::new(
@@ -1123,7 +1138,15 @@ fn validate_gp_datatype_surface(
     }
 
     for arg in &datatype.args {
-        validate_gp_datatype_surface(arg, rendered_path, span, errors);
+        validate_gp_datatype_surface(arg, rendered_path, span, errors, false);
+    }
+}
+
+fn gp_custom_clarifier_literal(value: &Value) -> bool {
+    match value {
+        Value::SeparatorLiteral { .. } | Value::RadixLiteral { .. } => true,
+        Value::TypedValue { value, .. } => gp_custom_clarifier_literal(value),
+        _ => false,
     }
 }
 
@@ -3044,6 +3067,49 @@ mod tests {
         );
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
+    }
+
+    #[test]
+    fn gp_profile_allows_custom_clarifiers_for_separator_and_radix_literals() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nversion:ver[\".\"] = ^1.2.0\nseparator_numeric:custom[2] = ^a2a\nradix_numeric:bits[2] = %10101\nradix_string:bits[\"binary\"] = %10101\n",
+            CompileOptions {
+                mode: Some(BehaviorMode::Strict),
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result
+                .events
+                .iter()
+                .map(|event| event.datatype.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("ver[\".\"]"),
+                Some("custom[2]"),
+                Some("bits[2]"),
+                Some("bits[\"binary\"]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn gp_profile_rejects_custom_clarifiers_for_other_literal_families() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nvalue:custom[\".\"] = \"1.2.0\"\n",
+            CompileOptions {
+                mode: Some(BehaviorMode::Strict),
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.events.is_empty());
         assert_eq!(
             result.errors[0].code,
             "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"

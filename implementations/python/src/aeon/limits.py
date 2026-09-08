@@ -48,6 +48,22 @@ class LimitsLoadResult:
     errors: list[LimitsDiagnostic]
 
 
+@dataclass(slots=True)
+class EffectiveTelexConfiguration:
+    """Inspectable limits selected for a Telex portable boundary.
+
+    Identity and profile claims are descriptive metadata, kept separate from
+    the normalized codec and finalization option dictionaries.
+    """
+
+    limits_id: str
+    limits_version: str
+    profile_claims: list[str]
+    telex: dict[str, int]
+    finalization: dict[str, int]
+    overrides_applied: bool
+
+
 def load_aeonic_limits(source: str) -> LimitsLoadResult:
     actual_bytes = len(source.encode("utf-8"))
     if actual_bytes > LIMITS_BOOTSTRAP["max_input_bytes"]:
@@ -142,6 +158,19 @@ def telex_limits(limits: AeonicLimitsV1) -> dict[str, int]:
         "max_clarifier_values": _bounded(limits.structure["max_clarifier_values"], 1, 4_096, "max_clarifier_values"),
         "max_datatype_components": _bounded(limits.structure["max_datatype_components"], 64, 4_096, "max_datatype_components"),
     }
+
+
+def effective_telex_configuration(limits: AeonicLimitsV1) -> EffectiveTelexConfiguration:
+    """Resolve an inspectable snapshot of all limits used at a Telex boundary."""
+
+    return EffectiveTelexConfiguration(
+        limits_id=limits.limits_id,
+        limits_version=limits.limits_version,
+        profile_claims=list(limits.profile_claims),
+        telex=telex_limits(limits),
+        finalization=finalization_limits(limits),
+        overrides_applied=False,
+    )
 
 
 def _decode_binding(binding: Binding, path: str, errors: list[LimitsDiagnostic]) -> Any:

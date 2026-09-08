@@ -6,7 +6,13 @@ import {
     type ProfileRef,
     type ProfileRegistry,
 } from '@altopelago/aeon-profiles';
-import { compile as compileCore, type AnnotationRecord } from '@altopelago/aeon-core';
+import {
+    compile as compileCore,
+    effectiveTelexConfiguration,
+    type AeonicLimitsV1,
+    type AnnotationRecord,
+    type EffectiveTelexConfiguration,
+} from '@altopelago/aeon-core';
 import {
     parseTelex,
     resolveRefs,
@@ -82,6 +88,7 @@ export interface RuntimeMeta {
     readonly resolution?: ResolveMeta;
     readonly finalization?: FinalizeMeta;
     readonly telex?: TelexValidationResult;
+    readonly effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export interface RuntimeResult {
@@ -98,6 +105,8 @@ export interface TelexRuntimeOptions extends Omit<TelexValidationOptions, 'profi
     readonly maxMaterializedWeight?: number;
     readonly maxReferenceDepth?: number;
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
+    /** Trusted, consumer-selected common limits document. */
+    readonly aeonicLimits?: AeonicLimitsV1;
 }
 
 export interface TelexRuntimeResult {
@@ -416,23 +425,25 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
 export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}): TelexRuntimeResult {
     const mode = options.mode ?? 'strict';
     const scope = options.scope ?? 'payload';
+    const effectiveLimits = runtimeEffectiveTelexConfiguration(options);
+    const codecOptions = effectiveLimits ? { ...effectiveLimits.telex, ...options } : options;
     const errors: RuntimeDiagnostic[] = [];
     const warnings: RuntimeDiagnostic[] = [];
     let parsed: ParsedTelex;
 
     try {
-        parsed = parseTelex(input, options);
+        parsed = parseTelex(input, codecOptions);
     } catch (error) {
         const failure = error as { readonly code?: string; readonly message?: string };
         errors.push(asDiag('error', 5, {
             code: failure.code ?? 'TELEX_SYNTAX_ERROR',
             message: failure.message ?? String(error),
         }));
-        return { aes: [], meta: { errors, warnings } };
+        return { aes: [], meta: { errors, warnings, ...(effectiveLimits ? { effectiveLimits } : {}) } };
     }
 
     const telex = validateTelexRecords(parsed.records, {
-        ...options,
+        ...codecOptions,
         profile: parsed.profile,
         projection: parsed.projection,
     });
@@ -443,7 +454,7 @@ export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}
         return {
             aes: parsed.records,
             parsed,
-            meta: { errors, warnings, telex },
+            meta: { errors, warnings, telex, ...(effectiveLimits ? { effectiveLimits } : {}) },
         };
     }
 
@@ -465,12 +476,13 @@ export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}
             return {
                 aes: parsed.records,
                 parsed,
-                meta: { errors, warnings, telex, schema: schemaResult },
+                meta: { errors, warnings, telex, schema: schemaResult, ...(effectiveLimits ? { effectiveLimits } : {}) },
             };
         }
     }
 
     const finalized = finalizePortableJson(parsed.records, {
+        ...(effectiveLimits?.finalization ?? {}),
         ...options,
         profile: parsed.profile,
         projection: parsed.projection,
@@ -488,10 +500,36 @@ export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}
             errors,
             warnings,
             telex,
+            ...(effectiveLimits ? { effectiveLimits } : {}),
             ...(schemaResult ? { schema: schemaResult } : {}),
             ...(finalized.meta ? { finalization: finalized.meta } : {}),
         },
     };
+}
+
+function runtimeEffectiveTelexConfiguration(
+    options: TelexRuntimeOptions,
+): EffectiveTelexConfiguration | undefined {
+    if (!options.aeonicLimits) return undefined;
+    const selected = effectiveTelexConfiguration(options.aeonicLimits);
+    const telex = { ...selected.telex };
+    const finalization = { ...selected.finalization };
+    let overridesApplied = false;
+    for (const key of Object.keys(telex) as (keyof typeof telex)[]) {
+        const override = options[key];
+        if (override !== undefined && override !== telex[key]) {
+            telex[key] = override;
+            overridesApplied = true;
+        }
+    }
+    for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+        const override = options[key];
+        if (override !== undefined && override !== finalization[key]) {
+            finalization[key] = override;
+            overridesApplied = true;
+        }
+    }
+    return { ...selected, telex, finalization, overridesApplied };
 }
 
 export function runTypedRuntime<TDocument>(

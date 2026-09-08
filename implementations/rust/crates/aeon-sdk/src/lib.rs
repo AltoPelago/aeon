@@ -9,8 +9,9 @@ use aeon_aeos::{
     validate, validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
-    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
-    ReferenceSegment, Value, compile, compile_to_telex, normalize_number_literal,
+    AeonicLimitsV1, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic,
+    EffectiveTelexConfiguration, LimitsDiagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
+    Value, compile, compile_to_telex, effective_telex_configuration, normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeOptions, FinalizePortableJsonOptions, MaterializeError, finalize_into,
@@ -48,9 +49,14 @@ pub struct LoadedDocument<T> {
 #[derive(Debug, Clone, Default)]
 pub struct TelexLoadOptions {
     pub finalize: FinalizePortableJsonOptions,
+    /// Explicit whole-codec override. When present, it takes precedence over
+    /// `aeonic_limits`; `finalize.limits` remains a compatibility route.
+    pub telex_limits: Option<TelexLimits>,
     pub schema: Option<Schema>,
     pub schema_file: Option<PathBuf>,
     pub validation: ValidationOptions,
+    /// Trusted, consumer-selected common limits document.
+    pub aeonic_limits: Option<AeonicLimitsV1>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +64,7 @@ pub struct LoadedTelexDocument<T> {
     pub parsed: ParsedTelex,
     pub validation: Option<ResultEnvelope>,
     pub document: T,
+    pub effective_limits: Option<EffectiveTelexConfiguration>,
 }
 
 #[derive(Debug)]
@@ -66,6 +73,7 @@ pub enum AeonLoadError {
     Compile(Vec<Diagnostic>),
     TelexSyntax(TelexSyntaxError),
     TelexValidation(TelexValidationResult),
+    Limits(LimitsDiagnostic),
     SchemaLoad(String),
     Schema(ResultEnvelope),
     Finalize(aeon_finalize::FinalizeMeta),
@@ -85,6 +93,7 @@ impl fmt::Display for AeonLoadError {
                 "AES validation failed with {} error(s)",
                 result.diagnostics.len()
             ),
+            Self::Limits(error) => write!(f, "limits selection failed: {}", error.message),
             Self::SchemaLoad(message) => write!(f, "{message}"),
             Self::Schema(result) => {
                 write!(
@@ -115,6 +124,7 @@ impl std::error::Error for AeonLoadError {
             Self::TelexSyntax(error) => Some(error),
             Self::Compile(_)
             | Self::TelexValidation(_)
+            | Self::Limits(_)
             | Self::SchemaLoad(_)
             | Self::Schema(_)
             | Self::Finalize(_) => None,
@@ -177,6 +187,36 @@ pub fn load_telex_str<T: DeserializeOwned>(
     source: &str,
     mut options: TelexLoadOptions,
 ) -> Result<LoadedTelexDocument<T>, AeonLoadError> {
+    let mut effective_limits = options
+        .aeonic_limits
+        .as_ref()
+        .map(effective_telex_configuration)
+        .transpose()
+        .map_err(AeonLoadError::Limits)?;
+    if let Some(effective) = effective_limits.as_mut() {
+        if let Some(explicit) = options.telex_limits {
+            options.finalize.limits = explicit;
+            if explicit != effective.telex {
+                effective.telex = explicit;
+                effective.overrides_applied = true;
+            }
+        } else if options.finalize.limits == TelexLimits::default() {
+            options.finalize.limits = effective.telex;
+        } else if options.finalize.limits != effective.telex {
+            effective.telex = options.finalize.limits;
+            effective.overrides_applied = true;
+        }
+        apply_finalization_limit(
+            &mut options.finalize.max_reference_depth,
+            &mut effective.finalization.max_reference_depth,
+            &mut effective.overrides_applied,
+        );
+        apply_finalization_limit(
+            &mut options.finalize.max_materialized_weight,
+            &mut effective.finalization.max_materialized_weight,
+            &mut effective.overrides_applied,
+        );
+    }
     let parsed = parse_telex_with_limits(source, &options.finalize.limits)
         .map_err(AeonLoadError::TelexSyntax)?;
     let registered = options
@@ -224,7 +264,23 @@ pub fn load_telex_str<T: DeserializeOwned>(
         parsed,
         validation,
         document,
+        effective_limits,
     })
+}
+
+fn apply_finalization_limit(
+    option: &mut Option<usize>,
+    effective: &mut Option<usize>,
+    overrides_applied: &mut bool,
+) {
+    if let Some(explicit) = *option {
+        if Some(explicit) != *effective {
+            *effective = Some(explicit);
+            *overrides_applied = true;
+        }
+    } else {
+        *option = *effective;
+    }
 }
 
 pub fn load_telex_file<T: DeserializeOwned, P: AsRef<Path>>(
@@ -822,7 +878,7 @@ mod tests {
 
     use super::*;
     use aeon_aeos::{Schema, SchemaRule};
-    use aeon_core::DatatypePolicy;
+    use aeon_core::{DatatypePolicy, load_aeonic_limits};
     use serde::Deserialize;
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1032,6 +1088,36 @@ mod tests {
             )])
         );
         assert_eq!(loaded.parsed.profile, aes_telex::COMPLETE_AES_PROFILE);
+    }
+
+    #[test]
+    fn selects_common_limits_for_the_sdk_telex_boundary() {
+        let limits = load_aeonic_limits(include_str!(
+            "../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon"
+        ))
+        .expect("common limits");
+        let wire = "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n";
+        let loaded = load_telex_str::<BTreeMap<String, JsonValue>>(
+            wire,
+            TelexLoadOptions {
+                aeonic_limits: Some(limits),
+                telex_limits: Some(TelexLimits {
+                    max_string_codepoints: 2,
+                    ..TelexLimits::default()
+                }),
+                finalize: FinalizePortableJsonOptions {
+                    max_reference_depth: Some(2),
+                    ..FinalizePortableJsonOptions::default()
+                },
+                ..TelexLoadOptions::default()
+            },
+        )
+        .expect("Telex load with common limits");
+        let effective = loaded.effective_limits.expect("effective limits view");
+        assert_eq!(effective.limits_id, "altopelago.aeonic-limits.v1");
+        assert_eq!(effective.telex.max_string_codepoints, 2);
+        assert_eq!(effective.finalization.max_reference_depth, Some(2));
+        assert!(effective.overrides_applied);
     }
 
     #[test]

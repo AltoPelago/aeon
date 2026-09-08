@@ -1,7 +1,9 @@
 import {
   compile,
   compileToTelex,
+  aeonCompileLimits,
   encodeTelex,
+  effectiveTelexConfiguration,
   formatPath,
   parseTelex,
   validateTelex,
@@ -9,6 +11,9 @@ import {
   type CompileResult,
   type CompileToTelexOptions,
   type CompileToTelexResult,
+  type AeonicLimitsV1,
+  type EffectiveTelexConfiguration,
+  type FinalizationLimits,
   type ParsedTelex,
   type PortableAesEvent,
   type TelexEncodeOptions,
@@ -44,15 +49,32 @@ export interface ReadTelexResult {
   readonly parsed: ParsedTelex;
   readonly records: ParsedTelex['records'];
   readonly validation: TelexValidationResult;
+  readonly effectiveLimits?: EffectiveTelexConfiguration;
+}
+
+export interface ReadTelexOptions extends TelexValidationOptions {
+  /** Trusted, consumer-selected common limits document. */
+  readonly aeonicLimits?: AeonicLimitsV1;
 }
 
 export interface ReadTelexDocumentOptions {
   readonly telex?: TelexValidationOptions;
   readonly finalize?: Omit<FinalizePortableJsonOptions, 'profile' | 'projection'>;
+  /** Trusted, consumer-selected common limits document. */
+  readonly aeonicLimits?: AeonicLimitsV1;
 }
 
 export interface ReadTelexDocumentResult extends ReadTelexResult {
   readonly finalized: FinalizeJsonResult;
+}
+
+export interface AeonToTelexOptions extends CompileToTelexOptions {
+  /** Trusted, consumer-selected common limits document. */
+  readonly aeonicLimits?: AeonicLimitsV1;
+}
+
+export interface AeonToTelexResult extends CompileToTelexResult {
+  readonly effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export function readAeon(input: string, options: ReadAeonOptions = {}): ReadAeonResult {
@@ -110,18 +132,21 @@ export function writeAeon(
 }
 
 /** Decode and validate an interoperable Telex stream. */
-export function readTelex(input: string, options: TelexValidationOptions = {}): ReadTelexResult {
-  const parsed = parseTelex(input, options);
+export function readTelex(input: string, options: ReadTelexOptions = {}): ReadTelexResult {
+  const { aeonicLimits, ...explicit } = options;
+  const effectiveLimits = resolveEffectiveTelexConfiguration(aeonicLimits, explicit);
+  const codecOptions = effectiveLimits ? { ...effectiveLimits.telex, ...explicit } : explicit;
+  const parsed = parseTelex(input, codecOptions);
   const validation = validateTelex(parsed, {
-    ...options,
+    ...codecOptions,
     profile: parsed.profile,
     projection: parsed.projection,
   });
-  return { parsed, records: parsed.records, validation };
+  return { parsed, records: parsed.records, validation, ...(effectiveLimits ? { effectiveLimits } : {}) };
 }
 
 /** Decode Telex and throw when its default or declared AES profile is invalid. */
-export function readTelexChecked(input: string, options: TelexValidationOptions = {}): ReadTelexResult {
+export function readTelexChecked(input: string, options: ReadTelexOptions = {}): ReadTelexResult {
   const result = readTelex(input, options);
   if (!result.validation.valid) {
     const summary = result.validation.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join('\n');
@@ -135,13 +160,25 @@ export function readTelexDocument(
   input: string,
   options: ReadTelexDocumentOptions = {},
 ): ReadTelexDocumentResult {
-  const result = readTelex(input, options.telex);
+  const effectiveLimits = resolveEffectiveTelexConfiguration(
+    options.aeonicLimits,
+    options.telex,
+    options.finalize,
+  );
+  const result = readTelex(input, effectiveLimits
+    ? { ...effectiveLimits.telex, ...(options.telex ?? {}) }
+    : options.telex);
   const finalized = finalizePortableJson(result.records, {
+    ...(effectiveLimits?.finalization ?? {}),
     ...(options.finalize ?? {}),
     profile: result.parsed.profile,
     projection: result.parsed.projection,
   });
-  return { ...result, finalized };
+  return {
+    ...result,
+    finalized,
+    ...(effectiveLimits ? { effectiveLimits } : {}),
+  };
 }
 
 /** Decode and materialize Telex, throwing on AES or finalization errors. */
@@ -173,9 +210,47 @@ export function writeTelex(
 /** Compile AEON source and export its portable event stream as Telex. */
 export function aeonToTelex(
   input: string,
-  options: CompileToTelexOptions = {},
-): CompileToTelexResult {
-  return compileToTelex(input, options);
+  options: AeonToTelexOptions = {},
+): AeonToTelexResult {
+  const { aeonicLimits, ...explicit } = options;
+  if (!aeonicLimits) return compileToTelex(input, explicit);
+
+  const effectiveLimits = resolveEffectiveTelexConfiguration(aeonicLimits, explicit.telex);
+  const result = compileToTelex(input, {
+    ...explicit,
+    compile: { ...aeonCompileLimits(aeonicLimits), ...(explicit.compile ?? {}) },
+    telex: { ...effectiveLimits?.telex, ...(explicit.telex ?? {}) },
+  });
+  return { ...result, effectiveLimits: effectiveLimits! };
+}
+
+function resolveEffectiveTelexConfiguration(
+  limits: AeonicLimitsV1 | undefined,
+  telexOverrides: TelexLimitOptions | undefined,
+  finalizationOverrides: FinalizationLimits | undefined = undefined,
+): EffectiveTelexConfiguration | undefined {
+  if (!limits) return undefined;
+  const selected = effectiveTelexConfiguration(limits);
+  const telex = { ...selected.telex };
+  const finalization = { ...selected.finalization };
+  let overridesApplied = false;
+
+  for (const key of Object.keys(telex) as (keyof typeof telex)[]) {
+    const override = telexOverrides?.[key];
+    if (override !== undefined && override !== telex[key]) {
+      telex[key] = override;
+      overridesApplied = true;
+    }
+  }
+  for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+    const override = finalizationOverrides?.[key];
+    if (override !== undefined && override !== finalization[key]) {
+      finalization[key] = override;
+      overridesApplied = true;
+    }
+  }
+
+  return { ...selected, telex, finalization, overridesApplied };
 }
 
 export { formatPath };

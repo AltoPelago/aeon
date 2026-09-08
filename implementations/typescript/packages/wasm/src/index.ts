@@ -13,6 +13,8 @@ export interface ProcessOptions {
 }
 
 export interface TelexOptions {
+  /** Trusted AEON-encoded common limits document; WASM performs no host file I/O. */
+  limitsSource?: string;
   registeredFields?: string[];
   maxInputBytes?: number;
   maxLineBytes?: number;
@@ -37,6 +39,20 @@ export interface TelexOptions {
   maxReferenceDepth?: number;
 }
 
+export interface EffectiveTelexConfiguration {
+  limitsId: string;
+  limitsVersion: string;
+  profileClaims: string[];
+  telex: Required<Omit<TelexOptions,
+    'limitsSource' | 'registeredFields' | 'finalizeMode' | 'finalizeScope' |
+    'maxMaterializedWeight' | 'maxReferenceDepth'>>;
+  finalization: {
+    maxMaterializedWeight: number | null;
+    maxReferenceDepth: number | null;
+  };
+  overridesApplied: boolean;
+}
+
 export interface TelexDiagnostic {
   code: string;
   message: string;
@@ -54,6 +70,7 @@ export interface TelexValidationResult {
   valid: boolean;
   profile: string;
   diagnostics: TelexDiagnostic[];
+  effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export interface MissingTelexPath {
@@ -65,11 +82,13 @@ export interface MissingTelexPath {
 export interface TelexCompletenessResult {
   complete: boolean;
   missing: MissingTelexPath[];
+  effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export interface TelexMaterializationResult {
   document: unknown;
   meta: NormalizedDiagnostics;
+  effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export class TelexWasmError extends Error {

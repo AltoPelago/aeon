@@ -19,7 +19,15 @@ from .aeos import (
     validate_telex_records as validate_aeos_telex_records,
 )
 from .core import CompileOptions, CompileResult, compile_source
-from .limits import AeonicLimitsV1, aeon_compile_limits, load_aeonic_limits, telex_limits
+from .limits import (
+    AeonicLimitsV1,
+    EffectiveTelexConfiguration,
+    aeon_compile_limits,
+    effective_telex_configuration,
+    finalization_limits,
+    load_aeonic_limits,
+    telex_limits,
+)
 from .finalize import FinalizeOptions, finalize_json
 from .preamble import FilePreambleInfo, HostDirective, inspect_file_preamble
 from .portable import (
@@ -56,7 +64,10 @@ __all__ = [
     "AeonLoadError",
     "CompileOptions",
     "AeonicLimitsV1",
+    "EffectiveTelexConfiguration",
     "aeon_compile_limits",
+    "effective_telex_configuration",
+    "finalization_limits",
     "load_aeonic_limits",
     "telex_limits",
     "CompileResult",

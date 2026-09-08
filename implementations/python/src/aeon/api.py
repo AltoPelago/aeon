@@ -9,12 +9,19 @@ from ._compat import dataclass
 from .aeos import validate_events, validate_telex_records as validate_aeos_telex_records
 from .core import CompileOptions, CompileResult, compile_source
 from .finalize import FinalizeOptions, finalize_json
+from .limits import (
+    AeonicLimitsV1,
+    EffectiveTelexConfiguration,
+    aeon_compile_limits,
+    effective_telex_configuration,
+)
 from .portable import export_telex
 from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
 from .telex import (
     ParsedTelex,
     TelexSyntaxError,
     encode_telex,
+    normalize_telex_limits,
     parse_telex,
     validate_telex_records as validate_portable_telex_records,
 )
@@ -42,6 +49,7 @@ class TelexLoadOptions:
     validation_options: dict[str, object] | None = None
     limits: object = None
     registered_fields: tuple[str, ...] = ()
+    aeonic_limits: AeonicLimitsV1 | None = None
 
 
 @dataclass(slots=True)
@@ -50,6 +58,7 @@ class LoadedTelexDocument:
     parsed: ParsedTelex | None
     portable_validation: dict[str, object] | None
     finalized: dict[str, object] | None
+    effective_limits: EffectiveTelexConfiguration | None = None
     validation: dict[str, object] | None = None
     decode_error: dict[str, object] | None = None
 
@@ -204,14 +213,54 @@ def load_file(file_path: str | Path, options: LoadOptions | None = None) -> Load
 
 def load_telex_text(source: str, options: TelexLoadOptions | None = None) -> LoadedTelexDocument:
     opts = options or TelexLoadOptions()
+    finalize_options = opts.finalize or PortableFinalizeOptions()
+    codec_limits = opts.limits
+    effective_limits = (
+        effective_telex_configuration(opts.aeonic_limits)
+        if opts.aeonic_limits is not None
+        else None
+    )
+    if effective_limits is not None:
+        if codec_limits is None:
+            codec_limits = effective_limits.telex
+        else:
+            normalized = normalize_telex_limits(codec_limits)
+            actual = {
+                name: getattr(normalized, name)
+                for name in normalized.__dataclass_fields__
+            }
+            if actual != effective_limits.telex:
+                effective_limits.telex = actual
+                effective_limits.overrides_applied = True
+        finalization_values = dict(effective_limits.finalization)
+        for name in ("max_reference_depth", "max_materialized_weight"):
+            explicit = getattr(finalize_options, name)
+            if explicit is not None and finalization_values.get(name) != explicit:
+                finalization_values[name] = explicit
+                effective_limits.overrides_applied = True
+        effective_limits.finalization = finalization_values
+        finalize_options = replace(
+            finalize_options,
+            max_reference_depth=(
+                finalize_options.max_reference_depth
+                if finalize_options.max_reference_depth is not None
+                else finalization_values.get("max_reference_depth")
+            ),
+            max_materialized_weight=(
+                finalize_options.max_materialized_weight
+                if finalize_options.max_materialized_weight is not None
+                else finalization_values.get("max_materialized_weight")
+            ),
+        )
     try:
-        parsed = parse_telex(source, opts.limits)
+        parsed = parse_telex(source, codec_limits)
     except TelexSyntaxError as error:
         return LoadedTelexDocument(
             source=source,
             parsed=None,
             portable_validation=None,
             finalized=None,
+            effective_limits=effective_limits,
             decode_error={
                 "code": error.code,
                 "message": str(error),
@@ -223,13 +272,12 @@ def load_telex_text(source: str, options: TelexLoadOptions | None = None) -> Loa
         parsed.records,
         profile=parsed.profile,
         projection=parsed.projection,
-        limits=opts.limits,
+        limits=codec_limits,
         registered_fields=opts.registered_fields,
     )
     finalized: dict[str, object] | None = None
     validation: dict[str, object] | None = None
     if portable_validation["valid"]:
-        finalize_options = opts.finalize or PortableFinalizeOptions()
         finalized = finalize_portable_json(
             parsed.records,
             replace(
@@ -237,7 +285,7 @@ def load_telex_text(source: str, options: TelexLoadOptions | None = None) -> Loa
                 profile=parsed.profile,
                 projection=parsed.projection,
                 registered_fields=list(opts.registered_fields),
-                limits=opts.limits if opts.limits is not None else finalize_options.limits,
+                limits=codec_limits if codec_limits is not None else finalize_options.limits,
             ),
         )
         schema = opts.schema
@@ -250,6 +298,7 @@ def load_telex_text(source: str, options: TelexLoadOptions | None = None) -> Loa
         parsed=parsed,
         portable_validation=portable_validation,
         finalized=finalized,
+        effective_limits=effective_limits,
         validation=validation,
     )
 
@@ -263,11 +312,17 @@ def aeon_to_telex(
     source: str,
     compile_options: CompileOptions | None = None,
     *,
+    aeonic_limits: AeonicLimitsV1 | None = None,
     include_headers: bool = False,
     profile: str | None = None,
     limits: object = None,
     source_bytes: bytes | bytearray | memoryview | None = None,
 ) -> str:
+    if aeonic_limits is not None:
+        if compile_options is None:
+            compile_options = CompileOptions(**aeon_compile_limits(aeonic_limits))
+        if limits is None:
+            limits = effective_telex_configuration(aeonic_limits).telex
     compiled = compile_source(source, compile_options)
     if compiled.errors:
         messages = [f"{error.code}: {error.message}" for error in compiled.errors]

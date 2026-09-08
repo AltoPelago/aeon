@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import unittest
 
+from aeon.api import AeonLoadError, TelexLoadOptions, aeon_to_telex, load_telex_text
 from aeon.core import CompileOptions, compile_source
-from aeon.limits import aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits
+from aeon.limits import (
+    aeon_compile_limits,
+    effective_telex_configuration,
+    finalization_limits,
+    load_aeonic_limits,
+    telex_limits,
+)
+from aeon.portable_finalize import PortableFinalizeOptions
 
 
 SOURCE = '''limits_id = "altopelago.aeonic-limits.v1"
@@ -46,6 +54,14 @@ class LimitsTests(unittest.TestCase):
             {"max_reference_depth": 64, "max_materialized_weight": 1_000_000},
             finalization_limits(loaded.limits),  # type: ignore[arg-type]
         )
+        effective_telex = effective_telex_configuration(loaded.limits)  # type: ignore[arg-type]
+        self.assertEqual("altopelago.aeonic-limits.v1", effective_telex.limits_id)
+        self.assertEqual("1.0.0", effective_telex.limits_version)
+        self.assertEqual(["aeon.gp.profile.v1"], effective_telex.profile_claims)
+        self.assertEqual(telex_limits(loaded.limits), effective_telex.telex)  # type: ignore[arg-type]
+        self.assertEqual(finalization_limits(loaded.limits), effective_telex.finalization)  # type: ignore[arg-type]
+        self.assertFalse(effective_telex.overrides_applied)
+        self.assertIsNot(loaded.limits.profile_claims, effective_telex.profile_claims)  # type: ignore[union-attr]
 
     def test_rejects_unknown_fields_and_supports_sentinels(self) -> None:
         unknown = load_aeonic_limits(SOURCE.replace("max_header_bytes = 65536", "max_header_bytes = 65536, surprise = 1"))
@@ -79,6 +95,30 @@ class LimitsTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 result = compile_source(source, options)
                 self.assertEqual(expected, result.errors[0].code)
+
+    def test_sdk_selects_the_common_limits_for_telex(self) -> None:
+        loaded_limits = load_aeonic_limits(SOURCE)
+        self.assertIsNotNone(loaded_limits.limits)
+        loaded = load_telex_text(
+            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n",
+            TelexLoadOptions(
+                aeonic_limits=loaded_limits.limits,
+                finalize=PortableFinalizeOptions(max_reference_depth=2),
+            ),
+        )
+        self.assertTrue(loaded.ok)
+        self.assertEqual("altopelago.aeonic-limits.v1", loaded.effective_limits.limits_id)  # type: ignore[union-attr]
+        self.assertEqual(1_048_576, loaded.effective_limits.telex["max_string_codepoints"])  # type: ignore[union-attr]
+        self.assertEqual(2, loaded.effective_limits.finalization["max_reference_depth"])  # type: ignore[union-attr]
+        self.assertTrue(loaded.effective_limits.overrides_applied)  # type: ignore[union-attr]
+
+    def test_sdk_selects_the_common_limits_for_aeon_to_telex(self) -> None:
+        constrained = load_aeonic_limits(
+            SOURCE.replace("max_string_codepoints = 1048576", "max_string_codepoints = 1")
+        )
+        self.assertIsNotNone(constrained.limits)
+        with self.assertRaises(AeonLoadError):
+            aeon_to_telex('answer = "xx"', aeonic_limits=constrained.limits)
 
 
 if __name__ == "__main__":

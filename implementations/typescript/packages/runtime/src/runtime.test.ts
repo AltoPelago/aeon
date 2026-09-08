@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileToTelex } from '@altopelago/aeon-core';
+import fs from 'node:fs';
+import { compileToTelex, loadAeonicLimits } from '@altopelago/aeon-core';
 import { createTypedRuntimeBinder, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
@@ -41,6 +42,24 @@ test('runs Telex -> portable AES -> schema -> JSON materialization', () => {
         values: [2, 3],
         copy: [2, 3],
     });
+});
+
+test('selects the common limits document for the Telex runtime path', () => {
+    const policy = fs.readFileSync(
+        new URL('../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+        'utf8',
+    );
+    const loaded = loadAeonicLimits(policy);
+    assert.ok(loaded.limits);
+    const result = runTelexRuntime(
+        'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n',
+        { aeonicLimits: loaded.limits, maxStringCodepoints: 2 },
+    );
+
+    assert.equal(result.meta.errors.length, 0);
+    assert.equal(result.meta.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
+    assert.equal(result.meta.effectiveLimits?.telex.maxStringCodepoints, 2);
+    assert.equal(result.meta.effectiveLimits?.overridesApplied, true);
 });
 
 test('Telex runtime fails before schema and finalization when AES is incomplete', () => {

@@ -111,6 +111,22 @@ export interface AeonTelexLimits {
     readonly maxDatatypeComponents: number;
 }
 
+/**
+ * Inspectable configuration selected for a Telex portable boundary.
+ *
+ * Identity and profile claims are descriptive metadata. Codec and
+ * finalization consumers receive only the normalized option subsets below.
+ */
+export interface EffectiveTelexConfiguration {
+    readonly limitsId: typeof AEONIC_LIMITS_ID;
+    readonly limitsVersion: typeof AEONIC_LIMITS_VERSION;
+    readonly profileClaims: readonly string[];
+    readonly telex: AeonTelexLimits;
+    readonly finalization: FinalizationLimits;
+    /** True when a trusted caller has changed a normalized selected value. */
+    readonly overridesApplied: boolean;
+}
+
 export interface AeonTransportLimits {
     readonly maxFrameBytes: number;
     readonly maxBufferBytes: number;
@@ -221,6 +237,18 @@ export function telexLimits(limits: AeonicLimitsV1): AeonTelexLimits {
         maxGenericArguments: bounded(limits.structure.maxGenericArguments, 32, 4_096, 'max_generic_arguments'),
         maxClarifierValues: bounded(limits.structure.maxClarifierValues, 1, 4_096, 'max_clarifier_values'),
         maxDatatypeComponents: bounded(limits.structure.maxDatatypeComponents, 64, 4_096, 'max_datatype_components'),
+    };
+}
+
+/** Resolve an inspectable snapshot of all limits used at a Telex boundary. */
+export function effectiveTelexConfiguration(limits: AeonicLimitsV1): EffectiveTelexConfiguration {
+    return {
+        limitsId: limits.limitsId,
+        limitsVersion: limits.limitsVersion,
+        profileClaims: [...limits.profileClaims],
+        telex: telexLimits(limits),
+        finalization: finalizationLimits(limits),
+        overridesApplied: false,
     };
 }
 

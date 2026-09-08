@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { loadAeonicLimits } from '@altopelago/aeon-core';
 import {
   aeonToTelex,
   indexEventsByPath,
@@ -21,6 +23,34 @@ test('reads and writes Telex as a portable boundary format', () => {
   assert.equal(decoded.parsed.profile, 'aes.complete.v0');
   assert.equal(decoded.validation.valid, true);
   assert.deepEqual(decoded.records, [{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
+});
+
+test('selects one common limits document across SDK Telex boundaries', () => {
+  const policySource = fs.readFileSync(
+    new URL('../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+    'utf8',
+  );
+  const loaded = loadAeonicLimits(policySource);
+  assert.ok(loaded.limits);
+
+  const encoded = writeTelex([{ path: '$.answer', kind: 'StringLiteral', value: 'x' }]);
+  const decoded = readTelex(encoded, {
+    aeonicLimits: loaded.limits,
+    maxStringCodepoints: 2,
+  });
+  assert.equal(decoded.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
+  assert.deepEqual(decoded.effectiveLimits?.profileClaims, [
+    'aeon.gp.profile.v1',
+    'aes.complete.v0',
+    'aes.partial.v0',
+  ]);
+  assert.equal(decoded.effectiveLimits?.telex.maxStringCodepoints, 2);
+  assert.equal(decoded.effectiveLimits?.overridesApplied, true);
+
+  const exported = aeonToTelex('answer = "x"', { aeonicLimits: loaded.limits });
+  assert.equal(exported.compile.errors.length, 0);
+  assert.equal(exported.effectiveLimits?.finalization.maxReferenceDepth, 64);
+  assert.equal(exported.effectiveLimits?.overridesApplied, false);
 });
 
 test('checked Telex reads enforce completeness by default', () => {

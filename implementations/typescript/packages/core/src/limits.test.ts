@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aeonCompileLimits, aeonTransportLimits, finalizationLimits, loadAeonicLimits, telexLimits } from './limits.js';
+import {
+    aeonCompileLimits,
+    aeonTransportLimits,
+    effectiveTelexConfiguration,
+    finalizationLimits,
+    loadAeonicLimits,
+    telexLimits,
+} from './limits.js';
 
 const SOURCE = `limits_id = "altopelago.aeonic-limits.v1"
 limits_version = "1.0.0"
@@ -77,6 +84,16 @@ test('loads and normalizes the closed v1 limits file under bootstrap policy', ()
         maxBufferBytes: 33554432,
         maxHeaderBytes: 65536,
     });
+    const effectiveTelex = effectiveTelexConfiguration(loaded.limits);
+    assert.deepStrictEqual(effectiveTelex, {
+        limitsId: 'altopelago.aeonic-limits.v1',
+        limitsVersion: '1.0.0',
+        profileClaims: ['aeon.gp.profile.v1'],
+        telex: telexLimits(loaded.limits),
+        finalization: finalizationLimits(loaded.limits),
+        overridesApplied: false,
+    });
+    assert.notStrictEqual(effectiveTelex.profileClaims, loaded.limits.profileClaims);
 });
 
 test('rejects unknown fields and accepts the two custom limit sentinels', () => {

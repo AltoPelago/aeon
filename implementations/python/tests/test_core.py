@@ -379,6 +379,30 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.events)
         self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
 
+    def test_gp_profile_allows_custom_clarifiers_for_separator_and_radix_literals(self) -> None:
+        result = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\n'
+            'version:ver["."] = ^1.2.0\n'
+            'separator_numeric:custom[2] = ^a2a\n'
+            'radix_numeric:bits[2] = %10101\n'
+            'radix_string:bits["binary"] = %10101\n',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual([], result.errors)
+        body_events = [event for event in result.events if event["sourcePlane"] == "body"]
+        self.assertEqual(
+            ['ver["."]', "custom[2]", "bits[2]", 'bits["binary"]'],
+            [event["datatype"] for event in body_events],
+        )
+
+    def test_gp_profile_rejects_custom_clarifiers_for_other_literal_families(self) -> None:
+        result = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\nvalue:custom["."] = "1.2.0"\n',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual([], result.events)
+        self.assertEqual("PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", result.errors[0].code)
+
     def test_gp_profile_validates_radix_datatype_clarifiers(self) -> None:
         result = compile_source('aeon:profile = "aeon.gp.profile.v1"\nb:radix["hello"] = %01')
         self.assertEqual([], result.events)

@@ -465,7 +465,13 @@ def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedB
         surface = parse_gp_datatype_surface(binding.datatype)
         if surface is None:
             continue
-        validate_gp_datatype_surface(surface, format_path(binding.path), binding.span, errors)
+        validate_gp_datatype_surface(
+            surface,
+            format_path(binding.path),
+            binding.span,
+            errors,
+            value_kind(binding.value),
+        )
     return errors
 
 
@@ -474,12 +480,15 @@ def validate_gp_datatype_surface(
     path: str,
     span: Span,
     errors: list[AeonError],
+    literal_family: str | None = None,
 ) -> None:
     name = str(surface["name"])
     clarifiers = surface.get("clarifiers")
     if isinstance(clarifiers, list):
         rule = GP_DATATYPE_CLARIFIER_RULES.get(name)
-        if rule == "radix_base":
+        if rule is None and literal_family in {"SeparatorLiteral", "RadixLiteral"}:
+            pass
+        elif rule == "radix_base":
             valid = (
                 len(clarifiers) == 1
                 and isinstance(clarifiers[0], int)
