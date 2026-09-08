@@ -56,6 +56,7 @@ pnpm test:cts:core
 pnpm test:cts:core:released
 pnpm test:cts:aes
 pnpm test:cts:aes:released
+pnpm test:cts:aes:legacy
 pnpm test:cts:aes:next
 pnpm test:cts:finalize:limits
 pnpm test:cts:transport:limits
@@ -68,10 +69,10 @@ pnpm test:cts:all
 `test:cts:core:legacy` only to check the historical 0.2 limit semantics. The CTS commands check for the required built outputs first
 and will tell you to run `pnpm build` if those artifacts are missing.
 
-`test:cts:aes` and `test:cts:aes:released` pin the immutable AES 0.2
-compatibility target. `test:cts:aes:next` selects the mutable 0.3 development
-target, and `test:cts:all` uses that development target while the unreleased
-implementation changes are under acceptance.
+`test:cts:aes` and `test:cts:aes:released` pin the immutable AES 0.3
+compatibility target. Use `test:cts:aes:legacy` for the historical 0.2 target
+and `test:cts:aes:next` for the mutable 0.4 development target. The aggregate
+uses the released 0.3 target.
 
 Package-scoped examples from this workspace:
 

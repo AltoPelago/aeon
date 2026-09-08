@@ -100,7 +100,7 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
-                cts_manifest("aes", "v1", "aes-cts.v1.next.json"),
+                cts_manifest("aes", "v1", "aes-cts.v1.snapshot-0.3.json"),
                 "--lane",
                 "aes",
             ],
@@ -113,7 +113,35 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
+                cts_manifest("aes", "v1", "aes-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "aes",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="aes-legacy",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
                 cts_manifest("aes", "v1", "aes-cts.v1.json"),
+                "--lane",
+                "aes",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="aes-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("aes", "v1", "aes-cts.v1.next.json"),
                 "--lane",
                 "aes",
             ],
@@ -254,7 +282,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core core-released core-legacy core-next aes aes-released canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos", file=sys.stderr)
+            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
     else:

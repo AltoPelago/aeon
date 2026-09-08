@@ -165,10 +165,10 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
-`core` and `aes` run their consolidated next targets. Use `core-released` or
-`aes-released` to run the corresponding immutable compatibility target
-explicitly; released snapshots are not part of the default current-development
-run.
+`core` and `aes` run their current immutable 0.3 compatibility targets. Use
+`core-legacy` or `aes-legacy` for historical targets, and `core-next` or
+`aes-next` for mutable development targets. The explicit `*-released` aliases
+select the same targets as the defaults.
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before

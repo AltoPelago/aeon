@@ -19,6 +19,9 @@ repositories.
 
 ### Changed
 
+- Advanced TypeScript, Rust, and Python AES conformance claims and default CTS
+  lanes to the immutable `aes-cts-v1-snapshot-0.3`, while retaining explicit
+  historical 0.2 and mutable 0.4 commands.
 - Standardized portable AES `kind` values on the normative AEON representation
   names, including `StringLiteral`, `ObjectNode`, `NodeLiteral`, `NodeHead`,
   `CloneReference`, and `WTCDateTimeLiteral`.
@@ -27,6 +30,9 @@ repositories.
 
 ### Fixed
 
+- Enforced caller-selected AES structural limits during Telex encoding in
+  TypeScript and Python, so callers cannot bypass those limits by omitting a
+  separate validation call.
 - Preserved structural identities across node and attribute AST surfaces,
   matter resolution, debug and JSON projections, and clone materialization.
 - Kept identity as occurrence metadata rather than path identity.
