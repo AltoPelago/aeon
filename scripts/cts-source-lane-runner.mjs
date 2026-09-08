@@ -415,7 +415,11 @@ async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, mater
     fs.writeFileSync(limitsFile, renderLimitsFile(limits), 'utf8');
     args.push('--limits-file', limitsFile);
   }
-  args.push(mode === 'transport' ? '--transport' : '--strict');
+  if (mode === 'transport') {
+    args.push('--transport', '--loose');
+  } else {
+    args.push('--strict');
+  }
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (scope) args.push('--scope', scope);
   if (materialization === 'projected') {

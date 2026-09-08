@@ -79,6 +79,20 @@ def main() -> int:
             default=False,
         ),
         LaneCommand(
+            name="core-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("core", "v1", "core-cts.v1.next.json"),
+                "--lane",
+                "core",
+            ],
+            default=False,
+        ),
+        LaneCommand(
             name="aes",
             command=[
                 "node",
@@ -132,6 +146,20 @@ def main() -> int:
             ],
         ),
         LaneCommand(
+            name="finalize-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("finalize", "v1", "finalize-json-cts.v1.next.json"),
+                "--lane",
+                "finalize-json",
+            ],
+            default=False,
+        ),
+        LaneCommand(
             name="finalize-limits",
             command=[
                 "node",
@@ -169,6 +197,20 @@ def main() -> int:
                 "--lane",
                 "finalize-map",
             ],
+        ),
+        LaneCommand(
+            name="finalize-map-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("finalize-map", "v1", "finalize-map-cts.v1.next.json"),
+                "--lane",
+                "finalize-map",
+            ],
+            default=False,
         ),
         LaneCommand(
             name="sansa",
@@ -212,7 +254,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core core-released aes aes-released canonical finalize finalize-limits inspect finalize-map sansa annotations aeos", file=sys.stderr)
+            print("Valid lanes: core core-released core-legacy core-next aes aes-released canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
     else:
