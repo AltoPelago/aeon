@@ -100,9 +100,19 @@ describe('telex.aes v0', () => {
             ]],
         ] as const;
         for (const [limit, records] of cases) {
+            const counter = limit.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
             const result = validateTelexRecords(records, { [limit]: 1 });
             assert.equal(result.valid, false, limit);
             assert.ok(result.diagnostics.some(({ code }) => code === 'AES_LIMIT_EXCEEDED'), limit);
+            assert.throws(
+                () => encodeTelex(records, { profile: 'aes.partial.v0', [limit]: 1 }),
+                (error: unknown) => error instanceof Error
+                    && 'code' in error
+                    && error.code === 'TELEX_LIMIT_EXCEEDED'
+                    && 'counter' in error
+                    && error.counter === counter,
+                limit,
+            );
         }
     });
 

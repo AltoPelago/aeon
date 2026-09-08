@@ -303,6 +303,23 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
+    def test_custom_mode_allows_literal_words_as_custom_datatype_names(self) -> None:
+        source = "\n".join([
+            'aeon:mode = "custom"',
+            "a:yes = yes",
+            "b:no = no",
+            "c:on = on",
+            "d:off = off",
+            "e:true = true",
+            "f:false = false",
+            "g:list<yes> = [yes]",
+        ])
+        result = compile_source(source)
+
+        self.assertEqual([], result.errors)
+        datatypes = [event["datatype"] for event in result.events if event["datatype"] is not None]
+        self.assertEqual(["yes", "no", "on", "off", "true", "false", "list<yes>"], datatypes)
+
     def test_custom_mode_allows_custom_toggle_aliases(self) -> None:
         source = 'aeon:mode = "custom"\ns:myToggle = on'
         result = compile_source(source)

@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import type { Span } from '@altopelago/aeon-lexer';
 import type { Attribute, Binding, Value } from '@altopelago/aeon-parser';
 import { formatDatatypeAnnotation } from './datatype.js';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
 import { formatPath, type CanonicalPath, type PathSegment } from './paths.js';
+import { sha256Hex } from './sha256.js';
 import {
     parseDatatypeDescriptor,
     type AesDatatypeDescriptor,
@@ -738,7 +738,7 @@ function createPortableSourceContext(sourceBytes: Uint8Array): PortableSourceCon
         byteOffsets[utf16Offset] = byteOffset;
     }
     return {
-        origin: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        origin: `sha256:${sha256Hex(bytes)}`,
         byteOffsets,
     };
 }

@@ -148,6 +148,26 @@ describe('Parser', () => {
             assert.strictEqual(group.bindings[1]!.key, 'off');
         });
 
+        it('should parse literal words as custom datatype names', () => {
+            const tokens = tokenize([
+                'a:yes = yes',
+                'b:no = no',
+                'c:on = on',
+                'd:off = off',
+                'e:true = true',
+                'f:false = false',
+                'g:list<yes> = [yes]',
+            ].join('\n')).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(
+                result.document!.bindings.map((binding) => binding.datatype?.name),
+                ['yes', 'no', 'on', 'off', 'true', 'false', 'list']
+            );
+            assert.deepStrictEqual(result.document!.bindings[6]!.datatype?.genericArgs, ['yes']);
+        });
+
         it('should parse multiple bindings with newlines', () => {
             const tokens = tokenize('a = 1\nb = 2\nc = 3').tokens;
             const result = parse(tokens);

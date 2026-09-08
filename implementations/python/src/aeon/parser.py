@@ -73,6 +73,7 @@ RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype
 
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 BARE_KEY_TOKEN_KINDS = {"IDENT", "TRUE", "FALSE", "YES", "NO", "ON", "OFF"}
+DATATYPE_NAME_TOKEN_KINDS = BARE_KEY_TOKEN_KINDS
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
@@ -347,7 +348,10 @@ class Parser:
             components = [0]
         self.count_datatype_component(components, self.peek().span)
         start = self.peek().span.start
-        name_token = self.consume("IDENT", "Expected type name")
+        name_token = self.peek()
+        if name_token.kind not in DATATYPE_NAME_TOKEN_KINDS:
+            raise SyntaxError("Expected type name", name_token.span)
+        self.advance()
         name = name_token.value
         end = name_token.span.end
         generic_args: list[str] = []
@@ -410,7 +414,7 @@ class Parser:
 
     def parse_generic_argument(self, generic_depth: int, components: list[int]) -> str:
         token = self.peek()
-        if token.kind not in {"IDENT", "NUMBER"}:
+        if token.kind not in DATATYPE_NAME_TOKEN_KINDS | {"NUMBER"}:
             raise SyntaxError("Expected generic argument", token.span)
         if token.kind == "NUMBER":
             self.advance()

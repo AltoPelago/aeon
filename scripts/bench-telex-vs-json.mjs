@@ -98,45 +98,84 @@ function fnv1a32(bytes) {
 
 function runCase(config) {
     const records = buildRecords(config.events);
+    // The limit-scale fixture deliberately exceeds the published default list
+    // length. Benchmarks select a workload-sized policy explicitly instead of
+    // weakening runtime defaults or bypassing encode-time validation.
+    const telexOptions = { maxListItems: config.events };
     const json = JSON.stringify(records);
-    const telex = encodeTelex(records);
+    const telex = encodeTelex(records, telexOptions);
     const jsonBytes = encoder.encode(json).byteLength;
     const encodedTelex = encoder.encode(telex);
     const telexBytes = encodedTelex.byteLength;
 
     const parsedJson = JSON.parse(json);
-    const parsedTelex = parseTelex(telex).records;
+    const parsedTelex = parseTelex(telex, telexOptions).records;
     assert.deepEqual(parsedTelex, parsedJson);
-    assert.equal(validateTelexRecords(parsedJson).valid, true);
-    assert.equal(validateTelex(telex).valid, true);
-    assert.equal(wasmRuntime.validateTelex(telex).valid, true);
-    assert.equal(wasmRuntime.canonicalizeTelex(telex), canonicalizeTelex(telex));
-    assert.deepEqual(wasmRuntime.checkTelexCompleteness(telex), checkTelexCompleteness(telex));
+    assert.equal(validateTelexRecords(parsedJson, telexOptions).valid, true);
+    assert.equal(validateTelex(telex, telexOptions).valid, true);
+    assert.equal(wasmRuntime.validateTelex(telex, telexOptions).valid, true);
+    assert.equal(
+        wasmRuntime.canonicalizeTelex(telex, telexOptions),
+        canonicalizeTelex(telex, telexOptions),
+    );
+    assert.deepEqual(
+        wasmRuntime.checkTelexCompleteness(telex, telexOptions),
+        checkTelexCompleteness(telex, telexOptions),
+    );
 
     const jsonEncodeMs = measure(config.iterations, config.warmups, () => JSON.stringify(records));
-    const telexEncodeMs = measure(config.iterations, config.warmups, () => encodeTelex(records));
+    const jsonValidatedEncodeMs = measure(config.iterations, config.warmups, () => {
+        const validation = validateTelexRecords(records, telexOptions);
+        assert.equal(validation.valid, true);
+        return JSON.stringify(records);
+    });
+    const telexEncodeMs = measure(
+        config.iterations,
+        config.warmups,
+        () => encodeTelex(records, telexOptions),
+    );
     const jsonDecodeMs = measure(config.iterations, config.warmups, () => JSON.parse(json));
-    const telexDecodeMs = measure(config.iterations, config.warmups, () => parseTelex(telex).records);
+    const telexDecodeMs = measure(
+        config.iterations,
+        config.warmups,
+        () => parseTelex(telex, telexOptions).records,
+    );
     const jsonValidatedMs = measure(config.iterations, config.warmups, () => {
         const decoded = JSON.parse(json);
-        const validation = validateTelexRecords(decoded);
+        const validation = validateTelexRecords(decoded, telexOptions);
         assert.equal(validation.valid, true);
         return decoded;
     });
     const telexValidatedMs = measure(config.iterations, config.warmups, () => {
-        const validation = validateTelex(telex);
+        const validation = validateTelex(telex, telexOptions);
         assert.equal(validation.valid, true);
         return validation.diagnostics;
     });
     const wasmValidatedMs = measure(config.iterations, config.warmups, () => {
-        const validation = wasmRuntime.validateTelex(telex);
+        const validation = wasmRuntime.validateTelex(telex, telexOptions);
         assert.equal(validation.valid, true);
         return validation.diagnostics;
     });
-    const telexCanonicalMs = measure(config.iterations, config.warmups, () => canonicalizeTelex(telex));
-    const wasmCanonicalMs = measure(config.iterations, config.warmups, () => wasmRuntime.canonicalizeTelex(telex));
-    const telexCompletenessMs = measure(config.iterations, config.warmups, () => checkTelexCompleteness(telex).missing);
-    const wasmCompletenessMs = measure(config.iterations, config.warmups, () => wasmRuntime.checkTelexCompleteness(telex).missing);
+    const telexCanonicalMs = measure(
+        config.iterations,
+        config.warmups,
+        () => canonicalizeTelex(telex, telexOptions),
+    );
+    const wasmCanonicalMs = measure(
+        config.iterations,
+        config.warmups,
+        () => wasmRuntime.canonicalizeTelex(telex, telexOptions),
+    );
+    const telexCompletenessMs = measure(
+        config.iterations,
+        config.warmups,
+        () => checkTelexCompleteness(telex, telexOptions).missing,
+    );
+    const wasmCompletenessMs = measure(
+        config.iterations,
+        config.warmups,
+        () => wasmRuntime.checkTelexCompleteness(telex, telexOptions).missing,
+    );
 
     return {
         case: config.name,
@@ -151,8 +190,10 @@ function runCase(config) {
         },
         encode: {
             json: rate(jsonBytes, config.events, jsonEncodeMs),
+            json_validated: rate(jsonBytes, config.events, jsonValidatedEncodeMs),
             telex: rate(telexBytes, config.events, telexEncodeMs),
             telex_time_to_json: ratio(telexEncodeMs, jsonEncodeMs),
+            telex_time_to_validated_json: ratio(telexEncodeMs, jsonValidatedEncodeMs),
         },
         decode: {
             json: rate(jsonBytes, config.events, jsonDecodeMs),

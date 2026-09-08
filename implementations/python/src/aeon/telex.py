@@ -509,6 +509,22 @@ def encode_telex(
         raise TypeError("Telex profile must be a non-empty string")
     if projection is not None and (not isinstance(projection, str) or not projection):
         raise TypeError("Telex projection must be a non-empty string")
+    validation = validate_telex_records(
+        items,
+        profile=profile or COMPLETE_AES_PROFILE,
+        projection=projection,
+        limits=opts,
+    )
+    exhaustion = next(
+        (item for item in validation["diagnostics"] if item["code"] == "AES_LIMIT_EXCEEDED"),
+        None,
+    )
+    if exhaustion is not None:
+        _assert_limit(
+            str(exhaustion["counter"]),
+            int(exhaustion["observed"]),
+            int(exhaustion["limit"]),
+        )
     header = VERSION_LINE
     decoded_bytes = 0
     if profile is not None:

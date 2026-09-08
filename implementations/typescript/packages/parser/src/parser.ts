@@ -442,7 +442,17 @@ class Parser {
     ): TypeAnnotation {
         this.countDatatypeComponent(components, this.peek().span);
         const start = this.peek().span.start;
-        const name = this.consume(TokenType.Identifier, "Expected type name").value;
+        const nameToken = this.peek();
+        if (!this.isBareKeyToken(nameToken)) {
+            throw new SyntaxError(
+                'Expected type name',
+                nameToken.span,
+                'type name',
+                nameToken.value
+            );
+        }
+        this.advance();
+        const name = nameToken.value;
         const genericArgs: string[] = [];
         const clarifiers: (string | number)[] = [];
 
@@ -542,7 +552,7 @@ class Parser {
 
     private parseGenericArgument(genericDepth: number, components: { count: number }): string {
         const token = this.peek();
-        if (token.type !== TokenType.Identifier && token.type !== TokenType.Number) {
+        if (!this.isBareKeyToken(token) && token.type !== TokenType.Number) {
             throw new SyntaxError(
                 'Expected generic argument',
                 token.span,

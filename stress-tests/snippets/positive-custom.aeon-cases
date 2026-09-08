@@ -128,3 +128,11 @@ s:radix[2] = %010101
 a:node = <a:html()>
 ---
 n:Infinity = Infinity
+---
+a:yes = yes
+b:no = no
+c:on = on
+d:off = off
+e:true = true
+f:false = false
+g:list<yes> = [yes]

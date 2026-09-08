@@ -312,10 +312,10 @@ impl<'a> TokenParser<'a> {
                 message: String::from("Quoted type names are not supported"),
             });
         }
-        let datatype_name = self
-            .consume(TokenKind::Identifier, "Expected datatype annotation")?
-            .text
-            .clone();
+        if !is_bare_key_kind(self.peek().kind) {
+            return Err(self.error_at_current("Expected datatype annotation"));
+        }
+        let datatype_name = self.advance().text.clone();
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
@@ -346,7 +346,7 @@ impl<'a> TokenParser<'a> {
             let mut generic_count = 0usize;
             loop {
                 match self.peek().kind {
-                    TokenKind::Identifier => {
+                    kind if is_bare_key_kind(kind) => {
                         self.parse_datatype_annotation(generic_depth + 1, component_count)?;
                     }
                     TokenKind::Number => {
@@ -1936,6 +1936,31 @@ group:object = {
             }
             _ => panic!("expected object node"),
         }
+    }
+
+    #[test]
+    fn parses_literal_words_as_datatype_names() {
+        let bindings = parse(
+            "a:yes = yes\nb:no = no\nc:on = on\nd:off = off\ne:true = true\nf:false = false\ng:list<yes> = [yes]\n",
+        )
+        .expect("literal-word datatype names should parse");
+
+        let datatypes = bindings
+            .iter()
+            .map(|binding| binding.datatype.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            datatypes,
+            vec![
+                Some("yes"),
+                Some("no"),
+                Some("on"),
+                Some("off"),
+                Some("true"),
+                Some("false"),
+                Some("list<yes>"),
+            ]
+        );
     }
 
     #[test]

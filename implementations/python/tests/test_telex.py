@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 from aeon.telex import (
     TelexSyntaxError,
     canonicalize_telex,
+    encode_telex,
     parse_telex,
     validate_telex,
     validate_telex_records,
@@ -29,6 +30,16 @@ CTS_ROOT = ROOT.parents[3] / "aeonite-org" / "aeonite-cts" / "cts"
 
 
 class TelexConformanceTests(unittest.TestCase):
+    def test_encoder_enforces_shared_structural_limits(self) -> None:
+        with self.assertRaises(TelexSyntaxError) as raised:
+            encode_telex(
+                [{"path": "$.a.@.x.@.y", "kind": "NumberLiteral", "value": "1"}],
+                profile="aes.partial.v0",
+                limits={"max_attribute_depth": 1},
+            )
+        self.assertEqual("TELEX_LIMIT_EXCEEDED", raised.exception.code)
+        self.assertEqual("max_attribute_depth", raised.exception.counter)
+
     def test_core_projection_round_trips_through_telex_and_materializes(self) -> None:
         source = 'a\\ROOT\\:list<int> = [2, 3]\ncopy = ~a'
         compiled = compile_source(source, CompileOptions(datatype_policy="allow_custom"))

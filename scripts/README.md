@@ -67,7 +67,7 @@ For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 | Script | Purpose | Typical invocation |
 | --- | --- | --- |
 | `bench-cli.py` | Repeatable local benchmark wrapper for CLI commands. | `python3 ./scripts/bench-cli.py --cwd implementations/rust -- ./target/release/aeon-rust check /tmp/file.aeon` |
-| `bench-telex-vs-json.mjs` | Compares compact JSON, TypeScript Telex, and end-to-end Rust/WASM bulk-operation throughput over 100 to 100,000 portable events. | `cd implementations/typescript && pnpm bench:telex` |
+| `bench-telex-vs-json.mjs` | Compares raw and structurally validated compact JSON, limits-aware TypeScript Telex, and end-to-end Rust/WASM bulk-operation throughput over 100 to 100,000 portable events. The limit-scale case selects an explicit workload-sized list limit rather than weakening runtime defaults. | `cd implementations/typescript && pnpm bench:telex` |
 
 ## Notes on authority boundaries
 
