@@ -194,6 +194,7 @@ def build_annotation_stream(
         target = resolver.resolve_target(comment.span)
         record: dict[str, object] = {
             "kind": comment.kind,
+            **({"subtype": comment.subtype} if comment.subtype is not None else {}),
             "form": comment.form,
             "raw": comment.raw,
             "span": comment.span.to_json(),
@@ -202,8 +203,6 @@ def build_annotation_stream(
         placement = resolver.resolve_placement(comment.span, target)
         if placement is not None:
             record["placement"] = placement
-        if comment.subtype is not None:
-            record["subtype"] = comment.subtype
         records.append(record)
     return records
 

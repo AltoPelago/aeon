@@ -9,8 +9,8 @@ pub enum AnnotationTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnnotationRecord {
     pub kind: String,
-    pub form: String,
     pub subtype: Option<String>,
+    pub form: String,
     pub raw: String,
     pub span: Span,
     pub target: AnnotationTarget,
@@ -186,8 +186,8 @@ pub fn extract_annotations(source: &str) -> Vec<AnnotationRecord> {
             let placement = resolve_placement(comment.span, &target, &bindables);
             AnnotationRecord {
                 kind: comment.kind,
-                form: comment.form,
                 subtype: comment.subtype,
+                form: comment.form,
                 raw: comment.raw,
                 span: comment.span,
                 target,

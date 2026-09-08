@@ -143,8 +143,8 @@ export interface AnnotationTarget {
 
 export interface AnnotationRecord {
   kind: string;
-  form: string;
   subtype: string | null;
+  form: string;
   raw: string;
   span: Span;
   target: AnnotationTarget;
@@ -355,8 +355,8 @@ function normalizeDiagnostic(diagnostic: Diagnostic): Diagnostic {
 function normalizeAnnotation(annotation: AnnotationRecord): AnnotationRecord {
   return {
     kind: annotation.kind,
-    form: annotation.form,
     subtype: annotation.subtype ?? null,
+    form: annotation.form,
     raw: annotation.raw,
     span: annotation.span,
     target: annotation.target,

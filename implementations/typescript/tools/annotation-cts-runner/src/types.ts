@@ -10,11 +10,11 @@ export type AnnotationTarget =
 
 export interface AnnotationRecord {
     kind: 'doc' | 'annotation' | 'hint' | 'reserved';
+    subtype?: 'structure' | 'profile' | 'instructions';
     form: 'line' | 'block';
     raw: string;
     span: Span;
     target: AnnotationTarget;
-    subtype?: 'structure' | 'profile' | 'instructions';
 }
 
 export interface AnnotationCTSTest {

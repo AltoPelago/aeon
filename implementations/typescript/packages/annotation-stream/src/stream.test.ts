@@ -340,6 +340,7 @@ describe('annotation stream', () => {
         assert.strictEqual(records.length, 1);
         assert.strictEqual(records[0]?.kind, 'reserved');
         assert.strictEqual(records[0]?.subtype, 'structure');
+        assert.deepStrictEqual(Object.keys(records[0] ?? {}).slice(0, 3), ['kind', 'subtype', 'form']);
     });
 
     it('ignores shebang and file-header host directive comments', () => {

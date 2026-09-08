@@ -2912,10 +2912,10 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
                 .map(|placement| format!(",\"placement\":{placement}"))
                 .unwrap_or_default();
             format!(
-                "{{\"kind\":\"{}\",\"form\":\"{}\"{}{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
+                "{{\"kind\":\"{}\"{},\"form\":\"{}\"{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
                 escape_json(&record.kind),
-                escape_json(&record.form),
                 subtype,
+                escape_json(&record.form),
                 placement,
                 escape_json(&record.raw),
                 render_span(&record.span),
@@ -5652,6 +5652,16 @@ mod tests {
         assert!(rendered.contains("- Count: 1"));
         assert!(rendered.contains("## Annotation Records"));
         assert!(!rendered.contains("## Assignment Events"));
+    }
+
+    #[test]
+    fn render_annotations_places_reserved_subtype_next_to_kind() {
+        let annotations = extract_annotations("/[ profile ]/\na = 1\n");
+        let rendered = render_annotations(&annotations);
+        assert!(
+            rendered
+                .starts_with("[{\"kind\":\"reserved\",\"subtype\":\"profile\",\"form\":\"block\"")
+        );
     }
 
     #[test]
