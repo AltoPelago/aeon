@@ -9,9 +9,10 @@ use aeon_aeos::{
     validate, validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
-    AeonicLimitsV1, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic,
+    AeonCompileLimits, AeonicLimitsV1, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic,
     EffectiveTelexConfiguration, LimitsDiagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
-    Value, compile, compile_to_telex, effective_telex_configuration, normalize_number_literal,
+    Value, aeon_compile_limits, compile, compile_to_telex, effective_telex_configuration,
+    normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeOptions, FinalizePortableJsonOptions, MaterializeError, finalize_into,
@@ -65,6 +66,21 @@ pub struct LoadedTelexDocument<T> {
     pub validation: Option<ResultEnvelope>,
     pub document: T,
     pub effective_limits: Option<EffectiveTelexConfiguration>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConfiguredTelexExportOptions {
+    pub portable: CompileToTelexOptions,
+    /// Explicit normalized compiler-limit override for the selected document.
+    pub compile_limits: Option<AeonCompileLimits>,
+    /// Explicit whole-codec override for the selected document.
+    pub telex_limits: Option<TelexLimits>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfiguredTelexExportResult {
+    pub output: CompileToTelexResult,
+    pub effective_limits: EffectiveTelexConfiguration,
 }
 
 #[derive(Debug)]
@@ -305,6 +321,61 @@ pub fn write_telex(
 #[must_use]
 pub fn aeon_to_telex(source: &str, options: CompileToTelexOptions) -> CompileToTelexResult {
     compile_to_telex(source, options)
+}
+
+/// Compile AEON and export Telex under one trusted common limits document.
+///
+/// The existing `aeon_to_telex` remains the unconstrained-by-file route.
+/// Whole-set call overrides are explicit so default-valued Rust fields are not
+/// mistaken for caller intent.
+pub fn aeon_to_telex_with_limits(
+    source: &str,
+    limits: &AeonicLimitsV1,
+    mut options: ConfiguredTelexExportOptions,
+) -> Result<ConfiguredTelexExportResult, LimitsDiagnostic> {
+    let mut effective_limits = effective_telex_configuration(limits)?;
+    let selected_compile_limits = aeon_compile_limits(limits)?;
+    let compile_limits = if let Some(explicit) = options.compile_limits {
+        if explicit != selected_compile_limits {
+            effective_limits.overrides_applied = true;
+        }
+        explicit
+    } else {
+        selected_compile_limits
+    };
+    apply_compile_limits(&mut options.portable.compile, &compile_limits);
+
+    if let Some(explicit) = options.telex_limits {
+        if explicit != effective_limits.telex {
+            effective_limits.overrides_applied = true;
+        }
+        effective_limits.telex = explicit;
+    }
+    options.portable.telex.limits = effective_limits.telex;
+
+    Ok(ConfiguredTelexExportResult {
+        output: compile_to_telex(source, options.portable),
+        effective_limits,
+    })
+}
+
+fn apply_compile_limits(options: &mut CompileOptions, limits: &AeonCompileLimits) {
+    options.max_attribute_depth = limits.max_attribute_depth;
+    options.max_clarifier_values = Some(limits.max_clarifier_values);
+    options.max_generic_depth = limits.max_generic_depth;
+    options.max_generic_arguments = limits.max_generic_arguments;
+    options.max_datatype_components = limits.max_datatype_components;
+    options.max_value_nesting_depth = Some(limits.max_value_nesting_depth);
+    options.max_path_depth = limits.max_path_depth;
+    options.max_string_codepoints = limits.max_string_codepoints;
+    options.max_key_segment_codepoints = limits.max_key_segment_codepoints;
+    options.max_list_items = limits.max_list_items;
+    options.max_tuple_items = limits.max_tuple_items;
+    options.max_path_characters = limits.max_path_characters;
+    options.max_numeric_literal_characters = limits.max_numeric_literal_characters;
+    options.max_structured_comment_characters = limits.max_structured_comment_characters;
+    options.max_input_bytes = limits.max_input_bytes;
+    options.max_events = limits.max_events;
 }
 
 pub fn load_schema_file<P: AsRef<Path>>(path: P) -> Result<Schema, AeonLoadError> {
@@ -1129,6 +1200,47 @@ mod tests {
                 .telex
                 .is_some_and(|wire| wire.contains("path=$.answer"))
         );
+    }
+
+    #[test]
+    fn exports_aeon_to_telex_with_common_limits_and_explicit_overrides() {
+        let policy =
+            include_str!("../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon")
+                .replace(
+                    "max_string_codepoints = 1048576",
+                    "max_string_codepoints = 1",
+                );
+        let limits = load_aeonic_limits(&policy).expect("constrained common limits");
+        let constrained = aeon_to_telex_with_limits(
+            "answer = \"xx\"",
+            &limits,
+            ConfiguredTelexExportOptions::default(),
+        )
+        .expect("configured export result");
+        assert_eq!(
+            constrained.output.compile.errors[0].code,
+            "MAX_STRING_CODEPOINTS_EXCEEDED"
+        );
+        assert!(!constrained.effective_limits.overrides_applied);
+
+        let mut compile_limits = aeon_compile_limits(&limits).expect("compiler limits");
+        compile_limits.max_string_codepoints = 2;
+        let mut telex_limits = aeon_core::telex_limits(&limits).expect("Telex limits");
+        telex_limits.max_string_codepoints = 2;
+        let overridden = aeon_to_telex_with_limits(
+            "answer = \"xx\"",
+            &limits,
+            ConfiguredTelexExportOptions {
+                compile_limits: Some(compile_limits),
+                telex_limits: Some(telex_limits),
+                ..ConfiguredTelexExportOptions::default()
+            },
+        )
+        .expect("overridden configured export");
+        assert!(overridden.output.compile.errors.is_empty());
+        assert!(overridden.output.encode_error.is_none());
+        assert!(overridden.effective_limits.overrides_applied);
+        assert_eq!(overridden.effective_limits.telex.max_string_codepoints, 2);
     }
 
     #[test]
