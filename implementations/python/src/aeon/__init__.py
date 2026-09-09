@@ -33,7 +33,7 @@ from .preamble import FilePreambleInfo, HostDirective, inspect_file_preamble
 from .portable import (
     PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0,
     PYTHON_PORTABLE_AES_ADAPTER_V0,
-    PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0,
+    PYTHON_PORTABLE_AES_ADAPTER_VERSION_V1,
     PortableAesSourceError,
     PortableEvent,
     adapt_python_assignment_events_to_portable_aes,
@@ -85,7 +85,7 @@ __all__ = [
     "PortableEvent",
     "PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0",
     "PYTHON_PORTABLE_AES_ADAPTER_V0",
-    "PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0",
+    "PYTHON_PORTABLE_AES_ADAPTER_VERSION_V1",
     "PortableAesSourceError",
     "COMPLETE_AES_PROFILE",
     "PARTIAL_AES_PROFILE",

@@ -656,9 +656,9 @@ export type {
     TelexValidationResult,
     PortableAesCompatibilityEvent,
     PortableAesCompatibilityOptions,
-    PortableAesCompatibilityResultV0,
+    PortableAesCompatibilityResultV1,
     PortableAesConversionChange,
-    PortableAesConversionReportV0,
+    PortableAesConversionReportV1,
 } from '@altopelago/aeon-aes';
 export type { AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export type { Span, Position } from '@altopelago/aeon-lexer';
@@ -678,7 +678,7 @@ export {
     PortableAesSourceError,
     TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
     TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
-    TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0,
+    TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V1,
 } from '@altopelago/aeon-aes';
 
 function collectSpanTargets(document: Document): readonly { readonly start: { readonly line: number; readonly column: number; readonly offset: number }; readonly end: { readonly line: number; readonly column: number; readonly offset: number } }[] {

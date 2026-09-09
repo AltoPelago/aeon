@@ -670,7 +670,7 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
             println!("  \"warnings\": {}", render_errors(&result.warnings));
             if portable_aes && include_headers {
                 println!(",");
-                println!("  \"projection\": \"aeon.document.v0\"");
+                println!("  \"projection\": \"aeon.document.v1\"");
             }
             if let Some(contracts) = declared_contracts {
                 println!(",");
@@ -2589,7 +2589,7 @@ fn current_receipt_timestamp() -> String {
 }
 
 // Legacy AEON envelope/receipt projection. This is not the portable
-// `aes.events.v0` logical-byte contract: it serializes source paths and
+// `aes.events.v1` logical-byte contract: it serializes source paths and
 // canonical AEON values and intentionally excludes the top-level envelope.
 fn compute_canonical_hash(events: &[AssignmentEvent], algorithm: &str) -> CanonicalHashResult {
     let stream = serialize_canonical_events(events);
@@ -5057,7 +5057,7 @@ mod tests {
         let file = dir.join("sample.telex.aes");
         fs::write(
             &file,
-            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+            "telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
         )
         .expect("Telex fixture");
         for action in ["decode", "materialize", "canonicalize"] {
@@ -5085,7 +5085,7 @@ mod tests {
         let limits_file = dir.join("limits.aeon");
         fs::write(
             &file,
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n",
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n",
         )
         .expect("Telex fixture");
         let limits =
@@ -5119,7 +5119,7 @@ mod tests {
         let file = dir.join("partial.telex.aes");
         fs::write(
             &file,
-            "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n",
+            "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n",
         )
         .expect("Telex fixture");
         let result = run(vec![

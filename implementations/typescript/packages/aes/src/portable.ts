@@ -53,8 +53,8 @@ export interface PortableAesEvent {
 
 export const TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0 = 'aeon.typescript.assignment-events.v0' as const;
 export const TYPESCRIPT_PORTABLE_AES_ADAPTER_V0 =
-    'aeon.typescript.assignment-events.v0-to-aes.events.v0' as const;
-export const TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0 = '0.1.0-candidate' as const;
+    'aeon.typescript.assignment-events.v0-to-aes.events.v1' as const;
+export const TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V1 = '1.0.0' as const;
 
 export type PortableAesConversionChangeKind = 'transformed' | 'synthesized' | 'omitted' | 'semantic-loss';
 
@@ -68,13 +68,13 @@ export interface PortableAesConversionChange {
     readonly requiresAuthorization: boolean;
 }
 
-export interface PortableAesConversionReportV0 {
+export interface PortableAesConversionReportV1 {
     readonly sourceContract: typeof TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0;
-    readonly targetContract: 'aes.events.v0';
+    readonly targetContract: 'aes.events.v1';
     readonly adapter: typeof TYPESCRIPT_PORTABLE_AES_ADAPTER_V0;
-    readonly adapterVersion: typeof TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0;
-    readonly profile: 'aes.complete.v0';
-    readonly projection: null | 'aeon.document.v0';
+    readonly adapterVersion: typeof TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V1;
+    readonly profile: 'aes.complete.v1';
+    readonly projection: null | 'aeon.document.v1';
     readonly semanticLossless: boolean;
     readonly recordLossless: boolean;
     readonly provenanceLossless: boolean;
@@ -87,9 +87,9 @@ export interface PortableAesCompatibilityEvent extends Omit<PortableAesEvent, 'p
     readonly header?: string;
 }
 
-export interface PortableAesCompatibilityResultV0 {
+export interface PortableAesCompatibilityResultV1 {
     readonly events: readonly PortableAesCompatibilityEvent[];
-    readonly report: PortableAesConversionReportV0;
+    readonly report: PortableAesConversionReportV1;
 }
 
 export interface PortableAesCompatibilityOptions {
@@ -126,7 +126,7 @@ export class PortableAesSourceError extends Error {
 export function adaptTypeScriptAssignmentEventsToPortableAes(
     events: readonly AssignmentEvent[],
     options: PortableAesCompatibilityOptions = {},
-): PortableAesCompatibilityResultV0 {
+): PortableAesCompatibilityResultV1 {
     const includeHeaders = options.includeHeaders === true;
     const headerFieldNames = options.headerFieldNames === undefined
         ? undefined
@@ -166,11 +166,11 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
         events: projected,
         report: {
             sourceContract: TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
-            targetContract: 'aes.events.v0',
+            targetContract: 'aes.events.v1',
             adapter: TYPESCRIPT_PORTABLE_AES_ADAPTER_V0,
-            adapterVersion: TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V0,
-            profile: 'aes.complete.v0',
-            projection: includeHeaders ? 'aeon.document.v0' : null,
+            adapterVersion: TYPESCRIPT_PORTABLE_AES_ADAPTER_VERSION_V1,
+            profile: 'aes.complete.v1',
+            projection: includeHeaders ? 'aeon.document.v1' : null,
             semanticLossless: true,
             recordLossless: events.length === 0,
             provenanceLossless,

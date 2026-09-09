@@ -10,7 +10,7 @@ const numberSchema: SchemaV1 = {
 describe('AEOS Telex validation', () => {
     it('validates a complete Telex stream directly', () => {
         const result = validateTelex(
-            'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n',
+            'telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n',
             numberSchema,
         );
         assert.equal(result.ok, true);
@@ -19,7 +19,7 @@ describe('AEOS Telex validation', () => {
 
     it('reports AES profile failures before schema validation', () => {
         const result = validateTelex(
-            'telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n',
+            'telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n',
             numberSchema,
         );
         assert.equal(result.ok, false);
@@ -47,7 +47,7 @@ describe('AEOS Telex validation', () => {
             }],
         };
         const result = validateTelex(
-            'telex.aes=0\n\npath=$.value\nkind=NumberLiteral\nidentity=BINDING\nvalue=3\n\npath=$.value.@.settings\nkind=StringLiteral\nidentity=SETTINGS\nvalue=display\n\npath=$.value.@.settings.@.unit\nkind=StringLiteral\nidentity=UNIT\nvalue=ms\n',
+            'telex.aes=1\n\npath=$.value\nkind=NumberLiteral\nidentity=BINDING\nvalue=3\n\npath=$.value.@.settings\nkind=StringLiteral\nidentity=SETTINGS\nvalue=display\n\npath=$.value.@.settings.@.unit\nkind=StringLiteral\nidentity=UNIT\nvalue=ms\n',
             schema,
             { maxAttributeDepth: 2 },
         );
@@ -56,7 +56,7 @@ describe('AEOS Telex validation', () => {
 
     it('recombines portable datatype components before applying AEOS rules', () => {
         const result = validateTelex(
-            'telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n\npath=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n',
+            'telex.aes=1\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n\npath=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n',
             {
                 rules: [
                     { path: '$.items', constraints: { type: 'ListNode', datatype: 'list<int>' } },
@@ -68,7 +68,7 @@ describe('AEOS Telex validation', () => {
     });
 
     it('counts node contents beneath the explicit node head', () => {
-        const wire = 'telex.aes=0\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n';
+        const wire = 'telex.aes=1\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n';
         const passing = validateTelex(wire, {
             rules: [{ path: '$.node', constraints: { type: 'NodeLiteral', min_children: 2, max_children: 2 } }],
         });

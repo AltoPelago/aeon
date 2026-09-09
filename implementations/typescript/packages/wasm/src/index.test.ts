@@ -28,18 +28,18 @@ test('processes a basic document through the generated wasm artifact', async () 
 test('validates, canonicalizes, and checks Telex inside wasm', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);
-  const complete = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
-  const nonCanonical = 'telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n';
-  const partial = 'telex.aes=0\nprofile=aes.partial.v0\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n';
+  const complete = 'telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
+  const nonCanonical = 'telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n';
+  const partial = 'telex.aes=1\nprofile=aes.partial.v1\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n';
 
   assert.deepEqual(runtime.validateTelex(complete), {
     valid: true,
-    profile: 'aes.complete.v0',
+    profile: 'aes.complete.v1',
     diagnostics: [],
   });
   assert.equal(
     runtime.canonicalizeTelex(nonCanonical),
-    'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n',
+    'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n',
   );
   assert.deepEqual(runtime.checkTelexCompleteness(partial), {
     complete: false,

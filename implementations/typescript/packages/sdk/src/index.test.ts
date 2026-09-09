@@ -20,7 +20,7 @@ test('reads and writes Telex as a portable boundary format', () => {
   const encoded = writeTelex([{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
   const decoded = readTelex(encoded);
 
-  assert.equal(decoded.parsed.profile, 'aes.complete.v0');
+  assert.equal(decoded.parsed.profile, 'aes.complete.v1');
   assert.equal(decoded.validation.valid, true);
   assert.deepEqual(decoded.records, [{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
 });
@@ -41,8 +41,8 @@ test('selects one common limits document across SDK Telex boundaries', () => {
   assert.equal(decoded.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
   assert.deepEqual(decoded.effectiveLimits?.profileClaims, [
     'aeon.gp.profile.v1',
-    'aes.complete.v0',
-    'aes.partial.v0',
+    'aes.complete.v1',
+    'aes.partial.v1',
   ]);
   assert.equal(decoded.effectiveLimits?.telex.maxStringCodepoints, 2);
   assert.equal(decoded.effectiveLimits?.overridesApplied, true);
@@ -55,7 +55,7 @@ test('selects one common limits document across SDK Telex boundaries', () => {
 
 test('checked Telex reads enforce completeness by default', () => {
   assert.throws(
-    () => readTelexChecked('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n'),
+    () => readTelexChecked('telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n'),
     /AES_MISSING_PARENT/u,
   );
 });
@@ -112,7 +112,7 @@ config\CONFIG\@{scope\META\ = "test"} = {
 });
 
 test('refuses to materialize partial Telex without external state', () => {
-  const input = 'telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n';
+  const input = 'telex.aes=1\nprofile=aes.partial.v1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n';
   const result = readTelexDocument(input);
 
   assert.equal(result.validation.valid, true);

@@ -1,6 +1,6 @@
 # @altopelago/aeon-aes
 
-Assignment Event Stream emission, portable projection, and Telex v0 codec.
+Assignment Event Stream emission, portable projection, and Telex v1 codec.
 
 ## Installation
 
@@ -25,7 +25,7 @@ if (result.errors.length === 0) {
 - emits Assignment Events from AEON source or parsed syntax
 - formats and works with canonical AEON paths
 - exposes event-level data used by AEOS validation, finalization, and tooling
-- parses, validates, encodes, and canonicalizes `telex.aes` v0 streams
+- parses, validates, encodes, and canonicalizes `telex.aes` v1 streams
 - splits compact Telex datatypes into `datatype`, `generics`, and `clarifiers`
 
 ## API
@@ -34,10 +34,10 @@ if (result.errors.length === 0) {
 - `projectPortableEvents(events)` emits the default body-only portable
   projection
 - `adaptTypeScriptAssignmentEventsToPortableAes(events, options?)` returns the
-  named `aeon.typescript.assignment-events.v0-to-aes.events.v0` compatibility
+  named `aeon.typescript.assignment-events.v0-to-aes.events.v1` compatibility
   result and its conversion report; optional exact `sourceBytes` derive a
   SHA-256 origin and convert native UTF-16 ranges to UTF-8 byte spans;
-  `includeHeaders: true` selects `aeon.document.v0`
+  `includeHeaders: true` selects `aeon.document.v1`
 - `parseTelex(input, options?)`
 - `encodeTelex(records, options?)`
 - `canonicalizeTelex(input, options?)`

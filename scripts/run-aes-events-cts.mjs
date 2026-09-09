@@ -17,7 +17,7 @@ async function main() {
     const aes = await import(pathToFileURL(modulePath).href);
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.lane, 'aes-events');
-    assert.equal(manifest.meta.event_contract, 'aes.events.v0');
+    assert.equal(manifest.meta.event_contract, 'aes.events.v1');
 
     let passed = 0;
     for (const suiteRef of manifest.suites) {

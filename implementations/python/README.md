@@ -21,7 +21,7 @@ Current implementation target:
 - reference legality checks
 - transport, strict, and custom mode enforcement
 - JSON finalization from assignment events
-- portable AES projection and Telex v0 encode/decode/validation
+- portable AES projection and Telex v1 encode/decode/validation
 - direct portable AES materialization and AEOS validation without reparsing AEON
 - CTS-compatible `inspect --json` CLI surface
 - annotation stream extraction
@@ -41,13 +41,13 @@ Current CTS status:
 - `aes`: green
 - `annotations`: green
 - `aeos`: green
-- `telex/v0`: green (snapshot 0.1)
+- `telex/v1`: green (snapshot 0.1)
 
 Implementation note:
 
 - AEOS reference-form behavior is part of shared conformance.
 - `adapt_python_assignment_events_to_portable_aes` exposes the named
-  `aeon.python.assignment-events.v0-to-aes.events.v0` compatibility result and
+  `aeon.python.assignment-events.v0-to-aes.events.v1` compatibility result and
   returns strict portable events plus its conversion report. Pass the separate
   compile-result `header` when selecting `include_headers=True`. Native source
   locations use Unicode code-point offsets; optional exact `source_bytes`
@@ -166,7 +166,7 @@ that the supplied bytes are the exact artifact from which the native events
 were compiled. Invalid UTF-8 and native ranges outside that artifact are
 rejected rather than emitted as portable provenance.
 
-Headers remain opt-in and use the `aeon.document.v0` projection:
+Headers remain opt-in and use the `aeon.document.v1` projection:
 
 ```bash
 ./bin/aeon-python inspect document.aeon --telex --include-headers

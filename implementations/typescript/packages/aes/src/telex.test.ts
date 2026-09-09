@@ -14,9 +14,9 @@ import {
     validateTelexRecords,
 } from './telex.js';
 
-describe('telex.aes v0', () => {
+describe('telex.aes v1', () => {
     it('parses and encodes portable records', () => {
-        const source = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
+        const source = 'telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
         const parsed = parseTelex(source);
 
         assert.equal(parsed.canonical, true);
@@ -25,16 +25,16 @@ describe('telex.aes v0', () => {
     });
 
     it('canonicalizes field order and payload escapes', () => {
-        const source = 'telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n';
+        const source = 'telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n';
         assert.equal(
             canonicalizeTelex(source),
-            'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n',
+            'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n',
         );
     });
 
     it('expands compact datatype descriptors at the Telex boundary', () => {
         const parsed = parseTelex(
-            'telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n',
+            'telex.aes=1\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n',
         );
         assert.deepEqual(parsed.records[0], {
             path: '$.items',
@@ -43,11 +43,11 @@ describe('telex.aes v0', () => {
             generics: [{ datatype: 'int', generics: [], clarifiers: [] }],
             clarifiers: [],
         });
-        assert.equal(encodeTelex(parsed.records), 'telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n');
+        assert.equal(encodeTelex(parsed.records), 'telex.aes=1\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n');
     });
 
     it('enforces datatype component limits for simple descriptors', () => {
-        const source = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\ndatatype=int\nvalue=42\n';
+        const source = 'telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\ndatatype=int\nvalue=42\n';
         assert.throws(
             () => parseTelex(source, { maxDatatypeComponents: 0 }),
             (error: unknown) => error instanceof Error
@@ -70,7 +70,7 @@ describe('telex.aes v0', () => {
     });
 
     it('applies caller-selected parser limits during completeness checks', () => {
-        const source = 'telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
+        const source = 'telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n';
         assert.throws(
             () => checkTelexCompleteness(source, { maxEvents: 0 }),
             (error: unknown) => error instanceof Error
@@ -105,7 +105,7 @@ describe('telex.aes v0', () => {
             assert.equal(result.valid, false, limit);
             assert.ok(result.diagnostics.some(({ code }) => code === 'AES_LIMIT_EXCEEDED'), limit);
             assert.throws(
-                () => encodeTelex(records, { profile: 'aes.partial.v0', [limit]: 1 }),
+                () => encodeTelex(records, { profile: 'aes.partial.v1', [limit]: 1 }),
                 (error: unknown) => error instanceof Error
                     && 'code' in error
                     && error.code === 'TELEX_LIMIT_EXCEEDED'

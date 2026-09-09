@@ -5,7 +5,7 @@ set -euo pipefail
 
 AEON_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAMILY_ROOT="$(cd "$AEON_ROOT/../.." && pwd)"
-CTS_MANIFEST="$FAMILY_ROOT/aeonite-org/aeonite-cts/cts/aes/v0/aes-path-translation-cts.v0.next.json"
+CTS_MANIFEST="$FAMILY_ROOT/aeonite-org/aeonite-cts/cts/aes/v1/aes-path-translation-cts.v1.next.json"
 RUNNER="$AEON_ROOT/scripts/cts-source-lane-runner.mjs"
 
 node "$AEON_ROOT/scripts/ensure-typescript-build.mjs"

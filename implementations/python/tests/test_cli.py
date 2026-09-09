@@ -41,7 +41,7 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("header=", body.stdout)
         self.assertNotIn("projection=", body.stdout)
         self.assertEqual(0, full.returncode, full.stderr)
-        self.assertIn("projection=aeon.document.v0", full.stdout)
+        self.assertIn("projection=aeon.document.v1", full.stdout)
         self.assertIn('header=$.["aeon:mode"]', full.stdout)
         self.assertEqual(0, source_backed.returncode, source_backed.stderr)
         self.assertRegex(source_backed.stdout, r"origin=sha256:[0-9a-f]{64}")
@@ -51,7 +51,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "stream.telex.aes"
             fixture.write_text(
-                "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
+                "telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
                 encoding="utf-8",
             )
             decoded = subprocess.run(
@@ -76,7 +76,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, decoded.returncode, decoded.stderr)
         self.assertTrue(json.loads(decoded.stdout)["validation"]["valid"])
         self.assertEqual(
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n",
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n",
             canonical.stdout,
         )
         self.assertEqual({"answer": "A"}, json.loads(materialized.stdout)["document"])

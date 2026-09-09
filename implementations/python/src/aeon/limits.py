@@ -136,7 +136,7 @@ def finalization_limits(limits: AeonicLimitsV1) -> dict[str, int]:
 
 
 def telex_limits(limits: AeonicLimitsV1) -> dict[str, int]:
-    """Resolve the shared limits document for the Telex v0 codec."""
+    """Resolve the shared limits document for the Telex v1 codec."""
 
     format_limits = limits.formats["telex"]
     return {

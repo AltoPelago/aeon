@@ -133,7 +133,7 @@ export interface CanonicalReceiptVerificationResult {
  * Serialize the legacy AEON canonical assignment projection used by AEON
  * integrity envelopes and receipts.
  *
- * This is not the portable `aes.events.v0` logical-byte contract: it predates
+ * This is not the portable `aes.events.v1` logical-byte contract: it predates
  * that contract and intentionally serializes only source paths and canonical
  * AEON values after removing the top-level envelope.
  */

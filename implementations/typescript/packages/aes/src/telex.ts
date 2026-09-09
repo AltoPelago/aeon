@@ -3,10 +3,10 @@ import * as datatypeImplementation from './telex-datatype-internal.js';
 import * as implementation from './telex-internal.js';
 import * as limitImplementation from './telex-limits-internal.js';
 
-export const TELEX_VERSION = '0' as const;
-export const COMPLETE_AES_PROFILE = 'aes.complete.v0' as const;
-export const PARTIAL_AES_PROFILE = 'aes.partial.v0' as const;
-export const AEON_DOCUMENT_PROJECTION = 'aeon.document.v0' as const;
+export const TELEX_VERSION = '1' as const;
+export const COMPLETE_AES_PROFILE = 'aes.complete.v1' as const;
+export const PARTIAL_AES_PROFILE = 'aes.partial.v1' as const;
+export const AEON_DOCUMENT_PROJECTION = 'aeon.document.v1' as const;
 
 export interface AesStringLiteral {
     readonly kind: 'StringLiteral';

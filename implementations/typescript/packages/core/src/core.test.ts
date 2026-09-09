@@ -48,7 +48,7 @@ describe('API Surface', () => {
 
         assert.strictEqual(result.compile.errors.length, 0);
         assert.strictEqual(result.records.length, 1);
-        assert.match(result.telex ?? '', /^telex\.aes=0\n/u);
+        assert.match(result.telex ?? '', /^telex\.aes=1\n/u);
         assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
     });
 
@@ -68,12 +68,12 @@ describe('API Surface', () => {
         const converted = adaptTypeScriptAssignmentEventsToPortableAes(compiled.events);
 
         assert.strictEqual(converted.report.sourceContract, 'aeon.typescript.assignment-events.v0');
-        assert.strictEqual(converted.report.targetContract, 'aes.events.v0');
+        assert.strictEqual(converted.report.targetContract, 'aes.events.v1');
         assert.deepStrictEqual(converted.events.map(({ path }) => path), ['$.a']);
     });
 
     it('should expose the quick Telex completeness check', () => {
-        const result = checkTelexCompleteness('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+        const result = checkTelexCompleteness('telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
         assert.strictEqual(result.complete, false);
         assert.deepStrictEqual(result.missing.map(({ path }) => path), ['$.nested']);
     });
@@ -81,7 +81,7 @@ describe('API Surface', () => {
     it('should include headers only through the explicit AEON document projection', () => {
         const result = compileToTelex('aeon:mode = "transport"\na = 1', { includeHeaders: true });
 
-        assert.match(result.telex ?? '', /projection=aeon\.document\.v0/u);
+        assert.match(result.telex ?? '', /projection=aeon\.document\.v1/u);
         assert.match(result.telex ?? '', /header=\$\.\["aeon:mode"\]/u);
         const firstRecord = result.records[0];
         assert.ok(firstRecord && 'header' in firstRecord);

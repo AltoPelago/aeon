@@ -1147,7 +1147,7 @@ mod tests {
 
     #[test]
     fn loads_complete_telex_without_reconstructing_parser_events() {
-        let wire = "telex.aes=0\n\npath=$.config\nkind=ObjectNode\n\npath=$.config.name\nkind=StringLiteral\nvalue=AEON\n\npath=$.config.values\nkind=ListNode\n\npath=$.config.values[0]\nkind=NumberLiteral\nvalue=2\n\npath=$.config.values[1]\nkind=NumberLiteral\nvalue=3\n";
+        let wire = "telex.aes=1\n\npath=$.config\nkind=ObjectNode\n\npath=$.config.name\nkind=StringLiteral\nvalue=AEON\n\npath=$.config.values\nkind=ListNode\n\npath=$.config.values[0]\nkind=NumberLiteral\nvalue=2\n\npath=$.config.values[1]\nkind=NumberLiteral\nvalue=3\n";
         let loaded =
             load_telex_str::<BTreeMap<String, JsonValue>>(wire, TelexLoadOptions::default())
                 .expect("Telex load success");
@@ -1167,7 +1167,7 @@ mod tests {
             "../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon"
         ))
         .expect("common limits");
-        let wire = "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n";
+        let wire = "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n";
         let loaded = load_telex_str::<BTreeMap<String, JsonValue>>(
             wire,
             TelexLoadOptions {
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn rejects_partial_telex_at_the_materialization_boundary() {
-        let wire = "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n";
+        let wire = "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n";
         let error = load_telex_str::<JsonValue>(wire, TelexLoadOptions::default())
             .expect_err("partial Telex must fail");
         assert!(matches!(error, AeonLoadError::Finalize(_)));
@@ -1272,7 +1272,7 @@ mod tests {
 
     #[test]
     fn validates_telex_against_aeos_before_materialization() {
-        let wire = "telex.aes=0\n\npath=$.port\nkind=StringLiteral\nvalue=8080\n";
+        let wire = "telex.aes=1\n\npath=$.port\nkind=StringLiteral\nvalue=8080\n";
         let error = load_telex_str::<JsonValue>(
             wire,
             TelexLoadOptions {

@@ -5180,7 +5180,7 @@ mod tests {
 
     #[test]
     fn validates_telex_attributes_without_making_identity_part_of_the_path() {
-        let wire = "telex.aes=0\n\npath=$.value\nkind=NumberLiteral\ndatatype=number\nidentity=BINDING\nvalue=3\n\npath=$.value.@.unit\nkind=StringLiteral\nidentity=ATTRIBUTE\nvalue=ms\n";
+        let wire = "telex.aes=1\n\npath=$.value\nkind=NumberLiteral\ndatatype=number\nidentity=BINDING\nvalue=3\n\npath=$.value.@.unit\nkind=StringLiteral\nidentity=ATTRIBUTE\nvalue=ms\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.value".to_owned()),
@@ -5249,7 +5249,7 @@ mod tests {
 
     #[test]
     fn validates_structural_descendants_inside_telex_attribute_values() {
-        let wire = "telex.aes=0\n\npath=$.value\nkind=NumberLiteral\nvalue=3\n\npath=$.value.@.settings\nkind=ObjectNode\n\npath=$.value.@.settings.enabled\nkind=BooleanLiteral\nvalue=true\n";
+        let wire = "telex.aes=1\n\npath=$.value\nkind=NumberLiteral\nvalue=3\n\npath=$.value.@.settings\nkind=ObjectNode\n\npath=$.value.@.settings.enabled\nkind=BooleanLiteral\nvalue=true\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.value.@.settings.enabled".to_owned()),
@@ -5274,7 +5274,7 @@ mod tests {
 
     #[test]
     fn derives_telex_container_cardinality_from_flat_children() {
-        let wire = "telex.aes=0\n\npath=$.values\nkind=ListNode\n\npath=$.values[0]\nkind=NumberLiteral\nvalue=1\n\npath=$.values[1]\nkind=NumberLiteral\nvalue=2\n";
+        let wire = "telex.aes=1\n\npath=$.values\nkind=ListNode\n\npath=$.values[0]\nkind=NumberLiteral\nvalue=1\n\npath=$.values[1]\nkind=NumberLiteral\nvalue=2\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.values".to_owned()),
@@ -5302,7 +5302,7 @@ mod tests {
 
     #[test]
     fn recombines_telex_datatype_components_for_schema_validation() {
-        let wire = "telex.aes=0\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n\npath=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n";
+        let wire = "telex.aes=1\n\npath=$.items\nkind=ListNode\ndatatype=list<int>\n\npath=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n";
         let schema = Schema {
             rules: vec![
                 SchemaRule {
@@ -5334,7 +5334,7 @@ mod tests {
 
     #[test]
     fn counts_node_contents_beneath_the_explicit_telex_head() {
-        let wire = "telex.aes=0\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n";
+        let wire = "telex.aes=1\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.node".to_owned()),
@@ -5359,7 +5359,7 @@ mod tests {
 
     #[test]
     fn preserves_wtc_kind_through_the_telex_adapter() {
-        let wire = "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n";
+        let wire = "telex.aes=1\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.when".to_owned()),

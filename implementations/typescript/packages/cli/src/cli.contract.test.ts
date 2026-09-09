@@ -843,7 +843,7 @@ describe('AEON CLI output contract', () => {
 
             const withHeaders = await runCli(['inspect', file, '--telex', '--include-headers']);
             assert.strictEqual(withHeaders.code, 0);
-            assert.match(withHeaders.stdout, /projection=aeon\.document\.v0/u);
+            assert.match(withHeaders.stdout, /projection=aeon\.document\.v1/u);
             assert.match(withHeaders.stdout, /header=\$\.\["aeon:mode"\]/u);
 
             const withSourceProvenance = await runCli(['inspect', file, '--telex', '--source-provenance']);
@@ -857,7 +857,7 @@ describe('AEON CLI output contract', () => {
             const file = path.join(dir, 'stream.telex.aes');
             fs.writeFileSync(
                 file,
-                'telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n',
+                'telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n',
                 'utf-8',
             );
 
@@ -870,7 +870,7 @@ describe('AEON CLI output contract', () => {
 
             const canonical = await runCli(['telex', 'canonicalize', file]);
             assert.strictEqual(canonical.code, 0);
-            assert.strictEqual(canonical.stdout, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
+            assert.strictEqual(canonical.stdout, 'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
         });
 
         it('applies the common limits file to direct Telex ingress', async () => {
@@ -878,7 +878,7 @@ describe('AEON CLI output contract', () => {
             const file = path.join(dir, 'stream.telex.aes');
             const limitsFile = path.join(dir, 'limits.aeon');
             const sharedPolicy = path.resolve(__dirname, '../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon');
-            fs.writeFileSync(file, 'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n', 'utf-8');
+            fs.writeFileSync(file, 'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n', 'utf-8');
             fs.writeFileSync(
                 limitsFile,
                 fs.readFileSync(sharedPolicy, 'utf-8').replace('max_string_codepoints = 1048576', 'max_string_codepoints = 1'),
@@ -895,7 +895,7 @@ describe('AEON CLI output contract', () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-materialize-'));
             const file = path.join(dir, 'stream.telex.aes');
             fs.writeFileSync(file, [
-                'telex.aes=0',
+                'telex.aes=1',
                 '',
                 'path=$.config',
                 'kind=ObjectNode',

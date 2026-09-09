@@ -207,7 +207,7 @@ def inspect(args: list[str]) -> int:
         if include_annotations:
             payload["annotations"] = annotations
         if portable_aes and include_headers:
-            payload["projection"] = "aeon.document.v0"
+            payload["projection"] = "aeon.document.v1"
         print(json.dumps(payload, indent=2))
     else:
         for error in result.errors:

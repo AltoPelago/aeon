@@ -48,7 +48,7 @@ async function main() {
     const codec = await import(pathToFileURL(modulePath).href);
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.format, 'telex.aes');
-    assert.equal(manifest.meta.format_version, '0');
+    assert.equal(manifest.meta.format_version, '1');
 
     let passed = 0;
     for (const suiteRef of manifest.suites) {

@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Kept behaviorally aligned with the published Telex v0 reference codec.
+// Kept behaviorally aligned with the published Telex v1 reference codec.
 import { normalizeDatatypeLimits } from './telex-limits-internal.js';
 
 const DATATYPE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;

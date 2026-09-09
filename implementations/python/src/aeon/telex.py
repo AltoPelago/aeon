@@ -7,12 +7,12 @@ from typing import Iterable, Mapping
 from ._compat import dataclass
 
 
-TELEX_VERSION = "0"
-COMPLETE_AES_PROFILE = "aes.complete.v0"
-PARTIAL_AES_PROFILE = "aes.partial.v0"
-AEON_DOCUMENT_PROJECTION = "aeon.document.v0"
+TELEX_VERSION = "1"
+COMPLETE_AES_PROFILE = "aes.complete.v1"
+PARTIAL_AES_PROFILE = "aes.partial.v1"
+AEON_DOCUMENT_PROJECTION = "aeon.document.v1"
 
-VERSION_LINE = "telex.aes=0"
+VERSION_LINE = "telex.aes=1"
 FIELD_NAME = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$")
 BARE_MEMBER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DATATYPE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

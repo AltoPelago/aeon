@@ -936,14 +936,14 @@ mod tests {
     #[test]
     fn validates_telex_inside_rust() {
         let output = validate_telex_json(
-            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+            "telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
             "",
         )
         .expect("validate Telex");
         let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
 
         assert_eq!(parsed["valid"], true);
-        assert_eq!(parsed["profile"], "aes.complete.v0");
+        assert_eq!(parsed["profile"], "aes.complete.v1");
         assert_eq!(parsed["diagnostics"], serde_json::json!([]));
     }
 
@@ -957,7 +957,7 @@ mod tests {
         })
         .to_string();
         let output = validate_telex_json(
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n",
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n",
             &options,
         )
         .expect("validate Telex with common limits");
@@ -974,21 +974,21 @@ mod tests {
     #[test]
     fn canonicalizes_telex_inside_rust() {
         let output = canonicalize_telex_text(
-            "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
+            "telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
             "",
         )
         .expect("canonicalize Telex");
 
         assert_eq!(
             output,
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
         );
     }
 
     #[test]
     fn checks_telex_completeness_inside_rust() {
         let output = check_telex_completeness_json(
-            "telex.aes=0\nprofile=aes.partial.v0\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n",
+            "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.a.b\nkind=NumberLiteral\nvalue=1\n",
             "",
         )
         .expect("check Telex completeness");
@@ -1002,7 +1002,7 @@ mod tests {
     #[test]
     fn materializes_complete_telex_inside_rust() {
         let output = materialize_telex_json(
-            "telex.aes=0\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+            "telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
             "",
         )
         .expect("materialize Telex");

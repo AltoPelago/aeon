@@ -32,9 +32,9 @@ class PortableProjectionTests(unittest.TestCase):
         self.assertIsInstance(report, dict)
         assert isinstance(report, dict)
         self.assertEqual(PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0, report["sourceContract"])
-        self.assertEqual("aes.events.v0", report["targetContract"])
+        self.assertEqual("aes.events.v1", report["targetContract"])
         self.assertEqual(PYTHON_PORTABLE_AES_ADAPTER_V0, report["adapter"])
-        self.assertEqual("aes.complete.v0", report["profile"])
+        self.assertEqual("aes.complete.v1", report["profile"])
         self.assertIsNone(report["projection"])
         self.assertTrue(report["semanticLossless"])
         self.assertFalse(report["recordLossless"])
@@ -69,7 +69,7 @@ class PortableProjectionTests(unittest.TestCase):
             header=result.header,
             include_headers=True,
         )
-        self.assertEqual("aeon.document.v0", document["report"]["projection"])
+        self.assertEqual("aeon.document.v1", document["report"]["projection"])
         self.assertEqual('$.["aeon:mode"]', document["events"][0]["header"])
         self.assertEqual("$.a", document["events"][1]["path"])
 

@@ -72,7 +72,7 @@ The CLI MUST NOT (except as explicitly required by `aeon finalize`):
 The CLI is an inspection/validation tool that only exposes events + errors.
 
 Telex export is body-only by default. `--include-headers` selects the explicit
-`aeon.document.v0` header plane; it does not turn header records into body paths.
+`aeon.document.v1` header plane; it does not turn header records into body paths.
 
 ## 5) `aeon check <file>` (human)
 

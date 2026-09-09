@@ -52,7 +52,7 @@ test('selects the common limits document for the Telex runtime path', () => {
     const loaded = loadAeonicLimits(policy);
     assert.ok(loaded.limits);
     const result = runTelexRuntime(
-        'telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n',
+        'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n',
         { aeonicLimits: loaded.limits, maxStringCodepoints: 2 },
     );
 
@@ -63,7 +63,7 @@ test('selects the common limits document for the Telex runtime path', () => {
 });
 
 test('Telex runtime fails before schema and finalization when AES is incomplete', () => {
-    const result = runTelexRuntime('telex.aes=0\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+    const result = runTelexRuntime('telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
 
     assert.equal(result.document, undefined);
     assert.ok(result.meta.errors.some((diagnostic) => diagnostic.phase === 5 && diagnostic.code === 'AES_MISSING_PARENT'));

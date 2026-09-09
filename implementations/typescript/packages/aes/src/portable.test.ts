@@ -32,9 +32,9 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events);
 
         assert.equal(converted.report.sourceContract, TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0);
-        assert.equal(converted.report.targetContract, 'aes.events.v0');
+        assert.equal(converted.report.targetContract, 'aes.events.v1');
         assert.equal(converted.report.adapter, TYPESCRIPT_PORTABLE_AES_ADAPTER_V0);
-        assert.equal(converted.report.profile, 'aes.complete.v0');
+        assert.equal(converted.report.profile, 'aes.complete.v1');
         assert.equal(converted.report.projection, null);
         assert.equal(converted.report.semanticLossless, true);
         assert.equal(converted.report.recordLossless, false);
@@ -59,7 +59,7 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.equal(body.report.changes.some((change) => change.code === 'AES_COMPAT_HEADER_EXCLUDED'), true);
 
         const document = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, { includeHeaders: true });
-        assert.equal(document.report.projection, 'aeon.document.v0');
+        assert.equal(document.report.projection, 'aeon.document.v1');
         assert.equal(document.events[0]?.header, '$.["aeon:mode"]');
         assert.equal(document.events[1]?.path, '$.a');
     });

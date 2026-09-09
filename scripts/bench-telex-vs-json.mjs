@@ -228,7 +228,7 @@ const result = {
         platform: `${process.platform}/${process.arch}`,
         cpu: os.cpus()[0]?.model ?? 'unknown',
         logical_cpus: os.cpus().length,
-        comparison: 'compact JSON record array versus canonical telex.aes=0',
+        comparison: 'compact JSON record array versus canonical telex.aes=1',
         wasm: 'end-to-end JavaScript to Rust/WASM to JavaScript',
         timing: 'median wall-clock time; warmups excluded',
     },

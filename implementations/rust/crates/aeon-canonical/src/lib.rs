@@ -3255,11 +3255,11 @@ mod tests {
     #[test]
     fn canonicalizes_telex_through_the_canonicalization_crate() {
         let source =
-            "telex.aes=0\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n";
+            "telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n";
         let result = canonicalize_telex(source).expect("canonical Telex");
         assert_eq!(
             result,
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
         );
     }
 }

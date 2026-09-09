@@ -124,7 +124,7 @@ Implementation note:
 - the Rust SDK can now load AEOS schema documents directly from `.aeos` and project them into the internal `Schema` model before validation.
 - Core exposes additive `compile_to_telex` and `export_telex` APIs while retaining the native event workflow.
 - Core exposes `adapt_rust_assignment_events_to_portable_aes` for the named
-  `aeon.rust.assignment-events.v0-to-aes.events.v0` compatibility result; it
+  `aeon.rust.assignment-events.v0-to-aes.events.v1` compatibility result; it
   returns strict portable events plus semantic, record, and provenance fidelity
   evidence. The compatibility options carry the separate compile-result header
   when the document projection is selected. Native offsets are UTF-8 bytes and

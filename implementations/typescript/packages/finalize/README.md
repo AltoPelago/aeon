@@ -53,7 +53,7 @@ const { document, meta } = finalizePortableJson(telex.records, {
 ```
 
 This path consumes the flat portable AES model directly. It requires
-`aes.complete.v0`; a partial stream needs external state before it can be
+`aes.complete.v1`; a partial stream needs external state before it can be
 materialized.
 
 ### Node output

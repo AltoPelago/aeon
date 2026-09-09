@@ -10,8 +10,8 @@ from .telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_datatype_descri
 PortableEvent = dict[str, object]
 
 PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0 = "aeon.python.assignment-events.v0"
-PYTHON_PORTABLE_AES_ADAPTER_V0 = "aeon.python.assignment-events.v0-to-aes.events.v0"
-PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0 = "0.1.0-candidate"
+PYTHON_PORTABLE_AES_ADAPTER_V0 = "aeon.python.assignment-events.v0-to-aes.events.v1"
+PYTHON_PORTABLE_AES_ADAPTER_VERSION_V1 = "1.0.0"
 
 
 class PortableAesSourceError(ValueError):
@@ -88,10 +88,10 @@ def adapt_python_assignment_events_to_portable_aes(
         "events": projected,
         "report": {
             "sourceContract": PYTHON_ASSIGNMENT_EVENTS_CONTRACT_V0,
-            "targetContract": "aes.events.v0",
+            "targetContract": "aes.events.v1",
             "adapter": PYTHON_PORTABLE_AES_ADAPTER_V0,
-            "adapterVersion": PYTHON_PORTABLE_AES_ADAPTER_VERSION_V0,
-            "profile": "aes.complete.v0",
+            "adapterVersion": PYTHON_PORTABLE_AES_ADAPTER_VERSION_V1,
+            "profile": "aes.complete.v1",
             "projection": AEON_DOCUMENT_PROJECTION if include_headers else None,
             "semanticLossless": True,
             "recordLossless": len(source_events) == 0 and not has_header_source,

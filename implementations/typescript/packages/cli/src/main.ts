@@ -1584,7 +1584,7 @@ function outputJSON(
             message: string;
         }>;
         annotations?: NonNullable<CompileResult['annotations']>;
-        projection?: 'aeon.document.v0';
+        projection?: 'aeon.document.v1';
     } = {
         events: options.portableAes
             ? [...adaptTypeScriptAssignmentEventsToPortableAes(options.includeHeaders ? result.events : visibleEvents, {
@@ -1613,7 +1613,7 @@ function outputJSON(
         })),
     };
     if (options.portableAes && options.includeHeaders) {
-        output.projection = 'aeon.document.v0';
+        output.projection = 'aeon.document.v1';
     }
     if (options.includeAnnotations) {
         output.annotations = annotations;

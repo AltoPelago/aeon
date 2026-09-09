@@ -73,7 +73,7 @@ interface CompileResult {
 
 ## Telex boundary
 
-`compile()` remains the native in-memory API. For interoperable AES v0 records,
+`compile()` remains the native in-memory API. For interoperable AES v1 records,
 Core also exposes:
 
 ```ts
@@ -85,7 +85,7 @@ parseTelex(input, options?)
 `compileToTelex()` returns the normal `CompileResult`, projected portable
 records, and encoded Telex. `exportTelex()` avoids recompilation when the caller
 already has assignment events. Both preserve event order and omit headers by
-default. `includeHeaders: true` selects the explicit `aeon.document.v0` header
+default. `includeHeaders: true` selects the explicit `aeon.document.v1` header
 plane.
 
 The package re-exports the AES codec functions `encodeTelex()`,

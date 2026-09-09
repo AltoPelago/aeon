@@ -184,7 +184,7 @@ const result = runTypedRuntime<AppConfig>('name = "AEON"\\nport = 8080', {
 - Output document format is selected via `output` (`json` default).
 - `linked-json` is the opt-in live JSON materialization mode for `~>` pointer aliases.
 - Typed binding APIs operate on JSON finalization output and support optional runtime guards.
-- `runTelexRuntime` accepts `aes.complete.v0` Telex and fails before schema or finalization when the portable stream is invalid.
+- `runTelexRuntime` accepts `aes.complete.v1` Telex and fails before schema or finalization when the portable stream is invalid.
 - `includeAnnotations` opts into annotation-stream passthrough for tooling/debug output.
 - Annotations are non-authoritative and non-influencing relative to runtime decisions.
 - `maxInputBytes` is available as an input-boundary fail-closed limit.

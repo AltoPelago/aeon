@@ -29,8 +29,8 @@ pub struct PortableAesEvent {
 }
 
 pub const RUST_ASSIGNMENT_EVENTS_CONTRACT_V0: &str = "aeon.rust.assignment-events.v0";
-pub const RUST_PORTABLE_AES_ADAPTER_V0: &str = "aeon.rust.assignment-events.v0-to-aes.events.v0";
-pub const RUST_PORTABLE_AES_ADAPTER_VERSION_V0: &str = "0.1.0-candidate";
+pub const RUST_PORTABLE_AES_ADAPTER_V0: &str = "aeon.rust.assignment-events.v0-to-aes.events.v1";
+pub const RUST_PORTABLE_AES_ADAPTER_VERSION_V1: &str = "1.0.0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortableAesSourceError {
@@ -72,7 +72,7 @@ pub struct PortableAesConversionChange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortableAesConversionReportV0 {
+pub struct PortableAesConversionReportV1 {
     pub source_contract: &'static str,
     pub target_contract: &'static str,
     pub adapter: &'static str,
@@ -95,9 +95,9 @@ pub struct PortableAesCompatibilityOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortableAesCompatibilityResultV0 {
+pub struct PortableAesCompatibilityResultV1 {
     pub events: Vec<PortableAesCompatibilityEvent>,
-    pub report: PortableAesConversionReportV0,
+    pub report: PortableAesConversionReportV1,
 }
 
 /// Run the named Rust legacy adapter and return a strict portable stream plus
@@ -106,7 +106,7 @@ pub struct PortableAesCompatibilityResultV0 {
 pub fn adapt_rust_assignment_events_to_portable_aes(
     events: &[AssignmentEvent],
     options: &PortableAesCompatibilityOptions,
-) -> Result<PortableAesCompatibilityResultV0, PortableAesSourceError> {
+) -> Result<PortableAesCompatibilityResultV1, PortableAesSourceError> {
     let source_context = options
         .source_bytes
         .as_deref()
@@ -176,14 +176,14 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
             && all_source_records_included
             && !projected.is_empty()
             && projected.iter().all(|event| event.span.is_some()));
-    Ok(PortableAesCompatibilityResultV0 {
+    Ok(PortableAesCompatibilityResultV1 {
         events: projected,
-        report: PortableAesConversionReportV0 {
+        report: PortableAesConversionReportV1 {
             source_contract: RUST_ASSIGNMENT_EVENTS_CONTRACT_V0,
-            target_contract: "aes.events.v0",
+            target_contract: "aes.events.v1",
             adapter: RUST_PORTABLE_AES_ADAPTER_V0,
-            adapter_version: RUST_PORTABLE_AES_ADAPTER_VERSION_V0,
-            profile: "aes.complete.v0",
+            adapter_version: RUST_PORTABLE_AES_ADAPTER_VERSION_V1,
+            profile: "aes.complete.v1",
             projection: options.include_headers.then_some(AEON_DOCUMENT_PROJECTION),
             semantic_lossless: true,
             record_lossless: events.is_empty() && !has_header_source,
@@ -1244,9 +1244,9 @@ mod tests {
             converted.report.source_contract,
             RUST_ASSIGNMENT_EVENTS_CONTRACT_V0
         );
-        assert_eq!(converted.report.target_contract, "aes.events.v0");
+        assert_eq!(converted.report.target_contract, "aes.events.v1");
         assert_eq!(converted.report.adapter, RUST_PORTABLE_AES_ADAPTER_V0);
-        assert_eq!(converted.report.profile, "aes.complete.v0");
+        assert_eq!(converted.report.profile, "aes.complete.v1");
         assert_eq!(converted.report.projection, None);
         assert!(converted.report.semantic_lossless);
         assert!(!converted.report.record_lossless);
@@ -1595,7 +1595,7 @@ mod tests {
         );
         assert_eq!(result.records.len(), 3);
         let telex = result.telex.expect("encoded Telex");
-        assert!(telex.starts_with("telex.aes=0\n"));
+        assert!(telex.starts_with("telex.aes=1\n"));
         assert!(
             telex.contains("path=$.a\nkind=ListNode\ndatatype=list<int>"),
             "{telex}"
@@ -1683,7 +1683,7 @@ mod tests {
             },
         );
         let telex = result.telex.expect("encoded Telex");
-        assert!(telex.contains("projection=aeon.document.v0"));
+        assert!(telex.contains("projection=aeon.document.v1"));
         assert!(telex.contains("header=$.[\"aeon:mode\"]"), "{telex}");
     }
 

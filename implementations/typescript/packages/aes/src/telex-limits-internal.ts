@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Kept behaviorally aligned with the published Telex v0 reference codec.
+// Kept behaviorally aligned with the published Telex v1 reference codec.
 export const DEFAULT_TELEX_LIMITS = Object.freeze({
   maxInputBytes: 67_108_864,
   maxLineBytes: 1_048_576,

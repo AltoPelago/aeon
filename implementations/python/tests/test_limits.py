@@ -100,7 +100,7 @@ class LimitsTests(unittest.TestCase):
         loaded_limits = load_aeonic_limits(SOURCE)
         self.assertIsNotNone(loaded_limits.limits)
         loaded = load_telex_text(
-            "telex.aes=0\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n",
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n",
             TelexLoadOptions(
                 aeonic_limits=loaded_limits.limits,
                 finalize=PortableFinalizeOptions(max_reference_depth=2),

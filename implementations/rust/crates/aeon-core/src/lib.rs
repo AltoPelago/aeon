@@ -22,10 +22,10 @@ use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
 pub use portable::{
     CompileToTelexOptions, CompileToTelexResult, ExportTelexOptions, PortableAesCompatibilityEvent,
-    PortableAesCompatibilityOptions, PortableAesCompatibilityResultV0, PortableAesConversionChange,
-    PortableAesConversionReportV0, PortableAesEvent, PortableAesSourceError,
+    PortableAesCompatibilityOptions, PortableAesCompatibilityResultV1, PortableAesConversionChange,
+    PortableAesConversionReportV1, PortableAesEvent, PortableAesSourceError,
     RUST_ASSIGNMENT_EVENTS_CONTRACT_V0, RUST_PORTABLE_AES_ADAPTER_V0,
-    RUST_PORTABLE_AES_ADAPTER_VERSION_V0, adapt_rust_assignment_events_to_portable_aes,
+    RUST_PORTABLE_AES_ADAPTER_VERSION_V1, adapt_rust_assignment_events_to_portable_aes,
     compile_to_telex, export_telex, project_portable_events, project_telex_records,
 };
 pub use sansa::{

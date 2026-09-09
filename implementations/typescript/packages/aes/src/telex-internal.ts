@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Kept behaviorally aligned with the published Telex v0 reference codec.
+// Kept behaviorally aligned with the published Telex v1 reference codec.
 const UTF8_ENCODER = new TextEncoder();
 const ASCII_ONLY = /^[\x00-\x7F]*$/u;
 const PAYLOAD_REQUIRES_ESCAPING = /[\\\u0000-\u001F\u007F\uD800-\uDFFF]/u;
@@ -16,7 +16,7 @@ import { normalizeDatatypeLimits, normalizeTelexLimits } from './telex-limits-in
 
 export { DEFAULT_TELEX_LIMITS, normalizeTelexLimits } from './telex-limits-internal.js';
 
-const VERSION_LINE = 'telex.aes=0';
+const VERSION_LINE = 'telex.aes=1';
 const PROFILE_FIELD = 'profile';
 const PROJECTION_FIELD = 'projection';
 const FIELD_NAME = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
@@ -79,10 +79,10 @@ const EXACT_VALUES = new Map([
   ['ToggleLiteral', new Set(['yes', 'no', 'on', 'off'])],
 ]);
 
-export const TELEX_VERSION = '0';
-export const COMPLETE_AES_PROFILE = 'aes.complete.v0';
-export const PARTIAL_AES_PROFILE = 'aes.partial.v0';
-export const AEON_DOCUMENT_PROJECTION = 'aeon.document.v0';
+export const TELEX_VERSION = '1';
+export const COMPLETE_AES_PROFILE = 'aes.complete.v1';
+export const PARTIAL_AES_PROFILE = 'aes.partial.v1';
+export const AEON_DOCUMENT_PROJECTION = 'aeon.document.v1';
 
 export class TelexSyntaxError extends Error {
   constructor(message, line, code = 'TELEX_SYNTAX_ERROR', details = {}) {

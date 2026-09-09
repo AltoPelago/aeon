@@ -34,7 +34,7 @@ class TelexConformanceTests(unittest.TestCase):
         with self.assertRaises(TelexSyntaxError) as raised:
             encode_telex(
                 [{"path": "$.a.@.x.@.y", "kind": "NumberLiteral", "value": "1"}],
-                profile="aes.partial.v0",
+                profile="aes.partial.v1",
                 limits={"max_attribute_depth": 1},
             )
         self.assertEqual("TELEX_LIMIT_EXCEEDED", raised.exception.code)
@@ -68,7 +68,7 @@ class TelexConformanceTests(unittest.TestCase):
 
         encoded = export_telex(compiled.events, header=compiled.header, include_headers=True)
         parsed = parse_telex(encoded)
-        self.assertEqual("aeon.document.v0", parsed.projection)
+        self.assertEqual("aeon.document.v1", parsed.projection)
         self.assertEqual(
             ['$.["aeon:mode"]', '$.["aeon:encoding"]'],
             [record["header"] for record in parsed.records if "header" in record],
@@ -120,7 +120,7 @@ class TelexConformanceTests(unittest.TestCase):
 
     def test_aeos_recombines_telex_datatype_components(self) -> None:
         wire = (
-            "telex.aes=0\n\n"
+            "telex.aes=1\n\n"
             "path=$.items\nkind=ListNode\ndatatype=list<int>\n\n"
             "path=$.items[0]\nkind=NumberLiteral\ndatatype=int\nvalue=2\n"
         )
@@ -135,7 +135,7 @@ class TelexConformanceTests(unittest.TestCase):
 
     def test_aeos_counts_node_contents_beneath_the_explicit_head(self) -> None:
         wire = (
-            "telex.aes=0\n\n"
+            "telex.aes=1\n\n"
             "path=$.node\nkind=NodeLiteral\n\n"
             "path=$.node[0]\nkind=NodeHead\nvalue=tag\n\n"
             "path=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\n"
@@ -154,13 +154,13 @@ class TelexConformanceTests(unittest.TestCase):
 
     def test_aeos_telex_preserves_wtc_kind_and_checks_lowercase_local(self) -> None:
         valid = validate_aeos_telex(
-            "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n",
+            "telex.aes=1\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&local\n",
             {"rules": [{"path": "$.when", "constraints": {"type": "WTCDateTimeLiteral", "datatype": "wtc"}}]},
         )
         self.assertTrue(valid["ok"], valid["errors"])
 
         invalid = validate_aeos_telex(
-            "telex.aes=0\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&LOCAL\n",
+            "telex.aes=1\n\npath=$.when\nkind=WTCDateTimeLiteral\ndatatype=wtc\nvalue=2025-01-01T09:30&LOCAL\n",
             {"rules": []},
         )
         self.assertFalse(invalid["ok"])
@@ -220,7 +220,7 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual("FINALIZE_UNREPRESENTABLE_NODE_HEADS", result["meta"]["errors"][0]["code"])
 
     def test_shared_portable_aes_event_snapshot(self) -> None:
-        manifest_path = CTS_ROOT / "aes" / "v0" / "aes-events-cts.v0.snapshot-0.1.json"
+        manifest_path = CTS_ROOT / "aes" / "v1" / "aes-events-cts.v1.snapshot-0.1.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         observed = 0
         for suite_ref in manifest["suites"]:
@@ -232,7 +232,7 @@ class TelexConformanceTests(unittest.TestCase):
                     expected = vector["expected"]
                     result = validate_telex_records(
                         payload["records"],
-                        profile=payload.get("profile", "aes.complete.v0"),
+                        profile=payload.get("profile", "aes.complete.v1"),
                         projection=payload.get("projection"),
                         registered_fields=payload.get("registered_fields", []),
                     )
@@ -245,7 +245,7 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual(38, observed)
 
     def test_shared_telex_snapshot(self) -> None:
-        manifest_path = CTS_ROOT / "telex" / "v0" / "telex-cts.v0.snapshot-0.1.json"
+        manifest_path = CTS_ROOT / "telex" / "v1" / "telex-cts.v1.snapshot-0.1.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         observed = 0
         for suite_ref in manifest["suites"]:
@@ -257,7 +257,7 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual(50, observed)
 
     def test_draft_telex_resource_limit_vectors(self) -> None:
-        suite_path = ROOT.parents[2] / "aes" / "conformance" / "telex" / "v0" / "suites" / "03-resource-limits.json"
+        suite_path = ROOT.parents[2] / "aes" / "conformance" / "telex" / "v1" / "suites" / "03-resource-limits.json"
         suite = json.loads(suite_path.read_text(encoding="utf-8"))
         for vector in suite["tests"]:
             with self.subTest(vector=vector["id"]):
