@@ -169,7 +169,7 @@ export function inspectHeader(input: string | Uint8Array, options: HeaderInspect
             errors: [{
                 level: 'error',
                 code: 'HEADER_TOO_LARGE',
-                message: `Header size ${sourceBytes.length} exceeds max_header_bytes ${maxHeaderBytes}`,
+                message: `Header inspection input size ${sourceBytes.length} exceeds max_header_bytes ${maxHeaderBytes}`,
             }],
             warnings: [],
         };

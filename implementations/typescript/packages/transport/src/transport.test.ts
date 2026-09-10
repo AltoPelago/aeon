@@ -57,7 +57,9 @@ test('transport limits reject one byte over their configured boundary', () => {
     assert.throws(() => encodeFrame('abcd', { maxFrameBytes: 3 }), /FRAME_TOO_LARGE/);
     const decoder = new FrameDecoder({ maxBufferBytes: 4 });
     assert.throws(() => decoder.push(new Uint8Array([0, 0, 0, 1, 0])), /BUFFER_TOO_LARGE/);
-    assert.equal(inspectHeader('ab', { maxHeaderBytes: 1 }).errors[0]?.code, 'HEADER_TOO_LARGE');
+    const headerError = inspectHeader('ab', { maxHeaderBytes: 1 }).errors[0];
+    assert.equal(headerError?.code, 'HEADER_TOO_LARGE');
+    assert.equal(headerError?.message, 'Header inspection input size 2 exceeds max_header_bytes 1');
 });
 
 test('inspectHeader reads header fields', () => {

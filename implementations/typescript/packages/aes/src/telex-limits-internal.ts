@@ -1,5 +1,16 @@
-// @ts-nocheck
 // Kept behaviorally aligned with the published Telex v1 reference codec.
+import type { TelexLimitOptions, TelexLimits } from './telex.js';
+
+type DatatypeLimits = Pick<
+  TelexLimits,
+  'maxGenericDepth' | 'maxGenericArguments' | 'maxClarifierValues' | 'maxDatatypeComponents'
+>;
+type LimitSource = Partial<Readonly<Record<keyof TelexLimits, number>>>;
+interface DatatypeLimitOptions extends TelexLimitOptions {
+  readonly maxDepth?: number;
+  readonly maxItems?: number;
+}
+
 export const DEFAULT_TELEX_LIMITS = Object.freeze({
   maxInputBytes: 67_108_864,
   maxLineBytes: 1_048_576,
@@ -18,17 +29,17 @@ export const DEFAULT_TELEX_LIMITS = Object.freeze({
   maxGenericArguments: 32,
   maxClarifierValues: 1,
   maxDatatypeComponents: 64,
-});
+}) satisfies Readonly<TelexLimits>;
 
-const NORMALIZED_DATATYPE_LIMITS = new WeakSet();
+const NORMALIZED_DATATYPE_LIMITS = new WeakSet<object>();
 
 /**
  * Normalize the integer-only limits consumed by the Telex codec. Limits-file
  * inheritance and custom-null resolution belong to the trusted configuration
  * layer, before this function is called.
  */
-export function normalizeTelexLimits(options = {}) {
-  const source = options.limits ?? options;
+export function normalizeTelexLimits(options: TelexLimitOptions = {}): Readonly<TelexLimits> {
+  const source: LimitSource = options.limits ?? options;
   const legacyDatatype = options.datatypeLimits ?? {};
   return Object.freeze({
     maxInputBytes: limit(source, 'maxInputBytes', DEFAULT_TELEX_LIMITS.maxInputBytes),
@@ -68,9 +79,9 @@ export function normalizeTelexLimits(options = {}) {
 }
 
 /** Normalize the datatype-only helper surface, including its v0 aliases. */
-export function normalizeDatatypeLimits(options = {}) {
+export function normalizeDatatypeLimits(options: DatatypeLimitOptions = {}): Readonly<DatatypeLimits> {
   if (options !== null && typeof options === 'object' && NORMALIZED_DATATYPE_LIMITS.has(options)) {
-    return options;
+    return options as Readonly<DatatypeLimits>;
   }
   const normalized = Object.freeze({
     maxGenericDepth: limit(options, 'maxGenericDepth', options.maxDepth ?? DEFAULT_TELEX_LIMITS.maxGenericDepth),
@@ -86,7 +97,7 @@ export function normalizeDatatypeLimits(options = {}) {
   return normalized;
 }
 
-function limit(source, name, fallback) {
+function limit(source: LimitSource, name: keyof TelexLimits, fallback: number): number {
   const value = source[name] ?? fallback;
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new TypeError(`${name} must be a non-negative safe integer`);

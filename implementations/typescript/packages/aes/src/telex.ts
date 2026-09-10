@@ -131,20 +131,17 @@ export const TelexSyntaxError = implementation.TelexSyntaxError as unknown as {
     new(message: string, line?: number, code?: string, details?: Readonly<Record<string, unknown>>): TelexSyntaxError;
 };
 
-export const DEFAULT_TELEX_LIMITS = limitImplementation.DEFAULT_TELEX_LIMITS as Readonly<TelexLimits>;
+export const DEFAULT_TELEX_LIMITS: Readonly<TelexLimits> = limitImplementation.DEFAULT_TELEX_LIMITS;
 
 export function normalizeTelexLimits(options: TelexLimitOptions = {}): Readonly<TelexLimits> {
-    return limitImplementation.normalizeTelexLimits(options) as Readonly<TelexLimits>;
+    return limitImplementation.normalizeTelexLimits(options);
 }
 
 export function normalizeDatatypeLimits(options: TelexLimitOptions = {}): Readonly<Pick<
     TelexLimits,
     'maxGenericDepth' | 'maxGenericArguments' | 'maxClarifierValues' | 'maxDatatypeComponents'
 >> {
-    return limitImplementation.normalizeDatatypeLimits(options) as Readonly<Pick<
-        TelexLimits,
-        'maxGenericDepth' | 'maxGenericArguments' | 'maxClarifierValues' | 'maxDatatypeComponents'
-    >>;
+    return limitImplementation.normalizeDatatypeLimits(options);
 }
 
 export function parseDatatypeDescriptor(
