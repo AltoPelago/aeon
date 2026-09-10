@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -26,7 +27,18 @@ from aeon.portable_finalize import PortableFinalizeOptions, finalize_portable_js
 from aeon.api import TelexLoadOptions, aeon_to_telex, load_telex_file, load_telex_text, write_telex_file
 
 
-CTS_ROOT = ROOT.parents[3] / "aeonite-org" / "aeonite-cts" / "cts"
+CTS_ROOT = Path(
+    os.environ.get(
+        "AEONITE_CTS_ROOT",
+        ROOT.parents[3] / "aeonite-org" / "aeonite-cts" / "cts",
+    )
+)
+AES_ROOT = Path(
+    os.environ.get(
+        "AES_ROOT",
+        ROOT.parents[2] / "aes",
+    )
+)
 
 
 class TelexConformanceTests(unittest.TestCase):
@@ -257,7 +269,7 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual(50, observed)
 
     def test_draft_telex_resource_limit_vectors(self) -> None:
-        suite_path = ROOT.parents[2] / "aes" / "conformance" / "telex" / "v1" / "suites" / "03-resource-limits.json"
+        suite_path = AES_ROOT / "conformance" / "telex" / "v1" / "suites" / "03-resource-limits.json"
         suite = json.loads(suite_path.read_text(encoding="utf-8"))
         for vector in suite["tests"]:
             with self.subTest(vector=vector["id"]):
