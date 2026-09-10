@@ -6,20 +6,21 @@
  *
  * Protocol (CLI Protocol v1):
  * - Invoked as: aeos-validator --cts-validate
- * - Reads JSON from stdin: { aes, schema, options }
+ * - Reads JSON from stdin: { aes, schema, options } or { telex, schema, options }
  * - Writes JSON to stdout: ResultEnvelope
  * - Logs may go to stderr
  *
  * This adapter is READ-ONLY and does not alter validator behavior.
  */
 
-import { validate } from '../index.js';
+import { validate, validateTelex } from '../index.js';
 import type { AES } from '../types/aes.js';
 import type { SchemaV1 } from '../types/schema.js';
 import type { ResultEnvelope } from '../types/envelope.js';
 
 interface CTSInput {
-    aes: AES;
+    aes?: AES;
+    telex?: string;
     schema: SchemaV1;
     options?: {
         strict?: boolean;
@@ -70,8 +71,10 @@ async function main(): Promise<void> {
         }
 
         // Validate required fields
-        if (!parsed.aes || !Array.isArray(parsed.aes)) {
-            console.error('Error: Missing or invalid "aes" field');
+        const hasAes = Array.isArray(parsed.aes);
+        const hasTelex = typeof parsed.telex === 'string';
+        if (hasAes === hasTelex) {
+            console.error('Error: Provide exactly one valid "aes" array or "telex" string');
             process.exit(1);
         }
         if (!parsed.schema || typeof parsed.schema !== 'object') {
@@ -80,11 +83,9 @@ async function main(): Promise<void> {
         }
 
         // Run validation (read-only, does not mutate inputs)
-        const result: ResultEnvelope = validate(
-            parsed.aes,
-            parsed.schema,
-            parsed.options ?? {}
-        );
+        const result: ResultEnvelope = hasTelex
+            ? validateTelex(parsed.telex!, parsed.schema, parsed.options ?? {})
+            : validate(parsed.aes!, parsed.schema, parsed.options ?? {});
 
         // Output result envelope to stdout
         // MUST NOT include 'aes' in output (enforced by validate())

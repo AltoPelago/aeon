@@ -1,17 +1,35 @@
 #![allow(clippy::too_many_arguments)]
 
+mod portable_json;
+
+pub use portable_json::{FinalizePortableJsonOptions, finalize_portable_json};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use aeon_core::{
     AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, NullLiteralMode,
-    ReferenceSegment, Span, Value, compile, format_path, normalize_number_literal,
+    ReferenceSegment, SourcePlane, Span, Value, compile, format_path, normalize_number_literal,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
 
 fn canonical_datatype_name(name: &str) -> &str {
     name
+}
+
+fn ordered_header_fields(header: &HeaderFields) -> Vec<(&str, &Value)> {
+    let mut fields = Vec::with_capacity(header.fields.len());
+    let mut seen = BTreeSet::new();
+    for key in header.order.iter().chain(header.fields.keys()) {
+        if !seen.insert(key.as_str()) {
+            continue;
+        }
+        if let Some(value) = header.fields.get(key) {
+            fields.push((key.as_str(), value));
+        }
+    }
+    fields
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +253,7 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
     if matches!(options.scope, FinalizeScope::Header | FinalizeScope::Full)
         && let Some(header) = options.header.as_ref()
     {
-        for (key, value) in &header.fields {
+        for (key, value) in ordered_header_fields(header) {
             let path = match options.scope {
                 FinalizeScope::Header => format!("$.{key}"),
                 FinalizeScope::Full => format!("$.header.{key}"),
@@ -261,6 +279,9 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 
     if matches!(options.scope, FinalizeScope::Payload | FinalizeScope::Full) {
         for event in events {
+            if event.source_plane == SourcePlane::Header {
+                continue;
+            }
             let base = format_path(&event.path);
             let path = match options.scope {
                 FinalizeScope::Payload => base,
@@ -295,9 +316,13 @@ pub fn finalize_map(events: &[AssignmentEvent], options: FinalizeOptions) -> Fin
 pub fn value_to_ast_json(value: &Value) -> JsonValue {
     match value {
         Value::TypedValue {
-            datatype, value, ..
+            structural_id,
+            datatype,
+            value,
+            ..
         } => json!({
             "type": "TypedValue",
+            "structuralId": structural_id,
             "datatype": datatype.as_ref().map(|name| json!({
                 "type": "TypeAnnotation",
                 "name": canonical_datatype_name(name),
@@ -422,13 +447,16 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
             datatype,
             children,
+            ..
         } => json!({
             "type": "NodeLiteral",
             "raw": raw,
             "tag": tag,
+            "structuralId": structural_id,
             "datatype": datatype.as_ref().map(|name| json!({ "type": "TypeAnnotation", "name": canonical_datatype_name(name) })),
             "attributes": attributes.iter().map(attribute_entries_to_ast_json).collect::<Vec<_>>(),
             "children": children.iter().map(value_to_ast_json).collect::<Vec<_>>(),
@@ -476,7 +504,7 @@ fn header_to_json(
 ) -> JsonValue {
     let mut object = Map::new();
     if let Some(header) = header {
-        for (key, value) in &header.fields {
+        for (key, value) in ordered_header_fields(header) {
             let path = match scope {
                 FinalizeScope::Header => format!("$.{key}"),
                 FinalizeScope::Full => format!("$.header.{key}"),
@@ -493,7 +521,7 @@ fn header_to_json(
                 continue;
             }
             object.insert(
-                key.clone(),
+                key.to_owned(),
                 value_to_json(
                     value,
                     &path,
@@ -1262,6 +1290,13 @@ fn attribute_entries_to_ast_json(entries: &BTreeMap<String, AttributeValue>) -> 
 fn attribute_entry_to_ast_json(entry: &AttributeValue) -> JsonValue {
     let mut object = Map::new();
     object.insert(
+        String::from("structuralId"),
+        entry
+            .structural_id
+            .as_ref()
+            .map_or(JsonValue::Null, |value| JsonValue::String(value.clone())),
+    );
+    object.insert(
         String::from("datatype"),
         entry
             .datatype
@@ -1388,6 +1423,9 @@ fn is_reserved_key(key: &str) -> bool {
 fn index_event_values(events: &[AssignmentEvent]) -> BTreeMap<String, Value> {
     let mut values = BTreeMap::new();
     for event in events {
+        if event.source_plane == SourcePlane::Header {
+            continue;
+        }
         let _ = values.insert(format_path(&event.path), event.value.clone());
     }
     values
@@ -2125,6 +2163,34 @@ mod tests {
     }
 
     #[test]
+    fn surfaced_typed_value_ast_preserves_structural_identity() {
+        let result = compile("items = [\\A1\\ = \"red\"]\n", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let parent = result
+            .events
+            .iter()
+            .find(|event| format_path(&event.path) == "$.items")
+            .expect("items event");
+        let ast = value_to_ast_json(&parent.value);
+        assert_eq!(ast["elements"][0]["structuralId"], "A1");
+    }
+
+    #[test]
+    fn surfaced_node_and_attribute_ast_preserves_structural_identity() {
+        let result = compile(
+            "value = <tag\\HEAD\\@{source\\META\\ = \"user\"}>\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let ast = value_to_ast_json(&result.events[0].value);
+        assert_eq!(ast["structuralId"], "HEAD");
+        assert_eq!(
+            ast["attributes"][0]["entries"]["source"]["structuralId"],
+            "META"
+        );
+    }
+
+    #[test]
     fn resolves_clone_references_into_json_values() {
         let source = "source = 99\ncopy = ~source\n";
         let result = compile(source, CompileOptions::default());
@@ -2311,8 +2377,11 @@ mod tests {
         let events = vec![AssignmentEvent {
             path: aeon_core::CanonicalPath::root().member("a"),
             key: String::from("a"),
+            source_plane: aeon_core::SourcePlane::Body,
+            structural_id: None,
             datatype: Some(String::from("list")),
             annotations: BTreeMap::new(),
+            annotation_order: Vec::new(),
             value: Value::ListNode {
                 items: vec![Value::CloneReference {
                     segments: vec![ReferenceSegment::Key(String::from("a"))],

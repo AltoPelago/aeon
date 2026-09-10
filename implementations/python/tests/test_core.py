@@ -13,6 +13,41 @@ from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
 
 
 class CoreCompileTests(unittest.TestCase):
+    def test_structural_identity_is_preserved_on_binding_and_anonymous_events(self) -> None:
+        result = compile_source(
+            'age\\A1\\@{source = "user"}:int32 = 42\n'
+            'items = [\\B2\\ = "red", \\C3\\:string = "green"]'
+        )
+        self.assertEqual([], result.errors)
+        by_path = {event["path"]: event for event in result.events}
+        self.assertEqual("A1", by_path["$.age"]["structuralId"])
+        self.assertEqual("B2", by_path["$.items[0]"]["structuralId"])
+        self.assertEqual("C3", by_path["$.items[1]"]["structuralId"])
+        parent_value = by_path["$.items"]["value"]
+        self.assertEqual("B2", parent_value["elements"][0]["structuralId"])
+        self.assertNotIn("structural_id", parent_value["elements"][0])
+
+    def test_structural_identity_must_be_document_unique(self) -> None:
+        result = compile_source('a\\A1\\ = 1\nb = [\\A1\\ = 2]')
+        self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
+
+    def test_structural_identity_is_preserved_on_attribute_entry_and_node_heads(self) -> None:
+        result = compile_source('value@{source\\META\\:string = "user"} = <tag\\HEAD\\>')
+        self.assertEqual([], result.errors)
+        event = result.internal_events[0]
+        self.assertEqual("META", event["annotations"]["source"]["structuralId"])
+        self.assertEqual("HEAD", event["value"]["structuralId"])
+
+    def test_structural_identity_must_be_unique_across_attribute_and_node_heads(self) -> None:
+        result = compile_source('value@{source\\same\\ = "user"} = <tag\\same\\>')
+        self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
+
+    def test_structural_identity_rejects_invalid_characters_and_wrong_order(self) -> None:
+        invalid = compile_source('a\\bad.id\\ = 1')
+        self.assertEqual(["INVALID_STRUCTURAL_IDENTITY"], [error.code for error in invalid.errors])
+        misplaced = compile_source('a@{source = "user"}\\A1\\:int32 = 1')
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in misplaced.errors])
+
     def test_simple_strict_parse(self) -> None:
         result = compile_source("a:number = 1")
         self.assertEqual([], result.errors)
@@ -268,6 +303,23 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(source)
         self.assertEqual([], result.errors)
 
+    def test_custom_mode_allows_literal_words_as_custom_datatype_names(self) -> None:
+        source = "\n".join([
+            'aeon:mode = "custom"',
+            "a:yes = yes",
+            "b:no = no",
+            "c:on = on",
+            "d:off = off",
+            "e:true = true",
+            "f:false = false",
+            "g:list<yes> = [yes]",
+        ])
+        result = compile_source(source)
+
+        self.assertEqual([], result.errors)
+        datatypes = [event["datatype"] for event in result.events if event["datatype"] is not None]
+        self.assertEqual(["yes", "no", "on", "off", "true", "false", "list<yes>"], datatypes)
+
     def test_custom_mode_allows_custom_toggle_aliases(self) -> None:
         source = 'aeon:mode = "custom"\ns:myToggle = on'
         result = compile_source(source)
@@ -343,6 +395,30 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:profile = "aeon.gp.profile.v1"\na:n[3] = 3')
         self.assertEqual([], result.events)
         self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
+
+    def test_gp_profile_allows_custom_clarifiers_for_separator_and_radix_literals(self) -> None:
+        result = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\n'
+            'version:ver["."] = ^1.2.0\n'
+            'separator_numeric:custom[2] = ^a2a\n'
+            'radix_numeric:bits[2] = %10101\n'
+            'radix_string:bits["binary"] = %10101\n',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual([], result.errors)
+        body_events = [event for event in result.events if event["sourcePlane"] == "body"]
+        self.assertEqual(
+            ['ver["."]', "custom[2]", "bits[2]", 'bits["binary"]'],
+            [event["datatype"] for event in body_events],
+        )
+
+    def test_gp_profile_rejects_custom_clarifiers_for_other_literal_families(self) -> None:
+        result = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\nvalue:custom["."] = "1.2.0"\n',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual([], result.events)
+        self.assertEqual("PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", result.errors[0].code)
 
     def test_gp_profile_validates_radix_datatype_clarifiers(self) -> None:
         result = compile_source('aeon:profile = "aeon.gp.profile.v1"\nb:radix["hello"] = %01')
@@ -471,6 +547,12 @@ class CoreCompileTests(unittest.TestCase):
         for source in cases:
             with self.subTest(source=source):
                 result = compile_source(source)
+                self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
+
+    def test_wtc_requires_exact_lowercase_local_reference(self) -> None:
+        for reference in ("Local", "LOCAL"):
+            with self.subTest(reference=reference):
+                result = compile_source(f"z:wtc = 2025-01-01T09Z&{reference}")
                 self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
 
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
@@ -619,6 +701,7 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("\ufeffvalue:number = 1")
         self.assertEqual([], result.errors)
         self.assertEqual(["$.value"], [event["path"] for event in result.events])
+        self.assertEqual(1, result.events[0]["span"]["start"]["offset"])
 
     def test_leading_bom_before_shebang_and_host_directive_is_accepted(self) -> None:
         result = compile_source("\ufeff#!/usr/bin/env aeon\n//! format:aeon.test.v1\nvalue:number = 1")
@@ -644,6 +727,17 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
         self.assertEqual("Invalid unicode escape", result.errors[0].message)
 
+    def test_braced_unicode_surrogate_escape_fails_closed(self) -> None:
+        for source in (
+            r'value = "\u{D800}"',
+            r'value = "\u{DFFF}"',
+            r'value = "\u{D800}\uDC00"',
+        ):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual(["INVALID_ESCAPE"], [error.code for error in result.errors])
+                self.assertEqual("Invalid unicode escape", result.errors[0].message)
+
     def test_strict_mode_untyped_toggle_uses_aligned_message(self) -> None:
         result = compile_source('aeon:mode = "strict"\ndebug = yes')
         self.assertEqual(["UNTYPED_TOGGLE_LITERAL"], [error.code for error in result.errors])
@@ -663,13 +757,13 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["$.a", "$.a.a", "$.a.b"], [event["path"] for event in result.events])
 
     def test_generic_depth_is_enforced_by_default(self) -> None:
-        result = compile_source('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))')
+        result = compile_source('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)')
         self.assertEqual(["GENERIC_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
-    def test_generic_depth_allows_nested_generics_when_raised(self) -> None:
+    def test_generic_depth_allows_nested_generics_at_limit(self) -> None:
         result = compile_source(
             't:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))',
-            CompileOptions(max_generic_depth=8),
+            CompileOptions(max_generic_depth=1),
         )
         self.assertEqual([], result.errors)
         paths = [event["path"] for event in result.events]

@@ -47,7 +47,7 @@ Example:
 node ./scripts/run-with-repo-paths.mjs \
   node ./scripts/cts-source-lane-runner.mjs \
   --sut ./implementations/typescript/packages/cli/dist/main.js \
-  --cts ./cts/core/v1/core-cts.v1.json \
+  --cts ./cts/core/v1/core-cts.v1.snapshot-0.3.json \
   --lane core
 ```
 

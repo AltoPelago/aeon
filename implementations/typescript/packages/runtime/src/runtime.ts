@@ -6,14 +6,31 @@ import {
     type ProfileRef,
     type ProfileRegistry,
 } from '@altopelago/aeon-profiles';
-import { compile as compileCore, type AnnotationRecord } from '@altopelago/aeon-core';
-import { resolveRefs, type AssignmentEvent, type ResolveDiagnostic, type ResolveMeta } from '@altopelago/aeon-aes';
+import {
+    compile as compileCore,
+    effectiveTelexConfiguration,
+    type AeonicLimitsV1,
+    type AnnotationRecord,
+    type EffectiveTelexConfiguration,
+} from '@altopelago/aeon-core';
+import {
+    parseTelex,
+    resolveRefs,
+    validateTelexRecords,
+    type AssignmentEvent,
+    type ParsedTelex,
+    type ResolveDiagnostic,
+    type ResolveMeta,
+    type TelexValidationOptions,
+    type TelexValidationResult,
+} from '@altopelago/aeon-aes';
 import { materialize } from '@altopelago/aeon-tonic';
 import {
     finalizeJson,
     finalizeLinkedJson,
     finalizeMap,
     finalizeNode,
+    finalizePortableJson,
     type FinalizeHeader,
     type Diagnostic as FinalizeDiagnostic,
     type FinalizedMap,
@@ -22,7 +39,7 @@ import {
     type FinalizeScope,
     type JsonObject,
 } from '@altopelago/aeon-finalize';
-import { validate, type Diag as SchemaDiagnostic, type ResultEnvelope, type SchemaV1 } from '@altopelago/aeos-core';
+import { validate, type Diag as SchemaDiagnostic, type PortableAesBodyEvent, type ResultEnvelope, type SchemaV1 } from '@altopelago/aeos-core';
 
 export type RuntimeMode = 'strict' | 'loose';
 export type RuntimeOutput = 'json' | 'linked-json' | 'map' | 'node';
@@ -42,8 +59,12 @@ export interface RuntimeOptions {
     readonly includeAnnotations?: boolean;
     readonly maxInputBytes?: number;
     readonly maxAttributeDepth?: number;
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     readonly maxGenericDepth?: number;
+    readonly maxGenericArguments?: number;
+    readonly maxDatatypeComponents?: number;
     readonly maxMaterializedWeight?: number;
     readonly maxReferenceDepth?: number;
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
@@ -66,12 +87,32 @@ export interface RuntimeMeta {
     readonly schema?: ResultEnvelope;
     readonly resolution?: ResolveMeta;
     readonly finalization?: FinalizeMeta;
+    readonly telex?: TelexValidationResult;
+    readonly effectiveLimits?: EffectiveTelexConfiguration;
 }
 
 export interface RuntimeResult {
     readonly aes: readonly AssignmentEvent[];
     readonly annotations?: readonly AnnotationRecord[];
     readonly document?: JsonObject | FinalizedMap | FinalizedNodeDocument;
+    readonly meta: RuntimeMeta;
+}
+
+export interface TelexRuntimeOptions extends Omit<TelexValidationOptions, 'profile' | 'projection'> {
+    readonly mode?: RuntimeMode;
+    readonly schema?: SchemaV1;
+    readonly scope?: FinalizeScope;
+    readonly maxMaterializedWeight?: number;
+    readonly maxReferenceDepth?: number;
+    readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
+    /** Trusted, consumer-selected common limits document. */
+    readonly aeonicLimits?: AeonicLimitsV1;
+}
+
+export interface TelexRuntimeResult {
+    readonly aes: ParsedTelex['records'];
+    readonly parsed?: ParsedTelex;
+    readonly document?: JsonObject;
     readonly meta: RuntimeMeta;
 }
 
@@ -214,8 +255,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     const scope = options.scope ?? 'payload';
     const maxInputBytes = options.maxInputBytes;
     const maxAttributeDepth = options.maxAttributeDepth ?? 1;
-    const maxSeparatorDepth = options.maxSeparatorDepth ?? 1;
+    const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
     const maxGenericDepth = options.maxGenericDepth ?? 1;
+    const maxGenericArguments = options.maxGenericArguments ?? 32;
+    const maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
 
     const errors: RuntimeDiagnostic[] = [];
     const warnings: RuntimeDiagnostic[] = [];
@@ -248,8 +291,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         datatypePolicy,
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         maxAttributeDepth,
-        maxSeparatorDepth,
+        maxClarifierValues,
         maxGenericDepth,
+        maxGenericArguments,
+        maxDatatypeComponents,
     });
 
     const needCoreMetadata = includeAnnotations || scope !== 'payload';
@@ -259,8 +304,10 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
             datatypePolicy,
             ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
             maxAttributeDepth,
-            maxSeparatorDepth,
+            maxClarifierValues,
             maxGenericDepth,
+            maxGenericArguments,
+            maxDatatypeComponents,
             emitAnnotations: includeAnnotations,
         })
         : null;
@@ -368,6 +415,123 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     };
 }
 
+/**
+ * Run the portable runtime path for an already-encoded Telex stream.
+ *
+ * Telex is decoded and checked as portable AES before schema validation or
+ * materialization. Parser-AST profiles, AEON source processors, and tonics are
+ * intentionally absent from this transport-neutral path.
+ */
+export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}): TelexRuntimeResult {
+    const mode = options.mode ?? 'strict';
+    const scope = options.scope ?? 'payload';
+    const effectiveLimits = runtimeEffectiveTelexConfiguration(options);
+    const codecOptions = effectiveLimits ? { ...effectiveLimits.telex, ...options } : options;
+    const errors: RuntimeDiagnostic[] = [];
+    const warnings: RuntimeDiagnostic[] = [];
+    let parsed: ParsedTelex;
+
+    try {
+        parsed = parseTelex(input, codecOptions);
+    } catch (error) {
+        const failure = error as { readonly code?: string; readonly message?: string };
+        errors.push(asDiag('error', 5, {
+            code: failure.code ?? 'TELEX_SYNTAX_ERROR',
+            message: failure.message ?? String(error),
+        }));
+        return { aes: [], meta: { errors, warnings, ...(effectiveLimits ? { effectiveLimits } : {}) } };
+    }
+
+    const telex = validateTelexRecords(parsed.records, {
+        ...codecOptions,
+        profile: parsed.profile,
+        projection: parsed.projection,
+    });
+    for (const diagnostic of telex.diagnostics) {
+        errors.push(asDiag('error', 5, diagnostic));
+    }
+    if (!telex.valid) {
+        return {
+            aes: parsed.records,
+            parsed,
+            meta: { errors, warnings, telex, ...(effectiveLimits ? { effectiveLimits } : {}) },
+        };
+    }
+
+    let schemaResult: ResultEnvelope | undefined;
+    if (options.schema) {
+        const body = parsed.records.filter((record): record is PortableAesBodyEvent => (
+            typeof record.path === 'string'
+            && typeof record.kind === 'string'
+            && record.header === undefined
+        ));
+        schemaResult = validate(body, options.schema, {
+            ...(options.trailingSeparatorDelimiterPolicy !== undefined
+                ? { trailingSeparatorDelimiterPolicy: options.trailingSeparatorDelimiterPolicy }
+                : {}),
+        });
+        appendSchemaDiagnostics(errors, warnings, schemaResult.errors, 'error');
+        appendSchemaDiagnostics(errors, warnings, schemaResult.warnings, 'warning');
+        if (mode === 'strict' && schemaResult.errors.length > 0) {
+            return {
+                aes: parsed.records,
+                parsed,
+                meta: { errors, warnings, telex, schema: schemaResult, ...(effectiveLimits ? { effectiveLimits } : {}) },
+            };
+        }
+    }
+
+    const finalized = finalizePortableJson(parsed.records, {
+        ...(effectiveLimits?.finalization ?? {}),
+        ...options,
+        profile: parsed.profile,
+        projection: parsed.projection,
+        mode,
+        scope,
+    });
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.errors, 'error');
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.warnings, 'warning');
+
+    return {
+        aes: parsed.records,
+        parsed,
+        document: finalized.document,
+        meta: {
+            errors,
+            warnings,
+            telex,
+            ...(effectiveLimits ? { effectiveLimits } : {}),
+            ...(schemaResult ? { schema: schemaResult } : {}),
+            ...(finalized.meta ? { finalization: finalized.meta } : {}),
+        },
+    };
+}
+
+function runtimeEffectiveTelexConfiguration(
+    options: TelexRuntimeOptions,
+): EffectiveTelexConfiguration | undefined {
+    if (!options.aeonicLimits) return undefined;
+    const selected = effectiveTelexConfiguration(options.aeonicLimits);
+    const telex = { ...selected.telex };
+    const finalization = { ...selected.finalization };
+    let overridesApplied = false;
+    for (const key of Object.keys(telex) as (keyof typeof telex)[]) {
+        const override = options[key];
+        if (override !== undefined && override !== telex[key]) {
+            telex[key] = override;
+            overridesApplied = true;
+        }
+    }
+    for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+        const override = options[key];
+        if (override !== undefined && override !== finalization[key]) {
+            finalization[key] = override;
+            overridesApplied = true;
+        }
+    }
+    return { ...selected, telex, finalization, overridesApplied };
+}
+
 export function runTypedRuntime<TDocument>(
     input: string,
     options: TypedRuntimeOptions<TDocument>
@@ -380,8 +544,11 @@ export function runTypedRuntime<TDocument>(
         schema: options.schema,
         output: 'json',
         ...(options.maxAttributeDepth !== undefined ? { maxAttributeDepth: options.maxAttributeDepth } : {}),
+        ...(options.maxClarifierValues !== undefined ? { maxClarifierValues: options.maxClarifierValues } : {}),
         ...(options.maxSeparatorDepth !== undefined ? { maxSeparatorDepth: options.maxSeparatorDepth } : {}),
         ...(options.maxGenericDepth !== undefined ? { maxGenericDepth: options.maxGenericDepth } : {}),
+        ...(options.maxGenericArguments !== undefined ? { maxGenericArguments: options.maxGenericArguments } : {}),
+        ...(options.maxDatatypeComponents !== undefined ? { maxDatatypeComponents: options.maxDatatypeComponents } : {}),
         ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
         ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         ...(options.materialization !== undefined ? { materialization: options.materialization } : {}),

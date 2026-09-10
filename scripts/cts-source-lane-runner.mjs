@@ -3,7 +3,7 @@
  * Purpose: run source-lane CTS suites against a CLI SUT with normalized output.
  * Run from: repo root.
  * Example:
- *   node ./scripts/cts-source-lane-runner.mjs --sut ./implementations/typescript/packages/cli/dist/main.js --cts ./cts/core/v1/core-cts.v1.json --lane core
+ *   node ./scripts/cts-source-lane-runner.mjs --sut ./implementations/typescript/packages/cli/dist/main.js --cts ./cts/core/v1/core-cts.v1.snapshot-0.3.json --lane core
  */
 
 import fs from 'node:fs';
@@ -92,13 +92,40 @@ function normalizeAesEvents(events) {
   return events
     .filter((e) => !isNodeChildProjection(e, eventByPath))
     .map((e) => ({
-    path: normalizePath(String(e?.path ?? '')),
+    path: typeof e?.path === 'string' ? normalizePath(e.path) : null,
+    header: typeof e?.header === 'string' ? normalizePath(e.header) : null,
+    identity:
+      typeof e?.identity === 'string'
+        ? e.identity
+        : typeof e?.structuralId === 'string'
+          ? e.structuralId
+          : typeof e?.structural_id === 'string'
+            ? e.structural_id
+            : null,
     datatype: typeof e?.datatype === 'string' ? normalizeDatatype(e.datatype) : null,
-    value_kind: typeof e?.value?.type === 'string' ? e.value.type : null,
-    reference:
-      e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
-        ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
+    value_kind:
+      typeof e?.kind === 'string'
+        ? e.kind
+        : typeof e?.value?.type === 'string'
+          ? e.value.type
+          : null,
+    value:
+      typeof e?.kind === 'string' && typeof e?.value === 'string'
+        ? e.value
         : null,
+    reference:
+      e?.kind === 'CloneReference' || e?.kind === 'PointerReference'
+        ? (typeof e?.value === 'string' ? normalizePath(e.value) : null)
+        : e?.value?.type === 'CloneReference' || e?.value?.type === 'PointerReference'
+          ? (typeof e.value.path === 'string' ? normalizePath(e.value.path) : (e.value.path ?? null))
+          : null,
+    origin: typeof e?.origin === 'string' ? e.origin : null,
+    span:
+      typeof e?.span === 'string'
+        ? e.span
+        : normalizeSpan(e?.span) === null
+          ? null
+          : normalizeSpan(e.span).join(':'),
     }));
 }
 
@@ -197,12 +224,12 @@ function compareExpectedArray(expected, actual, label) {
     const exp = expected[i];
     const got = actual[i];
     for (const k of Object.keys(exp)) {
-      const ev = (k === 'path' || k === 'reference') && typeof exp[k] === 'string'
+      const ev = (k === 'path' || k === 'header' || k === 'reference') && typeof exp[k] === 'string'
         ? normalizePath(exp[k])
         : k === 'datatype' && typeof exp[k] === 'string'
           ? normalizeDatatype(exp[k])
         : exp[k];
-      const gv = (k === 'path' || k === 'reference') && typeof got?.[k] === 'string'
+      const gv = (k === 'path' || k === 'header' || k === 'reference') && typeof got?.[k] === 'string'
         ? normalizePath(got[k])
         : k === 'datatype' && typeof got?.[k] === 'string'
           ? normalizeDatatype(got[k])
@@ -289,7 +316,37 @@ function sortObjectKeys(value) {
   );
 }
 
-async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents }) {
+function mergeObjects(base, overlay) {
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return overlay;
+  if (!overlay || typeof overlay !== 'object' || Array.isArray(overlay)) return overlay ?? base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    merged[key] = key in merged ? mergeObjects(merged[key], value) : value;
+  }
+  return merged;
+}
+
+function renderAeonValue(value, indent = 0) {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Number.isSafeInteger(value) && value >= 0) return String(value);
+  if (Array.isArray(value)) {
+    const padding = ' '.repeat(indent + 2);
+    return `[\n${value.map((entry) => `${padding}${renderAeonValue(entry, indent + 2)}`).join('\n')}\n${' '.repeat(indent)}]`;
+  }
+  if (value && typeof value === 'object') {
+    const padding = ' '.repeat(indent + 2);
+    return `{\n${Object.entries(value).map(([key, entry]) => `${padding}${key} = ${renderAeonValue(entry, indent + 2)}`).join('\n')}\n${' '.repeat(indent)}}`;
+  }
+  fail(`Unsupported CTS limits value: ${JSON.stringify(value)}`);
+}
+
+function renderLimitsFile(limits) {
+  return Object.entries(limits)
+    .map(([key, value]) => `${key} = ${renderAeonValue(value)}`)
+    .join('\n\n') + '\n';
+}
+
+async function runInspect({ sutPath, source, mode, datatypePolicy, rich, portableAes, sourceProvenance, includeHeaders, maxAttributeDepth, maxSeparatorDepth, maxGenericDepth, maxEvents, limits }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-source-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -297,14 +354,80 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'inspect', file, '--json'] : ['inspect', file, '--json'];
+  if (limits) {
+    const limitsFile = path.join(dir, 'limits.aeon');
+    fs.writeFileSync(limitsFile, renderLimitsFile(limits), 'utf8');
+    args.push('--limits-file', limitsFile);
+  }
   if (mode === 'transport') args.push('--transport');
   else if (mode === 'strict') args.push('--strict');
   if (rich) args.push('--rich');
+  if (portableAes) args.push('--portable-aes');
+  if (sourceProvenance) args.push('--source-provenance');
+  if (includeHeaders) args.push('--include-headers');
   if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
   if (Number.isInteger(maxAttributeDepth)) args.push('--max-attribute-depth', String(maxAttributeDepth));
   if (Number.isInteger(maxSeparatorDepth)) args.push('--max-separator-depth', String(maxSeparatorDepth));
   if (Number.isInteger(maxGenericDepth)) args.push('--max-generic-depth', String(maxGenericDepth));
   if (Number.isInteger(maxEvents)) args.push('--max-events', String(maxEvents));
+
+  const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
+
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  try {
+    return { ok: true, parse: JSON.parse(stdout), stderr, code };
+  } catch {
+    const inputLimit = stderr.match(/Input size (\d+) bytes exceeds configured limit(?: of)? (\d+) bytes/u);
+    if (code !== 0 && inputLimit) {
+      return {
+        ok: true,
+        parse: {
+          events: [],
+          errors: [{
+            code: 'INPUT_SIZE_EXCEEDED',
+            path: '$',
+            message: inputLimit[0],
+          }],
+        },
+        stderr,
+        code,
+      };
+    }
+    if (code !== 0) {
+      return { ok: false, parse: null, stderr: `${stderr}\nSUT exited ${code} without valid JSON envelope`, code };
+    }
+    return { ok: false, parse: null, stderr: `${stderr}\nInvalid JSON: ${stdout}`, code };
+  }
+}
+
+async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, materialization, includePaths, outputMode, limits }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-finalize-'));
+  const file = path.join(dir, 'input.aeon');
+  fs.writeFileSync(file, source, 'utf8');
+
+  const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
+  const command = isJs ? process.execPath : sutPath;
+  const formatFlag = outputMode === 'map' ? '--map' : '--json';
+  const args = isJs ? [sutPath, 'finalize', file, formatFlag] : ['finalize', file, formatFlag];
+  if (limits) {
+    const limitsFile = path.join(dir, 'limits.aeon');
+    fs.writeFileSync(limitsFile, renderLimitsFile(limits), 'utf8');
+    args.push('--limits-file', limitsFile);
+  }
+  if (mode === 'transport') {
+    args.push('--transport', '--loose');
+  } else {
+    args.push('--strict');
+  }
+  if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
+  if (scope) args.push('--scope', scope);
+  if (materialization === 'projected') {
+    args.push('--projected');
+    for (const includePath of includePaths ?? []) {
+      args.push('--include-path', includePath);
+    }
+  }
 
   const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
@@ -320,25 +443,16 @@ async function runInspect({ sutPath, source, mode, datatypePolicy, rich, maxAttr
   }
 }
 
-async function runFinalize({ sutPath, source, mode, datatypePolicy, scope, materialization, includePaths, outputMode }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-finalize-'));
-  const file = path.join(dir, 'input.aeon');
-  fs.writeFileSync(file, source, 'utf8');
+async function runTelexMaterialize({ sutPath, telex, scope }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-telex-materialize-'));
+  const file = path.join(dir, 'input.telex.aes');
+  fs.writeFileSync(file, telex, 'utf8');
 
   const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
   const command = isJs ? process.execPath : sutPath;
-  const formatFlag = outputMode === 'map' ? '--map' : '--json';
-  const args = isJs ? [sutPath, 'finalize', file, formatFlag] : ['finalize', file, formatFlag];
-  args.push(mode === 'transport' ? '--transport' : '--strict');
-  if (datatypePolicy) args.push('--datatype-policy', datatypePolicy);
-  if (scope) args.push('--scope', scope);
-  if (materialization === 'projected') {
-    args.push('--projected');
-    for (const includePath of includePaths ?? []) {
-      args.push('--include-path', includePath);
-    }
-  }
-
+  const args = isJs
+    ? [sutPath, 'telex', 'materialize', file, '--scope', scope]
+    : ['telex', 'materialize', file, '--scope', scope];
   const { stdout, stderr, code } = await spawnCaptured(command, args, { trimStdout: true });
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -475,9 +589,9 @@ function loadManifest(ctsPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.sut || !args.cts || !args.lane) {
-    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|canonical|finalize-json|finalize-map|inspect-json|sansa-address>');
+    fail('Usage: node scripts/cts-source-lane-runner.mjs --sut <path> --cts <manifest> --lane <core|aes|aes-path-translation|canonical|finalize-json|finalize-map|inspect-json|sansa-address>');
   }
-  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json' && args.lane !== 'sansa-address') {
+  if (args.lane !== 'core' && args.lane !== 'aes' && args.lane !== 'aes-path-translation' && args.lane !== 'canonical' && args.lane !== 'finalize-json' && args.lane !== 'finalize-map' && args.lane !== 'inspect-json' && args.lane !== 'sansa-address') {
     fail(`Unsupported lane: ${args.lane}`);
   }
 
@@ -490,22 +604,51 @@ async function main() {
   for (const suiteRef of manifest.suites ?? []) {
     const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
     const suite = JSON.parse(fs.readFileSync(suitePath, 'utf8'));
+    const excludedTests = new Set(Array.isArray(suiteRef.exclude_tests) ? suiteRef.exclude_tests : []);
     console.log(`\n--- Suite: ${suite.title} ---`);
     for (const test of suite.tests ?? []) {
+      if (excludedTests.has(test.id)) continue;
+      if (args.lane === 'aes-path-translation'
+        && test.operation !== 'project-aeon'
+        && test.operation !== 'materialize-telex') {
+        fail(`Unsupported aes-path-translation operation in ${test.id}: ${String(test.operation)}`);
+      }
       const source = String(test.input?.source ?? '');
       const effectiveMode = typeof test.input?.options?.effective_mode === 'string' ? test.input.options.effective_mode : undefined;
       const datatypePolicy = test.input?.options?.datatype_policy;
       const rich = Boolean(test.input?.options?.rich);
+      const portableAes = Boolean(test.input?.options?.portable_aes);
+      const sourceProvenance = Boolean(test.input?.options?.source_provenance);
+      const includeHeaders = Boolean(test.input?.options?.include_headers);
       const maxAttributeDepth = Number.isInteger(test.input?.options?.max_attribute_depth) ? test.input.options.max_attribute_depth : undefined;
       const maxSeparatorDepth = Number.isInteger(test.input?.options?.max_separator_depth) ? test.input.options.max_separator_depth : undefined;
       const maxGenericDepth = Number.isInteger(test.input?.options?.max_generic_depth) ? test.input.options.max_generic_depth : undefined;
       const maxEvents = Number.isInteger(test.input?.options?.max_events) ? test.input.options.max_events : undefined;
+      const limits = test.input?.options?.limits === undefined
+        ? undefined
+        : mergeObjects(suite.meta?.limits_defaults, test.input.options.limits);
       let errors = [];
       let warnings = [];
       let ok = false;
       let result;
 
-      if (args.lane === 'canonical') {
+      if (args.lane === 'aes-path-translation' && test.operation === 'materialize-telex') {
+        const finalized = await runTelexMaterialize({
+          sutPath: args.sut,
+          telex: String(test.input?.telex ?? ''),
+          scope: typeof test.input?.options?.scope === 'string' ? test.input.options.scope : 'payload',
+        });
+        if (!finalized.ok || !finalized.parse) {
+          console.error(`❌ ${test.id}: harness failure`);
+          if (finalized.stderr) console.error(finalized.stderr.trim());
+          process.exit(3);
+        }
+
+        errors = normalizeFinalizeDiagnostics(finalized.parse.meta, 'errors');
+        warnings = normalizeFinalizeDiagnostics(finalized.parse.meta, 'warnings');
+        ok = errors.length === 0;
+        result = { document: finalized.parse.document ?? null };
+      } else if (args.lane === 'canonical') {
         const formatted = await runFmt({ sutPath: args.sut, source });
         if (!formatted.ok) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -529,6 +672,7 @@ async function main() {
           materialization: typeof test.input?.options?.materialization === 'string' ? test.input.options.materialization : 'all',
           includePaths: Array.isArray(test.input?.options?.include_paths) ? test.input.options.include_paths : [],
           outputMode: args.lane === 'finalize-map' ? 'map' : 'json',
+          limits,
         });
         if (!finalized.ok || !finalized.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -549,10 +693,14 @@ async function main() {
           mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
+          portableAes,
+          sourceProvenance,
+          includeHeaders,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
           maxEvents,
+          limits,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -573,10 +721,14 @@ async function main() {
           mode: effectiveMode,
           datatypePolicy: typeof datatypePolicy === 'string' ? datatypePolicy : undefined,
           rich,
+          portableAes,
+          sourceProvenance,
+          includeHeaders,
           maxAttributeDepth,
           maxSeparatorDepth,
           maxGenericDepth,
           maxEvents,
+          limits,
         });
         if (!inspect.ok || !inspect.parse) {
           console.error(`❌ ${test.id}: harness failure`);
@@ -599,6 +751,7 @@ async function main() {
                 }
             : {
                 events: ok ? normalizeAesEvents(inspect.parse.events) : [],
+                projection: inspect.parse.projection ?? null,
               };
       }
 
@@ -641,12 +794,25 @@ async function main() {
         failures.push(...compareExpectedArray(test.expected?.result?.bindings, result.bindings, 'bindings'));
       } else {
         failures.push(...compareExpectedArray(test.expected?.result?.events, result.events, 'events'));
+        if ('projection' in (test.expected?.result ?? {})
+          && (test.expected.result.projection ?? null) !== (result.projection ?? null)) {
+          failures.push(`projection mismatch: expected ${JSON.stringify(test.expected.result.projection ?? null)}, got ${JSON.stringify(result.projection ?? null)}`);
+        }
       }
 
       if (failures.length > 0) {
         failCount += 1;
         console.log(`❌ ${test.id}: FAIL`);
         for (const failure of failures) console.log(`   - ${failure}`);
+        if (errors.length > 0) {
+          console.log(`   - actual errors: ${errors.map((error) => `${error.code}@${error.path ?? '$'}`).join(', ')}`);
+        }
+        if (args.lane === 'core' && failures.some((failure) => failure.startsWith('bindings'))) {
+          console.log(`   - actual bindings: ${result.bindings.map((binding) => `${binding.path}:${binding.datatype ?? '-'}`).join(', ')}`);
+        }
+        if (args.lane === 'aes' && failures.some((failure) => failure.startsWith('events'))) {
+          console.log(`   - actual events: ${JSON.stringify(result.events)}`);
+        }
       } else {
         pass += 1;
         console.log(`✅ ${test.id}: PASS`);

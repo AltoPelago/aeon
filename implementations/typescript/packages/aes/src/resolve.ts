@@ -5,7 +5,7 @@
  * pointer references (~>) as alias tokens. Output remains AES.
  */
 
-import type { AssignmentEvent } from './events.js';
+import type { AssignmentEvent, AttributeEntry } from './events.js';
 import type { Value, Attribute, AttributeValue, Binding, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { Span } from '@altopelago/aeon-lexer';
 import { formatPath, type CanonicalPath } from './paths.js';
@@ -33,6 +33,58 @@ export interface ResolveOptions {
 export interface ResolveResult {
     readonly aes: readonly AssignmentEvent[];
     readonly meta?: ResolveMeta;
+}
+
+function withoutStructuralIdentities(value: Value): Value {
+    switch (value.type) {
+        case 'TypedValue':
+            return {
+                ...value,
+                structuralId: null,
+                value: withoutStructuralIdentities(value.value),
+                attributes: value.attributes.map(withoutStructuralIdentitiesFromAttribute),
+            };
+        case 'ObjectNode':
+            return {
+                ...value,
+                bindings: value.bindings.map((binding) => ({
+                    ...binding,
+                    structuralId: null,
+                    value: withoutStructuralIdentities(binding.value),
+                    attributes: binding.attributes.map(withoutStructuralIdentitiesFromAttribute),
+                })),
+                attributes: value.attributes.map(withoutStructuralIdentitiesFromAttribute),
+            };
+        case 'ListNode':
+        case 'TupleLiteral':
+            return {
+                ...value,
+                elements: value.elements.map(withoutStructuralIdentities),
+                attributes: value.attributes.map(withoutStructuralIdentitiesFromAttribute),
+            };
+        case 'NodeLiteral':
+            return {
+                ...value,
+                structuralId: null,
+                attributes: value.attributes.map(withoutStructuralIdentitiesFromAttribute),
+                children: value.children.map(withoutStructuralIdentities),
+            };
+        default:
+            return value;
+    }
+}
+
+function withoutStructuralIdentitiesFromAttribute(attribute: Attribute): Attribute {
+    const entries = new Map<string, AttributeValue>();
+    for (const [key, entry] of attribute.entries) {
+        entries.set(key, {
+            ...entry,
+            structuralId: null,
+            value: withoutStructuralIdentities(entry.value),
+            attributes: entry.attributes.map(withoutStructuralIdentitiesFromAttribute),
+        });
+    }
+    return { ...attribute, entries };
 }
 
 export function resolveRefs(
@@ -170,7 +222,7 @@ export function resolveRefs(
 
         if (resolvedCache.has(targetPath)) {
             resolutionMap[`${sourcePath}::${targetPath}`] = targetPath;
-            return resolvedCache.get(targetPath)!;
+            return withoutStructuralIdentities(resolvedCache.get(targetPath)!);
         }
 
         const targetEvent = aes[targetIndex]!;
@@ -190,7 +242,7 @@ export function resolveRefs(
         const resolved = resolveValue(targetValue, targetPath, targetIndex, [...stack, targetPath]);
         resolvedCache.set(targetPath, resolved);
         resolutionMap[`${sourcePath}::${targetPath}`] = targetPath;
-        return resolved;
+        return withoutStructuralIdentities(resolved);
     }
 
     function resolveValue(value: Value, sourcePath: string, sourceIndex: number, stack: readonly string[]): Value {
@@ -311,9 +363,9 @@ export function resolveRefs(
         const nextValue = resolveValue(event.value, sourcePath, i, [sourcePath]);
 
         const resolveAnnotationEntries = (
-            entries: ReadonlyMap<string, { value: Value; datatype?: string; annotations?: ReadonlyMap<string, { value: Value; datatype?: string }> }>
-        ): ReadonlyMap<string, { value: Value; datatype?: string; annotations?: ReadonlyMap<string, { value: Value; datatype?: string }> }> => {
-            const updated = new Map<string, { value: Value; datatype?: string; annotations?: ReadonlyMap<string, { value: Value; datatype?: string }> }>();
+            entries: ReadonlyMap<string, AttributeEntry>
+        ): ReadonlyMap<string, AttributeEntry> => {
+            const updated = new Map<string, AttributeEntry>();
             for (const [key, entry] of entries) {
                 const nextValueEntry = resolveValue(entry.value, sourcePath, i, [sourcePath]);
                 const nextAnnotationsEntry = entry.annotations
@@ -347,7 +399,7 @@ export function resolveRefs(
         };
 
         if (nextAnnotations) {
-            (nextEvent as { annotations: ReadonlyMap<string, { value: Value; datatype?: string; annotations?: ReadonlyMap<string, { value: Value; datatype?: string }> }> }).annotations =
+            (nextEvent as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations =
                 nextAnnotations;
         }
 

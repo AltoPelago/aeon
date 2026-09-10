@@ -235,7 +235,7 @@ const valueFeatures = [
     contexts: ['top', 'object'],
     generate() {
       const k = uniqueKey('wt');
-      return { text: `${k}:wtc = 2025-01-15T09:30:00&Local`, expectPass: true, isBinding: true, metadata: { valueType: 'WTCDateTimeLiteral', local: true } };
+      return { text: `${k}:wtc = 2025-01-15T09:30:00&local`, expectPass: true, isBinding: true, metadata: { valueType: 'WTCDateTimeLiteral', local: true } };
     },
   },
   {

@@ -59,8 +59,13 @@ pub(crate) fn validate_duplicate_canonical_paths(
 ) {
     let mut seen = HashSet::new();
     let mut duplicate_indexes = Vec::new();
-    for (index, path) in flattened.rendered_event_paths.iter().enumerate() {
-        if !seen.insert(path.clone()) {
+    for (index, (event, path)) in flattened
+        .events
+        .iter()
+        .zip(flattened.rendered_event_paths.iter())
+        .enumerate()
+    {
+        if !seen.insert((event.source_plane, path.clone())) {
             duplicate_indexes.push(index);
         }
     }
@@ -87,7 +92,7 @@ pub(crate) fn validate_duplicate_canonical_paths(
             .drain(..)
             .zip(flattened.rendered_event_paths.drain(..))
         {
-            if retained.insert(path.clone()) {
+            if retained.insert((event.source_plane, path.clone())) {
                 retained_events.push(event);
                 retained_paths.push(path);
             }
@@ -396,17 +401,15 @@ pub(crate) fn validate_datatypes(
     rendered_event_paths: &[String],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
+    effective_mode: Option<BehaviorMode>,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mode = extract_behavior_mode(bindings);
+    let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
-        if event.key.starts_with("aeon:") {
-            continue;
-        }
         if let Some(datatype) = &event.datatype {
             if let Some(error) =
                 validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
@@ -414,7 +417,7 @@ pub(crate) fn validate_datatypes(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => path.as_str(),
                 };
@@ -495,12 +498,13 @@ pub(crate) fn validate_datatypes_light(
     events: &[ValidationEvent],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
+    effective_mode: Option<BehaviorMode>,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mode = extract_behavior_mode(bindings);
+    let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for event in events {
         if let Some(datatype) = &event.datatype {
@@ -513,7 +517,7 @@ pub(crate) fn validate_datatypes_light(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => event.path.as_str(),
                 };
@@ -604,7 +608,7 @@ pub(crate) fn validate_typed_mode_rules(
 
 pub(crate) fn extract_behavior_mode(bindings: &[Binding]) -> BehaviorMode {
     for binding in bindings {
-        if binding.key != "aeon:mode" {
+        if !binding.is_header || binding.key != "aeon:mode" {
             continue;
         }
         if let Value::StringLiteral { value, .. } = &binding.value {
@@ -813,12 +817,10 @@ fn validate_typed_mode_rules_in_scope(
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
-        if matches!(parent.segments.as_slice(), [crate::PathSegment::Root])
-            && binding.key.starts_with("aeon:")
-        {
+        if matches!(parent.segments.as_slice(), [crate::PathSegment::Root]) && binding.is_header {
             continue;
         }
-        let should_emit_untyped_value_error = !binding.key.starts_with("aeon:")
+        let should_emit_untyped_value_error = !binding.is_header
             && binding.datatype.is_none()
             && !(matches!(mode, BehaviorMode::Strict)
                 && matches!(binding.value, Value::ToggleLiteral { .. }));
@@ -966,9 +968,6 @@ fn validate_datatype_shape(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
-    if let Some(diag) = validate_radix_datatype_shape(datatype) {
-        return Some(diag);
-    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
@@ -977,14 +976,17 @@ fn validate_datatype_shape(
     }
     if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
-            "SEPARATOR_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds separator depth limit"),
+            "CLARIFIER_VALUES_EXCEEDED",
+            format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
-    if generic_depth(datatype) > max_generic_depth {
+    let observed_generic_depth = generic_depth(datatype);
+    if observed_generic_depth > max_generic_depth {
         return Some(Diagnostic::new(
             "GENERIC_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds generic depth limit"),
+            format!(
+                "Generic depth {observed_generic_depth} exceeds max_generic_depth {max_generic_depth}"
+            ),
         ));
     }
     if let Value::NumberLiteral { raw } = &event.value
@@ -1007,9 +1009,6 @@ fn validate_datatype_shape_light(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
-    if let Some(diag) = validate_radix_datatype_shape(datatype) {
-        return Some(diag);
-    }
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
@@ -1018,14 +1017,17 @@ fn validate_datatype_shape_light(
     }
     if separator_spec_depth(datatype) > max_separator_depth {
         return Some(Diagnostic::new(
-            "SEPARATOR_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds separator depth limit"),
+            "CLARIFIER_VALUES_EXCEEDED",
+            format!("Datatype `{datatype}` exceeds max_clarifier_values {max_separator_depth}"),
         ));
     }
-    if generic_depth(datatype) > max_generic_depth {
+    let observed_generic_depth = generic_depth(datatype);
+    if observed_generic_depth > max_generic_depth {
         return Some(Diagnostic::new(
             "GENERIC_DEPTH_EXCEEDED",
-            format!("Datatype `{datatype}` exceeds generic depth limit"),
+            format!(
+                "Generic depth {observed_generic_depth} exceeds max_generic_depth {max_generic_depth}"
+            ),
         ));
     }
     if let Value::NumberLiteral { raw } = value
@@ -1044,40 +1046,6 @@ fn validate_datatype_shape_light(
 
 fn separator_spec_depth(datatype: &str) -> usize {
     datatype_bracket_specs(datatype).len()
-}
-
-fn validate_radix_datatype_shape(datatype: &str) -> Option<Diagnostic> {
-    if datatype_base(datatype) != "radix" {
-        return None;
-    }
-    if datatype.contains('<') || datatype.contains('>') {
-        return Some(Diagnostic::new(
-            "SYNTAX_ERROR",
-            format!("Datatype `{datatype}` must use bracket radix base syntax like `radix[10]`"),
-        ));
-    }
-    if datatype == "radix" {
-        return None;
-    }
-    match declared_radix_base(datatype) {
-        Some(_) => None,
-        None => Some(Diagnostic::new(
-            "SYNTAX_ERROR",
-            format!("Datatype `{datatype}` must be `radix` or `radix[2..64]`"),
-        )),
-    }
-}
-
-fn declared_radix_base(datatype: &str) -> Option<usize> {
-    let body = datatype.strip_prefix("radix[")?.strip_suffix(']')?;
-    if body.is_empty()
-        || (body.starts_with('0') && body != "0")
-        || !body.chars().all(|ch| ch.is_ascii_digit())
-    {
-        return None;
-    }
-    let base = body.parse::<usize>().ok()?;
-    (2..=64).contains(&base).then_some(base)
 }
 
 fn datatype_base(datatype: &str) -> &str {
@@ -1572,7 +1540,7 @@ fn validate_attribute_datatype_map(
                 let path_override = match error.code.as_str() {
                     "INVALID_NUMBER"
                     | "INVALID_SEPARATOR_CHAR"
-                    | "SEPARATOR_DEPTH_EXCEEDED"
+                    | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => attr_path.as_str(),
                 };
@@ -1649,7 +1617,9 @@ fn generic_depth(datatype: &str) -> usize {
             _ => {}
         }
     }
-    max_depth
+    // A single generic application (`list<int>`) is depth 0. Each generic
+    // application nested inside another increments the recursion depth.
+    max_depth.saturating_sub(1)
 }
 
 fn is_valid_number_literal(raw: &str) -> bool {

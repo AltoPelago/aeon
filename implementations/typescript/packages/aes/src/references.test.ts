@@ -56,6 +56,13 @@ describe('Reference Validation', () => {
             assert.strictEqual(result.errors[0]!.targetPath, '$.items[2]');
             assert.strictEqual(result.errors[0]!.message, "Missing reference target: '$.items[2]'");
         });
+
+        it('reports a node-child reference once at its owned source occurrence', () => {
+            const result = validate('view:node = <panel:node(~missing)>', true);
+
+            assert.strictEqual(result.errors.length, 1);
+            assert.strictEqual(result.errors[0]!.sourcePath, '$.view[0]');
+        });
     });
 
     // ============================================

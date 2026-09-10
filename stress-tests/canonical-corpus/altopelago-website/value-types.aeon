@@ -1,0 +1,165 @@
+title:string = "AEON Value Types"
+description:string = "Understand AEON special value forms including null reasons, NaN, Infinity, hex, radix, encoded payloads, SANSA addresses, dates, times, WTC, and comments."
+activePage:string = "language"
+keywords:list<string> = ["value types", "null", "nan", "infinity", "date", "time", "wtc", "semantic comments", "hex", "radix", "sansa"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Value Types")>
+    <title("Special forms keep meaning visible before tools interpret it.")>
+    <copy("This page explains AEON value choices as language features. It is not the exhaustive lookup table. Use it when you want to understand why AEON separates ordinary numbers from NaN, absence from custom null reasons, and WTC temporal context from a bare UTC offset.")>
+    <copy("The reference page lists every type mechanically. This page focuses on the forms that change how authors and tools reason about a document.")>
+    <code(`title:string = \"Daily note\"
+body:prose = >\`
+  Multiline text that can carry prose.
+\`
+
+count:number = 42
+reading:nan = NaN
+limit:infinity = Infinity
+
+ready:boolean = true
+state:toggle = on
+missing:null = !notSet
+
+color:hex = #ff00aa
+bits:radix[2] = %1011
+payload:base64 = &QmFzZTY0IQ==
+code:encoding[\"base58\"] = &FFF
+
+target:sansa = $.contact.name
+selector:sansa = $.inventory.items.*.sku
+
+day:date = 2026-05-05
+clock:time = 09:30Z
+stamp:datetime = 2026-05-05T09:30:00Z
+zoned:wtc = 2026-05-05T09:30Z&Australia/Melbourne
+local:wtc = 2026-05-05T09:30&local
+`)>
+    <actions(
+      <action @{href:string = "#special-values", primary:boolean = true} ("Special values")>
+      <action @{href:string = "#date-time"} ("Date and time")>
+      <action @{href:string = "#sansa-addresses"} ("SANSA")>
+      <action @{href:string = "#semantic-comments"} ("Semantic comments")>
+      <action @{href:string = "/type-reference.php"} ("Open reference")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "special-values"} (
+    <kicker("Special Values")>
+    <title("Absence and numeric edge cases stay explicit.")>
+    <copy("AEON keeps ordinary numbers separate from IEEE-style edge cases. NaN belongs to the nan literal family, and Infinity belongs to the infinity family. They are not silently accepted as ordinary number values.")>
+    <copy("Null is also typed. Instead of collapsing every kind of absence into one undifferentiated value, AEON lets a document say whether something is not set, not applicable, tombstoned, or absent for a custom reason.")>
+    <copy("The advantage shows up at schema time. A consumer can decide whether a field is allowed to contain NaN, Infinity, or a null reason at all. If the schema rejects those forms, downstream materialized values can be used without silently carrying an edge case into math, storage, or business logic.")>
+    <code(`
+count:number = 42
+reading:nan = NaN
+negativeReading:nan = -NaN
+limit:infinity = Infinity
+floor:infinity = -Infinity
+
+email:null = !notSet
+fax:null = !notApplicable
+oldRecord:null = !tombstone
+review:null = !"awaiting manual review"
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "date-time"} (
+    <kicker("Date and Time")>
+    <title("WTC preserves temporal context.")>
+    <copy("Plain date values are calendar dates. Plain time values are times of day. A datetime can include UTC or an offset, which is enough when the only thing you need is the instant.")>
+    <copy("WTC (With Temporal Context) is important when the reference used to interpret or present a temporal value is part of the meaning. An offset like +10:00 records one numeric relationship to UTC, but it does not preserve that temporal reference.")>
+    <copy("The reference may be a named timezone such as Australia/Melbourne, the resolving environment through exact lowercase local, or a geographic position such as -36.7590183/144.2826718. The value before & and the reference after & together determine the temporal context.")>
+    <copy("WTC preserves civil, numeric-offset, and UTC-qualified forms as distinct authored claims. Parsers retain them; trusted consumers decide if and how to resolve conflicts.")>
+    <code(`
+eventDate:date = 2026-05-05
+localTime:time = 09:30
+utcTime:time = 09:30Z
+offsetTime:time = 09:30+10:00
+
+published:datetime = 2026-05-05T09:30:00Z
+localPublication:wtc = 2026-05-05T09:30:00Z&Australia/Melbourne
+localOnly:wtc = 2026-05-05T09:30&local
+siteOpening:wtc = 2035-01-01T09:00&-36.7590183/144.2826718
+measuredOpening:wtc = 2035-01-01T09:00+11:00&-36.7590183/144.2826718/213
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "sansa-addresses"} (
+    <kicker("SANSA")>
+    <title("Address literals let paths travel as data.")>
+    <copy("SANSA means Semantic Address NameSpace Abstraction. AEON reserves the sansa datatype for path and selector literals that a schema, tool, resolver, or external consumer can understand. In strict mode, SANSA address values use :sansa.")>
+    <copy("A sansa value is not the same thing as an AEON reference. The value stores an address. It does not resolve the address or expand selectors by itself.")>
+    <code(`
+path:sansa = $.contact.name
+contextual:sansa = ?.name
+selector:sansa = $.inventory.items.*.sku
+deep:sansa = $.inventory.**
+attribute:sansa = $.reading.@.unit
+
+copy:string = ~contact.name
+pointer:object = ~>contact
+`)>
+    <actions(
+      <action @{href:string = "/sansa-addressing.php", primary:boolean = true} ("Learn SANSA syntax")>
+      <action @{href:string = "/sansa-playground.php"} ("Try playground")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "semantic-comments"} (
+    <kicker("Semantic Comments")>
+    <title("Comments can carry meaning without becoming data.")>
+    <copy("AEON separates ordinary data bindings from semantic comment channels. These channels can carry documentation, hints, annotations, and ecosystem signals while remaining outside the core assignment stream.")>
+    <copy("The safety rule is simple: comments can inform tools and readers, but they do not create bindings, change path identity, affect reference legality, or silently alter values.")>
+    <code(`
+//! format:aeon
+//# Billing fields shown on customer invoices.
+//@ ui(section="billing", priority=1)
+//? total should match the line-item sum after discounts.
+//[ profile: "invoice.public.v1"
+//{ structure: "totals are grouped by currency"
+//( instruction: "consumer may calculate display totals"
+invoice:object = {
+  total:number = 7_000
+}
+`)>
+    <referenceList(
+      <item(
+        <syntax("//!")>
+        <name("Host directive")>
+        <when("Use at the file header for processor discovery or pre-parser routing. Outside that header slot, it is just a plain comment.")>
+      )>
+      <item(
+        <syntax("//#")>
+        <name("Documentation")>
+        <when("Use for reader-facing notes that explain a nearby binding, element, or container.")>
+      )>
+      <item(
+        <syntax("//@")>
+        <name("Annotation")>
+        <when("Use for machine-readable metadata that tools may understand, such as UI grouping, workflow state, or audience tags.")>
+      )>
+      <item(
+        <syntax("//?")>
+        <name("Hint")>
+        <when("Use for advisory guidance, editor hints, schema-profile notes, or human review reminders.")>
+      )>
+      <item(
+        <syntax("//[")>
+        <name("Profile")>
+        <when("Reserved for profile-related ecosystem notes. Use when the comment is about policy or profile-driven interpretation.")>
+      )>
+      <item(
+        <syntax("//{")>
+        <name("Structure")>
+        <when("Reserved for structural notes. Use when the comment is about grouping, shape, or document organization.")>
+      )>
+      <item(
+        <syntax("//(")>
+        <name("Instruction")>
+        <when("Reserved for instruction-like notes. Use for consumer-facing processing guidance that must not change core parsing.")>
+      )>
+    )>
+  )>
+)>

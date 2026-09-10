@@ -20,6 +20,8 @@ class AttributeEntry:
     value: "Value"
     datatype: TypeAnnotation | None
     attributes: list["Attribute"] = field(default_factory=list)
+    structural_id: str | None = None
+    span: Span | None = None
 
 
 @dataclass(slots=True)
@@ -35,6 +37,7 @@ class Binding:
     datatype: TypeAnnotation | None
     attributes: list[Attribute]
     span: Span
+    structural_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -211,6 +214,8 @@ class NodeLiteral:
     datatype: TypeAnnotation | None = None
     children: list["Value"] = field(default_factory=list)
     span: Span | None = None
+    structural_id: str | None = None
+    head_span: Span | None = None
 
 
 @dataclass(slots=True)
@@ -220,6 +225,7 @@ class TypedValue:
     attributes: list[Attribute] = field(default_factory=list)
     value: "Value" | None = None
     span: Span | None = None
+    structural_id: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

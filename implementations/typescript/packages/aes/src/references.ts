@@ -12,6 +12,7 @@
 import type { Span } from '@altopelago/aeon-lexer';
 import type { Value, Attribute, AttributeValue, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
+import { formatDatatypeAnnotation } from './datatype.js';
 import { formatPath } from './paths.js';
 import { formatReferenceTargetPath } from './reference-target.js';
 
@@ -255,9 +256,9 @@ function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
             for (const attr of value.attributes) {
                 yield* findReferencesInAttribute(attr);
             }
-            for (const child of value.children) {
-                yield* findReferences(child);
-            }
+            // Node children have their own indexed AssignmentEvents. Validating
+            // them again through the outer node would duplicate diagnostics and
+            // report the collapsed owner path instead of the child's occurrence.
             return;
 
         default:
@@ -464,7 +465,11 @@ function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<strin
     const result = new Map<string, AttributeEntry>();
     for (const attribute of attributes) {
         for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = { value: entry.value };
+            const mapped: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
+                value: entry.value,
+                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
+            };
             const nested = buildAnnotationMap(entry.attributes);
             if (nested) {
                 (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;

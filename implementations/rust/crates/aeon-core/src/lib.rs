@@ -3,7 +3,10 @@
 mod flatten;
 mod header;
 mod lexer;
+mod limits;
 mod pathing;
+mod portable;
+mod resource_limits;
 mod sansa;
 mod temporal;
 mod token_parser;
@@ -17,6 +20,14 @@ use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
+pub use portable::{
+    CompileToTelexOptions, CompileToTelexResult, ExportTelexOptions, PortableAesCompatibilityEvent,
+    PortableAesCompatibilityOptions, PortableAesCompatibilityResultV1, PortableAesConversionChange,
+    PortableAesConversionReportV1, PortableAesEvent, PortableAesSourceError,
+    RUST_ASSIGNMENT_EVENTS_CONTRACT_V0, RUST_PORTABLE_AES_ADAPTER_V0,
+    RUST_PORTABLE_AES_ADAPTER_VERSION_V1, adapt_rust_assignment_events_to_portable_aes,
+    compile_to_telex, export_telex, project_portable_events, project_telex_records,
+};
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
     SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
@@ -34,6 +45,14 @@ pub use lexer::{
     CommentChannel, CommentForm, CommentMetadata, LexError, LexResult, LexerOptions,
     ReservedCommentSubtype, Token, TokenKind, tokenize,
 };
+pub use limits::{
+    AEONIC_LIMITS_ID, AEONIC_LIMITS_VERSION, AeonCompileLimits, AeonFormatLimits, AeonicLimitsV1,
+    EffectiveTelexConfiguration, FinalizationLimits, LIMITS_BOOTSTRAP, LimitSetting,
+    LimitsBootstrap, LimitsDiagnostic, ProcessingLimits, StructureLimits, TelexFormatLimits,
+    TransportLimits, aeon_compile_limits, effective_telex_configuration, finalization_limits,
+    load_aeonic_limits, telex_limits,
+};
+use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::parse_document_from_tokens_recovery;
 #[cfg(test)]
 use validation::datatype_has_generic_args;
@@ -52,8 +71,11 @@ fn trace_compile(message: impl AsRef<str>) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
+    /// One-based source line.
     pub line: usize,
+    /// One-based Unicode-scalar column.
     pub column: usize,
+    /// Zero-based UTF-8 byte offset into the exact source artifact.
     pub offset: usize,
 }
 
@@ -178,9 +200,27 @@ pub struct CompileOptions {
     pub max_input_bytes: Option<usize>,
     pub max_events: Option<usize>,
     pub max_attribute_depth: usize,
+    /// Canonical clarifier-value limit. When absent, `max_separator_depth`
+    /// remains a backwards-compatible alias.
+    pub max_clarifier_values: Option<usize>,
+    /// Deprecated compatibility alias; prefer `max_clarifier_values`.
     pub max_separator_depth: usize,
     pub max_generic_depth: usize,
+    pub max_generic_arguments: usize,
+    pub max_datatype_components: usize,
+    /// Canonical logical container-depth limit. When absent,
+    /// `max_nesting_depth` remains a backwards-compatible alias.
+    pub max_value_nesting_depth: Option<usize>,
+    /// Deprecated compatibility alias; prefer `max_value_nesting_depth`.
     pub max_nesting_depth: usize,
+    pub max_path_depth: usize,
+    pub max_string_codepoints: usize,
+    pub max_key_segment_codepoints: usize,
+    pub max_list_items: usize,
+    pub max_tuple_items: usize,
+    pub max_path_characters: usize,
+    pub max_numeric_literal_characters: usize,
+    pub max_structured_comment_characters: usize,
     pub datatype_policy: Option<DatatypePolicy>,
     pub profile: Option<String>,
     pub mode: Option<BehaviorMode>,
@@ -197,9 +237,21 @@ impl Default for CompileOptions {
             max_input_bytes: None,
             max_events: None,
             max_attribute_depth: 1,
+            max_clarifier_values: None,
             max_separator_depth: 1,
             max_generic_depth: 1,
+            max_generic_arguments: 32,
+            max_datatype_components: 64,
+            max_value_nesting_depth: None,
             max_nesting_depth: 256,
+            max_path_depth: 1024,
+            max_string_codepoints: 1_048_576,
+            max_key_segment_codepoints: 1024,
+            max_list_items: 65_536,
+            max_tuple_items: 65_536,
+            max_path_characters: 8192,
+            max_numeric_literal_characters: 1024,
+            max_structured_comment_characters: 1_048_576,
             datatype_policy: None,
             profile: None,
             mode: None,
@@ -208,6 +260,20 @@ impl Default for CompileOptions {
             include_header: true,
             include_event_annotations: true,
         }
+    }
+}
+
+impl CompileOptions {
+    #[must_use]
+    pub fn effective_max_clarifier_values(&self) -> usize {
+        self.max_clarifier_values
+            .unwrap_or(self.max_separator_depth)
+    }
+
+    #[must_use]
+    pub fn effective_max_value_nesting_depth(&self) -> usize {
+        self.max_value_nesting_depth
+            .unwrap_or(self.max_nesting_depth)
     }
 }
 
@@ -227,6 +293,7 @@ pub enum NullLiteralMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     TypedValue {
+        structural_id: Option<String>,
         datatype: Option<String>,
         attributes: BTreeMap<String, AttributeValue>,
         attribute_order: Vec<String>,
@@ -289,9 +356,12 @@ pub enum Value {
     NodeLiteral {
         raw: String,
         tag: String,
+        structural_id: Option<String>,
         attributes: Vec<BTreeMap<String, AttributeValue>>,
+        attribute_order: Vec<String>,
         datatype: Option<String>,
         children: Vec<Value>,
+        head_span: Span,
     },
     ListNode {
         items: Vec<Value>,
@@ -401,24 +471,28 @@ impl Value {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttributeValue {
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub value: Option<Value>,
     pub nested_attrs: BTreeMap<String, AttributeValue>,
     pub nested_attr_order: Vec<String>,
     pub object_members: BTreeMap<String, AttributeValue>,
     pub object_member_order: Vec<String>,
+    pub span: Option<Span>,
 }
 
 impl AttributeValue {
     #[must_use]
     pub fn leaf() -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
             nested_attr_order: Vec::new(),
             object_members: BTreeMap::new(),
             object_member_order: Vec::new(),
+            span: None,
         }
     }
 
@@ -428,12 +502,14 @@ impl AttributeValue {
         nested_attr_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs,
             nested_attr_order,
             object_members: BTreeMap::new(),
             object_member_order: Vec::new(),
+            span: None,
         }
     }
 
@@ -443,17 +519,20 @@ impl AttributeValue {
         object_member_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id: None,
             datatype: None,
             value: None,
             nested_attrs: BTreeMap::new(),
             nested_attr_order: Vec::new(),
             object_members,
             object_member_order,
+            span: None,
         }
     }
 
     #[must_use]
     pub fn with_parts(
+        structural_id: Option<String>,
         datatype: Option<String>,
         value: Option<Value>,
         nested_attrs: BTreeMap<String, AttributeValue>,
@@ -462,12 +541,14 @@ impl AttributeValue {
         object_member_order: Vec<String>,
     ) -> Self {
         Self {
+            structural_id,
             datatype,
             value,
             nested_attrs,
             nested_attr_order,
             object_members,
             object_member_order,
+            span: None,
         }
     }
 }
@@ -475,6 +556,8 @@ impl AttributeValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binding {
     pub key: String,
+    pub is_header: bool,
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub attributes: BTreeMap<String, AttributeValue>,
     pub attribute_order: Vec<String>,
@@ -486,10 +569,19 @@ pub struct Binding {
 pub struct AssignmentEvent {
     pub path: CanonicalPath,
     pub key: String,
+    pub source_plane: SourcePlane,
+    pub structural_id: Option<String>,
     pub datatype: Option<String>,
     pub annotations: BTreeMap<String, AttributeValue>,
+    pub annotation_order: Vec<String>,
     pub value: Value,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourcePlane {
+    Header,
+    Body,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -502,6 +594,8 @@ pub struct BindingProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
+    pub order: Vec<String>,
+    pub spans: BTreeMap<String, Span>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -527,16 +621,12 @@ pub struct PhaseTiming {
 #[must_use]
 pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
     trace_compile("compile:start");
-    let source = strip_leading_bom(input);
-    let source = strip_preamble(&source);
     let warnings = compile_portability_warnings(&options);
-    trace_compile(format!("compile:normalized bytes={}", source.len()));
-
     if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = source.len();
+        let actual_bytes = input.len();
         if actual_bytes > max_bytes {
             return CompileResult {
-                source,
+                source: input.to_owned(),
                 events: Vec::new(),
                 errors: vec![Diagnostic {
                     code: String::from("INPUT_SIZE_EXCEEDED"),
@@ -554,18 +644,33 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
+    let source = input.to_owned();
+    trace_compile(format!("compile:normalized bytes={}", source.len()));
+
     let parsed = parse_document_from_tokens_recovery(
         &source,
-        options.max_nesting_depth,
+        options.effective_max_value_nesting_depth(),
         options.max_attribute_depth,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        options.max_generic_arguments,
+        options.max_datatype_components,
     );
     if !parsed.errors.is_empty() {
         return CompileResult {
             source,
             events: Vec::new(),
             errors: parsed.errors,
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
+    }
+    if let Some(error) = validate_source_resource_limits(input, &parsed.bindings, &options) {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![error],
             warnings,
             bindings: Vec::new(),
             header: None,
@@ -583,10 +688,12 @@ pub fn benchmark_validation_phases(
     let parse_start = std::time::Instant::now();
     let parsed = parse_document_tokens(
         &source,
-        options.max_nesting_depth,
+        options.effective_max_value_nesting_depth(),
         options.max_attribute_depth,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        options.max_generic_arguments,
+        options.max_datatype_components,
     )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
@@ -609,8 +716,9 @@ pub fn benchmark_validation_phases(
         &flattened.events,
         &event_lookup,
         &lowered,
+        options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut datatype_errors,
     );
@@ -643,12 +751,15 @@ pub fn benchmark_validation_phases(
 
 pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
+    let defaults = CompileOptions::default();
     token_parser::parse_document_from_tokens(
         &source,
-        CompileOptions::default().max_nesting_depth,
-        CompileOptions::default().max_attribute_depth,
-        CompileOptions::default().max_separator_depth,
-        CompileOptions::default().max_generic_depth,
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
     )
     .map(|_| ())
 }
@@ -659,6 +770,8 @@ fn parse_document_tokens(
     max_attribute_depth: usize,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
     token_parser::parse_document_from_tokens(
         source,
@@ -666,6 +779,8 @@ fn parse_document_tokens(
         max_attribute_depth,
         max_separator_depth,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
 }
 
@@ -710,22 +825,25 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
-    if let Some(max_events) = options.max_events {
-        if flattened.events.len() > max_events {
-            return CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![event_count_exceeded_error(
-                    flattened.events.len(),
-                    max_events,
-                )],
-                warnings,
-                bindings: Vec::new(),
-                header: options
-                    .include_header
-                    .then(|| extract_header_fields(&bindings)),
-            };
-        }
+    if let Some(error) = validate_event_path_limits(&flattened.events, &options) {
+        errors.push(error);
+    }
+    if let Some(max_events) = options.max_events
+        && flattened.events.len() > max_events
+    {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![event_count_exceeded_error(
+                flattened.events.len(),
+                max_events,
+            )],
+            warnings,
+            bindings: Vec::new(),
+            header: options
+                .include_header
+                .then(|| extract_header_fields(&bindings)),
+        };
     }
     validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
     let indexes = build_validation_indexes(&flattened);
@@ -738,8 +856,9 @@ fn finalize_compile(
         &flattened.rendered_event_paths,
         &indexes.event_lookup,
         &bindings,
+        options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut errors,
     );
@@ -795,20 +914,20 @@ fn validate_only_compile(
     let mut errors = Vec::new();
     validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
-    if let Some(max_events) = options.max_events {
-        if flattened.events.len() > max_events {
-            return CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![event_count_exceeded_error(
-                    flattened.events.len(),
-                    max_events,
-                )],
-                warnings,
-                bindings: Vec::new(),
-                header: None,
-            };
-        }
+    if let Some(max_events) = options.max_events
+        && flattened.events.len() > max_events
+    {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![event_count_exceeded_error(
+                flattened.events.len(),
+                max_events,
+            )],
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
     }
     trace_compile(format!(
         "compile:validation_only:flattened events={} ref_steps={} ref_targets={}",
@@ -823,8 +942,9 @@ fn validate_only_compile(
         &flattened.events,
         &event_lookup,
         &bindings,
+        options.mode,
         options.datatype_policy,
-        options.max_separator_depth,
+        options.effective_max_clarifier_values(),
         options.max_generic_depth,
         &mut errors,
     );
@@ -884,7 +1004,8 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
         return true;
     }
     bindings.iter().any(|binding| {
-        binding.key == "aeon:profile"
+        binding.is_header
+            && binding.key == "aeon:profile"
             && matches!(
                 &binding.value,
                 Value::StringLiteral { value, .. } if value == AEON_GP_PROFILE_ID
@@ -908,7 +1029,13 @@ fn validate_gp_datatype_clarifiers(
             .get(index)
             .cloned()
             .unwrap_or_else(|| format_path(&event.path));
-        validate_gp_datatype_surface(&surface, &rendered_path, event.span, errors);
+        validate_gp_datatype_surface(
+            &surface,
+            &rendered_path,
+            event.span,
+            errors,
+            gp_custom_clarifier_literal(&event.value),
+        );
     }
 }
 
@@ -923,7 +1050,13 @@ fn validate_gp_validation_datatype_clarifiers(
         let Some(surface) = parse_gp_datatype_surface(datatype) else {
             continue;
         };
-        validate_gp_datatype_surface(&surface, &event.path, event.span, errors);
+        validate_gp_datatype_surface(
+            &surface,
+            &event.path,
+            event.span,
+            errors,
+            gp_custom_clarifier_literal(&event.value),
+        );
     }
 }
 
@@ -932,6 +1065,7 @@ fn validate_gp_datatype_surface(
     rendered_path: &str,
     span: Span,
     errors: &mut Vec<Diagnostic>,
+    custom_clarifier_literal: bool,
 ) {
     if let Some(clarifiers) = &datatype.clarifiers {
         match gp_datatype_clarifier_rule(&datatype.name) {
@@ -986,6 +1120,7 @@ fn validate_gp_datatype_surface(
                     );
                 }
             }
+            None if custom_clarifier_literal => {}
             Some(GpDatatypeClarifierRule::None) | None => {
                 errors.push(
                     Diagnostic::new(
@@ -1003,7 +1138,15 @@ fn validate_gp_datatype_surface(
     }
 
     for arg in &datatype.args {
-        validate_gp_datatype_surface(arg, rendered_path, span, errors);
+        validate_gp_datatype_surface(arg, rendered_path, span, errors, false);
+    }
+}
+
+fn gp_custom_clarifier_literal(value: &Value) -> bool {
+    match value {
+        Value::SeparatorLiteral { .. } | Value::RadixLiteral { .. } => true,
+        Value::TypedValue { value, .. } => gp_custom_clarifier_literal(value),
+        _ => false,
     }
 }
 
@@ -1257,10 +1400,10 @@ fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     warn_if_above(
         &mut warnings,
         "AEON_NON_PORTABLE_POLICY_DEPTH",
-        "max_separator_depth",
-        options.max_separator_depth,
+        "max_clarifier_values",
+        options.effective_max_clarifier_values(),
         8,
-        defaults.max_separator_depth,
+        defaults.effective_max_clarifier_values(),
     );
     warn_if_above(
         &mut warnings,
@@ -1273,10 +1416,10 @@ fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     warn_if_above(
         &mut warnings,
         "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
-        "max_nesting_depth",
-        options.max_nesting_depth,
+        "max_value_nesting_depth",
+        options.effective_max_value_nesting_depth(),
         64,
-        defaults.max_nesting_depth,
+        defaults.effective_max_value_nesting_depth(),
     );
     if let Some(max_events) = options.max_events {
         warn_if_above(
@@ -1326,11 +1469,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strips_leading_bom_before_processing() {
+    fn retains_leading_bom_in_exact_source_coordinates() {
         let result = compile("\u{feff}hello = 1", CompileOptions::default());
-        assert_eq!(result.source, "hello = 1");
+        assert_eq!(result.source, "\u{feff}hello = 1");
         assert!(result.errors.is_empty());
         assert!(result.warnings.is_empty());
+        assert_eq!(result.events[0].span.start.offset, 3);
+        assert_eq!(result.events[0].span.start.column, 2);
+    }
+
+    #[test]
+    fn retains_preamble_and_crlf_in_exact_source_coordinates() {
+        let source = "\u{feff}#!/usr/bin/env aeon\r\n//! format:aeon.test.v1\r\nvalue = 1";
+        let result = compile(source, CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.source, source);
+        assert_eq!(
+            result.events[0].span.start.offset,
+            source.find("value").expect("value")
+        );
+        assert_eq!(result.events[0].span.start.line, 3);
+        assert_eq!(result.events[0].span.start.column, 1);
     }
 
     #[test]
@@ -1345,6 +1504,19 @@ mod tests {
 
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
+    }
+
+    #[test]
+    fn input_byte_limit_includes_the_utf8_bom() {
+        let result = compile(
+            "\u{feff}a=1",
+            CompileOptions {
+                max_input_bytes: Some(3),
+                ..CompileOptions::default()
+            },
+        );
+
         assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
     }
 
@@ -1415,6 +1587,63 @@ mod tests {
         assert_eq!(result.bindings[0].path, "$.a");
         assert_eq!(result.bindings[0].datatype.as_deref(), Some("number"));
         assert_eq!(result.events[0].value.value_kind(), "NumberLiteral");
+    }
+
+    #[test]
+    fn preserves_structural_identity_on_binding_and_anonymous_events() {
+        let result = compile(
+            "age\\A1\\@{source = \"user\"}:int32 = 42\nitems = [\\B2\\ = \"red\", \\C3\\:string = \"green\"]",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].structural_id.as_deref(), Some("A1"));
+        assert_eq!(result.events[2].structural_id.as_deref(), Some("B2"));
+        assert_eq!(result.events[3].structural_id.as_deref(), Some("C3"));
+    }
+
+    #[test]
+    fn preserves_structural_identity_on_attribute_entry_and_node_heads() {
+        let result = compile(
+            "value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.events[0].annotations["source"]
+                .structural_id
+                .as_deref(),
+            Some("META")
+        );
+        match &result.events[0].value {
+            Value::NodeLiteral { structural_id, .. } => {
+                assert_eq!(structural_id.as_deref(), Some("HEAD"));
+            }
+            other => panic!("expected node literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_identity_across_attribute_and_node_heads() {
+        let result = compile(
+            "value@{source\\same\\ = \"user\"} = <tag\\same\\>",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
+    }
+
+    #[test]
+    fn rejects_duplicate_and_malformed_structural_identity() {
+        let duplicate = compile("a\\A1\\ = 1\nb = [\\A1\\ = 2]", CompileOptions::default());
+        assert_eq!(duplicate.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
+
+        let malformed = compile("a\\bad.id\\ = 1", CompileOptions::default());
+        assert_eq!(malformed.errors[0].code, "INVALID_STRUCTURAL_IDENTITY");
+
+        let misplaced = compile(
+            "a@{source = \"user\"}\\A1\\:int32 = 1",
+            CompileOptions::default(),
+        );
+        assert_eq!(misplaced.errors[0].code, "SYNTAX_ERROR");
     }
 
     #[test]
@@ -2472,20 +2701,28 @@ mod tests {
     }
 
     #[test]
-    fn rejects_oversized_radix_base_with_specific_radix_base_error() {
+    fn accepts_numeric_radix_clarifiers_for_downstream_validation() {
         let result = compile(
-            "a:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
+            "a:radix[.2] = %2\nb:radix[1] = %2\nc:radix[65] = %2\nd:radix[333333333333333333333333333333333333333333333333333333] = %2\n",
             CompileOptions::default(),
         );
-        assert!(result.errors.iter().any(|error| {
-            error.code == "SYNTAX_ERROR"
-                && error.message.contains("must be `radix` or `radix[2..64]`")
-        }));
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("radix[0.2]"));
+        assert_eq!(result.events[1].datatype.as_deref(), Some("radix[1]"));
+        assert_eq!(result.events[2].datatype.as_deref(), Some("radix[65]"));
+    }
+
+    #[test]
+    fn rejects_invalid_numeric_datatype_clarifiers() {
+        let result = compile("a:radix[03] = %2\n", CompileOptions::default());
+        assert!(result.events.is_empty());
         assert!(
-            !result
+            result
                 .errors
                 .iter()
-                .any(|error| error.code == "INVALID_SEPARATOR_CHAR")
+                .any(|error| error.code == "INVALID_NUMBER"),
+            "{:?}",
+            result.errors
         );
     }
 
@@ -2830,6 +3067,49 @@ mod tests {
         );
         assert!(result.events.is_empty());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
+    }
+
+    #[test]
+    fn gp_profile_allows_custom_clarifiers_for_separator_and_radix_literals() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nversion:ver[\".\"] = ^1.2.0\nseparator_numeric:custom[2] = ^a2a\nradix_numeric:bits[2] = %10101\nradix_string:bits[\"binary\"] = %10101\n",
+            CompileOptions {
+                mode: Some(BehaviorMode::Strict),
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result
+                .events
+                .iter()
+                .map(|event| event.datatype.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("ver[\".\"]"),
+                Some("custom[2]"),
+                Some("bits[2]"),
+                Some("bits[\"binary\"]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn gp_profile_rejects_custom_clarifiers_for_other_literal_families() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nvalue:custom[\".\"] = \"1.2.0\"\n",
+            CompileOptions {
+                mode: Some(BehaviorMode::Strict),
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.events.is_empty());
         assert_eq!(
             result.errors[0].code,
             "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"

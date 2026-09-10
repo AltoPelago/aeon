@@ -6,6 +6,49 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## 0.12.1 - 2026-09-11
+
+### Added
+
+- Added explicit portable AES projections for TypeScript, Rust, and Python,
+  including value-less `NodeLiteral` containers, indexed `NodeHead` events,
+  recursively flattened attributes and descendants, and structure-aware
+  reference-target translation.
+- Added portable AES inspect output and contract tests across the TypeScript,
+  Rust, and Python CLI surfaces.
+
+### Changed
+
+- Advanced TypeScript, Rust, and Python AES conformance claims and default CTS
+  lanes to the immutable `aes-cts-v1-snapshot-0.3`, while retaining explicit
+  historical 0.2 and mutable 0.4 commands.
+- Standardized portable AES `kind` values on the normative AEON representation
+  names, including `StringLiteral`, `ObjectNode`, `NodeLiteral`, `NodeHead`,
+  `CloneReference`, and `WTCDateTimeLiteral`.
+- Updated TypeScript SANSA consumers to require the prepared
+  `@altopelago/sansa@0.10.1` patch release.
+
+### Fixed
+
+- Enforced caller-selected AES structural limits during Telex encoding in
+  TypeScript and Python, so callers cannot bypass those limits by omitting a
+  separate validation call.
+- Preserved structural identities across node and attribute AST surfaces,
+  matter resolution, debug and JSON projections, and clone materialization.
+- Kept identity as occurrence metadata rather than path identity.
+- Aligned AEOS Telex adaptation across TypeScript, Rust, and Python: flat
+  attributes now participate in owner constraints, Python validates the
+  adapted stream instead of an empty normalization result, and Rust preserves
+  portable numeric indexes for list, tuple, and node paths.
+- Added AEOS adapter regressions for decomposed datatypes, explicit node heads,
+  node-content cardinality, WTC kinds, nested attributes, and structural
+  identity metadata.
+- Enforced exact lowercase `local` for the reserved WTC resolver-local
+  reference while preserving authored case for named references.
+- Aligned datatype-clarifier parsing across the implementation surfaces.
+- Pinned the Rust Telex codec to an immutable public AES revision and made
+  limits-policy conformance fixtures independent of sibling checkout layout.
+
 ## 0.12.0 - 2026-08-10
 
 ### Breaking
@@ -21,6 +64,15 @@ repositories.
   form enforcement for declared radix constraints.
 - Added WTC temporal-reference support for geographic coordinate payloads such
   as `2035-01-01T09:00&-36.7590183/144.2826718`.
+- Added structural identity parsing, validation, canonical preservation, and AES
+  metadata support to the Rust, Python, and PHP implementations, with shared CTS
+  coverage for named and anonymous heads, invalid forms, and duplicates.
+
+### Fixed
+
+- Applied explicit Rust CLI transport/strict mode overrides during Core datatype
+  validation, including fail-closed rejection of the retired `zrut` datatype in
+  strict mode.
 
 ## 0.11.0 - 2026-07-24
 

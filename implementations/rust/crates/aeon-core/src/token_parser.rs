@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
 use crate::sansa::parse_address as parse_sansa_address;
@@ -28,10 +28,12 @@ fn is_bare_key_kind(kind: TokenKind) -> bool {
 
 pub(crate) fn parse_document_from_tokens(
     input: &str,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
@@ -51,10 +53,12 @@ pub(crate) fn parse_document_from_tokens(
     }
     TokenParser::new(
         &lexed.tokens,
-        max_nesting_depth,
+        max_value_nesting_depth,
         max_attribute_depth,
-        max_separator_depth,
+        max_clarifier_values,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
     .parse_document()
 }
@@ -66,10 +70,12 @@ pub(crate) struct ParseRecoveryResult {
 
 pub(crate) fn parse_document_from_tokens_recovery(
     input: &str,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
 ) -> ParseRecoveryResult {
     let lexed = tokenize(
         input,
@@ -96,10 +102,12 @@ pub(crate) fn parse_document_from_tokens_recovery(
     }
     TokenParser::new(
         &lexed.tokens,
-        max_nesting_depth,
+        max_value_nesting_depth,
         max_attribute_depth,
-        max_separator_depth,
+        max_clarifier_values,
         max_generic_depth,
+        max_generic_arguments,
+        max_datatype_components,
     )
     .parse_document_recovery()
 }
@@ -107,29 +115,37 @@ pub(crate) fn parse_document_from_tokens_recovery(
 struct TokenParser<'a> {
     tokens: &'a [Token],
     current: usize,
-    max_nesting_depth: usize,
+    max_value_nesting_depth: usize,
     current_nesting_depth: usize,
     max_attribute_depth: usize,
-    max_separator_depth: usize,
+    max_clarifier_values: usize,
     max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
+    structural_identities: HashSet<String>,
 }
 
 impl<'a> TokenParser<'a> {
     fn new(
         tokens: &'a [Token],
-        max_nesting_depth: usize,
+        max_value_nesting_depth: usize,
         max_attribute_depth: usize,
-        max_separator_depth: usize,
+        max_clarifier_values: usize,
         max_generic_depth: usize,
+        max_generic_arguments: usize,
+        max_datatype_components: usize,
     ) -> Self {
         Self {
             tokens,
             current: 0,
-            max_nesting_depth,
+            max_value_nesting_depth,
             current_nesting_depth: 0,
             max_attribute_depth,
-            max_separator_depth,
+            max_clarifier_values,
             max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+            structural_identities: HashSet::new(),
         }
     }
 
@@ -186,7 +202,9 @@ impl<'a> TokenParser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let start = self.peek().span.start;
-        let key = self.parse_key()?;
+        let (key, is_header) = self.parse_key()?;
+        self.skip_newlines();
+        let structural_id = self.parse_optional_structural_identity()?;
         self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
@@ -224,6 +242,8 @@ impl<'a> TokenParser<'a> {
         let end = self.previous().span.end;
         Ok(Binding {
             key,
+            is_header,
+            structural_id,
             datatype,
             attributes,
             attribute_order,
@@ -232,7 +252,7 @@ impl<'a> TokenParser<'a> {
         })
     }
 
-    fn parse_key(&mut self) -> Result<String, Diagnostic> {
+    fn parse_key(&mut self) -> Result<(String, bool), Diagnostic> {
         let token = self.peek();
         match token.kind {
             kind if is_bare_key_kind(kind) => {
@@ -247,11 +267,11 @@ impl<'a> TokenParser<'a> {
                             TokenKind::Identifier,
                             "Expected header field after `aeon:`",
                         )?;
-                        return Ok(format!("aeon:{}", field.text));
+                        return Ok((format!("aeon:{}", field.text), true));
                     }
                     self.current = saved;
                 }
-                Ok(self.advance().text.clone())
+                Ok((self.advance().text.clone(), false))
             }
             TokenKind::String => {
                 if token.quote == Some('`') {
@@ -264,29 +284,23 @@ impl<'a> TokenParser<'a> {
                         .at_path("$")
                         .with_span(token.span));
                 }
-                Ok(key)
+                Ok((key, false))
             }
             _ => Err(self.error_at_current("Expected key")),
         }
     }
 
     fn parse_simple_datatype(&mut self) -> Result<String, Diagnostic> {
-        self.parse_datatype_annotation(0)
+        let mut component_count = 0;
+        self.parse_datatype_annotation(0, &mut component_count)
     }
 
-    fn parse_datatype_annotation(&mut self, generic_depth: usize) -> Result<String, Diagnostic> {
-        if generic_depth > self.max_generic_depth {
-            return Err(Diagnostic {
-                code: String::from("GENERIC_DEPTH_EXCEEDED"),
-                path: Some(String::from("$")),
-                span: Some(self.peek().span),
-                phase: None,
-                message: format!(
-                    "Generic depth {} exceeds max_generic_depth {}",
-                    generic_depth, self.max_generic_depth
-                ),
-            });
-        }
+    fn parse_datatype_annotation(
+        &mut self,
+        generic_depth: usize,
+        component_count: &mut usize,
+    ) -> Result<String, Diagnostic> {
+        self.count_datatype_component(component_count, self.peek().span)?;
 
         let start = self.current;
         if self.peek().kind == TokenKind::String {
@@ -298,13 +312,25 @@ impl<'a> TokenParser<'a> {
                 message: String::from("Quoted type names are not supported"),
             });
         }
-        let datatype_name = self
-            .consume(TokenKind::Identifier, "Expected datatype annotation")?
-            .text
-            .clone();
+        if !is_bare_key_kind(self.peek().kind) {
+            return Err(self.error_at_current("Expected datatype annotation"));
+        }
+        let datatype_name = self.advance().text.clone();
         self.skip_newlines();
 
         if self.match_kind(TokenKind::LeftAngle) {
+            if generic_depth > self.max_generic_depth {
+                return Err(Diagnostic {
+                    code: String::from("GENERIC_DEPTH_EXCEEDED"),
+                    path: Some(String::from("$")),
+                    span: Some(self.previous().span),
+                    phase: None,
+                    message: format!(
+                        "Generic depth {} exceeds max_generic_depth {}",
+                        generic_depth, self.max_generic_depth
+                    ),
+                });
+            }
             if datatype_name == "radix" {
                 return Err(Diagnostic {
                     code: String::from("SYNTAX_ERROR"),
@@ -317,17 +343,32 @@ impl<'a> TokenParser<'a> {
                 });
             }
             self.skip_newlines();
+            let mut generic_count = 0usize;
             loop {
                 match self.peek().kind {
-                    TokenKind::Identifier => {
-                        self.parse_datatype_annotation(generic_depth + 1)?;
+                    kind if is_bare_key_kind(kind) => {
+                        self.parse_datatype_annotation(generic_depth + 1, component_count)?;
                     }
                     TokenKind::Number => {
-                        self.advance();
+                        let span = self.advance().span;
+                        self.count_datatype_component(component_count, span)?;
                     }
                     _ => {
                         return Err(self.error_at_current("Expected generic argument"));
                     }
+                }
+                generic_count += 1;
+                if generic_count > self.max_generic_arguments {
+                    return Err(Diagnostic {
+                        code: String::from("GENERIC_ARGUMENTS_EXCEEDED"),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message: format!(
+                            "Generic argument count {generic_count} exceeds max_generic_arguments {}",
+                            self.max_generic_arguments
+                        ),
+                    });
                 }
 
                 self.skip_newlines();
@@ -347,21 +388,48 @@ impl<'a> TokenParser<'a> {
                 self.skip_newlines();
                 let token = self.peek().clone();
                 match token.kind {
-                    TokenKind::Number | TokenKind::String => {
+                    TokenKind::Number => {
+                        if !is_valid_number_literal(&token.text) {
+                            return Err(Diagnostic {
+                                code: String::from("INVALID_NUMBER"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!("Number literal `{}` is not valid", token.text),
+                            });
+                        }
                         self.advance();
                         clarifier_count += 1;
-                        if clarifier_count > self.max_separator_depth {
+                        if clarifier_count > self.max_clarifier_values {
                             return Err(Diagnostic {
-                                code: String::from("SEPARATOR_DEPTH_EXCEEDED"),
+                                code: String::from("CLARIFIER_VALUES_EXCEEDED"),
                                 path: Some(String::from("$")),
                                 span: Some(token.span),
                                 phase: None,
                                 message: format!(
-                                    "Clarifier value count {clarifier_count} exceeds max_separator_depth {}",
-                                    self.max_separator_depth
+                                    "Clarifier value count {clarifier_count} exceeds max_clarifier_values {}",
+                                    self.max_clarifier_values
                                 ),
                             });
                         }
+                        self.count_datatype_component(component_count, token.span)?;
+                    }
+                    TokenKind::String => {
+                        self.advance();
+                        clarifier_count += 1;
+                        if clarifier_count > self.max_clarifier_values {
+                            return Err(Diagnostic {
+                                code: String::from("CLARIFIER_VALUES_EXCEEDED"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!(
+                                    "Clarifier value count {clarifier_count} exceeds max_clarifier_values {}",
+                                    self.max_clarifier_values
+                                ),
+                            });
+                        }
+                        self.count_datatype_component(component_count, token.span)?;
                     }
                     TokenKind::RightBracket if clarifier_count == 0 => {
                         return Err(self.error_at_current(
@@ -392,13 +460,40 @@ impl<'a> TokenParser<'a> {
 
         let datatype = self.tokens[start..self.current]
             .iter()
-            .map(|token| token.text.as_str())
-            .collect::<String>()
+            .fold(String::new(), |mut datatype, token| {
+                if token.kind == TokenKind::Number {
+                    datatype.push_str(&crate::normalize_number_literal(&token.text));
+                } else {
+                    datatype.push_str(&token.text);
+                }
+                datatype
+            })
             .chars()
             .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
             .collect::<String>();
         validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
         Ok(datatype)
+    }
+
+    fn count_datatype_component(
+        &self,
+        component_count: &mut usize,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        *component_count += 1;
+        if *component_count > self.max_datatype_components {
+            return Err(Diagnostic {
+                code: String::from("DATATYPE_COMPONENTS_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Datatype component count {} exceeds max_datatype_components {}",
+                    *component_count, self.max_datatype_components
+                ),
+            });
+        }
+        Ok(())
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -420,12 +515,12 @@ impl<'a> TokenParser<'a> {
                     span: Some(span),
                     phase: None,
                     message: format!(
-                        "Value nesting depth {} exceeds max_nesting_depth {}",
-                        projected_depth, self.max_nesting_depth
+                        "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                        projected_depth, self.max_value_nesting_depth
                     ),
                 });
             }
-            if self.current_nesting_depth > self.max_nesting_depth {
+            if self.current_nesting_depth > self.max_value_nesting_depth {
                 let span = self.peek().span;
                 let observed_depth = self.current_nesting_depth;
                 self.current_nesting_depth -= 1;
@@ -435,8 +530,8 @@ impl<'a> TokenParser<'a> {
                     span: Some(span),
                     phase: None,
                     message: format!(
-                        "Value nesting depth {} exceeds max_nesting_depth {}",
-                        observed_depth, self.max_nesting_depth
+                        "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                        observed_depth, self.max_value_nesting_depth
                     ),
                 });
             }
@@ -449,9 +544,14 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if !self.check(TokenKind::Colon) && !self.check(TokenKind::At) {
+        if !self.check(TokenKind::StructuralIdentity)
+            && !self.check(TokenKind::Colon)
+            && !self.check(TokenKind::At)
+        {
             return self.parse_value();
         }
+        let structural_id = self.parse_optional_structural_identity()?;
+        self.skip_newlines();
         let mut attributes = BTreeMap::new();
         let mut attribute_order = Vec::new();
         if self.check(TokenKind::At) {
@@ -483,11 +583,29 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         let value = self.parse_value()?;
         Ok(Value::TypedValue {
+            structural_id,
             datatype,
             attributes,
             attribute_order,
             value: Box::new(value),
         })
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
+        if !self.check(TokenKind::StructuralIdentity) {
+            return Ok(None);
+        }
+        let token = self.advance();
+        let structural_id = token.text.clone();
+        if !self.structural_identities.insert(structural_id.clone()) {
+            return Err(Diagnostic::new(
+                "DUPLICATE_STRUCTURAL_IDENTITY",
+                format!("Duplicate structural identity: '{structural_id}'"),
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(Some(structural_id))
     }
 
     fn projected_opening_container_depth(&self) -> Option<usize> {
@@ -504,7 +622,7 @@ impl<'a> TokenParser<'a> {
         // parse_value() has already counted the current value slot, so only the
         // additional nested container openers beyond that first value add depth.
         let projected_depth = self.current_nesting_depth + extra_depth.saturating_sub(1);
-        (projected_depth > self.max_nesting_depth).then_some(projected_depth)
+        (projected_depth > self.max_value_nesting_depth).then_some(projected_depth)
     }
 
     fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {
@@ -969,13 +1087,23 @@ impl<'a> TokenParser<'a> {
         let start_index = self.current;
         self.consume(TokenKind::LeftAngle, "Expected `<`")?;
         self.skip_newlines();
+        let head_start = self.peek().span.start;
         let tag = self.parse_node_tag()?;
+        let mut head_end = self.previous().span.end;
+        self.skip_newlines();
+        let structural_id = self.parse_optional_structural_identity()?;
+        if structural_id.is_some() {
+            head_end = self.previous().span.end;
+        }
 
         let mut attributes = Vec::new();
+        let mut attribute_order = Vec::new();
         self.skip_newlines();
         if self.check(TokenKind::At) {
-            let (attribute_map, _) = self.parse_attribute_block(1)?;
+            let (attribute_map, parsed_order) = self.parse_attribute_block(1)?;
+            head_end = self.previous().span.end;
             attributes.push(attribute_map);
+            attribute_order = parsed_order;
             self.skip_newlines();
             if self.check(TokenKind::At) {
                 return Err(self.error_at_current(
@@ -987,6 +1115,7 @@ impl<'a> TokenParser<'a> {
         let mut datatype = None;
         if self.match_kind(TokenKind::Colon) {
             let parsed = self.parse_simple_datatype()?;
+            head_end = self.previous_non_newline().span.end;
             let base = datatype_base(&parsed);
             if (parsed.contains('<') && base != "node")
                 || !datatype_bracket_specs(&parsed).is_empty()
@@ -1005,9 +1134,15 @@ impl<'a> TokenParser<'a> {
             return Ok(Value::NodeLiteral {
                 raw,
                 tag,
+                structural_id,
                 attributes,
+                attribute_order,
                 datatype,
                 children,
+                head_span: Span {
+                    start: head_start,
+                    end: head_end,
+                },
             });
         }
 
@@ -1022,9 +1157,15 @@ impl<'a> TokenParser<'a> {
         Ok(Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
+            attribute_order,
             datatype,
             children,
+            head_span: Span {
+                start: head_start,
+                end: head_end,
+            },
         })
     }
 
@@ -1062,6 +1203,7 @@ impl<'a> TokenParser<'a> {
             return Ok(AttributeValue::with_parts(
                 None,
                 None,
+                None,
                 BTreeMap::new(),
                 Vec::new(),
                 members,
@@ -1070,6 +1212,7 @@ impl<'a> TokenParser<'a> {
         }
         let value = self.parse_value()?;
         Ok(AttributeValue::with_parts(
+            None,
             None,
             Some(value),
             BTreeMap::new(),
@@ -1133,10 +1276,13 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         while !self.check(terminator) {
             let key_span = self.peek().span;
-            let key = self.parse_key()?;
+            let entry_start = key_span.start;
+            let (key, _) = self.parse_key()?;
             if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }
+            self.skip_newlines();
+            let structural_id = self.parse_optional_structural_identity()?;
             self.skip_newlines();
             let mut datatype = None;
             let mut nested_attrs = BTreeMap::new();
@@ -1167,6 +1313,7 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Equals, equals_message)?;
             self.skip_newlines();
             let value = self.parse_attribute_value_shape()?;
+            let entry_end = self.previous().span.end;
             if members.contains_key(&key) {
                 return Err(
                     Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{key}'"))
@@ -1174,17 +1321,20 @@ impl<'a> TokenParser<'a> {
                         .with_span(key_span),
                 );
             }
-            members.insert(
-                key.clone(),
-                AttributeValue::with_parts(
-                    datatype,
-                    value.value,
-                    nested_attrs,
-                    nested_attr_order,
-                    value.object_members,
-                    value.object_member_order,
-                ),
+            let mut entry = AttributeValue::with_parts(
+                structural_id,
+                datatype,
+                value.value,
+                nested_attrs,
+                nested_attr_order,
+                value.object_members,
+                value.object_member_order,
             );
+            entry.span = Some(Span {
+                start: entry_start,
+                end: entry_end,
+            });
+            members.insert(key.clone(), entry);
             if !member_order.contains(&key) {
                 member_order.push(key);
             }
@@ -1297,6 +1447,14 @@ impl<'a> TokenParser<'a> {
 
     fn previous(&self) -> &'a Token {
         &self.tokens[self.current.saturating_sub(1)]
+    }
+
+    fn previous_non_newline(&self) -> &'a Token {
+        self.tokens[..self.current]
+            .iter()
+            .rev()
+            .find(|token| token.kind != TokenKind::Newline)
+            .unwrap_or_else(|| self.previous())
     }
 
     fn peek(&self) -> &'a Token {
@@ -1505,7 +1663,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
 }
 
 fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
-    if token.text.starts_with('"') && token.text[1..token.text.len() - 1].contains(['\n', '\r']) {
+    if !token.text.starts_with('`') && token.text[1..token.text.len() - 1].contains(['\n', '\r']) {
         return Err(
             Diagnostic::new("UNTERMINATED_STRING", "Unterminated string")
                 .at_path("$")
@@ -1731,7 +1889,7 @@ mod tests {
     use crate::{TrimtickMetadata, Value};
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
-        parse_document_from_tokens(input, 256, 1, 1, 1)
+        parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
     }
 
     #[test]
@@ -1781,6 +1939,31 @@ group:object = {
     }
 
     #[test]
+    fn parses_literal_words_as_datatype_names() {
+        let bindings = parse(
+            "a:yes = yes\nb:no = no\nc:on = on\nd:off = off\ne:true = true\nf:false = false\ng:list<yes> = [yes]\n",
+        )
+        .expect("literal-word datatype names should parse");
+
+        let datatypes = bindings
+            .iter()
+            .map(|binding| binding.datatype.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            datatypes,
+            vec![
+                Some("yes"),
+                Some("no"),
+                Some("on"),
+                Some("off"),
+                Some("true"),
+                Some("false"),
+                Some("list<yes>"),
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_malformed_bare_number_tokens() {
         let error = parse("a = 1-1\n").expect_err("expected invalid number");
         assert_eq!(error.code, "INVALID_NUMBER");
@@ -1824,7 +2007,7 @@ group:object = {
 
     #[test]
     fn rejects_repeated_attribute_heads_on_attribute_entries_from_tokens() {
-        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1)
+        let error = parse_document_from_tokens("a@{x@{y=1}@{z=2}=3} = 4", 256, 8, 1, 1, 32, 64)
             .expect_err("repeated attribute entry heads should fail");
         assert_eq!(error.code, "SYNTAX_ERROR");
     }
@@ -2118,9 +2301,11 @@ group:object = {
 
     #[test]
     fn rejects_literal_newlines_inside_quoted_strings() {
-        let error = parse("value = \"line1\nline2\"\n").expect_err("expected unterminated string");
-        assert_eq!(error.code, "UNTERMINATED_STRING");
-        assert_eq!(error.message, "Unterminated string");
+        for source in ["value = \"line1\nline2\"\n", "value = 'line1\nline2'\n"] {
+            let error = parse(source).expect_err("expected unterminated string");
+            assert_eq!(error.code, "UNTERMINATED_STRING", "{source}");
+            assert_eq!(error.message, "Unterminated string", "{source}");
+        }
     }
 
     #[test]
@@ -2223,17 +2408,17 @@ group:object = {
     #[test]
     fn rejects_deep_valid_nesting_with_structured_diagnostic() {
         let source = format!("v = {}0{}", "[".repeat(300), "]".repeat(300));
-        let error =
-            parse_document_from_tokens(&source, 256, 1, 1, 1).expect_err("expected nesting error");
+        let error = parse_document_from_tokens(&source, 256, 1, 1, 1, 32, 64)
+            .expect_err("expected nesting error");
         assert_eq!(error.code, "NESTING_DEPTH_EXCEEDED");
-        assert!(error.message.contains("max_nesting_depth 256"));
+        assert!(error.message.contains("max_value_nesting_depth 256"));
     }
 
     #[test]
     fn honors_configured_generic_depth_limit() {
         let source = "v:tuple<tuple<number>> = ((1))\n";
-        let bindings =
-            parse_document_from_tokens(source, 256, 1, 1, 2).expect("expected generic depth pass");
+        let bindings = parse_document_from_tokens(source, 256, 1, 1, 1, 32, 64)
+            .expect("expected generic depth pass");
         assert_eq!(
             bindings[0].datatype.as_deref(),
             Some("tuple<tuple<number>>")
@@ -2242,9 +2427,9 @@ group:object = {
 
     #[test]
     fn reports_generic_depth_without_off_by_one_message() {
-        let source = "v:tuple<tuple<number>> = ((1))\n";
-        let error =
-            parse_document_from_tokens(source, 256, 1, 1, 1).expect_err("expected depth error");
+        let source = "v:tuple<tuple<tuple<number>>> = (((1)))\n";
+        let error = parse_document_from_tokens(source, 256, 1, 1, 1, 32, 64)
+            .expect_err("expected depth error");
         assert_eq!(error.code, "GENERIC_DEPTH_EXCEEDED");
         assert_eq!(error.message, "Generic depth 2 exceeds max_generic_depth 1");
     }

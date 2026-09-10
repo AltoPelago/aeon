@@ -17,6 +17,7 @@ from repo_paths import get_aeonite_cts_root
 class LaneCommand:
     name: str
     command: list[str]
+    default: bool = True
 
 
 def main() -> int:
@@ -38,10 +39,52 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
+                cts_manifest("core", "v1", "core-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "core",
+            ],
+        ),
+        LaneCommand(
+            name="core-released",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("core", "v1", "core-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "core",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="core-legacy",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
                 cts_manifest("core", "v1", "core-cts.v1.json"),
                 "--lane",
                 "core",
             ],
+            default=False,
+        ),
+        LaneCommand(
+            name="core-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("core", "v1", "core-cts.v1.next.json"),
+                "--lane",
+                "core",
+            ],
+            default=False,
         ),
         LaneCommand(
             name="aes",
@@ -51,9 +94,64 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
+                cts_manifest("aes", "v1", "aes-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "aes",
+            ],
+        ),
+        LaneCommand(
+            name="aes-released",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("aes", "v1", "aes-cts.v1.snapshot-0.3.json"),
+                "--lane",
+                "aes",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="aes-legacy",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
                 cts_manifest("aes", "v1", "aes-cts.v1.json"),
                 "--lane",
                 "aes",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="aes-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("aes", "v1", "aes-cts.v1.next.json"),
+                "--lane",
+                "aes",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="canonical",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("canonical", "v1", "canonical-cts.v1.json"),
+                "--lane",
+                "canonical",
             ],
         ),
         LaneCommand(
@@ -65,6 +163,33 @@ def main() -> int:
                 str(sut),
                 "--cts",
                 cts_manifest("finalize", "v1", "finalize-json-cts.v1.json"),
+                "--lane",
+                "finalize-json",
+            ],
+        ),
+        LaneCommand(
+            name="finalize-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("finalize", "v1", "finalize-json-cts.v1.next.json"),
+                "--lane",
+                "finalize-json",
+            ],
+            default=False,
+        ),
+        LaneCommand(
+            name="finalize-limits",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("finalize", "v1", "finalize-limits-cts.v1.next.json"),
                 "--lane",
                 "finalize-json",
             ],
@@ -94,6 +219,20 @@ def main() -> int:
                 "--lane",
                 "finalize-map",
             ],
+        ),
+        LaneCommand(
+            name="finalize-map-next",
+            command=[
+                "node",
+                str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("finalize-map", "v1", "finalize-map-cts.v1.next.json"),
+                "--lane",
+                "finalize-map",
+            ],
+            default=False,
         ),
         LaneCommand(
             name="sansa",
@@ -146,9 +285,11 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core aes finalize inspect finalize-map sansa sansa-resolve annotations aeos", file=sys.stderr)
+            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa sansa-resolve annotations aeos", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
+    else:
+        lanes = [lane for lane in lanes if lane.default]
 
     for lane in lanes:
         print(f"\n== Running {lane.name} CTS ==")

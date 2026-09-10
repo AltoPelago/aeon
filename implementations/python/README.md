@@ -2,7 +2,7 @@
 
 Dependency-free Python implementation of the AEON Core v1 parser surface.
 
-Current package line: `0.12.0`.
+Current package line: `0.12.1`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -21,6 +21,8 @@ Current implementation target:
 - reference legality checks
 - transport, strict, and custom mode enforcement
 - JSON finalization from assignment events
+- portable AES projection and Telex v1 encode/decode/validation
+- direct portable AES materialization and AEOS validation without reparsing AEON
 - CTS-compatible `inspect --json` CLI surface
 - annotation stream extraction
 - AEOS validator CTS adapter via `--cts-validate`
@@ -30,6 +32,7 @@ Python is still the conformance-first implementation, but its supported command 
 
 - `inspect`
 - `fmt`
+- `telex decode`, `telex canonicalize`, and `telex materialize`
 - `--cts-validate`
 
 Current CTS status:
@@ -38,10 +41,22 @@ Current CTS status:
 - `aes`: green
 - `annotations`: green
 - `aeos`: green
+- `telex/v1`: green (snapshot 0.1)
 
 Implementation note:
 
 - AEOS reference-form behavior is part of shared conformance.
+- `adapt_python_assignment_events_to_portable_aes` exposes the named
+  `aeon.python.assignment-events.v0-to-aes.events.v1` compatibility result and
+  returns strict portable events plus its conversion report. Pass the separate
+  compile-result `header` when selecting `include_headers=True`. Native source
+  locations use Unicode code-point offsets; optional exact `source_bytes`
+  derive the portable `sha256:` origin and convert retained ranges to UTF-8
+  byte spans.
+- Native assignment events carry `sourcePlane` as `header` or `body`, inherited
+  by expanded inline descendants. Portable adapters, AEOS, and finalizers use
+  it before the legacy key-prefix fallback, so a quoted body key may safely
+  have the same spelling and textual address as a header occurrence.
 - `max_materialized_weight` and `--max-materialized-weight` are processor controls, not AEON Core or AEOS conformance requirements.
 - `max_reference_depth` and `--max-reference-depth` are processor controls, not AEON Core or AEOS conformance requirements.
 
@@ -121,6 +136,50 @@ print(loaded.get('$.numbers[1]'))
 PY
 ```
 
+Export AEON as Telex, then consume it directly through the portable AES path:
+
+```bash
+cd implementations/python
+python3.12 - <<'PY'
+from aeon import aeon_to_telex, load_telex_text
+
+wire = aeon_to_telex('answer:number = 42')
+loaded = load_telex_text(wire).require_ok()
+print(wire, end='')
+print(loaded.document)
+PY
+```
+
+`origin` and `span` are optional. To include exact source-backed provenance,
+pass the original, unnormalized UTF-8 artifact alongside the source string:
+
+```python
+from pathlib import Path
+
+source_bytes = Path("document.aeon").read_bytes()
+source = source_bytes.decode("utf-8")
+wire = aeon_to_telex(source, source_bytes=source_bytes)
+```
+
+At the lower-level `export_telex()` boundary, `source_bytes` is an assertion
+that the supplied bytes are the exact artifact from which the native events
+were compiled. Invalid UTF-8 and native ranges outside that artifact are
+rejected rather than emitted as portable provenance.
+
+Headers remain opt-in and use the `aeon.document.v1` projection:
+
+```bash
+./bin/aeon-python inspect document.aeon --telex --include-headers
+```
+
+Telex can also be decoded, canonicalized, or materialized without invoking the AEON parser:
+
+```bash
+./bin/aeon-python telex decode stream.telex.aes
+./bin/aeon-python telex canonicalize stream.telex.aes
+./bin/aeon-python telex materialize stream.telex.aes --scope full
+```
+
 Load an AEOS schema document directly from `.aeos` and validate through the convenience API:
 
 ```bash
@@ -171,8 +230,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ## CTS
 
 ```bash
-node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/core/v1/core-cts.v1.json" --lane core
-node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.json" --lane aes
+node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/core/v1/core-cts.v1.snapshot-0.3.json" --lane core
+node ../../scripts/cts-source-lane-runner.mjs --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aes/v1/aes-cts.v1.snapshot-0.3.json" --lane aes
 python3.12 tools/run_sansa_resolve_cts.py --cts "$AEONITE_CTS_ROOT/sansa/v1/sansa-resolve-cts.v1.json"
 node ../typescript/tools/annotation-cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/annotations/v1/annotation-stream-cts.v1.json"
 node ../typescript/tools/cts-runner/dist/index.js --sut ./bin/aeon-python --cts "$AEONITE_CTS_ROOT/aeos/v1/aeos-validator-cts.v1.json"
@@ -200,6 +259,11 @@ Run a subset:
 cd implementations/python
 python3 tools/run_cts.py core aes sansa-resolve
 ```
+
+`core` and `aes` run their current immutable 0.3 compatibility targets. Use
+`core-legacy` or `aes-legacy` for historical targets, and `core-next` or
+`aes-next` for mutable development targets. The explicit `*-released` aliases
+select the same targets as the defaults.
 
 ## Cross-Implementation Diff
 

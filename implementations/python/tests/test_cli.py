@@ -14,6 +14,125 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_inspect_exports_telex_with_opt_in_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "document.aeon"
+            fixture.write_text('aeon:mode = "strict"\nanswer:number = 42\n', encoding="utf-8")
+            body = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            full = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex", "--include-headers"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            source_backed = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "inspect", str(fixture), "--telex", "--source-provenance"],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, body.returncode, body.stderr)
+        self.assertNotIn("header=", body.stdout)
+        self.assertNotIn("projection=", body.stdout)
+        self.assertEqual(0, full.returncode, full.stderr)
+        self.assertIn("projection=aeon.document.v1", full.stdout)
+        self.assertIn('header=$.["aeon:mode"]', full.stdout)
+        self.assertEqual(0, source_backed.returncode, source_backed.stderr)
+        self.assertRegex(source_backed.stdout, r"origin=sha256:[0-9a-f]{64}")
+        self.assertIn("span=21:39", source_backed.stdout)
+
+    def test_telex_decode_canonicalize_and_materialize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "stream.telex.aes"
+            fixture.write_text(
+                "telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n",
+                encoding="utf-8",
+            )
+            decoded = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "decode", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            canonical = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "canonicalize", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+            materialized = subprocess.run(
+                [str(ROOT / "bin" / "aeon-python"), "telex", "materialize", str(fixture)],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, decoded.returncode, decoded.stderr)
+        self.assertTrue(json.loads(decoded.stdout)["validation"]["valid"])
+        self.assertEqual(
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n",
+            canonical.stdout,
+        )
+        self.assertEqual({"answer": "A"}, json.loads(materialized.stdout)["document"])
+
+    def test_inspect_emits_portable_expanded_node_projection_on_explicit_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "portable-node.aeon"
+            fixture.write_text(r'a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>' + "\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "aeon-python"),
+                    "inspect",
+                    str(fixture),
+                    "--json",
+                    "--portable-aes",
+                    "--transport",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT),
+            )
+
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("", result.stderr)
+        events = json.loads(result.stdout)["events"]
+        self.assertEqual(
+            [
+                {"path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "value": None},
+                {"path": "$.a[0]", "kind": "NodeHead", "identity": "HEAD", "value": "tag"},
+                {"path": "$.a[0][0]", "kind": "StringLiteral", "identity": "CHILD", "value": "value"},
+            ],
+            [
+                {
+                    "path": event["path"],
+                    "kind": event["kind"],
+                    "identity": event.get("identity"),
+                    "value": event.get("value"),
+                }
+                for event in events
+            ],
+        )
+
+    def test_inspect_portable_aes_requires_json(self) -> None:
+        result = subprocess.run(
+            [
+                str(ROOT / "bin" / "aeon-python"),
+                "inspect",
+                "--portable-aes",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--portable-aes requires --json", result.stderr)
+
     def test_inspect_json_returns_deterministic_shape_for_valid_fixture(self) -> None:
         fixture = ROOT / ".." / "typescript" / "packages" / "cli" / "tests" / "fixtures" / "valid.aeon"
         result = subprocess.run(

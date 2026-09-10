@@ -66,6 +66,41 @@ console.log(result.errors); // all known issues
 
 If you need schema validation after compile, pass `result.events` to `@altopelago/aeos-core`.
 
+### Interoperate through Telex
+
+The native workflow remains `compile()`. Use `compileToTelex()` when events
+must cross a process or implementation boundary, or `exportTelex()` when you
+already have Core assignment events:
+
+```ts
+import { compile, compileToTelex, exportTelex, parseTelex } from '@altopelago/aeon-core';
+
+const native = compile('answer = 42');
+const wire = exportTelex(native.events);
+const portable = parseTelex(wire).records;
+
+const direct = compileToTelex('answer = 42');
+console.log(direct.telex);
+```
+
+Headers are excluded by default. Set `includeHeaders: true` to use the explicit
+`aeon.document.v1` header plane.
+
+`origin` and `span` remain optional. Pass the exact, unnormalized UTF-8 artifact
+as `sourceBytes` to `compileToTelex()` or `exportTelex()` to derive a
+`sha256:<digest>` origin and convert Core's native UTF-16 source indexes to
+portable UTF-8 byte ranges. The supplied bytes are an assertion that they are
+the artifact from which the native events were compiled; do not pass a
+normalized or re-encoded substitute.
+
+For a legacy assignment-event boundary that also needs compatibility evidence,
+use `adaptTypeScriptAssignmentEventsToPortableAes()`. It returns strict
+portable events and a conversion report under the named
+`aeon.typescript.assignment-events.v0-to-aes.events.v1` adapter. Local spans
+without an immutable origin are omitted and reported. Its optional
+`sourceBytes` input enables the same source-backed conversion while preserving
+the report.
+
 ### Inspect the file preamble without full parsing
 
 Use `inspectFilePreamble()` to read only the allowed file-header slot for:
@@ -107,6 +142,13 @@ Reads only the file-header preamble slot and returns:
 - `hostDirective`
 - `format`
 - `span`
+
+### Telex boundary APIs
+
+- `compileToTelex(input, options?)`
+- `exportTelex(events, options?)`
+- `parseTelex`, `encodeTelex`, `canonicalizeTelex`
+- `validateTelex`, `validateTelexRecords`
 
 ## Exported Types
 

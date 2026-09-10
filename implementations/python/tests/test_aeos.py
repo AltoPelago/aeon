@@ -28,6 +28,11 @@ class AeosTests(unittest.TestCase):
         result = validate([], {"rules": [{"path": "$.port", "constraints": {"required": True}}]})
         self.assertEqual(["missing_required_field"], [error["code"] for error in result["errors"]])
 
+    def test_closed_world_does_not_exempt_aeon_prefixed_body_events(self) -> None:
+        compiled = compile_source('"aeon:payload" = 1')
+        result = validate_events(compiled.events, {"world": "closed", "rules": []})
+        self.assertTrue(any(error["code"] == "unexpected_binding" for error in result["errors"]))
+
     def test_type_mismatch(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "value": {"type": "NumberLiteral", "raw": "1", "value": "1"}, "span": [0, 1]}]
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})

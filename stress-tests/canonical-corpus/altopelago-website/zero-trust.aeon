@@ -1,0 +1,148 @@
+title:string = "AEON and Zero Trust"
+description:string = "AEON's zero-trust stance: validate form, preserve claims, separate transport from truth, and let consumers decide authority and materialization."
+activePage:string = "zero-trust"
+keywords:list<string> = ["zero trust", "trust", "truth", "authority", "signatures", "integrity", "authenticity", "validation", "transport", "security"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Zero Trust")>
+    <title("AEON only makes guarantees it can actually verify.")>
+    <heading("Validity is not truth.")>
+    <copy("AEON aligns with zero-trust architecture by refusing to assume that a document is true, authoritative, or safe to materialize merely because it is well-formed.")>
+    <copy("An AEON processor can observe syntax, structure, type declarations, validation rules, and canonical representations. It cannot directly observe author intent, source authority, external-world state, or whether a claim is true.")>
+    <actions(
+      <action @{href:string = "#form-not-truth", primary:boolean = true} ("Form vs truth")>
+      <action @{href:string = "#trust-layers"} ("Trust layers")>
+      <action @{href:string = "#signatures"} ("Signatures")>
+      <action @{href:string = "#implementation"} ("Implementation guidance")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "epistemic-humility"} (
+    <kicker("Principle")>
+    <title("AEON operates with epistemic humility.")>
+    <copy("The practical rule is simple: do not claim knowledge you do not possess. A parser can confirm that a value is present and shaped correctly; it cannot confirm that reality matches the value.")>
+    <code(`
+temperature:number = 25
+`)>
+    <annotations(
+      <annotation(
+        <label("Observable")>
+        <copy("AEON can verify that the document is syntactically valid, the value is a number, and the structure conforms to an adopted schema.")>
+      )>
+      <annotation(
+        <label("Not observable")>
+        <copy("AEON cannot verify that the temperature is actually 25 degrees, that the sensor was calibrated, or that the reading is current.")>
+      )>
+      <annotation(
+        <label("Boundary")>
+        <copy("Those questions exist outside the transport layer and require external evidence or authority.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "form-not-truth"} (
+    <kicker("Form Not Truth")>
+    <title("AEON validates form; truth requires evidence outside the document.")>
+    <copy("Form asks whether the text is valid AEON, whether it conforms to schema, whether declared types are compatible, and whether the document can be processed safely under the chosen policy.")>
+    <copy("Truth asks whether a measurement is accurate, a statement is honest, data is current, or reality matches the claim. AEON does not answer those questions by itself.")>
+    <info(`
+Form:
+- Is this valid AEON?
+- Does it conform to the schema?
+- Are declared types compatible?
+- Can the document be processed under the selected policy?
+
+Truth:
+- Is this measurement accurate?
+- Is this statement honest?
+- Is this data current?
+- Does external reality match the claim?
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "trust-layers"} (
+    <kicker("Trust Layers")>
+    <title("Each layer answers a different trust question.")>
+    <copy("Implementations should never assume that success at one layer implies success at another. A valid document is not automatically intact, authentic, authorized, or true.")>
+    <referenceList(
+      <item(
+        <name("Validity")>
+        <definition("Is this a valid AEON document? Verified by the parser and validator. Result: the document can be processed under that layer's rules.")>
+      )>
+      <item(
+        <name("Integrity")>
+        <definition("Has the document been altered? Verified by hashes or digital signatures. Result: received content matches the content that was hashed or signed.")>
+      )>
+      <item(
+        <name("Authenticity")>
+        <definition("Who created or signed this document? Verified by identity systems, certificates, public keys, or trust chains.")>
+      )>
+      <item(
+        <name("Authority")>
+        <definition("Is this source permitted to make this claim? Verified by business rules, governance systems, trust policies, or domain authority.")>
+      )>
+      <item(
+        <name("Truth")>
+        <definition("Is the claim actually correct? Verified by independent evidence, audits, observation, corroboration, or measurement.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "signatures"} (
+    <kicker("Signatures")>
+    <title("Digital signatures establish provenance, not truth.")>
+    <copy("A signature can prove who signed a document and that the signed bytes were not modified after signing. It does not prove that the signer was honest, competent, authorized, or correct.")>
+    <code(`
+temperature:number = 25
+`)>
+    <copy("If a weather station signs that document, the signature proves that the station reported 25. It does not prove that the temperature was actually 25. The sensor may be broken, misconfigured, stale, or outside its authority.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "transport"} (
+    <kicker("Transport")>
+    <title("AEON should be treated as zero-trust transport.")>
+    <copy("Every claim inside an AEON document starts as untrusted. The document can carry the claim clearly, and the consumer can then choose which checks, schemas, policies, evidence, or materializers to apply.")>
+    <code(`
+user:email = "alice@example.com"
+`)>
+    <copy("The document claims that the value is an email address. A consumer may verify the format, check that the mailbox exists, confirm ownership, or apply business rules. AEON itself does not perform those external checks.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "non-executable"} (
+    <kicker("Non-Executable")>
+    <title("AEON avoids executable behavior inside the data stream.")>
+    <copy("Many formats blur data and instructions through embedded scripts, runtime expressions, dynamic imports, network lookups, reflection, or object instantiation. Those features require the system to trust claims made by the data stream itself.")>
+    <copy("AEON intentionally avoids that behavior. The document describes data. The consumer decides what actions, if any, should be taken.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "implementation"} (
+    <kicker("Implementation")>
+    <title("Implementation guidance: keep claims and conclusions separate.")>
+    <info(`
+Incorrect:
+- The document is valid, therefore the information is true.
+- The document is signed, therefore the information is true.
+- The document came from a trusted organization, therefore every claim is true.
+
+Correct:
+- The document is valid.
+- The document was signed by the expected source.
+- The document has not been modified.
+- Additional verification is required before trust can be established.
+`)>
+    <copy("AEON deliberately limits its guarantees to what can be directly verified: deterministic parsing, structural validation, type validation, safe transport, and unambiguous representation.")>
+    <copy("It does not guarantee authenticity, authority, accuracy, or truth. Those concerns belong to systems with the necessary context and evidence.")>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Conclusion")>
+    <title("AEON transports assertions; it does not establish truth.")>
+    <copy("A valid document may be false. A signed document may be false. A document from an authoritative source may be false. Determining truth requires evidence beyond the transport layer.")>
+    <copy("By refusing to make claims it cannot prove, AEON remains predictable, composable, and compatible with zero-trust architectures.")>
+    <actions(
+      <action @{href:string = "/philosophy.php", primary:boolean = true} ("Read philosophy")>
+      <action @{href:string = "/aeon-language.php"} ("See language layers")>
+    )>
+  )>
+)>

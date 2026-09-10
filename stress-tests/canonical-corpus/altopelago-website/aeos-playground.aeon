@@ -1,0 +1,220 @@
+title:string = "AEOS Playground"
+description:string = "Try AEOS schema validation in the browser with paired AEON source and AEOS schema editors, live diagnostics, and schema seeding."
+activePage:string = "aeos-playground"
+keywords:list<string> = ["AEOS playground", "schema playground", "validation", "schema composer", "AEON schema", "rules", "diagnostics"]
+
+source:prose = >>`
+  //# AEON source: change this document directly or use AEON Composer.
+  //# The schema on the right decides which paths, types, and values are accepted.
+  contact:object = {
+    name:string = "Bob"
+    occupation:string = "patissier"
+    status:boolean = true
+    measurements:list<number> = [3, 4, 5]
+  }
+`
+
+schema:prose = >>`
+  //# AEOS schema: use AEOS Composer to set up custom rules.
+  //# This starter schema requires contact, contact.name, and contact.status.
+  aeos:schema = {
+    id:string = "playground.required"
+    version:string = "1"
+    world:string = "open"
+    rules:list<object> = [
+      {
+        path:sansa = $.contact
+        constraints:object = {
+          required:boolean = true
+          type:string = "ObjectNode"
+        }
+      }
+      {
+        path:sansa = $.contact.name
+        constraints:object = {
+          required:boolean = true
+          type:string = "StringLiteral"
+          datatype:string = "string"
+        }
+      }
+      {
+        path:sansa = $.contact.status
+        constraints:object = {
+          required:boolean = true
+          type:string = "BooleanLiteral"
+        }
+      }
+    ]
+  }
+`
+
+examples:list<object> = [
+  {
+    key:string = "required"
+    label:string = "Required fields"
+    mode:string = "strict"
+    source:prose = >>`
+      //# Demonstrates required paths and basic type checks.
+      //# Try removing contact.name or changing status to a string.
+      contact:object = {
+        name:string = "Bob"
+        occupation:string = "patissier"
+        status:boolean = true
+      }
+    `
+    schema:prose = >>`
+      //# Requires contact, then requires selected child bindings.
+      //# Open world allows occupation even though it is not listed here.
+      aeos:schema = {
+        id:string = "playground.required"
+        version:string = "1"
+        world:string = "open"
+        rules:list<object> = [
+          {
+            path:sansa = $.contact
+            constraints:object = {
+              required:boolean = true
+              type:string = "ObjectNode"
+            }
+          }
+          {
+            path:sansa = $.contact.name
+            constraints:object = {
+              required:boolean = true
+              type:string = "StringLiteral"
+              datatype:string = "string"
+            }
+          }
+          {
+            path:sansa = $.contact.status
+            constraints:object = {
+              required:boolean = true
+              type:string = "BooleanLiteral"
+            }
+          }
+        ]
+      }
+    `
+  }
+  {
+    key:string = "closed"
+    label:string = "Closed world"
+    mode:string = "strict"
+    source:prose = >>`
+      //# Demonstrates closed-world validation.
+      //# Add an extra binding and AEOS will reject it until the schema lists it.
+      contact:object = {
+        name:string = "Bob"
+        status:boolean = true
+      }
+    `
+    schema:prose = >>`
+      //# Closed world means only schema-covered paths are accepted.
+      //# The listed rules become the complete allowed document shape.
+      aeos:schema = {
+        id:string = "playground.closed"
+        version:string = "1"
+        world:string = "closed"
+        rules:list<object> = [
+          {
+            path:sansa = $.contact
+            constraints:object = {
+              required:boolean = true
+              type:string = "ObjectNode"
+            }
+          }
+          {
+            path:sansa = $.contact.name
+            constraints:object = {
+              required:boolean = true
+              type:string = "StringLiteral"
+            }
+          }
+          {
+            path:sansa = $.contact.status
+            constraints:object = {
+              required:boolean = true
+              type:string = "BooleanLiteral"
+            }
+          }
+        ]
+      }
+    `
+  }
+  {
+    key:string = "wildcard"
+    label:string = "Selector list"
+    mode:string = "strict"
+    source:prose = >>`
+      //# Demonstrates list item validation with a SANSA selector.
+      //# Every measurement is checked against the selector item rule.
+      contact:object = {
+        measurements:list<number> = [3, 4, 5]
+      }
+    `
+    schema:prose = >>`
+      //# The list rule validates the container.
+      //# The SANSA selector validates every indexed child value.
+      aeos:schema = {
+        id:string = "playground.wildcard"
+        version:string = "1"
+        world:string = "open"
+        rules:list<object> = [
+          {
+            path:sansa = $.contact.measurements
+            constraints:object = {
+              required:boolean = true
+              type:string = "ListNode"
+              datatype:string = "list<number>"
+            }
+          }
+          {
+            selector:sansa = $.contact.measurements.*
+            constraints:object = {
+              required:boolean = true
+              type:string = "NumberLiteral"
+              datatype:string = "number"
+            }
+          }
+        ]
+      }
+    `
+  }
+  {
+    key:string = "selector"
+    label:string = "Selector"
+    mode:string = "strict"
+    source:prose = >>`
+      //# Demonstrates selector rules across repeated structure.
+      //# Both contact.name bindings are matched by one schema selector.
+      primary:object = {
+        contact:object = {
+          name:string = "Bob"
+        }
+      }
+      archive:object = {
+        contact:object = {
+          name:string = "Alice"
+        }
+      }
+    `
+    schema:prose = >>`
+      //# selector matches paths by shape instead of one absolute path.
+      //# $.*.contact.name matches primary.contact.name and archive.contact.name.
+      aeos:schema = {
+        id:string = "playground.selector"
+        version:string = "1"
+        world:string = "open"
+        rules:list<object> = [
+          {
+            selector:sansa = $.*.contact.name
+            constraints:object = {
+              required:boolean = true
+              type:string = "StringLiteral"
+            }
+          }
+        ]
+      }
+    `
+  }
+]

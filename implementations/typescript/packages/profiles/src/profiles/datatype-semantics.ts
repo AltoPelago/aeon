@@ -16,7 +16,7 @@ export function validateDatatypeSemantics(
         if (event.datatype === undefined) continue;
         const parsed = parseDatatype(event.datatype);
         if (!parsed) continue;
-        validateParsedDatatype(parsed, semantics, ctx, event.normalizedPath);
+        validateParsedDatatype(parsed, semantics, ctx, event.normalizedPath, event.value.type);
     }
 }
 
@@ -24,9 +24,10 @@ function validateParsedDatatype(
     datatype: ParsedDatatype,
     semantics: Readonly<Record<string, DatatypeSemantics>>,
     ctx: Pick<CompileCtx, 'error'>,
-    path: string | undefined
+    path: string | undefined,
+    literalFamily?: string
 ): void {
-    validateOwnClarifiers(datatype, semantics, ctx, path);
+    validateOwnClarifiers(datatype, semantics, ctx, path, literalFamily);
     for (const arg of datatype.args) {
         validateParsedDatatype(arg, semantics, ctx, path);
     }
@@ -36,11 +37,15 @@ function validateOwnClarifiers(
     datatype: ParsedDatatype,
     semantics: Readonly<Record<string, DatatypeSemantics>>,
     ctx: Pick<CompileCtx, 'error'>,
-    path: string | undefined
+    path: string | undefined,
+    literalFamily: string | undefined
 ): void {
     if (datatype.clarifiers.length === 0) return;
 
     const rule = semantics[datatype.name];
+    if (!rule && (literalFamily === 'SeparatorLiteral' || literalFamily === 'RadixLiteral')) {
+        return;
+    }
     if (!rule || rule.clarifiers === 'none') {
         ctx.error({
             code: 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED',

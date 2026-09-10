@@ -1,0 +1,236 @@
+title:string = "Orthogonal Grammar Composition"
+description:string = "Understand AEON grammar as orthogonal composition, where bindings, attributes, datatypes, anonymous child heads, containers, nodes, and references combine through shared rules."
+activePage:string = "orthogonal-composition"
+keywords:list<string> = ["orthogonal", "composition", "grammar", "attributes", "anonymous values", "nodes", "bindings", "datatypes", "AEON"]
+
+page:node = <page(
+  <section @{type:string = "copyRich", level:string = "1", id:string = "orthogonal-composition"} (
+    <kicker("Grammar")>
+    <title("Orthogonal Grammar Composition")>
+    <heading("Read this when you are tempted to split AEON into separate mini-languages.")>
+    <copy("AEON's grammar is intentionally orthogonal. The same few components reappear in different positions instead of being confined to one special feature.")>
+    <copy("For an AI system, the practical rule is: do not treat nodes, attributes, types, anonymous children, objects, lists, tuples, and references as isolated modes with unrelated rules. Treat them as composable grammar surfaces that preserve [& claims|Claim] until a trusted consumer interprets them.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "orthogonality"} (
+    <kicker("Orthogonality")>
+    <title("Orthogonal means composable, not universal.")>
+    <copy("Orthogonal grammar composition means a feature can combine with other features through shared rules instead of requiring a special syntax rule for every combination.")>
+    <copy("AEON prefers a small set of composable grammar primitives over a large collection of special-purpose constructs. Rather than introducing a new syntax for every scenario, existing grammar surfaces are reused where the context permits them.")>
+    <code(>`
+      key:type = value
+      key\\stable-id\\:type = value
+      key@{meta:string = "value"} = value
+      key\\stable-id\\@{meta:string = "value"}:type = value
+      key@{meta:string = "value"}:type = value
+      @{meta:string = "value"}:type = value
+      \\child-id\\@{meta:string = "value"}:type = value
+      <tag@{meta:string = "value"}:type(...)>
+    `)>
+    <copy("Orthogonal composition does not imply universal composition. Grammar surfaces compose consistently, but each context still defines what is syntactically valid.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "core-model"} (
+    <kicker("Core Model")>
+    <title("Think in heads and values.")>
+    <copy("Most visible AEON structure can be understood as a head plus a value. The head carries identity, local metadata, and a datatype claim. The [& value|Value] carries the thing being bound, nested, referenced, or ordered.")>
+    <copy("Head means the syntactic surface that carries identity, attributes, and datatype claims. Value means the payload associated with that head.")>
+    <info(>`
+      named binding head       key\\id\\@{attributes}:type = value
+      attribute entry head     key\\id\\@{attributes}:type = value
+      anonymous child head     \\id\\@{attributes}:type = value
+      node head                <tag\\id\\@{attributes}:type(...)>
+    `)>
+    <copy("These are not identical contexts, but they share the same composition idea: optional structural identity, optional attributes, optional datatype claim, then a value or child list where that context permits it.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "attributes"} (
+    <kicker("Attributes")>
+    <title("Attributes are not node-only metadata.")>
+    <copy("A common mistake is to import an XML or HTML mental model and assume attributes belong only to nodes. In AEON, attributes are a general binding-head feature and a node-head feature.")>
+    <code(>`
+      width@{unit:string = "cm"}:number = 33
+
+      contact@{source:string = "crm"}:object = {
+        name:string = "Bob"
+      }
+
+      values:list = [
+        \\m1\\:number = 2
+        @{unit:string = "cm"}:number = 3
+        \\m2\\@{unit:string = "cm"}:number = 4
+      ]
+
+      html:node =
+        <div\\message\\@{id:string = "message", class:string = "greeting"}("Hello")>
+    `)>
+    <copy("In all examples, the head may carry identity, attributes, and datatype claims before the value. The attribute block is local side information attached to the binding head, anonymous child head, or node head; it is not a postfix operation on an already-finished value.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "attribute-entries"} (
+    <kicker("Attribute Entries")>
+    <title("Attributes are fractal, but depth is a consumer policy.")>
+    <copy("Inside an attribute block, entries use the same key, optional attributes, optional datatype, equals, value pattern. This lets attribute metadata carry explicit types and, when explicitly allowed, nested metadata without changing the ordinary data namespace.")>
+    <code(>`
+      price@{
+        unit@{system:string = "ISO-4217"}:string = "AUD"
+        display:string = "Australian dollars"
+      }:number = 180
+    `)>
+    <copy("The data value is still the number 180. The attribute namespace carries unit and display metadata. A consumer may validate or interpret that metadata, but the parser's job is to preserve it.")>
+    <code(>`
+      fractal@{depth@{depth@{depth = 3} = 2} = 1} = "example"
+    `)>
+    <copy("Do not infer that all processors accept arbitrary attribute nesting. AEON is fractal in shape: fractal here means structural self-similarity, not unlimited recursion. Attributes can have attributes, but the parser should normally fail closed past the active max_attribute_depth. A consumer that wants deeper attribute heads must explicitly allow that depth.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "anonymous-children"} (
+    <kicker("Anonymous Children")>
+    <title("Anonymous child heads let ordered values carry local claims.")>
+    <copy("Lists, tuples, and node children are ordered containers. Their elements do not always need names, but they may still need a datatype claim, attributes, or both. AEON supports anonymous child heads for that case.")>
+    <code(>`
+      measurements:list = [
+        \\m1\\:number = 2
+        :number = 3
+        \\m2\\@{unit:string = "cm"}:number = 4
+      ]
+
+      route:tuple = (
+        :origin = [144.9631, -37.8136]
+        :destination = [151.2093, -33.8688]
+      )
+
+      map:node =
+        <map(
+          @{role:string = "start"}:coordinate = [144.9631, -37.8136]
+          @{role:string = "finish"}:coordinate = [151.2093, -33.8688]
+        )>
+    `)>
+    <copy("Anonymous child heads are allowed in ordered value-element contexts: list elements, tuple elements, and node children. They can carry structural identity, attributes, datatype claims, or a combination of those head fields. They are not root-level bindings and they are not unnamed object members.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "nodes"} (
+    <kicker("Nodes")>
+    <title("Nodes are values, not a separate language mode.")>
+    <copy("[& Nodes|Node] provide tagged, ordered, document-like structure. They do not switch AEON into XML mode, HTML mode, or a separate tree language with its own value rules.")>
+    <copy("A node can be the value of a binding. Node children can include other nodes, strings, objects, lists, tuples, references, or anonymously headed values where the grammar permits them.")>
+    <code(>`
+      document:node =
+        <article@{audience:string = "agents"} (
+          <title("Orthogonal composition")>
+          {
+            kind:string = "example"
+            priority:number = 1
+          }
+          :note = "This child has a datatype claim without a key."
+        )>
+    `)>
+    <copy("The tag gives the node a semantic role in ordered structure. It does not make the children stop being AEON values.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "types"} (
+    <kicker("Datatypes")>
+    <title("Datatype claims compose with bindings, anonymous values, and node heads.")>
+    <copy("A [& type label|Type label] is a claim attached to a head. It is not restricted to top-level fields, and it does not create a runtime class by itself.")>
+    <code(>`
+      score:number = 10
+      scores:list<number> = [1, 2, 3]
+      point:tuple<number, number> = (12, 42)
+      mark:node = <marker:node("here")>
+      pair:node = <pair:tuple("x", "y")>
+    `)>
+    <copy("Strict processors may constrain which datatype claims are accepted in specific contexts. The grammar still exposes a consistent composition surface: the type claim is preserved, then validation decides whether it is acceptable for the effective mode and consumer policy.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "datatype-exceptions"} (
+    <kicker("Datatype Exceptions")>
+    <title("Two parameter-like surfaces are intentionally narrow.")>
+    <copy("Most datatype labels are plain claims, but AEON has two visible parameter-like surfaces that look like local modes. They are deliberately not general-purpose syntax.")>
+    <info(>`
+      list<T>, tuple<T1, T2>, object<T>, and node<T>:
+        angle generic arguments are accepted for the structural container family.
+        They express element, positional, member-value, node-profile, or node-child intent depending on context.
+        Binding-side node<T> is narrower: node<node> and custom profiles such as node<html> are valid, but node<string> is not.
+        Node-head node<T> is where child-content claims such as <title:node<string>(...)> belong.
+
+      radix[base]:
+        bracket metadata declares exactly one numeric radix base for a radix literal under the GP profile.
+
+      sep["x"]:
+        bracket metadata declares one or more string separator characters for separator literals under the GP profile.
+
+      encoding["base58"]:
+        bracket metadata declares exactly one string encoding-name claim for encoding, inline, and embed literals under the GP profile.
+    `)>
+    <copy("Do not generalize these forms to arbitrary datatypes. For example, do not assume person<string>, string[lang], number[unit], or binding-side tag:node<string> = <tag> are Core grammar just because list<number>, tuple<string, number>, object<number>, node<html>, node<node>, radix[2], sep[\"x\"], and encoding[\"base58\"] exist.")>
+    <copy("The brackets mean different things in the accepted families: radix clarifiers identify a single numeric base, separator clarifiers identify string separator characters, and encoding clarifiers identify one string encoding-name claim. In the GP profile, datatype clarifiers outside the declared profile rules are rejected instead of becoming ambient language features.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "containers"} (
+    <kicker("Containers")>
+    <title("Objects, lists, tuples, and nodes differ by structure, not by hidden semantics.")>
+    <copy("Objects contain named bindings. Lists and tuples contain ordered values. Nodes contain ordered children under a tag. Those differences matter, but they do not make separate semantic universes.")>
+    <info(>`
+      object  -> named child bindings
+      list    -> ordered value elements
+      tuple   -> ordered positional value elements
+      node    -> tagged ordered child values
+    `)>
+    <copy("Because the same value forms can appear across these containers, AI systems should avoid over-specializing examples. A string inside a node is still a string. An object inside a node child is still an object. An attribute on a list binding is still binding metadata.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "references"} (
+    <kicker("References")>
+    <title("References use the same addressable structure.")>
+    <copy("References do not magically materialize the target into a value during parsing. They preserve a relationship to an addressable target in the same composed structure.")>
+    <code(>`
+      user@{role:string = "admin"}:object = {
+        name:string = "Bob"
+      }
+
+      clone:object = ~user
+      role:string = ~user.@.role
+
+      page:node =
+        <page(
+          { title:string = "Hello" }
+        )>
+
+      title:string = ~page[0].title
+    `)>
+    <copy("Attribute selectors, member traversal, and index traversal are part of one addressing model. Data namespace and attribute namespace remain distinct.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "wrong-models"} (
+    <kicker("Wrong Models")>
+    <title("Do not collapse AEON into familiar but narrower formats.")>
+    <info(>`
+      Wrong: attributes are only for nodes.
+      Better: attributes attach to binding heads, anonymous child heads, attribute entries, and node heads where permitted.
+
+      Wrong: nodes are an XML-like island.
+      Better: nodes are AEON values with tags and ordered AEON child values.
+
+      Wrong: typed values are only named fields.
+      Better: datatype claims can appear on bindings, attribute entries, anonymous children, and node heads where permitted.
+
+      Wrong: lists, tuples, and node children have unrelated rules.
+      Better: they are ordered containers that share indexed child addressing and anonymous child-head composition.
+    `)>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "processing-boundary"} (
+    <kicker("Processing Boundary")>
+    <title("Composition is syntax and preservation, not automatic authority.")>
+    <copy("Orthogonal grammar composition does not mean every composed form is meaningful to every consumer. [& AEON Core] can preserve the claim. Mode policy, schemas, profiles, conventions, and [& Tonics|Tonic] decide what the claim is allowed to mean.")>
+    <copy("When answering questions, an AI system should separate these layers: what the grammar can express, what the parser preserves, what validation accepts, what references resolve to, and what a trusted consumer materializes.")>
+  )>
+
+  <section @{type:string = "copyRich", id:string = "answering-guidance"} (
+    <kicker("AI Guidance")>
+    <title("How to answer AEON grammar questions.")>
+    <copy("When asked whether a feature is allowed, identify the context first: named binding, attribute entry, anonymous child, node head, object member, list element, tuple element, or node child.")>
+    <copy("Then ask which layer is being discussed: syntax, Core validation, schema/profile validation, reference resolution, canonicalization, or materialization.")>
+    <copy("Prefer explanations that show the shared pattern and the context-specific boundary. This is usually more accurate than saying a feature belongs to one visible construct only.")>
+  )>
+)>

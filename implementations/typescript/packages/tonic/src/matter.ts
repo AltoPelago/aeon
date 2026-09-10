@@ -28,6 +28,7 @@ export type MatterInput =
 export interface MatterNode {
     readonly kind: MatterKind;
     readonly address: string;
+    readonly structuralId: string | undefined;
     readonly parent: MatterAnyNode | null;
     readonly span: MatterSpan | undefined;
     annotations(): readonly MatterAnnotation[];
@@ -68,9 +69,16 @@ export interface MatterReference extends MatterNode {
 
 export interface MatterElementNode extends MatterNode {
     readonly kind: 'node';
+    readonly headStructuralId: string | undefined;
     tag(): string;
     attributes(): ReadonlyMap<string, MatterScalarValue>;
+    attributeEntries(): ReadonlyMap<string, MatterElementAttribute>;
     children(): readonly MatterAnyNode[];
+}
+
+export interface MatterElementAttribute {
+    readonly value: MatterScalarValue;
+    readonly structuralId: string | undefined;
 }
 
 export type MatterAnyNode = MatterObject | MatterList | MatterScalar | MatterReference | MatterElementNode;
@@ -119,6 +127,7 @@ abstract class BaseMatterNode implements MatterNode {
     constructor(
         public owner: AeonMatterDocument,
         public readonly span: MatterSpan | undefined = undefined,
+        public readonly structuralId: string | undefined = undefined,
     ) { }
 
     abstract readonly kind: MatterKind;
@@ -275,8 +284,9 @@ class MatterScalarNode extends BaseMatterNode implements MatterScalar {
         owner: AeonMatterDocument,
         private value: MatterScalarValue,
         span?: MatterSpan,
+        structuralId?: string,
     ) {
-        super(owner, span);
+        super(owner, span, structuralId);
     }
 
     get(): MatterScalarValue {
@@ -297,8 +307,9 @@ class MatterReferenceNode extends BaseMatterNode implements MatterReference {
         owner: AeonMatterDocument,
         private readonly refTarget: string,
         span?: MatterSpan,
+        structuralId?: string,
     ) {
-        super(owner, span);
+        super(owner, span, structuralId);
     }
 
     target(): string {
@@ -308,15 +319,17 @@ class MatterReferenceNode extends BaseMatterNode implements MatterReference {
 
 class MatterElementRuntimeNode extends BaseMatterNode implements MatterElementNode {
     readonly kind = 'node' as const;
-    private readonly attrs = new Map<string, MatterScalarValue>();
+    private readonly attrs = new Map<string, MatterElementAttribute>();
     private readonly childNodes: MatterAnyNode[] = [];
 
     constructor(
         owner: AeonMatterDocument,
         private readonly tagName: string,
         span?: MatterSpan,
+        structuralId?: string,
+        public readonly headStructuralId: string | undefined = undefined,
     ) {
-        super(owner, span);
+        super(owner, span, structuralId);
     }
 
     tag(): string {
@@ -324,6 +337,10 @@ class MatterElementRuntimeNode extends BaseMatterNode implements MatterElementNo
     }
 
     attributes(): ReadonlyMap<string, MatterScalarValue> {
+        return new Map([...this.attrs].map(([key, entry]) => [key, entry.value]));
+    }
+
+    attributeEntries(): ReadonlyMap<string, MatterElementAttribute> {
         return this.attrs;
     }
 
@@ -331,8 +348,11 @@ class MatterElementRuntimeNode extends BaseMatterNode implements MatterElementNo
         return [...this.childNodes];
     }
 
-    setAttribute(key: string, value: MatterScalarValue): void {
-        this.attrs.set(key, value);
+    setAttribute(key: string, value: MatterScalarValue, structuralId?: string): void {
+        this.attrs.set(key, {
+            value,
+            structuralId,
+        });
     }
 
     appendChild(node: MatterAnyNode): void {
@@ -455,7 +475,7 @@ export function materializeMatter(input: TonicInput): MatterTonicResult {
             });
             continue;
         }
-        const node = valueToMatterNode(document, event.value, errors);
+        const node = valueToMatterNode(document, event.value, errors, event.structuralId ?? undefined);
         if (node) {
             root.attach(segment.key, node);
         }
@@ -485,27 +505,29 @@ function valueToMatterNode(
     owner: AeonMatterDocument,
     value: Value,
     errors: Diagnostic[],
+    structuralId?: string,
 ): MatterAnyNode | null {
     switch (value.type) {
         case 'TypedValue':
-            return valueToMatterNode(owner, value.value, errors);
+            return valueToMatterNode(owner, value.value, errors, value.structuralId ?? structuralId);
         case 'StringLiteral':
-            return new MatterScalarNode(owner, value.value, value.span);
+            return new MatterScalarNode(owner, value.value, value.span, structuralId);
         case 'NumberLiteral':
-            return new MatterScalarNode(owner, parseNumericString(value.value), value.span);
+            return new MatterScalarNode(owner, parseNumericString(value.value), value.span, structuralId);
         case 'InfinityLiteral':
         case 'NaNLiteral':
-            return new MatterScalarNode(owner, value.value, value.span);
+            return new MatterScalarNode(owner, value.value, value.span, structuralId);
         case 'NullLiteral':
             return new MatterScalarNode(
                 owner,
                 value.mode === 'reserved' && value.value === 'none' ? null : value.raw,
-                value.span
+                value.span,
+                structuralId,
             );
         case 'BooleanLiteral':
-            return new MatterScalarNode(owner, value.value, value.span);
+            return new MatterScalarNode(owner, value.value, value.span, structuralId);
         case 'ToggleLiteral':
-            return new MatterScalarNode(owner, value.value === 'yes' || value.value === 'on', value.span);
+            return new MatterScalarNode(owner, value.value === 'yes' || value.value === 'on', value.span, structuralId);
         case 'HexLiteral':
         case 'RadixLiteral':
         case 'EncodingLiteral':
@@ -514,14 +536,14 @@ function valueToMatterNode(
         case 'DateLiteral':
         case 'DateTimeLiteral':
         case 'TimeLiteral':
-            return new MatterScalarNode(owner, value.value, value.span);
+            return new MatterScalarNode(owner, value.value, value.span, structuralId);
         case 'CloneReference':
         case 'PointerReference':
-            return new MatterReferenceNode(owner, formatReference(value.path, value.type === 'PointerReference'), value.span);
+            return new MatterReferenceNode(owner, formatReference(value.path, value.type === 'PointerReference'), value.span, structuralId);
         case 'ObjectNode': {
-            const objectNode = new MatterObjectNode(owner, value.span);
+            const objectNode = new MatterObjectNode(owner, value.span, structuralId);
             for (const binding of value.bindings) {
-                const childNode = valueToMatterNode(owner, binding.value, errors);
+                const childNode = valueToMatterNode(owner, binding.value, errors, binding.structuralId ?? undefined);
                 if (childNode) {
                     objectNode.attach(binding.key, childNode);
                 }
@@ -529,7 +551,7 @@ function valueToMatterNode(
             return objectNode;
         }
         case 'ListNode': {
-            const listNode = new MatterListNode(owner, value.span);
+            const listNode = new MatterListNode(owner, value.span, structuralId);
             for (const element of value.elements) {
                 const childNode = valueToMatterNode(owner, element, errors);
                 if (childNode) {
@@ -539,12 +561,18 @@ function valueToMatterNode(
             return listNode;
         }
         case 'NodeLiteral': {
-            const node = new MatterElementRuntimeNode(owner, value.tag, value.span);
+            const node = new MatterElementRuntimeNode(
+                owner,
+                value.tag,
+                value.span,
+                structuralId,
+                value.structuralId ?? undefined,
+            );
             for (const attribute of value.attributes) {
                 for (const [key, entry] of attribute.entries) {
                     const attrValue = scalarValueFromValue(entry.value);
                     if (attrValue !== undefined) {
-                        node.setAttribute(key, attrValue);
+                        node.setAttribute(key, attrValue, entry.structuralId ?? undefined);
                     }
                 }
             }

@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Browser-friendly WebAssembly wrapper for the Rust AEON implementation."
 
 [dependencies]
+aes-telex.workspace = true
 aeon-annotations.workspace = true
 aeon-canonical.workspace = true
 aeon-core.workspace = true

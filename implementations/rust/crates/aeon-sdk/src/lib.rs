@@ -4,16 +4,32 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use aeon_aeos::{
-    AesEvent, EventPath, EventValue, OffsetOnly, PathSegmentInput, ReferencePathSegment,
-    ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions, validate,
+    AesEvent, AesSourcePlane, EventPath, EventValue, OffsetOnly, PathSegmentInput,
+    ReferencePathSegment, ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions,
+    validate, validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
-    AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode, PathSegment,
-    ReferenceSegment, Value, compile, normalize_number_literal,
+    AeonCompileLimits, AeonicLimitsV1, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic,
+    EffectiveTelexConfiguration, LimitsDiagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
+    Value, aeon_compile_limits, compile, compile_to_telex, effective_telex_configuration,
+    normalize_number_literal,
 };
-use aeon_finalize::{FinalizeOptions, MaterializeError, finalize_into};
+use aeon_finalize::{
+    FinalizeOptions, FinalizePortableJsonOptions, MaterializeError, finalize_into,
+    finalize_portable_json,
+};
+use aes_telex::{
+    encode_telex_with_projection_and_limits, parse_telex_with_limits,
+    validate_telex_records_with_projection_and_limits,
+};
 use serde::de::DeserializeOwned;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
+
+pub use aeon_core::{CompileToTelexOptions, CompileToTelexResult};
+pub use aes_telex::{
+    ParsedTelex, TelexLimits, TelexRecord, TelexSyntaxError,
+    ValidationResult as TelexValidationResult,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
@@ -31,10 +47,49 @@ pub struct LoadedDocument<T> {
     pub document: T,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TelexLoadOptions {
+    pub finalize: FinalizePortableJsonOptions,
+    /// Explicit whole-codec override. When present, it takes precedence over
+    /// `aeonic_limits`; `finalize.limits` remains a compatibility route.
+    pub telex_limits: Option<TelexLimits>,
+    pub schema: Option<Schema>,
+    pub schema_file: Option<PathBuf>,
+    pub validation: ValidationOptions,
+    /// Trusted, consumer-selected common limits document.
+    pub aeonic_limits: Option<AeonicLimitsV1>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedTelexDocument<T> {
+    pub parsed: ParsedTelex,
+    pub validation: Option<ResultEnvelope>,
+    pub document: T,
+    pub effective_limits: Option<EffectiveTelexConfiguration>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConfiguredTelexExportOptions {
+    pub portable: CompileToTelexOptions,
+    /// Explicit normalized compiler-limit override for the selected document.
+    pub compile_limits: Option<AeonCompileLimits>,
+    /// Explicit whole-codec override for the selected document.
+    pub telex_limits: Option<TelexLimits>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfiguredTelexExportResult {
+    pub output: CompileToTelexResult,
+    pub effective_limits: EffectiveTelexConfiguration,
+}
+
 #[derive(Debug)]
 pub enum AeonLoadError {
     Read(std::io::Error),
     Compile(Vec<Diagnostic>),
+    TelexSyntax(TelexSyntaxError),
+    TelexValidation(TelexValidationResult),
+    Limits(LimitsDiagnostic),
     SchemaLoad(String),
     Schema(ResultEnvelope),
     Finalize(aeon_finalize::FinalizeMeta),
@@ -48,6 +103,13 @@ impl fmt::Display for AeonLoadError {
             Self::Compile(errors) => {
                 write!(f, "AEON compile failed with {} error(s)", errors.len())
             }
+            Self::TelexSyntax(error) => write!(f, "Telex decode failed: {error}"),
+            Self::TelexValidation(result) => write!(
+                f,
+                "AES validation failed with {} error(s)",
+                result.diagnostics.len()
+            ),
+            Self::Limits(error) => write!(f, "limits selection failed: {}", error.message),
             Self::SchemaLoad(message) => write!(f, "{message}"),
             Self::Schema(result) => {
                 write!(
@@ -75,7 +137,13 @@ impl std::error::Error for AeonLoadError {
         match self {
             Self::Read(error) => Some(error),
             Self::Deserialize(error) => Some(error),
-            Self::Compile(_) | Self::SchemaLoad(_) | Self::Schema(_) | Self::Finalize(_) => None,
+            Self::TelexSyntax(error) => Some(error),
+            Self::Compile(_)
+            | Self::TelexValidation(_)
+            | Self::Limits(_)
+            | Self::SchemaLoad(_)
+            | Self::Schema(_)
+            | Self::Finalize(_) => None,
         }
     }
 }
@@ -127,6 +195,187 @@ pub fn load_file<T: DeserializeOwned, P: AsRef<Path>>(
 ) -> Result<LoadedDocument<T>, AeonLoadError> {
     let source = fs::read_to_string(path).map_err(AeonLoadError::Read)?;
     load_str(&source, options)
+}
+
+/// Decode, validate, optionally bind, and directly materialize a complete
+/// Telex stream without rebuilding the AEON parser's AST.
+pub fn load_telex_str<T: DeserializeOwned>(
+    source: &str,
+    mut options: TelexLoadOptions,
+) -> Result<LoadedTelexDocument<T>, AeonLoadError> {
+    let mut effective_limits = options
+        .aeonic_limits
+        .as_ref()
+        .map(effective_telex_configuration)
+        .transpose()
+        .map_err(AeonLoadError::Limits)?;
+    if let Some(effective) = effective_limits.as_mut() {
+        if let Some(explicit) = options.telex_limits {
+            options.finalize.limits = explicit;
+            if explicit != effective.telex {
+                effective.telex = explicit;
+                effective.overrides_applied = true;
+            }
+        } else if options.finalize.limits == TelexLimits::default() {
+            options.finalize.limits = effective.telex;
+        } else if options.finalize.limits != effective.telex {
+            effective.telex = options.finalize.limits;
+            effective.overrides_applied = true;
+        }
+        apply_finalization_limit(
+            &mut options.finalize.max_reference_depth,
+            &mut effective.finalization.max_reference_depth,
+            &mut effective.overrides_applied,
+        );
+        apply_finalization_limit(
+            &mut options.finalize.max_materialized_weight,
+            &mut effective.finalization.max_materialized_weight,
+            &mut effective.overrides_applied,
+        );
+    }
+    let parsed = parse_telex_with_limits(source, &options.finalize.limits)
+        .map_err(AeonLoadError::TelexSyntax)?;
+    let registered = options
+        .finalize
+        .registered_fields
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let portable = validate_telex_records_with_projection_and_limits(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        &registered,
+        &options.finalize.limits,
+    );
+    if !portable.valid {
+        return Err(AeonLoadError::TelexValidation(portable));
+    }
+
+    let schema = if let Some(schema) = options.schema {
+        Some(schema)
+    } else if let Some(schema_file) = options.schema_file.as_ref() {
+        Some(load_schema_file(schema_file)?)
+    } else {
+        None
+    };
+    let validation = schema.map(|schema| {
+        validate_aeos_telex_records(&parsed.records, Some(schema), options.validation)
+    });
+    if let Some(result) = &validation
+        && !result.errors.is_empty()
+    {
+        return Err(AeonLoadError::Schema(result.clone()));
+    }
+
+    options.finalize.profile = parsed.profile.clone();
+    options.finalize.projection = parsed.projection.clone();
+    let finalized = finalize_portable_json(&parsed.records, options.finalize);
+    if !finalized.meta.errors.is_empty() {
+        return Err(AeonLoadError::Finalize(finalized.meta));
+    }
+    let document =
+        serde_json::from_value(finalized.document).map_err(AeonLoadError::Deserialize)?;
+    Ok(LoadedTelexDocument {
+        parsed,
+        validation,
+        document,
+        effective_limits,
+    })
+}
+
+fn apply_finalization_limit(
+    option: &mut Option<usize>,
+    effective: &mut Option<usize>,
+    overrides_applied: &mut bool,
+) {
+    if let Some(explicit) = *option {
+        if Some(explicit) != *effective {
+            *effective = Some(explicit);
+            *overrides_applied = true;
+        }
+    } else {
+        *option = *effective;
+    }
+}
+
+pub fn load_telex_file<T: DeserializeOwned, P: AsRef<Path>>(
+    path: P,
+    options: TelexLoadOptions,
+) -> Result<LoadedTelexDocument<T>, AeonLoadError> {
+    let source = fs::read_to_string(path).map_err(AeonLoadError::Read)?;
+    load_telex_str(&source, options)
+}
+
+/// Encode portable records for transport while retaining the in-memory APIs.
+pub fn write_telex(
+    records: &[TelexRecord],
+    profile: Option<&str>,
+    projection: Option<&str>,
+    limits: &TelexLimits,
+) -> Result<String, aes_telex::TelexEncodeError> {
+    encode_telex_with_projection_and_limits(records, profile, projection, limits)
+}
+
+/// Compile AEON and export Telex through the SDK facade.
+#[must_use]
+pub fn aeon_to_telex(source: &str, options: CompileToTelexOptions) -> CompileToTelexResult {
+    compile_to_telex(source, options)
+}
+
+/// Compile AEON and export Telex under one trusted common limits document.
+///
+/// The existing `aeon_to_telex` remains the unconstrained-by-file route.
+/// Whole-set call overrides are explicit so default-valued Rust fields are not
+/// mistaken for caller intent.
+pub fn aeon_to_telex_with_limits(
+    source: &str,
+    limits: &AeonicLimitsV1,
+    mut options: ConfiguredTelexExportOptions,
+) -> Result<ConfiguredTelexExportResult, LimitsDiagnostic> {
+    let mut effective_limits = effective_telex_configuration(limits)?;
+    let selected_compile_limits = aeon_compile_limits(limits)?;
+    let compile_limits = if let Some(explicit) = options.compile_limits {
+        if explicit != selected_compile_limits {
+            effective_limits.overrides_applied = true;
+        }
+        explicit
+    } else {
+        selected_compile_limits
+    };
+    apply_compile_limits(&mut options.portable.compile, &compile_limits);
+
+    if let Some(explicit) = options.telex_limits {
+        if explicit != effective_limits.telex {
+            effective_limits.overrides_applied = true;
+        }
+        effective_limits.telex = explicit;
+    }
+    options.portable.telex.limits = effective_limits.telex;
+
+    Ok(ConfiguredTelexExportResult {
+        output: compile_to_telex(source, options.portable),
+        effective_limits,
+    })
+}
+
+fn apply_compile_limits(options: &mut CompileOptions, limits: &AeonCompileLimits) {
+    options.max_attribute_depth = limits.max_attribute_depth;
+    options.max_clarifier_values = Some(limits.max_clarifier_values);
+    options.max_generic_depth = limits.max_generic_depth;
+    options.max_generic_arguments = limits.max_generic_arguments;
+    options.max_datatype_components = limits.max_datatype_components;
+    options.max_value_nesting_depth = Some(limits.max_value_nesting_depth);
+    options.max_path_depth = limits.max_path_depth;
+    options.max_string_codepoints = limits.max_string_codepoints;
+    options.max_key_segment_codepoints = limits.max_key_segment_codepoints;
+    options.max_list_items = limits.max_list_items;
+    options.max_tuple_items = limits.max_tuple_items;
+    options.max_path_characters = limits.max_path_characters;
+    options.max_numeric_literal_characters = limits.max_numeric_literal_characters;
+    options.max_structured_comment_characters = limits.max_structured_comment_characters;
+    options.max_input_bytes = limits.max_input_bytes;
+    options.max_events = limits.max_events;
 }
 
 pub fn load_schema_file<P: AsRef<Path>>(path: P) -> Result<Schema, AeonLoadError> {
@@ -522,6 +771,11 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            source_plane: Some(match event.source_plane {
+                aeon_core::SourcePlane::Header => AesSourcePlane::Header,
+                aeon_core::SourcePlane::Body => AesSourcePlane::Body,
+            }),
+            structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             value: core_value_to_aeos(&event.value),
             annotations: BTreeMap::new(),
@@ -695,7 +949,7 @@ mod tests {
 
     use super::*;
     use aeon_aeos::{Schema, SchemaRule};
-    use aeon_core::DatatypePolicy;
+    use aeon_core::{DatatypePolicy, load_aeonic_limits};
     use serde::Deserialize;
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -811,7 +1065,7 @@ mod tests {
 
     #[test]
     fn validates_schema_when_provided() {
-        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[.] = ^1.1.0\n  daytime:string = \"Hello, Sun\"\n  farewell:string = \"Sayonara, Sun\"\n  sunsetHour:number = 18\n  cooldownHours:number = 3\n}\n";
+        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[\".\"] = ^1.1.0\n  daytime:string = \"Hello, Sun\"\n  farewell:string = \"Sayonara, Sun\"\n  sunsetHour:number = 18\n  cooldownHours:number = 3\n}\n";
         let loaded = load_str::<FarewellDoc>(
             source,
             LoadOptions {
@@ -830,7 +1084,7 @@ mod tests {
 
     #[test]
     fn returns_schema_errors_when_schema_fails() {
-        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[.] = ^1.1.0\n}\n";
+        let source = "aeon:header = {\n  mode:string = \"strict\"\n}\n\nsun:farewell = {\n  version:ver[\".\"] = ^1.1.0\n}\n";
         let error = load_str::<FarewellDoc>(
             source,
             LoadOptions {
@@ -889,6 +1143,154 @@ mod tests {
         assert!(loaded.validation.as_ref().is_some_and(|result| result.ok));
 
         let _ = fs::remove_file(schema_path);
+    }
+
+    #[test]
+    fn loads_complete_telex_without_reconstructing_parser_events() {
+        let wire = "telex.aes=1\n\npath=$.config\nkind=ObjectNode\n\npath=$.config.name\nkind=StringLiteral\nvalue=AEON\n\npath=$.config.values\nkind=ListNode\n\npath=$.config.values[0]\nkind=NumberLiteral\nvalue=2\n\npath=$.config.values[1]\nkind=NumberLiteral\nvalue=3\n";
+        let loaded =
+            load_telex_str::<BTreeMap<String, JsonValue>>(wire, TelexLoadOptions::default())
+                .expect("Telex load success");
+        assert_eq!(
+            loaded.document,
+            BTreeMap::from([(
+                "config".to_owned(),
+                json!({"name": "AEON", "values": [2, 3]}),
+            )])
+        );
+        assert_eq!(loaded.parsed.profile, aes_telex::COMPLETE_AES_PROFILE);
+    }
+
+    #[test]
+    fn selects_common_limits_for_the_sdk_telex_boundary() {
+        let limits = load_aeonic_limits(include_str!(
+            "../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon"
+        ))
+        .expect("common limits");
+        let wire = "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n";
+        let loaded = load_telex_str::<BTreeMap<String, JsonValue>>(
+            wire,
+            TelexLoadOptions {
+                aeonic_limits: Some(limits),
+                telex_limits: Some(TelexLimits {
+                    max_string_codepoints: 2,
+                    ..TelexLimits::default()
+                }),
+                finalize: FinalizePortableJsonOptions {
+                    max_reference_depth: Some(2),
+                    ..FinalizePortableJsonOptions::default()
+                },
+                ..TelexLoadOptions::default()
+            },
+        )
+        .expect("Telex load with common limits");
+        let effective = loaded.effective_limits.expect("effective limits view");
+        assert_eq!(effective.limits_id, "altopelago.aeonic-limits.v1");
+        assert_eq!(effective.telex.max_string_codepoints, 2);
+        assert_eq!(effective.finalization.max_reference_depth, Some(2));
+        assert!(effective.overrides_applied);
+    }
+
+    #[test]
+    fn exports_aeon_to_telex_through_the_sdk_facade() {
+        let result = aeon_to_telex("answer = 42", CompileToTelexOptions::default());
+        assert!(result.compile.errors.is_empty());
+        assert!(
+            result
+                .telex
+                .is_some_and(|wire| wire.contains("path=$.answer"))
+        );
+    }
+
+    #[test]
+    fn exports_aeon_to_telex_with_common_limits_and_explicit_overrides() {
+        let policy = include_str!("../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon")
+            .replace(
+                "max_string_codepoints = 1048576",
+                "max_string_codepoints = 1",
+            );
+        let limits = load_aeonic_limits(&policy).expect("constrained common limits");
+        let constrained = aeon_to_telex_with_limits(
+            "answer = \"xx\"",
+            &limits,
+            ConfiguredTelexExportOptions::default(),
+        )
+        .expect("configured export result");
+        assert_eq!(
+            constrained.output.compile.errors[0].code,
+            "MAX_STRING_CODEPOINTS_EXCEEDED"
+        );
+        assert!(!constrained.effective_limits.overrides_applied);
+
+        let mut compile_limits = aeon_compile_limits(&limits).expect("compiler limits");
+        compile_limits.max_string_codepoints = 2;
+        let mut telex_limits = aeon_core::telex_limits(&limits).expect("Telex limits");
+        telex_limits.max_string_codepoints = 2;
+        let overridden = aeon_to_telex_with_limits(
+            "answer = \"xx\"",
+            &limits,
+            ConfiguredTelexExportOptions {
+                compile_limits: Some(compile_limits),
+                telex_limits: Some(telex_limits),
+                ..ConfiguredTelexExportOptions::default()
+            },
+        )
+        .expect("overridden configured export");
+        assert!(overridden.output.compile.errors.is_empty());
+        assert!(overridden.output.encode_error.is_none());
+        assert!(overridden.effective_limits.overrides_applied);
+        assert_eq!(overridden.effective_limits.telex.max_string_codepoints, 2);
+    }
+
+    #[test]
+    fn sdk_telex_export_supports_exact_source_provenance() {
+        let source = "\u{feff}answer = \"😀\"";
+        let mut options = CompileToTelexOptions::default();
+        options.telex.source_bytes = Some(source.as_bytes().to_vec());
+        let result = aeon_to_telex(source, options);
+        assert!(
+            result.compile.errors.is_empty(),
+            "{:?}",
+            result.compile.errors
+        );
+        assert!(result.encode_error.is_none(), "{:?}", result.encode_error);
+        assert_eq!(
+            result.records[0].get("origin"),
+            Some("sha256:c1c6f9dfcbb991dadfd099abb19a091d85e5f1e2b722634dfb83e56f73f57a18")
+        );
+        assert_eq!(result.records[0].get("span"), Some("3:18"));
+    }
+
+    #[test]
+    fn rejects_partial_telex_at_the_materialization_boundary() {
+        let wire = "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n";
+        let error = load_telex_str::<JsonValue>(wire, TelexLoadOptions::default())
+            .expect_err("partial Telex must fail");
+        assert!(matches!(error, AeonLoadError::Finalize(_)));
+    }
+
+    #[test]
+    fn validates_telex_against_aeos_before_materialization() {
+        let wire = "telex.aes=1\n\npath=$.port\nkind=StringLiteral\nvalue=8080\n";
+        let error = load_telex_str::<JsonValue>(
+            wire,
+            TelexLoadOptions {
+                schema: Some(Schema {
+                    rules: vec![rule(
+                        "$.port",
+                        json!({"required": true, "type": "NumberLiteral"}),
+                    )],
+                    datatype_rules: BTreeMap::new(),
+                    datatype_allowlist: Vec::new(),
+                    world: "open".to_owned(),
+                    reference_policy: None,
+                    resource_policy: None,
+                }),
+                ..TelexLoadOptions::default()
+            },
+        )
+        .expect_err("schema mismatch");
+        assert!(matches!(error, AeonLoadError::Schema(_)));
     }
 
     fn build_schema() -> Schema {

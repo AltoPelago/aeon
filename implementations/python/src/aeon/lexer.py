@@ -9,6 +9,7 @@ from .errors import (
     InvalidDateTimeError,
     InvalidEscapeError,
     InvalidNumberError,
+    InvalidStructuralIdentityError,
     InvalidTimeError,
     SyntaxError,
     UnterminatedStringError,
@@ -101,6 +102,9 @@ class Lexer:
         start = self.current_position()
         char = self.advance()
 
+        if char == "\ufeff" and start.offset == 0:
+            return
+
         if char == "." and self.peek().isdigit():
             self.scan_numeric_like(start, char)
             return
@@ -165,6 +169,13 @@ class Lexer:
             self.scan_string(start, char)
             return
 
+        if char == "\\":
+            if self.source.find("\\", self.offset) >= self.offset:
+                self.scan_structural_identity(start)
+            else:
+                self.add_token("SYMBOL", char, start)
+            return
+
         if char == "/":
             if self.match("/"):
                 self.scan_line_comment()
@@ -198,6 +209,32 @@ class Lexer:
             return
 
         self.add_token("SYMBOL", char, start)
+
+    def scan_structural_identity(self, start: Position) -> None:
+        value = ""
+        while not self.is_at_end() and self.peek() != "\\":
+            char = self.peek()
+            if not (char.isascii() and (char.isalnum() or char in {"-", "_"})):
+                value += self.advance()
+                while not self.is_at_end() and self.peek() != "\\":
+                    value += self.advance()
+                if not self.is_at_end():
+                    value += self.advance()
+                self.errors.append(InvalidStructuralIdentityError(f"\\{value}", self.make_span(start)))
+                return
+            value += self.advance()
+
+        if not value:
+            self.advance()
+            self.errors.append(InvalidStructuralIdentityError("\\\\", self.make_span(start)))
+            return
+
+        if self.is_at_end():
+            self.errors.append(InvalidStructuralIdentityError(f"\\{value}", self.make_span(start)))
+            return
+
+        self.advance()
+        self.add_token("STRUCTURAL_IDENTITY", value, start)
 
     def scan_sansa_address_literal(self, start: Position) -> None:
         depth_stack: list[str] = []
@@ -289,7 +326,7 @@ class Lexer:
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
                         codepoint = int("".join(hex_digits), 16)
-                        if codepoint > 0x10FFFF:
+                        if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
                             self.errors.append(InvalidEscapeError("Invalid unicode escape", self.make_span(start)))
                             self.consume_invalid_string_tail(delimiter, is_raw)
                             return
@@ -382,7 +419,14 @@ class Lexer:
         self.add_token(kind, "".join(chars), start)
 
     def is_leading_shebang_start(self, start: Position) -> bool:
-        return start.offset == 0 and start.line == 1 and start.column == 1
+        return start.line == 1 and (
+            (start.offset == 0 and start.column == 1)
+            or (
+                self.source.startswith("\ufeff")
+                and start.offset == 1
+                and start.column == 2
+            )
+        )
 
     def scan_prefixed_literal(self, start: Position, prefix: str, kind: str, predicate, validator) -> None:
         chars = [prefix]
@@ -639,6 +683,7 @@ class Lexer:
     def is_valid_wtc_reference(reference: str) -> bool:
         return (
             bool(reference)
+            and (reference == "local" or reference.lower() != "local")
             and not reference.startswith("/")
             and not reference.endswith("/")
             and "//" not in reference

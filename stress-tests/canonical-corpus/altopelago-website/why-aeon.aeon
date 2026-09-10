@@ -1,0 +1,159 @@
+title:string = "Why AEON"
+description:string = "Why AEON exists: to avoid hidden parser guesses, implicit meaning, runtime surprises, and unsafe document boundaries in important data files."
+activePage:string = "why-aeon"
+keywords:list<string> = ["why", "motivation", "YAML", "JSON", "XML", "surprise", "trust", "deterministic", "safe documents"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Why AEON")>
+    <title("AEON exists because important documents should not depend on hidden guesses.")>
+    <heading("Friendly syntax is useful. Hidden behavior is the problem.")>
+    <copy("Configuration and document formats often look readable until a tool silently decides what a value means. A word becomes a boolean. A number-looking identifier loses leading zeroes. Duplicate keys disagree across consumers. A schema arrives too late to prevent runtime assumptions.")>
+    <copy("AEON is a correction to that pattern: make meaning visible, keep trust explicit, validate before materialization, and preserve deterministic processing from source text to runtime use.")>
+    <copy("The ambition is for those guarantees to hold across implementations, not just inside one parser or one runtime. An AEON document should mean the same thing wherever it is read, validated, canonicalized, and materialized.")>
+    <actions(
+      <action @{href:string = "/playground.php", primary:boolean = true} ("Try the playground")>
+      <action @{href:string = "/aeon-language.php"} ("See how it works")>
+      <action @{href:string = "/walkthrough.php"} ("Start the walkthrough")>
+    )>
+  )>
+
+  <section @{type:string = "cards"} (
+    <kicker("Pain Points")>
+    <title("AEON is aimed at familiar failure modes.")>
+    <cards(
+      <card(
+        <topline("Implicit Formats")>
+        <heading("Readable is not the same as predictable")>
+        <copy("YAML and CSV-style convenience can hide coercion or spreadsheet inference behind friendly-looking text. AEON keeps strings, toggles, booleans, dates, numbers, null reasons, NaN, and Infinity visibly distinct.")>
+      )>
+      <card(
+        <topline("Bare Data")>
+        <heading("Richer meaning needs external machinery")>
+        <copy("JSON is useful, but richer source meaning usually needs schemas, conventions, serializers, or application code around it. AEON lets documents carry visible type and structural claims before a consumer chooses what to trust.")>
+      )>
+      <card(
+        <topline("Heavy Documents")>
+        <heading("Structure should not require so much ceremony")>
+        <copy("XML can preserve structure, but the cost is often verbosity, namespaces, schemas, and convention-heavy interpretation. AEON keeps common value forms explicit without making the document feel overloaded.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Examples")>
+    <title("Small ambiguities become expensive when systems disagree.")>
+    <copy("The most painful document bugs are often small: a country code, a duplicate key, a spreadsheet import, a quantity that was meant to stay text. AEON sidesteps these by making each claim explicit.")>
+    <code(`
+//# A country code stays text.
+countryCode:string = "NO"
+decision:toggle = no
+
+//# Duplicate keys are rejected instead of guessed.
+invoiceId:string = "invoice-100"
+invoiceId:string = "invoice-099" // duplicate key; invalid
+
+//# Spreadsheet-shaped values keep their intended form.
+sku:string = "00123"
+attendees:number = 7_000
+shipDate:date = 2026-05-05
+`)>
+    <copy("The same point applies to richer source data. A document can describe values that are often flattened, stringified, or handled by out-of-band conventions in JSON pipelines.")>
+    <copy("Some examples below use reserved numeric labels such as uint64, uint16, and int32. Others use custom domain labels whose meaning belongs to a profile, convention, or consumer.")>
+    <code(`
+//# A value can declare integer intent beyond ordinary JSON number assumptions.
+ledgerId:uint64 = 9007199254740993
+
+//# Numeric edge cases and absence reasons stay visible.
+sensorReading:nan = NaN
+middleName:null = !notSet
+
+//# Collection intent can be carried as a custom type claim.
+roles:set<string> = ["admin", "reviewer"]
+limits:map<string, number> = {
+  requests:number = 1000
+  burst:number = 50
+}
+`)>
+    <copy("Here set<string> and map<string, number> are custom collection claims, likely tied to an ecosystem convention such as aeon-gp-collection-v1. AEON Core preserves the labels; a trusted collection-aware consumer decides whether and how to enforce set or map behavior.")>
+    <copy("Custom types can also preserve class-shaped intent without making AEON executable. The document records the state and the requested domain type; a trusted consumer decides whether that maps to a real class.")>
+    <code(`
+//# A save file can describe a game character without constructing it.
+hero:GameCharacter = {
+  id:uuid = "7f2a5a1c-0c4d-4f7a-a6b5-4d3d06a7f701"
+  name:string = "Alice"
+  class:CharacterClass = "patissier"
+  level:uint16 = 12
+  health:HitPoints = 84
+  inventory:set<ItemId> = ["rolling-pin", "sugar-glass", "copper-pan"]
+  position:WorldPoint = {
+    map:string = "market-quarter"
+    x:int32 = 14
+    y:int32 = 7
+  }
+}
+
+//# The document claims GameCharacter.
+//# HitPoints, ItemId, and WorldPoint are domain claims.
+//# The game runtime decides whether to materialize a Character object.
+`)>
+  )>
+
+  <section @{type:string = "copyRich"} (
+    <kicker("Zero Trust")>
+    <title("Structure, metadata, and behavior should not collapse into one executable surface.")>
+    <heading("AEON keeps source data, annotation languages, validation, and materialization in separate layers.")>
+    <copy("HTML is powerful partly because it can layer structure, styling, and behavior through HTML, CSS, and JavaScript. The hard part is that those layers can also appear inline, so an untrusted HTML document may carry data, presentation, and executable behavior in the same surface.")>
+    <copy("AEON uses a stricter transport stance: source data, annotations, validation, meaning, and materialization remain separate layers. A consumer that only needs the data can ignore a domain-specific annotation language entirely, even if another trusted tool understands it later.")>
+    <code(`
+//# Workflow hints for a tool that understands this annotation DSL.
+//@ rule:notify owner when status changes
+//@ rule:render badge from priority
+
+ticket:object = {
+  id:string = "BUG-1042"
+  title:string = "Missing invoice total"
+  status:string = "open"
+  priority:string = "high"
+  owner:string = "Alice"
+}
+
+//# A data-only consumer can read ticket and ignore the DSL comments.
+//# Nothing in the annotation stream executes by accident.
+`)>
+    <copy("This is the security shape AEON wants: parse the data, inspect the side channels, decide which layers are trusted, and materialize only what the receiving context explicitly accepts.")>
+    <actions(
+      <action @{href:string = "/zero-trust.php", primary:boolean = true} ("Read AEON and Zero Trust")>
+      <action @{href:string = "/philosophy.php"} ("Philosophy deep dive")>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Stance")>
+    <title("AEON treats documents as claims, not authority.")>
+    <copy("A document may declare a profile, schema, contract, datatype, reference, or intent. Those claims are useful, but they do not authenticate themselves. The consumer brings the trusted registry, policy, schema, and materialization path.")>
+    <copy("That is why AEON separates source text, AES, AEOS validation, meaning validation, canonical form, and Tonic materialization. Each step has a narrow job, and no step is allowed to silently inherit authority from another.")>
+    <code(`
+source text → AES → AEOS → meaning validation → canonical form → Tonic
+
+document says: "this is what I claim"
+consumer decides: "this is what I trust"
+`)>
+    <copy("Use the language deep dive when you want to learn more about the vocabulary, grammar, processing layers, profiles, schemas, conventions, and Tonics. Use the philosophy and zero-trust pages when you want to understand the security and trust model behind those choices.")>
+    <actions(
+      <action @{href:string = "/aeon-language.php"} ("AEON language deep dive")>
+      <action @{href:string = "/philosophy.php"} ("Philosophy deep dive")>
+      <action @{href:string = "/zero-trust.php"} ("Zero trust")>
+    )>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Outcome")>
+    <title("The result is human-readable data that can still be verified, transformed, signed, and safely materialized.")>
+    <copy("AEON is not trying to make documents clever. It is trying to make them honest. The file shows what it means to claim, and the surrounding system decides what it means to accept.")>
+    <copy("That is the difference between a readable file and a document a system can safely accept.")>
+    <actions(
+      <action @{href:string = "/capabilities.php", primary:boolean = true} ("Explore capabilities")>
+    )>
+  )>
+)>

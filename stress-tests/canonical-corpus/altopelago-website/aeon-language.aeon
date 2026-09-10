@@ -1,0 +1,278 @@
+title:string = "AEON Language"
+description:string = "The ins and outs of vocabulary, grammar, processing boundaries, profiles, schemas, conventions, canonical form, AES, AEOS, and Tonics."
+activePage:string = "aeon-language"
+keywords:list<string> = ["language", "grammar", "vocabulary", "processing", "profiles", "schemas", "tonic", "canonical", "AES", "AEOS"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("AEON Language")>
+    <title("The ins and outs of vocabulary, grammar, meaning layers, and processing boundaries.")>
+    <heading("How does AEON work?")>
+    <copy("This page explains the fundamental workings of the AEON language system: the visible syntax, the vocabulary AEON uses, the grammar shape, the layered processing model, and the philosophy that keeps meaning separate from authority.")>
+    <copy("Use this page when you already understand why AEON might matter and want to know how the language is built and interacts with its ecosystem.")>
+    <actions(
+      <action @{href:string = "#document-shape", primary:boolean = true} ("Document shape")>
+      <action @{href:string = "#processing"} ("Processing model")>
+      <action @{href:string = "#aes"} ("AES")>
+      <action @{href:string = "/glossary.php"} ("Glossary")>
+      <action @{href:string = "/walkthrough-processing.php"} ("Processing walkthrough")>
+      <action @{href:string = "/zero-trust.php"} ("Zero trust")>
+      <action @{href:string = "/language.php"} ("Language guide")>
+      <action @{href:string = "/type-reference.php"} ("Type reference")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "document-shape"} (
+    <kicker("Document Shape")>
+    <title("AEON starts with explicit bindings.")>
+    <copy("A [& binding|Binding] connects a key to a value. A type annotation can make the intended value family visible. [& Attributes|Attribute] can add local side information without changing the value itself.")>
+    <code(>`
+      title:string = "Release notes"
+      count:number = 7_000
+      published:toggle = on
+      width@{unit:string = "cm"}:number = 33
+    `)>
+    <copy("Objects, lists, tuples, references, and nodes build on the same [& visible pattern|\"a repeated grammar shape that stays inspectable across contexts\"] rather than introducing a second hidden language.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Vocabulary")>
+    <title("The everyday words are deliberately small.")>
+    <referenceList(
+      <item(
+        <name("Binding")>
+        <definition("a key, optional attributes, optional datatype annotation, and assigned value.")>
+      )>
+      <item(
+        <name("Value")>
+        <definition("the bound data itself: a scalar, container, reference, node, prose block, encoded value, or special literal.")>
+      )>
+      <item(
+        <name("Attribute")>
+        <definition("structured metadata attached locally to a binding or anonymous value head.")>
+      )>
+      <item(
+        <name("Reference")>
+        <definition("a value that points at another path. Clone references use ~path; pointer references use ~>path.")>
+      )>
+      <item(
+        <name("Node")>
+        <definition("a tagged tree value for ordered, nested, document-like structures.")>
+      )>
+      <item(
+        <name("Semantic comment")>
+        <definition("a structured side-channel comment that can carry notes, annotations, guidance, or workflow context without becoming ordinary data.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Grammar")>
+    <title("The grammar is meant to keep the visible form predictable.")>
+    <copy("AEON is shaped around assignments, typed values, containers, references, and nodes. The grammar exists to preserve what was written and produce deterministic events, not to infer hidden meaning.")>
+    <info(`
+binding       = key attributes? type? "=" value
+typed value   = ":" type "=" value
+object        = "{" bindings "}"
+list          = "[" values "]"
+tuple         = "(" values ")"
+node          = "<" name attributes? children? ">"
+reference     = "~" path | "~>" path
+`)>
+    <copy("The full normative grammar belongs in the specs and CTS. This page is the readable map of the moving parts.")>
+  )>
+
+  <section @{type:string = "copy", id:string = "orthogonal-composition"} (
+    <kicker("Orthogonal Composition")>
+    <title("The same grammar surfaces reappear in different contexts.")>
+    <copy("AEON is intentionally orthogonal: bindings, attributes, datatype claims, anonymous child heads, containers, nodes, and references compose through shared rules rather than separate mini-languages.")>
+    <actions(
+      <action @{href:string = "/orthogonal-composition.php", primary:boolean = true} ("Read orthogonal composition")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "processing"} (
+    <kicker("Processing")>
+    <title("AEON separates reading, validation, and materialization.")>
+    <copy("Many parsers effectively read text and produce application objects in one move. AEON splits that path so each stage has a narrow responsibility and the consumer can choose how much to accept for the current context.")>
+    <info(`
+bytes → tokens → AES → AEOS → meaning validation → Tonic → runtime
+
+pre-parse → byte limits, encoding checks, size controls
+lexer     → syntax tokens, one pass, no backtracking traps
+parser    → structure and paths, no runtime objects
+AES       → ordered assignment events
+AEOS      → schema validation, no mutation or typecasting
+meaning   → consumer context, domain rules, and policy checks
+Tonic     → materialization under consumer policy
+`)>
+    <copy("Canonical form is not a required stop between meaning validation and materialization. It is a stable representation that can be produced from the accepted stream when a tool needs comparison, signing, hashing, or reproducible output.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "aes"} (
+    <kicker("AES")>
+    <title("The Assignment Event Stream is the handoff point between tools.")>
+    <copy("[& AEON Core] reads source text and emits [& AES]: ordered assignment events with paths, source order, datatype hints, attributes, references, and structure. That stream is the stable layer other processors consume.")>
+    <info(`
+source text → lexer → parser → AES
+
+AES → AEOS validation
+AES → meaning validation
+AES → Tonic materialization
+
+AES → canonical representation
+AES → prettified AEON source
+AES → compact/minified AEON source
+`)>
+    <annotations(
+      <annotation(
+        <label("Canonical")>
+        <copy("Stable equivalence, signatures, hashes, and deterministic comparison.")>
+      )>
+      <annotation(
+        <label("Prettified")>
+        <copy("Readable source formatting for people and docs.")>
+      )>
+      <annotation(
+        <label("Compact")>
+        <copy("Smaller transport while preserving the same accepted structure.")>
+      )>
+    )>
+    <copy("Those are projections from the event stream, not different interpretations of the document.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "annotation-stream"} (
+    <kicker("Annotation Stream")>
+    <title("Comments and semantic notes travel beside the assignment stream.")>
+    <copy("AEON can preserve semantic comments as an annotation stream instead of discarding them or turning them into ordinary data. This gives tools a place for documentation, workflow hints, rendering notes, or domain-specific side languages.")>
+    <info(`
+source text → AES
+            ↘ annotation stream
+
+AES               → data, structure, paths, attributes
+annotation stream → comments, semantic notes, tooling hints
+`)>
+    <copy("A consumer that only needs data can ignore the annotation stream. A trusted tool that understands a comment language can opt into it without forcing every AEON processor to execute or interpret that language.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "language-layer"} (
+    <kicker("Meaning Layers")>
+    <title("Profiles, schemas, conventions, and Tonics add meaning without blurring authority.")>
+    <copy("AEON Core preserves structure and claims. [& Profiles|Profile] name optional semantic behavior. [& Schemas|Schema] validate shape. [& Conventions|Convention] define ecosystem agreements. Meaning validation applies consumer context. [& Tonics|Tonic] materialize domain objects after the consumer has chosen what to trust.")>
+    <code(`
+aeon:profile = "example.content.v1"
+aeon:schema = "example.content.schema.v1"
+
+document:object = {
+  title:string = "Release notes"
+  status:toggle = on
+}
+
+// The document declares claims.
+// The consumer chooses which layers to trust.
+`)>
+    <actions(
+      <action @{href:string = "/schemas.php", primary:boolean = true} ("Open schemas")>
+      <action @{href:string = "/ecosystem.php"} ("Open ecosystem")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "temporal-convention"} (
+    <kicker("Convention Example")>
+    <title("A convention is implemented as ordinary AEON metadata plus a trusted consumer rule.")>
+    <copy("Temporal data shows the pattern clearly. AEON Core can parse a datetime literal without deciding how every application should handle time zones, daylight-saving ambiguity, calendars, or timezone database drift.")>
+    <code(`
+aeon:header = {
+  conventions = [
+    "aeon.gp.temporal.v1"
+  ]
+}
+
+meeting@{
+  target:string = "zone"
+  zone:string = "Australia/Melbourne"
+  calendar:string = "iso8601"
+  tzdbVersion:string = "2026b"
+  disambiguation:string = "reject"
+}:datetime = 2026-06-06T10:10:00
+`)>
+    <copy("To AEON Core, this is still a binding named meeting with a datetime value and an attribute object. The convention does not add grammar, execute code, or force a runtime object into existence.")>
+    <annotations(
+      <annotation(
+        <label("Declare")>
+        <copy("The header names aeon.gp.temporal.v1 so tools can see which ecosystem agreement the document is asking for.")>
+      )>
+      <annotation(
+        <label("Preserve")>
+        <copy("The parser preserves the datetime, attributes, source spans, and canonical path in the assignment stream.")>
+      )>
+      <annotation(
+        <label("Trust")>
+        <copy("A consumer decides whether that convention identifier maps to a trusted implementation.")>
+      )>
+      <annotation(
+        <label("Interpret")>
+        <copy("Only after that choice does a Tonic or profile-aware tool apply zone, calendar, tzdbVersion, and disambiguation behavior.")>
+      )>
+    )>
+    <copy("That is how conventions stay powerful without becoming hidden parser behavior: the document can make the claim, but the consumer owns adoption.")>
+    <actions(
+      <action @{href:string = "/ecosystem.php#contracts", primary:boolean = true} ("See contracts")>
+      <action @{href:string = "/playground.php"} ("Try in playground")>
+    )>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Philosophy")>
+    <title("The parser preserves claims; it does not decide their domain truth.")>
+    <copy("A value can be syntactically valid, structurally valid, and still fail domain meaning. AEON keeps that distinction visible so a consumer can validate before materializing runtime meaning.")>
+    <code(`
+temperature:number = 0 // celsius, fahrenheit ?
+---
+temperature@{unit:string = "celsius"}:number = 0
+---
+temperature@{unit:string = "fahrenheit"}:number = 32
+`)>
+    <copy("That is the language's deeper stance: keep meaning visible, keep trust explicit, and let each layer prove one thing and nothing more.")>
+    <actions(
+      <action @{href:string = "/philosophy.php", primary:boolean = true} ("Read philosophy")>
+      <action @{href:string = "/zero-trust.php"} ("Zero trust")>
+      <action @{href:string = "/value-types.php"} ("Open value types")>
+    )>
+  )>
+
+  <section @{type:string = "cards"} (
+    <kicker("Next")>
+    <title("Use the focused pages when you need a narrower view.")>
+    <cards(
+      <card(
+        <topline("Language Guide")>
+        <heading("Read the core authoring forms")>
+        <copy("Bindings, containers, references, nodes, modes, and common grammar shapes in a practical guide.")>
+        <href("/language.php")>
+        <cta("Open guide")>
+      )>
+      <card(
+        <topline("Processing Walkthrough")>
+        <heading("Watch accepted claims materialize")>
+        <copy("Follow source text through assignment events, schema checks, meaning validation, canonical output, and Tonic materialization under consumer policy.")>
+        <href("/walkthrough-processing.php")>
+        <cta("Open processing")>
+      )>
+      <card(
+        <topline("Value Types")>
+        <heading("Understand special value features")>
+        <copy("Null reasons, NaN, Infinity, prose, encoded values, semantic comments, and zoned round-trip time.")>
+        <href("/value-types.php")>
+        <cta("Open value types")>
+      )>
+      <card(
+        <topline("Type Reference")>
+        <heading("Look up every core value form")>
+        <copy("A concise reference list for syntax, accepted literal values, aliases, and reserved names.")>
+        <href("/type-reference.php")>
+        <cta("Open reference")>
+      )>
+    )>
+  )>
+)>

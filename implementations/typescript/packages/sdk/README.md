@@ -5,13 +5,17 @@ Application-facing convenience layer for common AEON read/write flows.
 ## Quick Start
 
 ```ts
-import { readAeonChecked, writeAeon } from '@altopelago/aeon-sdk';
+import { aeonToTelex, readAeonChecked, readTelexDocumentChecked, writeAeon } from '@altopelago/aeon-sdk';
 
 const parsed = readAeonChecked('greeting:string = "Hello"');
 console.log(parsed.finalized.document);
 
 const emitted = writeAeon({ app: 'todo', version: 1 });
 console.log(emitted.text);
+
+const wire = aeonToTelex('answer = 42').telex!;
+const imported = readTelexDocumentChecked(wire);
+console.log(imported.finalized.document);
 ```
 
 ## What This Package Does
@@ -26,6 +30,12 @@ console.log(emitted.text);
 - `readAeonChecked(input, options?)`
 - `readAeonStrictCustom(input)`
 - `writeAeon(object, options?)`
+- `aeonToTelex(input, options?)`
+- `readTelex(input, options?)`
+- `readTelexChecked(input, options?)`
+- `readTelexDocument(input, options?)`
+- `readTelexDocumentChecked(input, options?)`
+- `writeTelex(records, options?)`
 - `formatPath(path)`
 - `indexEventsByPath(events)`
 

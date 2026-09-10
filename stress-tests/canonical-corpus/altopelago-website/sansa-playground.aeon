@@ -1,0 +1,124 @@
+title:string = "SANSA Playground"
+description:string = "Load AEON source, compose a SANSA path or selector, and inspect the matching AES paths and values."
+activePage:string = "sansa-playground"
+keywords:list<string> = ["SANSA playground", "address playground", "selector", "path extraction", "AEON", "AES"]
+
+source:prose = >>`
+  //# AEON source: edit this document or use AEON Composer.
+  inventory:object = {
+    items:list<object> = [
+      {
+        sku:string = "A-100"
+        name:string = "Widget"
+        qty:int = 12
+      }
+      {
+        sku:string = "B-200"
+        name:string = "Bracket"
+        qty:int = 5
+      }
+    ]
+    contact:object = {
+      name:string = "Bob"
+      status:boolean = true
+    }
+  }
+`
+
+address:string = "$.inventory.items[0].sku"
+
+examples:list<object> = [
+  {
+    key:string = "inventory"
+    label:string = "Inventory list"
+    mode:string = "transport"
+    addressKind:string = "selector"
+    address:string = "$.inventory.items.*.sku"
+    source:prose = >>`
+      //# Select every item SKU with $.inventory.items.*.sku.
+      inventory:object = {
+        items:list<object> = [
+          {
+            sku:string = "A-100"
+            name:string = "Widget"
+            qty:int = 12
+          }
+          {
+            sku:string = "B-200"
+            name:string = "Bracket"
+            qty:int = 5
+          }
+        ]
+      }
+    `
+  }
+  {
+    key:string = "exact"
+    label:string = "Exact path"
+    mode:string = "transport"
+    addressKind:string = "path"
+    address:string = "$.contact.name"
+    source:prose = >>`
+      //# Exact paths match one canonical AES path.
+      contact:object = {
+        name:string = "Bob"
+        status:boolean = true
+      }
+    `
+  }
+  {
+    key:string = "range"
+    label:string = "Position range"
+    mode:string = "transport"
+    addressKind:string = "selector"
+    address:string = "$.inventory.items[0..1].sku"
+    source:prose = >>`
+      //# Position ranges select an inclusive span of ordered entries.
+      inventory:object = {
+        items:list<object> = [
+          {
+            sku:string = "A-100"
+            name:string = "Widget"
+            qty:int = 12
+          }
+          {
+            sku:string = "B-200"
+            name:string = "Bracket"
+            qty:int = 5
+          }
+          {
+            sku:string = "C-300"
+            name:string = "Coupler"
+            qty:int = 2
+          }
+        ]
+      }
+    `
+  }
+  {
+    key:string = "attributes"
+    label:string = "Attributes"
+    mode:string = "transport"
+    addressKind:string = "selector"
+    address:string = "$.reading.@.*"
+    source:prose = >>`
+      //# Attribute paths use .@.attribute.
+      reading@{unit:string = "cm", precision:int = 2}:number = 42
+    `
+  }
+  {
+    key:string = "pattern"
+    label:string = "Name pattern"
+    mode:string = "transport"
+    addressKind:string = "selector"
+    address:string = "$.items.(\"item?*\").sku"
+    source:prose = >>`
+      //# Name patterns can select keyed variants without treating _ as a wildcard.
+      items:object = {
+        item1:object = { sku:string = "A-100" }
+        item2:object = { sku:string = "B-200" }
+        item_extra:object = { sku:string = "C-300" }
+      }
+    `
+  }
+]

@@ -44,6 +44,7 @@ export function parseSchemaSource(source: string, options: SchemaCodecOptions = 
         mode: 'strict',
         scope: 'payload',
         ...options.finalizeOptions,
+        ...(compiled.header ? { header: compiled.header } : {}),
     });
     const errors = finalized.meta?.errors ?? [];
     if (errors.length > 0) {

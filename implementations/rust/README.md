@@ -2,7 +2,7 @@
 
 Rust workspace for the AEON implementation effort.
 
-Current crate/workspace line: `0.12.0`.
+Current crate/workspace line: `0.12.1`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -59,6 +59,7 @@ The current crates include:
 - `aeon-canonical`
 - `aeon-finalize`
 - `aeon-cli`
+- `aeon-wasm`
 
 Current verified status:
 
@@ -112,6 +113,8 @@ Current CLI status:
 - `bind --max-materialized-weight <n>` for clone-expansion budgets
 - `bind --max-reference-depth <n>` for clone-resolution depth budgets
 - AEOS CTS adapter via `--cts-validate`
+- `inspect --telex [--include-headers]` for AEON-to-Telex export
+- `telex decode`, `telex canonicalize`, and `telex materialize`
 
 Implementation note:
 
@@ -119,6 +122,25 @@ Implementation note:
 - `--max-materialized-weight` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - `--max-reference-depth` is an implementation/runtime control, not a Core or AEOS language guarantee.
 - the Rust SDK can now load AEOS schema documents directly from `.aeos` and project them into the internal `Schema` model before validation.
+- Core exposes additive `compile_to_telex` and `export_telex` APIs while retaining the native event workflow.
+- Core exposes `adapt_rust_assignment_events_to_portable_aes` for the named
+  `aeon.rust.assignment-events.v0-to-aes.events.v1` compatibility result; it
+  returns strict portable events plus semantic, record, and provenance fidelity
+  evidence. The compatibility options carry the separate compile-result header
+  when the document projection is selected. Native offsets are UTF-8 bytes and
+  columns count Unicode scalars. Optional exact `source_bytes` derive a
+  portable lowercase `sha256:` origin and retain independently proven byte
+  spans; invalid UTF-8 or ranges fail closed. Anonymous sequence occurrences
+  in the v0 assignment-event contract retain origin-only evidence because their
+  inherited owner spans are not occurrence-exact.
+- Native assignment events carry a `SourcePlane::Header` or
+  `SourcePlane::Body` occurrence marker. It is inherited by expanded inline
+  descendants and lets adapters, AEOS, and finalizers distinguish a quoted
+  body key such as `"aeon:mode"` from an actual header without making the key
+  spelling part of plane identity.
+- the Rust SDK exposes `load_telex_str`, `load_telex_file`, and `write_telex`; complete streams are validated and materialized directly from flat AES records.
+- AEOS accepts Telex records without treating structural identities as path segments, including attribute-space selection and flat-container cardinality.
+- the Rust/WASM bridge exposes Telex validation, completeness, canonicalization, and direct materialization.
 
 Run the starter test suite with:
 
@@ -142,6 +164,11 @@ Run selected lanes:
 cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
+
+`core` and `aes` run their current immutable 0.3 compatibility targets. Use
+`core-legacy` or `aes-legacy` for historical targets, and `core-next` or
+`aes-next` for mutable development targets. The explicit `*-released` aliases
+select the same targets as the defaults.
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before

@@ -1,0 +1,246 @@
+title:string = "AEON Advanced Walkthrough"
+description:string = "Continue the AEON walkthrough with custom types, anonymous typed values, nulls, NaN, Infinity, attributes, separator values, references, nodes, and semantic comments."
+activePage:string = "walkthrough-advanced"
+keywords:list<string> = ["advanced", "walkthrough", "custom types", "anonymous values", "attributes", "references", "nodes", "comments", "null", "nan", "infinity"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Advanced Walkthrough")>
+    <title("Move from plain structure to AEON-specific power features.")>
+    <heading("Advanced features.")>
+    <copy("This page assumes you already understand bindings, containers, comments, and multiline text. It focuses on the features that make AEON more than a generic nested data format.")>
+    <copy("If you are new to the language, start with the basic walkthrough first and then return here.")>
+    <actions(
+      <action @{href:string = "#step-1", primary:boolean = true} ("Start advanced features")>
+      <action @{href:string = "/walkthrough.php"} ("Back to basics")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-1"} (
+    <kicker("Step 1")>
+    <title("Custom type labels")>
+    <copy("Once the built-in shapes are familiar, AEON can carry custom labels defined by a wider ecosystem. The label remains explicit in the document, while the meaning is supplied by higher layers rather than by the core parser.")>
+    <code(`
+hi:message = "Hello World!"
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-2"} (
+    <kicker("Step 2")>
+    <title("Null literals")>
+    <copy("Null values are explicit literals, not a vague absence bucket. A document can say whether something is not set, not applicable, tombstoned, or missing for a custom reason. That gives validators and downstream tools more to work with before runtime materialization. AEON does not let some other datatype secretly carry a null value; the value must be typed as null.")>
+    <code(`
+email:null = !notSet
+fax:null = !notApplicable
+oldRecord:null = !tombstone
+review:null = !"awaiting manual review"
+`)>
+    <copy("This is intentionally invalid: a non-null type binding cannot contain a null literal.")>
+    <code @{invalid:boolean = true} (`
+itemCount:number = !notSet
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-3"} (
+    <kicker("Step 3")>
+    <title("NaN and Infinity literals")>
+    <copy("AEON keeps numeric edge cases visible. NaN and Infinity are their own literal families, so a schema or consumer can allow them deliberately or reject them before they leak into calculations.")>
+    <code(`
+reading:nan = NaN
+negativeReading:nan = -NaN
+limit:infinity = Infinity
+floor:infinity = -Infinity
+`)>
+    <copy("This is intentionally invalid: a number type binding cannot contain a NaN or infinity literal.")>
+    <code @{invalid:boolean = true} (`
+itemCount:number = NaN
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-4"} (
+    <kicker("Step 4")>
+    <title("Attributes")>
+    <copy("Attributes are where AEON begins separating value from surrounding meaning. The bound value remains unchanged, while the attribute set carries side information such as units, intent, or contextual qualifiers. Anonymous children inside lists, tuples, and nodes can carry the same local metadata.")>
+    <code(`
+width@{unit:string = "cm"}:number = 33
+values:list = [@{unit:string = "cm"}:number = 3]
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-5"} (
+    <kicker("Step 5")>
+    <title("Separator values")>
+    <copy("Some values are better preserved as visible segments rather than flattened strings. Separator values keep forms such as versions, addresses, and compound identifiers in a structured textual shape.")>
+    <code(`
+version:sep["."] = ^1.2.2
+server:sep["."] = ^198.0.0.28
+dimensions@{unit:string = "px"}:sep["x"] = ^300x250
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-6"} (
+    <kicker("Step 6")>
+    <title("Addressing and references")>
+    <copy("References are one of AEON's central capabilities. Start with clone references: they reuse an earlier value directly while keeping the relationship visible in the document.")>
+    <code(`
+source:boolean = true
+clone:boolean = ~source
+`)>
+    <copy("Pointer-style references are different. They preserve an address to a value or structure, which is useful when a downstream consumer needs to keep the link itself rather than just the cloned value.")>
+    <code(`
+contact:object = {
+  name:string = "Bob"
+  occupation:string = "patissier"
+}
+
+label:string = ~contact.name // clone
+pointer:object = ~>contact // pointer reference
+`)>
+    <copy("When the address itself needs to travel as data, use the sansa datatype. SANSA is the Semantic Address NameSpace Abstraction: it carries exact paths and selectors for schemas, tools, resolvers, and external consumers.")>
+    <code(`
+target:sansa = $.contact.name
+allSkus:sansa = $.inventory.items.*.sku
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-7"} (
+    <kicker("Step 7")>
+    <title("Nodes")>
+    <copy("Start with a simple node tree. Nodes let a document represent ordered, nested structures that are not just key-value objects.")>
+    <code(`
+book:node =
+  <book (
+    <chapter ("Once upon a time")>
+    <chapter ("They lived happily ever after, the end")>
+  )>
+`)>
+    <copy("Once that shape is familiar, the same model can carry richer markup-like structures, including attributes on individual nodes.")>
+    <code(`
+html:node =
+  <html (
+    <body (
+      <div@{id:string = "message", class:string = "greeting"} (
+        "Hello"
+        <br>
+        "World"
+      )>
+    )>
+  )>
+`)>
+    <copy("Nodes are slightly more general than XML-like trees: their ordered children can also be ordinary AEON values, such as objects.")>
+    <code(`
+places:node =
+  <locations (
+    {
+      icon:string = "house.png"
+      label:string = "This is my home"
+    }
+    {
+      icon:string = "office.png"
+      label:string = "This is where I work"
+    }
+  )>
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-8"} (
+    <kicker("Step 8")>
+    <title("Anonymous typed values")>
+    <copy("The basic walkthrough introduced lists and tuples with plain unnamed values. AEON can also attach a type head to an unnamed value when the element itself needs an explicit claim.")>
+    <code(`
+measurements:list = [
+  :number = 3
+  :number = 4
+]
+
+point:tuple = (:number = 12, :number = 42)
+`)>
+    <copy("This is useful with built-in types, but it becomes especially useful when custom labels carry domain intent without inventing names for every child value.")>
+    <code(`
+locations:list = [
+  :coordinate = [144.9631, -37.8136]
+  :coordinate = [151.2093, -33.8688]
+]
+`)>
+    <copy("Tuples can use the same form when each position has a role.")>
+    <code(`
+route:tuple = (
+  :origin = [144.9631, -37.8136]
+  :destination = [151.2093, -33.8688]
+)
+`)>
+    <copy("Nodes can also carry typed unnamed children, which keeps ordered document structure while preserving the semantic claim on each child.")>
+    <code(`
+map:node =
+  <map (
+    <marker (:coordinate = [144.9631, -37.8136])>
+    <marker (:coordinate = [151.2093, -33.8688])>
+  )>
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "structured-identities"} (
+    <kicker("Structured identities")>
+    <title("Anonymous and named heads can carry stable occurrence identity.")>
+    <copy("A structural identity gives tools a stable handle for a binding or child occurrence without changing the ordinary value, datatype claim, or canonical path.")>
+    <code(`
+person\\person-1\\:object = {
+  name\\name-1\\:string = "Ada Lovelace"
+  role\\role-1\\:string = "Analyst"
+}
+
+changes:list = [
+  \\change-1\\@{source:string = "import"}:object = {
+    field:string = "role"
+    value:string = "Analyst"
+  }
+  \\change-2\\:object = {
+    field:string = "name"
+    value:string = "Ada Lovelace"
+  }
+]
+`)>
+    <copy("The identity marker appears before attributes and datatype. Consumers can use it for diagnostics, diffing, relocation, audit trails, or generated UI anchors, while `$.person.name` style addressing remains based on structure.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "step-9"} (
+    <kicker("Step 9")>
+    <title("Semantic comments")>
+    <copy("AEON also has semantic comment channels. These let a document carry semantic or workflow-related side information without turning those comments into ordinary data bindings.")>
+    <code(`
+/#
+  # Publishing note
+
+  This draft is still [* under review]. Before publishing:
+
+  - review totals
+  - get sign off
+#/
+
+//@ audience("implementers")
+//@ status("draft")
+`)>
+    <copy("Advisory comments can express guidance for downstream readers or tools while still remaining outside the core data model itself.")>
+    <code(`
+//? Refresh these totals before publication.
+summary:string = "Conventions baseline"
+totalConventions:number = 12
+`)>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Sequence")>
+    <title("Advanced AEON becomes easier once the basic document model feels routine.")>
+    <copy("The intent of this split is to let a new reader become comfortable with ordinary authoring first, then encounter the language features that give AEON its distinct power.")>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Next")>
+    <title("Trace an AEON document through processing.")>
+    <copy("Once the advanced language features are visible, the next walkthrough follows one document through canonical form, assignment events, schema validation, meaning validation, and Tonic materialization.")>
+    <actions(
+      <action @{href:string = "/walkthrough-processing.php", primary:boolean = true} ("Open processing walkthrough")>
+      <action @{href:string = "/walkthrough.php"} ("Return to basic walkthrough")>
+    )>
+  )>
+)>

@@ -23,6 +23,8 @@ export interface AssignmentEvent {
     readonly normalizedPath?: string;
     /** Local key name (e.g., "host") */
     readonly key: string;
+    /** Source document plane; independent of the textual key prefix. */
+    readonly sourcePlane?: 'header' | 'body';
     /** Optional structural occurrence identity from the source binding. */
     readonly structuralId?: string | null;
     /** Original AST value node - NOT evaluated or transformed */
@@ -39,9 +41,12 @@ export interface AssignmentEvent {
  * Attribute entry
  */
 export interface AttributeEntry {
+    readonly structuralId?: string | null;
     readonly value: Value;
     readonly datatype?: string;
     readonly annotations?: ReadonlyMap<string, AttributeEntry>;
+    /** Native UTF-16 source range retained for explicit portable conversion. */
+    readonly span?: Span;
 }
 
 /**
@@ -134,6 +139,7 @@ function createEvent(cb: CanonicalBinding): AssignmentEvent {
         path: cb.path,
         normalizedPath: formatNormalizedPath(cb.path),
         key: binding.key,
+        sourcePlane: cb.sourcePlane,
         ...(binding.structuralId !== null ? { structuralId: binding.structuralId } : {}),
         value: binding.value,
         span: cb.span,
@@ -162,7 +168,9 @@ function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string,
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
             const attrEntry: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
                 value: entry.value,
+                ...(entry.span !== undefined ? { span: entry.span } : {}),
             };
             if (entry.datatype) {
                 (attrEntry as { datatype: string }).datatype = formatDatatypeAnnotation(entry.datatype);

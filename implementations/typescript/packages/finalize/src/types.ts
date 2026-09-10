@@ -19,6 +19,7 @@ export interface Diagnostic {
 
 export interface FinalizedEntry {
     readonly path: string;
+    readonly structuralId?: string | null;
     readonly value: Value;
     readonly span: Span;
     readonly datatype?: string;
@@ -82,6 +83,7 @@ export type FinalizedNode =
 
 export interface FinalizedNodeBase {
     readonly span: Span;
+    readonly structuralId?: string | null;
     readonly datatype?: string;
     readonly annotations?: ReadonlyMap<string, AnnotationEntry>;
 }

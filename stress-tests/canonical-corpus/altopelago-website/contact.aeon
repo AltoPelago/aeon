@@ -1,0 +1,12 @@
+title:string = "Contact AEON"
+description:string = "Contact AltoPelago about AEON implementation questions, package issues, examples, website corrections, or integration notes."
+activePage:string = "contact"
+keywords:list<string> = ["contact", "support", "implementation", "packages", "website", "questions", "AltoPelago", "AEON"]
+
+page:node = <page(
+  <section @{type:string = "copy", level:string = "1"} (
+    <kicker("Contact")>
+    <title("Contact AltoPelago about AEON.")>
+    <copy("Use this page for implementation questions, package issues, website corrections, examples, integration notes, or other AEON project matters.")>
+  )>
+)>

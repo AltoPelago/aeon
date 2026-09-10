@@ -4,9 +4,9 @@
 export interface Position {
     /** 1-indexed line number */
     readonly line: number;
-    /** 1-indexed column number */
+    /** 1-indexed UTF-16 code-unit column, matching JavaScript string indexing */
     readonly column: number;
-    /** 0-indexed byte offset from start of input */
+    /** 0-indexed UTF-16 code-unit offset from start of the input string */
     readonly offset: number;
 }
 

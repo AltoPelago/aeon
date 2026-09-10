@@ -16,6 +16,7 @@ from .ast import (
     HexLiteral,
     ListNode,
     NodeLiteral,
+    NumberLiteral,
     ObjectNode,
     PointerReference,
     RadixLiteral,
@@ -40,6 +41,7 @@ from .errors import (
     SyntaxError,
     EventCountExceededError,
     InputSizeExceededError,
+    ResourceLimitExceededError,
     UntypedToggleLiteralError,
     UntypedValueInStrictModeError,
 )
@@ -52,9 +54,23 @@ from .spans import Position, Span
 class CompileOptions:
     recovery: bool = False
     max_attribute_depth: int = 1
+    max_clarifier_values: int | None = None
+    # Deprecated compatibility alias for max_clarifier_values.
     max_separator_depth: int = 1
     max_generic_depth: int = 1
+    max_generic_arguments: int = 32
+    max_datatype_components: int = 64
+    max_value_nesting_depth: int | None = None
+    # Deprecated compatibility alias for max_value_nesting_depth.
     max_nesting_depth: int = 256
+    max_path_depth: int = 1024
+    max_string_codepoints: int = 1_048_576
+    max_key_segment_codepoints: int = 1024
+    max_list_items: int = 65_536
+    max_tuple_items: int = 65_536
+    max_path_characters: int = 8192
+    max_numeric_literal_characters: int = 1024
+    max_structured_comment_characters: int = 1_048_576
     datatype_policy: str | None = None
     profile: str | None = None
     # Consumer-selected effective mode. When omitted, Core honors aeon:mode
@@ -62,6 +78,12 @@ class CompileOptions:
     mode: str | None = None
     max_input_bytes: int | None = None
     max_events: int | None = None
+
+    def effective_max_clarifier_values(self) -> int:
+        return self.max_separator_depth if self.max_clarifier_values is None else self.max_clarifier_values
+
+    def effective_max_value_nesting_depth(self) -> int:
+        return self.max_nesting_depth if self.max_value_nesting_depth is None else self.max_value_nesting_depth
 
 
 @dataclass(slots=True)
@@ -93,6 +115,8 @@ class ResolvedBinding:
     span: Span
     datatype: str | None
     annotations: dict[str, dict[str, object]] | None
+    structural_id: str | None
+    source_plane: str
 
 
 RESERVED_KIND_MAP = {
@@ -161,7 +185,6 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
             zero = Position(line=1, column=1, offset=0)
             error = InputSizeExceededError(actual_bytes, opts.max_input_bytes, Span(start=zero, end=zero))
             return CompileResult(events=[], errors=[error], warnings=warnings)
-    source = strip_leading_bom(source)
     lex_result = tokenize(source)
     if lex_result.errors and not opts.recovery:
         return CompileResult(events=[], errors=lex_result.errors, warnings=warnings)
@@ -169,10 +192,12 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     parse_result = parse_tokens(
         source,
         lex_result.tokens,
-        max_separator_depth=opts.max_separator_depth,
+        max_clarifier_values=opts.effective_max_clarifier_values(),
         max_generic_depth=opts.max_generic_depth,
+        max_generic_arguments=opts.max_generic_arguments,
+        max_datatype_components=opts.max_datatype_components,
         max_attribute_depth=opts.max_attribute_depth,
-        max_nesting_depth=opts.max_nesting_depth,
+        max_value_nesting_depth=opts.effective_max_value_nesting_depth(),
     )
     parse_errors = [coerce_error(error) for error in parse_result.errors]
     if parse_errors and not opts.recovery:
@@ -180,9 +205,23 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
     if parse_result.document is None:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors], warnings=warnings)
 
+    structure_error = validate_source_structure(parse_result.document, opts)
+    if structure_error is not None:
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, structure_error], warnings=warnings)
+    structured_comment_error = validate_structured_comment_limits(source, opts.max_structured_comment_characters)
+    if structured_comment_error is not None:
+        return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, structured_comment_error], warnings=warnings)
+
     resolved_bindings, path_errors = resolve_paths(parse_result.document)
     if path_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors], warnings=warnings)
+    for binding in resolved_bindings:
+        depth = max(0, len(binding.path.segments) - 1)
+        if depth > opts.max_path_depth:
+            return CompileResult(events=[], errors=[ResourceLimitExceededError("max_path_depth", depth, opts.max_path_depth)], warnings=warnings)
+        characters = len(format_path(binding.path))
+        if characters > opts.max_path_characters:
+            return CompileResult(events=[], errors=[ResourceLimitExceededError("max_path_characters", characters, opts.max_path_characters)], warnings=warnings)
 
     mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode)
     if mode_errors and not opts.recovery:
@@ -190,7 +229,7 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
     profile_errors = (
-        validate_gp_datatype_clarifiers(resolved_bindings)
+        validate_gp_datatype_clarifiers(parse_result.document, resolved_bindings)
         if uses_gp_profile(opts, parse_result.document)
         else []
     )
@@ -207,8 +246,15 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         )
     events = [
         event
-        for event in internal_events
-        if not str(event["key"]).startswith("aeon:")
+        for index, event in enumerate(internal_events)
+        # Preserve the native/legacy projection: direct synthetic header
+        # bindings stay hidden, while their expanded inline descendants remain
+        # visible. Portable AES consumers use sourcePlane to classify the
+        # descendants correctly instead of inferring their plane from a key.
+        if not (
+            resolved_bindings[index].source_plane == "header"
+            and len(resolved_bindings[index].path.segments) <= 2
+        )
     ]
     return CompileResult(
         events=events,
@@ -217,6 +263,88 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         header=header_to_result(parse_result.document),
         warnings=warnings,
     )
+
+
+def validate_source_structure(document: Document, options: CompileOptions) -> ResourceLimitExceededError | None:
+    def check_key(key: str) -> ResourceLimitExceededError | None:
+        return ResourceLimitExceededError("max_key_segment_codepoints", len(key), options.max_key_segment_codepoints) if len(key) > options.max_key_segment_codepoints else None
+
+    def check_datatype(datatype: TypeAnnotation | None) -> ResourceLimitExceededError | None:
+        if datatype is None:
+            return None
+        for clarifier in datatype.clarifiers:
+            if isinstance(clarifier, str) and len(clarifier) > options.max_string_codepoints:
+                return ResourceLimitExceededError("max_string_codepoints", len(clarifier), options.max_string_codepoints, datatype.span)
+        return None
+
+    def check_attributes(attributes: list[Attribute]) -> ResourceLimitExceededError | None:
+        for attribute in attributes:
+            for key, entry in attribute.entries.items():
+                error = check_key(key) or check_datatype(entry.datatype) or check_attributes(entry.attributes) or check_value(entry.value)
+                if error is not None:
+                    return error
+        return None
+
+    def check_reference(value: CloneReference | PointerReference) -> ResourceLimitExceededError | None:
+        depth = len(value.path)
+        if depth > options.max_path_depth:
+            return ResourceLimitExceededError("max_path_depth", depth, options.max_path_depth, value.span)
+        rendered = "$"
+        for segment in value.path:
+            if isinstance(segment, int):
+                rendered += f"[{segment}]"
+            elif isinstance(segment, str):
+                rendered += f".{segment}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", segment) else ".[" + json.dumps(segment, ensure_ascii=False) + "]"
+            else:
+                rendered += f".@.{segment.key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", segment.key) else ".@.[" + json.dumps(segment.key, ensure_ascii=False) + "]"
+        if len(rendered) > options.max_path_characters:
+            return ResourceLimitExceededError("max_path_characters", len(rendered), options.max_path_characters, value.span)
+        return None
+
+    def check_value(value: Value) -> ResourceLimitExceededError | None:
+        if isinstance(value, StringLiteral):
+            return ResourceLimitExceededError("max_string_codepoints", len(value.value), options.max_string_codepoints, value.span) if len(value.value) > options.max_string_codepoints else None
+        if isinstance(value, NumberLiteral):
+            return ResourceLimitExceededError("max_numeric_literal_characters", len(value.raw), options.max_numeric_literal_characters, value.span) if len(value.raw) > options.max_numeric_literal_characters else None
+        if isinstance(value, ListNode):
+            if len(value.elements) > options.max_list_items:
+                return ResourceLimitExceededError("max_list_items", len(value.elements), options.max_list_items, value.span)
+            return next((error for item in value.elements if (error := check_value(item)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, TupleLiteral):
+            if len(value.elements) > options.max_tuple_items:
+                return ResourceLimitExceededError("max_tuple_items", len(value.elements), options.max_tuple_items, value.span)
+            return next((error for item in value.elements if (error := check_value(item)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, ObjectNode):
+            return next((error for binding in value.bindings if (error := check_binding(binding)) is not None), None) or check_attributes(value.attributes)
+        if isinstance(value, NodeLiteral):
+            return check_key(value.tag) or check_datatype(value.datatype) or check_attributes(value.attributes) or next((error for child in value.children if (error := check_value(child)) is not None), None)
+        if isinstance(value, TypedValue):
+            return check_datatype(value.datatype) or check_attributes(value.attributes) or (check_value(value.value) if value.value is not None else None)
+        if isinstance(value, (CloneReference, PointerReference)):
+            return check_reference(value)
+        return None
+
+    def check_binding(binding: Binding) -> ResourceLimitExceededError | None:
+        return check_key(binding.key) or check_datatype(binding.datatype) or check_attributes(binding.attributes) or check_value(binding.value)
+
+    if document.header is not None:
+        for binding in document.header.bindings:
+            if (error := check_binding(binding)) is not None:
+                return error
+    for binding in document.bindings:
+        if (error := check_binding(binding)) is not None:
+            return error
+    return None
+
+
+def validate_structured_comment_limits(source: str, limit: int) -> ResourceLimitExceededError | None:
+    from .annotations import scan_structured_comments
+
+    for comment in scan_structured_comments(source, include_host=True):
+        payload = comment.raw[3:] if comment.form == "line" else comment.raw[2:-2]
+        if len(payload) > limit:
+            return ResourceLimitExceededError("max_structured_comment_characters", len(payload), limit, comment.span)
+    return None
 
 
 def compile_portability_warnings(options: CompileOptions) -> list[dict[str, object]]:
@@ -233,10 +361,10 @@ def compile_portability_warnings(options: CompileOptions) -> list[dict[str, obje
     warn_if_above(
         warnings,
         "AEON_NON_PORTABLE_POLICY_DEPTH",
-        "max_separator_depth",
-        options.max_separator_depth,
+        "max_clarifier_values",
+        options.effective_max_clarifier_values(),
         8,
-        defaults.max_separator_depth,
+        defaults.effective_max_clarifier_values(),
     )
     warn_if_above(
         warnings,
@@ -249,10 +377,10 @@ def compile_portability_warnings(options: CompileOptions) -> list[dict[str, obje
     warn_if_above(
         warnings,
         "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
-        "max_nesting_depth",
-        options.max_nesting_depth,
+        "max_value_nesting_depth",
+        options.effective_max_value_nesting_depth(),
         64,
-        defaults.max_nesting_depth,
+        defaults.effective_max_value_nesting_depth(),
     )
     if options.max_events is not None:
         warn_if_above(
@@ -293,12 +421,10 @@ def header_to_result(document: Document) -> dict[str, object] | None:
         return None
     return {
         "fields": document.header.fields,
+        "bindings": [binding_to_json(binding) for binding in document.header.bindings],
+        "order": [binding.key for binding in document.header.bindings],
         "span": document.header.span.to_json(),
     }
-
-
-def strip_leading_bom(source: str) -> str:
-    return source[1:] if source.startswith("\ufeff") else source
 
 
 def coerce_error(error: Exception) -> AeonError:
@@ -331,15 +457,21 @@ def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
     return isinstance(profile, StringLiteral) and profile.value == AEON_GP_PROFILE_ID
 
 
-def validate_gp_datatype_clarifiers(bindings: list[ResolvedBinding]) -> list[AeonError]:
+def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedBinding]) -> list[AeonError]:
     errors: list[AeonError] = []
     for binding in bindings:
-        if binding.key.startswith("aeon:") or binding.datatype is None:
+        if should_skip_header_binding_for_mode(document, binding) or binding.datatype is None:
             continue
         surface = parse_gp_datatype_surface(binding.datatype)
         if surface is None:
             continue
-        validate_gp_datatype_surface(surface, format_path(binding.path), binding.span, errors)
+        validate_gp_datatype_surface(
+            surface,
+            format_path(binding.path),
+            binding.span,
+            errors,
+            value_kind(binding.value),
+        )
     return errors
 
 
@@ -348,12 +480,15 @@ def validate_gp_datatype_surface(
     path: str,
     span: Span,
     errors: list[AeonError],
+    literal_family: str | None = None,
 ) -> None:
     name = str(surface["name"])
     clarifiers = surface.get("clarifiers")
     if isinstance(clarifiers, list):
         rule = GP_DATATYPE_CLARIFIER_RULES.get(name)
-        if rule == "radix_base":
+        if rule is None and literal_family in {"SeparatorLiteral", "RadixLiteral"}:
+            pass
+        elif rule == "radix_base":
             valid = (
                 len(clarifiers) == 1
                 and isinstance(clarifiers[0], int)
@@ -515,7 +650,7 @@ def skip_gp_whitespace(source: str, index: int) -> int:
 def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonError]]:
     bindings: list[ResolvedBinding] = []
     errors: list[AeonError] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     root = CanonicalPath(segments=(CanonicalSegment(type="root"),))
 
     if document.header is not None:
@@ -527,10 +662,10 @@ def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonE
                 attributes=binding.attributes,
                 span=binding.span,
             )
-            resolve_binding(synthetic, root, bindings, errors, seen)
+            resolve_binding(synthetic, root, bindings, errors, seen, "header")
 
     for binding in document.bindings:
-        resolve_binding(binding, root, bindings, errors, seen)
+        resolve_binding(binding, root, bindings, errors, seen, "body")
     return bindings, errors
 
 
@@ -539,14 +674,16 @@ def resolve_binding(
     parent: CanonicalPath,
     bindings: list[ResolvedBinding],
     errors: list[AeonError],
-    seen: set[str],
+    seen: set[tuple[str, str]],
+    source_plane: str,
 ) -> None:
     path = extend_member(parent, binding.key)
     path_str = format_path(path)
-    if path_str in seen:
+    registry_key = (source_plane, path_str)
+    if registry_key in seen:
         errors.append(DuplicateCanonicalPathError(path_str, binding.span))
         return
-    seen.add(path_str)
+    seen.add(registry_key)
     bindings.append(
         ResolvedBinding(
             path=path,
@@ -555,12 +692,14 @@ def resolve_binding(
             span=binding.span,
             datatype=format_datatype(binding.datatype),
             annotations=build_annotations(binding.attributes),
+            structural_id=binding.structural_id,
+            source_plane=source_plane,
         )
     )
-    resolve_value(binding.value, path, bindings, errors, seen)
+    resolve_value(binding.value, path, bindings, errors, seen, source_plane)
 
 
-def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[str]) -> None:
+def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBinding], errors: list[AeonError], seen: set[tuple[str, str]], source_plane: str) -> None:
     value = unwrap_typed_value(value)
     if isinstance(value, ObjectNode):
         local_keys: set[str] = set()
@@ -569,7 +708,7 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                 errors.append(AeonError(message=f"Duplicate key: '{binding.key}'", span=binding.span, code="DUPLICATE_KEY"))
                 continue
             local_keys.add(binding.key)
-            resolve_binding(binding, parent, bindings, errors, seen)
+            resolve_binding(binding, parent, bindings, errors, seen, source_plane)
         return
     if isinstance(value, (ListNode, TupleLiteral)):
         elements = value.elements
@@ -579,10 +718,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
             element_annotations = build_annotations(element.attributes) if isinstance(element, TypedValue) else None
             element_path = extend_index(parent, index)
             path_str = format_path(element_path)
-            if path_str in seen:
+            registry_key = (source_plane, path_str)
+            if registry_key in seen:
                 errors.append(DuplicateCanonicalPathError(path_str, element.span))
                 continue
-            seen.add(path_str)
+            seen.add(registry_key)
             bindings.append(
                 ResolvedBinding(
                     path=element_path,
@@ -591,9 +731,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     span=element.span,
                     datatype=element_datatype,
                     annotations=element_annotations,
+                    structural_id=element.structural_id if isinstance(element, TypedValue) else None,
+                    source_plane=source_plane,
                 )
             )
-            resolve_value(element_value, element_path, bindings, errors, seen)
+            resolve_value(element_value, element_path, bindings, errors, seen, source_plane)
         return
     if isinstance(value, NodeLiteral):
         for index, child in enumerate(value.children):
@@ -602,10 +744,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
             child_annotations = build_annotations(child.attributes) if isinstance(child, TypedValue) else None
             child_path = extend_index(parent, index)
             path_str = format_path(child_path)
-            if path_str in seen:
+            registry_key = (source_plane, path_str)
+            if registry_key in seen:
                 errors.append(DuplicateCanonicalPathError(path_str, child.span))
                 continue
-            seen.add(path_str)
+            seen.add(registry_key)
             bindings.append(
                 ResolvedBinding(
                     path=child_path,
@@ -614,9 +757,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     span=child.span,
                     datatype=child_datatype,
                     annotations=child_annotations,
+                    structural_id=child.structural_id if isinstance(child, TypedValue) else None,
+                    source_plane=source_plane,
                 )
             )
-            resolve_value(child_value, child_path, bindings, errors, seen)
+            resolve_value(child_value, child_path, bindings, errors, seen, source_plane)
 
 
 def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object]] | None:
@@ -628,6 +773,8 @@ def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object
             mapped = {
                 "value": entry.value,
                 "datatype": format_datatype(entry.datatype),
+                "structuralId": entry.structural_id,
+                "span": entry.span,
             }
             nested = build_annotations(entry.attributes)
             if nested is not None:
@@ -640,22 +787,31 @@ def resolved_binding_to_event(binding: ResolvedBinding, include_annotations: boo
     event = {
         "path": format_path(binding.path),
         "key": binding.key,
+        "sourcePlane": binding.source_plane,
         "datatype": binding.datatype,
         "span": binding.span.to_json(),
         "value": value_to_json(binding.value),
     }
     if include_annotations and binding.annotations is not None:
         event["annotations"] = annotations_to_json(binding.annotations)
+    if binding.structural_id is not None:
+        event["structuralId"] = binding.structural_id
     return event
 
 def annotations_to_json(annotations: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
-    return {
-        key: {
+    result: dict[str, dict[str, object]] = {}
+    for key, entry in annotations.items():
+        mapped = {
             "value": value_to_json(entry["value"]),
             "datatype": entry["datatype"],
+            "structuralId": entry["structuralId"],
+            "span": entry["span"].to_json() if isinstance(entry.get("span"), Span) else None,
         }
-        for key, entry in annotations.items()
-    }
+        nested = entry.get("annotations")
+        if isinstance(nested, dict):
+            mapped["annotations"] = annotations_to_json(nested)
+        result[key] = mapped
+    return result
 
 
 def value_to_json(value: Value) -> dict[str, object]:
@@ -670,8 +826,12 @@ def value_to_json(value: Value) -> dict[str, object]:
                 continue
             if key == "span":
                 payload[key] = raw.to_json() if raw is not None else None
+            elif key == "head_span":
+                payload["headSpan"] = raw.to_json() if raw is not None else None
             elif key == "datatype":
                 payload[key] = type_annotation_to_json(raw)
+            elif key == "structural_id":
+                payload["structuralId"] = raw
             elif key == "attributes":
                 payload[key] = [attribute_to_json(item) for item in raw]
             elif key == "trimticks":
@@ -694,6 +854,7 @@ def binding_to_json(binding: Binding) -> dict[str, object]:
     return {
         "type": "Binding",
         "key": binding.key,
+        "structuralId": binding.structural_id,
         "datatype": type_annotation_to_json(binding.datatype),
         "attributes": [attribute_to_json(item) for item in binding.attributes],
         "value": value_to_json(binding.value),
@@ -706,9 +867,11 @@ def attribute_to_json(attribute: Attribute) -> dict[str, object]:
         "type": "Attribute",
         "entries": {
             key: {
+                "structuralId": entry.structural_id,
                 "datatype": type_annotation_to_json(entry.datatype),
                 "attributes": [attribute_to_json(item) for item in entry.attributes],
                 "value": value_to_json(entry.value),
+                "span": entry.span.to_json() if entry.span is not None else None,
             }
             for key, entry in attribute.entries.items()
         },
@@ -855,11 +1018,14 @@ def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode
 
 
 def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBinding) -> bool:
-    if not binding.key.startswith("aeon:"):
-        return False
+    if binding.source_plane:
+        return binding.source_plane == "header"
     if document.header is None:
         return False
-    return True
+    prefix = "aeon:"
+    if not binding.key.startswith(prefix):
+        return False
+    return binding.key[len(prefix) :] in document.header.fields
 
 
 def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: int) -> list[AeonError]:

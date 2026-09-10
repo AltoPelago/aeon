@@ -6,7 +6,7 @@
   "claim_sets": [
     {
       "implementation": "typescript",
-      "implementation_version": "0.12.0",
+      "implementation_version": "0.12.1",
       "workspace": "implementations/typescript",
       "claims": [
         {
@@ -17,13 +17,13 @@
         },
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
+          "snapshot_id": "core-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "pnpm test:cts:core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.2",
+          "snapshot_id": "aes-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "pnpm test:cts:aes"
         },
@@ -55,18 +55,18 @@
     },
     {
       "implementation": "rust",
-      "implementation_version": "0.12.0",
+      "implementation_version": "0.12.1",
       "workspace": "implementations/rust",
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
+          "snapshot_id": "core-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.2",
+          "snapshot_id": "aes-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
         },
@@ -110,18 +110,18 @@
     },
     {
       "implementation": "python",
-      "implementation_version": "0.12.0",
+      "implementation_version": "0.12.1",
       "workspace": "implementations/python",
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.2",
+          "snapshot_id": "core-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.2",
+          "snapshot_id": "aes-cts-v1-snapshot-0.3",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
         },

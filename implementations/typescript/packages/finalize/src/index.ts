@@ -6,6 +6,7 @@
 
 export { finalizeJson } from './json.js';
 export { finalizeLinkedJson } from './json.js';
+export { finalizePortableJson } from './portable-json.js';
 export { finalizeMap } from './finalize.js';
 export { finalizeNode } from './node.js';
 export { transformDocument, transformNode } from './transform.js';
@@ -49,3 +50,4 @@ export type {
     OutputRegistry,
     FinalizeWithProfileOptions,
 } from './types.js';
+export type { FinalizePortableJsonOptions } from './portable-json.js';

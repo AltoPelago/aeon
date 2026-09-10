@@ -3,6 +3,10 @@ import { parse, type ParserError, type Document, type Binding, type Value, type 
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
+/** Canonicalize the interoperable Telex wire format; AEON source uses canonicalize(). */
+export { canonicalizeTelex } from '@altopelago/aeon-aes';
+export type { TelexLimitOptions, TelexRecord } from '@altopelago/aeon-aes';
+
 export type CanonicalError = LexerError | ParserError;
 
 export interface CanonicalResult {
@@ -11,12 +15,18 @@ export interface CanonicalResult {
 }
 
 export interface CanonicalizeOptions {
-    /** Maximum number of separator specs in a datatype annotation. Default: 8. */
+    /** Maximum clarifier values on one datatype descriptor. Default: 1. */
+    readonly maxClarifierValues?: number;
+    /** @deprecated Use maxClarifierValues. */
     readonly maxSeparatorDepth?: number;
     /** Maximum nesting depth for attribute heads. Default: 1. */
     readonly maxAttributeDepth?: number;
-    /** Maximum nesting depth for nested generic type annotations. Default: 8. */
+    /** Maximum nesting depth for nested generic type annotations. Default: 1. */
     readonly maxGenericDepth?: number;
+    /** Maximum generic arguments on one datatype descriptor. Default: 32. */
+    readonly maxGenericArguments?: number;
+    /** Maximum aggregate components in one recursive datatype. Default: 64. */
+    readonly maxDatatypeComponents?: number;
 }
 
 export interface EmitObjectOptions {
@@ -67,9 +77,6 @@ const DEFAULT_HEADER: Record<string, Value> = {
     },
 };
 
-const CANONICAL_MAX_SEPARATOR_DEPTH = 8;
-const CANONICAL_MAX_GENERIC_DEPTH = 8;
-
 function stripLeadingBom(input: string): string {
     return input.startsWith('\uFEFF') ? input.slice(1) : input;
 }
@@ -87,8 +94,10 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
 
     const parsed = parse(lex.tokens, {
         maxAttributeDepth: options.maxAttributeDepth ?? 1,
-        maxSeparatorDepth: options.maxSeparatorDepth ?? CANONICAL_MAX_SEPARATOR_DEPTH,
-        maxGenericDepth: options.maxGenericDepth ?? CANONICAL_MAX_GENERIC_DEPTH,
+        maxClarifierValues: options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1,
+        maxGenericDepth: options.maxGenericDepth ?? 1,
+        maxGenericArguments: options.maxGenericArguments ?? 32,
+        maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
     });
     if (parsed.errors.length > 0 || !parsed.document) {
         return { text: '', errors: parsed.errors };
@@ -370,7 +379,7 @@ function renderNodeValue(
     opts: { inlineOnly: boolean }
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -422,7 +431,7 @@ function renderAttributes(attributes: readonly Attribute[]): string {
         const nestedAttributes = renderAttributes(value.attributes);
         const type = value.datatype ? renderType(value.datatype) : '';
         const formatted = renderValueInline(value.value);
-        return `${formatBindingKey(key)}${nestedAttributes}${type} = ${formatted}`;
+        return `${formatBindingKey(key)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
     });
     return `@{${rendered.join(', ')}}`;
 }
@@ -482,7 +491,7 @@ function renderCompactInlineValue(value: Value): string {
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatBindingKey(value.tag)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
@@ -736,9 +745,27 @@ function formatTrimticks(value: string, indent: number): string[] {
     const bodyPrefix = ' '.repeat(indent + 2);
     return [
         '>`',
-        ...value.split('\n').map((line) => `${bodyPrefix}${line}`),
+        ...value.split('\n').map((line) => `${bodyPrefix}${formatTrimtickLine(line)}`),
         `${prefix}\``,
     ];
+}
+
+function formatTrimtickLine(value: string): string {
+    let out = '';
+    for (const ch of value) {
+        switch (ch) {
+            case '\\': out += '\\\\'; break;
+            case '`': out += '\\`'; break;
+            case '\r': out += '\\r'; break;
+            case '\t': out += '\\t'; break;
+            default: {
+                const code = ch.codePointAt(0)!;
+                out += code < 0x20 ? `\\u${code.toString(16).padStart(4, '0')}` : ch;
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 function formatBoolean(value: Extract<Value, { type: 'BooleanLiteral' }>): string {

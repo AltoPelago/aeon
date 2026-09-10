@@ -1,0 +1,24 @@
+title:string = "AEON Glossary"
+description:string = "A glossary of AEON ecosystem terms, from AES, AEOS, Tonics, and canonical form to author, consumer, claims, conventions, zero trust, and materialization."
+activePage:string = "glossary"
+keywords:list<string> = ["glossary", "terms", "AES", "AEOS", "Tonic", "author", "consumer", "claims", "conventions", "canonical", "materialization", "zero trust"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Glossary")>
+    <title("A shared vocabulary for the AEON ecosystem.")>
+    <copy("AEON uses familiar-looking syntax, but many of its important terms are about processing boundaries rather than ordinary data storage. This glossary explains both technical terms such as AES and everyday site terms such as author, consumer, claim, and authority.")>
+    <copy("Use it as a quick reference while reading the walkthroughs, philosophy page, language guide, schemas, and implementation material.")>
+    <actions(
+      <action @{href:string = "#terms", primary:boolean = true} ("Open terms")>
+      <action @{href:string = "/philosophy.php"} ("Language philosophy")>
+      <action @{href:string = "/aeon-language.php"} ("AEON language")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "terms"} (
+    <kicker("Terms")>
+    <title("AEON terms are mostly about what is preserved, validated, or trusted.")>
+    <glossaryList>
+  )>
+)>

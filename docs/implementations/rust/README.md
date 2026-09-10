@@ -43,6 +43,15 @@ Core compile pipeline:
 - crate: `aeon-core`
 - primary entry point: `compile(input: &str, options: CompileOptions) -> CompileResult`
 - related public types include `CompileOptions`, `CompileResult`, `AssignmentEvent`, `Binding`, `Value`, `CanonicalPath`, `Diagnostic`, and `DatatypePolicy`
+- limits entry points: `load_aeonic_limits` and `aeon_compile_limits`
+- limits types include `AeonicLimitsV1`, `LimitSetting`, and
+  `AeonCompileLimits`
+
+The limits loader validates the closed `altopelago.aeonic-limits.v1` format
+under its fixed bootstrap policy. `inspect --limits-file <path>` applies its
+normalized AEON compiler counters, with explicit CLI values taking precedence.
+`max_clarifier_values` and `max_value_nesting_depth` are the canonical option
+names; the former separator and nesting names remain compatibility aliases.
 
 Canonical formatting:
 

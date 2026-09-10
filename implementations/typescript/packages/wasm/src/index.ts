@@ -1,11 +1,119 @@
 export interface ProcessOptions {
   validationMode?: 'strict' | 'custom' | 'loose' | 'none';
+  maxClarifierValues?: number;
+  /** @deprecated Use maxClarifierValues. */
   maxSeparatorDepth?: number;
   maxAttributeDepth?: number;
   maxGenericDepth?: number;
+  maxGenericArguments?: number;
+  maxDatatypeComponents?: number;
   materializationMode?: 'all' | 'projected';
   finalizeScope?: 'payload' | 'header' | 'full';
   includePaths?: string[];
+}
+
+export interface TelexOptions {
+  /** Trusted AEON-encoded common limits document; WASM performs no host file I/O. */
+  limitsSource?: string;
+  registeredFields?: string[];
+  maxInputBytes?: number;
+  maxLineBytes?: number;
+  maxFieldsPerEvent?: number;
+  maxEvents?: number;
+  maxDecodedPayloadBytes?: number;
+  maxPathDepth?: number;
+  maxPathCharacters?: number;
+  maxAttributeDepth?: number;
+  maxValueNestingDepth?: number;
+  maxStringCodepoints?: number;
+  maxKeySegmentCodepoints?: number;
+  maxListItems?: number;
+  maxTupleItems?: number;
+  maxGenericDepth?: number;
+  maxGenericArguments?: number;
+  maxClarifierValues?: number;
+  maxDatatypeComponents?: number;
+  finalizeMode?: 'strict' | 'loose';
+  finalizeScope?: 'payload' | 'header' | 'full';
+  maxMaterializedWeight?: number;
+  maxReferenceDepth?: number;
+}
+
+export interface EffectiveTelexConfiguration {
+  limitsId: string;
+  limitsVersion: string;
+  profileClaims: string[];
+  telex: Required<Omit<TelexOptions,
+    'limitsSource' | 'registeredFields' | 'finalizeMode' | 'finalizeScope' |
+    'maxMaterializedWeight' | 'maxReferenceDepth'>>;
+  finalization: {
+    maxMaterializedWeight: number | null;
+    maxReferenceDepth: number | null;
+  };
+  overridesApplied: boolean;
+}
+
+export interface TelexDiagnostic {
+  code: string;
+  message: string;
+  record: number | null;
+  path: string | null;
+  field: string | null;
+  firstRecord: number | null;
+  requiredPath: string | null;
+  counter: string | null;
+  observed: number | null;
+  limit: number | null;
+}
+
+export interface TelexValidationResult {
+  valid: boolean;
+  profile: string;
+  diagnostics: TelexDiagnostic[];
+  effectiveLimits?: EffectiveTelexConfiguration;
+}
+
+export interface MissingTelexPath {
+  field?: 'header';
+  path: string;
+  requiredBy: string;
+}
+
+export interface TelexCompletenessResult {
+  complete: boolean;
+  missing: MissingTelexPath[];
+  effectiveLimits?: EffectiveTelexConfiguration;
+}
+
+export interface TelexMaterializationResult {
+  document: unknown;
+  meta: NormalizedDiagnostics;
+  effectiveLimits?: EffectiveTelexConfiguration;
+}
+
+export class TelexWasmError extends Error {
+  readonly code: string;
+  readonly line: number | null;
+  readonly counter: string | null;
+  readonly observed: number | null;
+  readonly limit: number | null;
+
+  constructor(details: {
+    code?: string;
+    line?: number | null;
+    message?: string;
+    counter?: string | null;
+    observed?: number | null;
+    limit?: number | null;
+  }) {
+    super(details.message ?? 'Telex WASM operation failed');
+    this.name = 'TelexWasmError';
+    this.code = details.code ?? 'TELEX_WASM_ERROR';
+    this.line = details.line ?? null;
+    this.counter = details.counter ?? null;
+    this.observed = details.observed ?? null;
+    this.limit = details.limit ?? null;
+  }
 }
 
 export interface Position {
@@ -35,8 +143,8 @@ export interface AnnotationTarget {
 
 export interface AnnotationRecord {
   kind: string;
-  form: string;
   subtype: string | null;
+  form: string;
   raw: string;
   span: Span;
   target: AnnotationTarget;
@@ -88,11 +196,19 @@ interface RustWasmProcessResult {
 
 export interface AeonWasmRuntime {
   processAeon(source: string, options?: ProcessOptions): ProcessResult;
+  validateTelex(source: string, options?: TelexOptions): TelexValidationResult;
+  canonicalizeTelex(source: string, options?: TelexOptions): string;
+  checkTelexCompleteness(source: string, options?: TelexOptions): TelexCompletenessResult;
+  materializeTelex(source: string, options?: TelexOptions): TelexMaterializationResult;
 }
 
 interface GeneratedAeonWasmModule {
   default: (initInput?: unknown) => Promise<unknown>;
   process_aeon(source: string, optionsJson: string): string;
+  validate_telex(source: string, optionsJson: string): string;
+  canonicalize_telex(source: string, optionsJson: string): string;
+  check_telex_completeness(source: string, optionsJson: string): string;
+  materialize_telex(source: string, optionsJson: string): string;
 }
 
 let runtimePromise: Promise<AeonWasmRuntime> | undefined;
@@ -108,6 +224,38 @@ export async function processAeon(
 ): Promise<ProcessResult> {
   const runtime = await loadAeonWasm();
   return runtime.processAeon(source, options);
+}
+
+export async function validateTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexValidationResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.validateTelex(source, options);
+}
+
+export async function canonicalizeTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<string> {
+  const runtime = await loadAeonWasm();
+  return runtime.canonicalizeTelex(source, options);
+}
+
+export async function checkTelexCompleteness(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexCompletenessResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.checkTelexCompleteness(source, options);
+}
+
+export async function materializeTelex(
+  source: string,
+  options: TelexOptions = {},
+): Promise<TelexMaterializationResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.materializeTelex(source, options);
 }
 
 async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime> {
@@ -130,7 +278,47 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
     processAeon(source: string, options: ProcessOptions = {}): ProcessResult {
       return parseProcessResult(module.process_aeon(source, JSON.stringify(options)));
     },
+    validateTelex(source: string, options: TelexOptions = {}): TelexValidationResult {
+      return parseTelexResult<TelexValidationResult>(
+        invokeTelex(() => module.validate_telex(source, JSON.stringify(options))),
+      );
+    },
+    canonicalizeTelex(source: string, options: TelexOptions = {}): string {
+      return invokeTelex(() => module.canonicalize_telex(source, JSON.stringify(options)));
+    },
+    checkTelexCompleteness(source: string, options: TelexOptions = {}): TelexCompletenessResult {
+      return parseTelexResult<TelexCompletenessResult>(
+        invokeTelex(() => module.check_telex_completeness(source, JSON.stringify(options))),
+      );
+    },
+    materializeTelex(source: string, options: TelexOptions = {}): TelexMaterializationResult {
+      return parseTelexResult<TelexMaterializationResult>(
+        invokeTelex(() => module.materialize_telex(source, JSON.stringify(options))),
+      );
+    },
   };
+}
+
+function invokeTelex(operation: () => string): string {
+  try {
+    return operation();
+  } catch (error) {
+    const message = typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error);
+    try {
+      throw new TelexWasmError(JSON.parse(message) as ConstructorParameters<typeof TelexWasmError>[0]);
+    } catch (parseError) {
+      if (parseError instanceof TelexWasmError) throw parseError;
+      throw new TelexWasmError({ message });
+    }
+  }
+}
+
+function parseTelexResult<Result>(json: string): Result {
+  return JSON.parse(json) as Result;
 }
 
 function parseProcessResult(json: string): ProcessResult {
@@ -167,8 +355,8 @@ function normalizeDiagnostic(diagnostic: Diagnostic): Diagnostic {
 function normalizeAnnotation(annotation: AnnotationRecord): AnnotationRecord {
   return {
     kind: annotation.kind,
-    form: annotation.form,
     subtype: annotation.subtype ?? null,
+    form: annotation.form,
     raw: annotation.raw,
     span: annotation.span,
     target: annotation.target,

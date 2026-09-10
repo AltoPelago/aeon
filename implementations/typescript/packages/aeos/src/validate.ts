@@ -4,7 +4,7 @@
  * Main validation orchestrator for AEOS™ (Another Easy Object Schema).
  */
 
-import type { AES } from './types/aes.js';
+import type { AES, PortableAesBodyEvent } from './types/aes.js';
 import type { SchemaRule, SchemaV1 } from './types/schema.js';
 import type { ResultEnvelope } from './types/envelope.js';
 import { createPassingEnvelope, createFailingEnvelope } from './types/envelope.js';
@@ -24,6 +24,13 @@ import {
     resolveAddress,
     type SansaResolveNamespace,
 } from '@altopelago/sansa';
+import {
+    formatDatatypeDescriptor,
+    type AesDatatypeDescriptor,
+    type AesNumberLiteral,
+    type AesStringLiteral,
+    type TelexRecord,
+} from '@altopelago/aeon-aes';
 
 const TYPE_ALIASES: Record<string, readonly string[]> = {
     NumberLiteral: ['NumberLiteral'],
@@ -49,9 +56,11 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
+    NodeHead: ['NodeHead'],
 };
 
 type AttributeInfo = {
+    identity?: string;
     type: string;
     raw: string;
     value: string;
@@ -61,6 +70,7 @@ type AttributeInfo = {
 };
 
 type EventInfo = {
+    identity?: string;
     type: string;
     raw: string;
     value: string;
@@ -72,6 +82,7 @@ type EventInfo = {
 
 type AeosSansaResolveBinding = {
     path: string;
+    identity?: string;
     name?: string;
     index?: number;
     info?: EventInfo;
@@ -313,6 +324,7 @@ export function validate(
 
     // Helpers: format canonical path (local, no runtime AEON deps)
     function formatCanonicalPath(path: any): string {
+        if (typeof path === 'string') return path;
         if (!path || !Array.isArray(path.segments)) return '$';
         let result = '';
         for (const segment of path.segments) {
@@ -339,6 +351,10 @@ export function validate(
 
     function toTuple(span: any): [number, number] | null {
         if (!span) return null;
+        if (typeof span === 'string') {
+            const match = span.match(/^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$/u);
+            return match === null ? null : [Number(match[1]), Number(match[2])];
+        }
         if (Array.isArray(span) && span.length === 2 && typeof span[0] === 'number') return span as [number, number];
         if (span.start && span.end && typeof span.start.offset === 'number') return spanToTuple(span);
         return null;
@@ -365,6 +381,7 @@ export function validate(
             const element = elements[i];
             const attributes = buildAttributeInfoMap(element?.attributes);
             const info: EventInfo = {
+                ...(typeof element?.structuralId === 'string' ? { identity: element.structuralId } : {}),
                 type: typeof element?.type === 'string' ? element.type : 'Unknown',
                 raw: typeof element?.raw === 'string' ? element.raw : '',
                 value: typeof element?.value === 'string' ? element.value : '',
@@ -389,6 +406,7 @@ export function validate(
             const valueNode = (entry as any)?.value;
             const nestedAttributes = buildAttributeInfoMap((entry as any)?.annotations as ReadonlyMap<string, unknown> | Record<string, unknown> | undefined);
             const info: AttributeInfo = {
+                ...(typeof (entry as any)?.structuralId === 'string' ? { identity: (entry as any).structuralId as string } : {}),
                 type: typeof valueNode?.type === 'string' ? valueNode.type : 'Unknown',
                 raw: typeof valueNode?.raw === 'string' ? valueNode.raw : '',
                 value: typeof valueNode?.value === 'string' ? valueNode.value : '',
@@ -406,6 +424,7 @@ export function validate(
         for (const [key, attribute] of attributes.entries()) {
             const attributePath = appendAttributePath(basePath, key);
             eventsByPath.set(attributePath, {
+                ...(attribute.identity !== undefined ? { identity: attribute.identity } : {}),
                 type: attribute.type,
                 raw: attribute.raw,
                 value: attribute.value,
@@ -420,6 +439,7 @@ export function validate(
     for (let i = 0; i < aes.length; i++) {
         const event = aes[i] as any;
         const pathStr = formatCanonicalPath(event.path);
+        const portable = isPortableTelexRecord(event);
         if (pathStr.length > resourcePolicy.max_path_length) {
             emitResourceError(ctx, pathStr, `Path length ${pathStr.length} exceeds max_path_length ${resourcePolicy.max_path_length}`, toTuple(event.span));
         }
@@ -444,9 +464,26 @@ export function validate(
         } else {
             seen.set(pathStr, event.span);
             // Collect event info for Phase 5-7 checks
-            if (event.value && typeof event.value.type === 'string') {
+            if (portable) {
+                const value = typeof event.value === 'string' ? event.value : '';
+                const datatype = portableDatatype(event);
+                const info: EventInfo = {
+                    ...(typeof event.identity === 'string' ? { identity: event.identity } : {}),
+                    type: event.kind,
+                    raw: value,
+                    value,
+                    ...(datatype !== undefined ? { datatype } : {}),
+                    span: toTuple(event.span),
+                    ...((event.kind === 'CloneReference' || event.kind === 'PointerReference')
+                        && typeof event.value === 'string'
+                        ? { referencePath: parsePortableReferencePath(event.value) }
+                        : {}),
+                };
+                eventsByPath.set(pathStr, info);
+            } else if (event.value && typeof event.value.type === 'string') {
                 const attributes = buildAttributeInfoMap(event.annotations);
                 const info: EventInfo = {
+                    ...(typeof event.structuralId === 'string' ? { identity: event.structuralId } : {}),
                     type: event.value.type,
                     raw: typeof event.value.raw === 'string' ? event.value.raw : '',
                     value: typeof event.value.value === 'string' ? event.value.value : '',
@@ -481,6 +518,8 @@ export function validate(
 
         // Register index even for first occurrence
     }
+    hydratePortableAttributes(eventsByPath, aes);
+    hydratePortableContainerArities(aes, containerArity, resourcePolicy, ctx, toTuple);
     for (const [path, info] of eventsByPath) {
         enforceStringLengthResourceBudget(info, path, resourcePolicy, ctx);
     }
@@ -488,11 +527,17 @@ export function validate(
     // Optional separator literal trailing-delimiter policy
     if (trailingSeparatorPolicy !== 'off') {
         for (const event of aes as readonly any[]) {
-            if (event?.value?.type !== 'SeparatorLiteral') continue;
-            const payload = typeof event.value.value === 'string' ? event.value.value : '';
+            const portable = isPortableTelexRecord(event);
+            const kind = portable ? event.kind : event?.value?.type;
+            if (kind !== 'SeparatorLiteral') continue;
+            const payload = portable
+                ? (typeof event.value === 'string' ? event.value : '')
+                : (typeof event.value.value === 'string' ? event.value.value : '');
             if (payload.length === 0) continue;
 
-            const separators = decodeSeparatorChars(typeof event.datatype === 'string' ? event.datatype : undefined);
+            const separators = decodeSeparatorChars(portable
+                ? portableDatatype(event)
+                : (typeof event.datatype === 'string' ? event.datatype : undefined));
             if (separators.length === 0) continue;
 
             const lastChar = payload[payload.length - 1]!;
@@ -643,7 +688,7 @@ export function validate(
 
 function checkWorldPolicy(
     schema: SchemaV1,
-    aes: readonly { key?: string; path?: unknown; span?: unknown }[],
+    aes: readonly { key?: string; path?: unknown; span?: unknown; sourcePlane?: 'header' | 'body' }[],
     boundPaths: ReadonlySet<string>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
@@ -664,7 +709,7 @@ function checkWorldPolicy(
     }
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
-        if (key.startsWith('aeon:')) continue;
+        if (event.sourcePlane === 'header' || (event.sourcePlane === undefined && key.startsWith('aeon:'))) continue;
         const path = formatCanonicalPathLocal(event.path);
         if (!boundPaths.has(path)) continue;
         if (allowedRules.some((rule) => rule.kind === 'selector'
@@ -954,6 +999,7 @@ function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string,
         }
     }
     current.info = info;
+    if (info.identity !== undefined) current.identity = info.identity;
 }
 
 function getOrCreateChildBinding(
@@ -1576,7 +1622,156 @@ function isFormNegative(raw: string): boolean {
     return /^[$#%^]?-/.test(raw) || raw.startsWith('-');
 }
 
+function isPortableTelexRecord(value: unknown): value is PortableAesBodyEvent {
+    if (value === null || typeof value !== 'object') return false;
+    const record = value as Readonly<Record<string, unknown>>;
+    return typeof record.path === 'string' && typeof record.kind === 'string' && record.header === undefined;
+}
+
+function portableDatatype(record: TelexRecord): string | undefined {
+    if (typeof record.datatype !== 'string') return undefined;
+    if (!Array.isArray(record.generics) || !Array.isArray(record.clarifiers)) return record.datatype;
+    return formatDatatypeDescriptor({
+        datatype: record.datatype,
+        generics: record.generics as readonly (AesDatatypeDescriptor | AesNumberLiteral)[],
+        clarifiers: record.clarifiers as readonly (AesStringLiteral | AesNumberLiteral)[],
+    });
+}
+
+type PortablePathSegment =
+    | { readonly type: 'member'; readonly key: string }
+    | { readonly type: 'attribute'; readonly key: string }
+    | { readonly type: 'index'; readonly index: number };
+
+function parsePortablePath(path: string): { readonly segments: readonly PortablePathSegment[]; readonly prefixes: readonly string[] } {
+    if (!path.startsWith('$')) throw new TypeError(`Expected absolute portable AES path: ${path}`);
+    const segments: PortablePathSegment[] = [];
+    const prefixes: string[] = [];
+    let cursor = 1;
+    while (cursor < path.length) {
+        const start = cursor;
+        let type: 'member' | 'attribute' | 'index';
+        if (path.startsWith('.@.', cursor)) {
+            type = 'attribute';
+            cursor += 3;
+        } else if (path[cursor] === '.') {
+            type = 'member';
+            cursor += 1;
+        } else if (path[cursor] === '[') {
+            const match = path.slice(cursor).match(/^\[(0|[1-9][0-9]*)\]/u);
+            if (match === null) throw new TypeError(`Invalid portable AES index: ${path}`);
+            cursor += match[0].length;
+            segments.push({ type: 'index', index: Number(match[1]) });
+            prefixes.push(path.slice(0, cursor));
+            continue;
+        } else {
+            throw new TypeError(`Invalid portable AES path: ${path}`);
+        }
+
+        let key: string;
+        if (path[cursor] === '[' && path[cursor + 1] === '"') {
+            let end = cursor + 2;
+            let escaped = false;
+            for (; end < path.length; end += 1) {
+                const character = path[end];
+                if (escaped) escaped = false;
+                else if (character === '\\') escaped = true;
+                else if (character === '"') break;
+            }
+            if (path[end] !== '"' || path[end + 1] !== ']') throw new TypeError(`Invalid quoted member: ${path}`);
+            key = JSON.parse(path.slice(cursor + 1, end + 1)) as string;
+            cursor = end + 2;
+        } else {
+            const match = path.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*/u);
+            if (match === null) throw new TypeError(`Invalid portable AES member: ${path}`);
+            key = match[0];
+            cursor += key.length;
+        }
+        segments.push({ type, key });
+        prefixes.push(path.slice(0, cursor));
+        if (cursor === start) throw new TypeError(`Invalid portable AES path: ${path}`);
+    }
+    return { segments, prefixes };
+}
+
+function parsePortableReferencePath(path: string): readonly (string | number | { readonly type: 'attr'; readonly key: string })[] {
+    return parsePortablePath(path).segments.map((segment) => {
+        if (segment.type === 'index') return segment.index;
+        if (segment.type === 'attribute') return { type: 'attr' as const, key: segment.key };
+        return segment.key;
+    });
+}
+
+function hydratePortableAttributes(eventsByPath: Map<string, EventInfo>, aes: AES): void {
+    const attributes = aes
+        .filter(isPortableTelexRecord)
+        .map((record) => {
+            try {
+                return { record, details: parsePortablePath(record.path) };
+            } catch {
+                return null;
+            }
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .filter(({ details }) => details.segments.at(-1)?.type === 'attribute')
+        .sort((a, b) => a.details.segments.length - b.details.segments.length);
+
+    for (const { record, details } of attributes) {
+        const final = details.segments.at(-1);
+        if (final?.type !== 'attribute') continue;
+        const ownerPath = details.prefixes.at(-2) ?? '$';
+        const owner = eventsByPath.get(ownerPath);
+        const attribute = eventsByPath.get(record.path);
+        if (owner === undefined || attribute === undefined) continue;
+        const mapped = new Map(owner.attributes ?? []);
+        mapped.set(final.key, attribute);
+        owner.attributes = mapped;
+    }
+}
+
+function hydratePortableContainerArities(
+    aes: AES,
+    containerArity: Map<string, number>,
+    resourcePolicy: Required<ResourcePolicyV1>,
+    ctx: ReturnType<typeof createDiagContext>,
+    toTuple: (span: unknown) => [number, number] | null,
+): void {
+    const records = aes.filter(isPortableTelexRecord);
+    if (records.length === 0) return;
+    const details = new Map<string, ReturnType<typeof parsePortablePath>>();
+    for (const record of records) {
+        try {
+            details.set(record.path, parsePortablePath(record.path));
+        } catch {
+            // The portable AES validation layer reports malformed paths.
+        }
+    }
+    for (const record of records) {
+        if (!['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral', 'NodeHead'].includes(record.kind)) continue;
+        const childOwner = record.kind === 'NodeLiteral' ? `${record.path}[0]` : record.path;
+        let count = 0;
+        for (const candidate of records) {
+            const candidateDetails = details.get(candidate.path);
+            if (candidateDetails === undefined) continue;
+            const parent = candidateDetails.prefixes.at(-2) ?? '$';
+            const last = candidateDetails.segments.at(-1);
+            if (parent !== childOwner || last === undefined) continue;
+            if (record.kind === 'ObjectNode' ? last.type === 'member' : last.type === 'index') count += 1;
+        }
+        containerArity.set(record.path, count);
+        if (count > resourcePolicy.max_container_children_default) {
+            emitResourceError(
+                ctx,
+                record.path,
+                `Container child count ${count} exceeds max_container_children_default ${resourcePolicy.max_container_children_default}`,
+                toTuple(record.span),
+            );
+        }
+    }
+}
+
 function formatCanonicalPathLocal(path: any): string {
+    if (typeof path === 'string') return path;
     if (!path || !Array.isArray(path.segments)) return '$';
     let result = '';
     for (const segment of path.segments) {
@@ -1603,6 +1798,10 @@ function formatCanonicalPathLocal(path: any): string {
 
 function toTupleLocal(span: any): [number, number] | null {
     if (!span) return null;
+    if (typeof span === 'string') {
+        const match = span.match(/^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$/u);
+        return match === null ? null : [Number(match[1]), Number(match[2])];
+    }
     if (Array.isArray(span) && span.length === 2 && typeof span[0] === 'number') return span as [number, number];
     if (span.start && span.end && typeof span.start.offset === 'number') return spanToTuple(span);
     return null;

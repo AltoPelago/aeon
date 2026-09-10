@@ -147,6 +147,7 @@ export class Lexer {
     private offset: number = 0;
     private line: number = 1;
     private column: number = 1;
+    private sawLeadingBom: boolean = false;
     private sawLeadingShebang: boolean = false;
     private readonly tokens: Token[] = [];
     private readonly errors: LexerError[] = [];
@@ -229,6 +230,11 @@ export class Lexer {
     private scanToken(): void {
         const start = this.currentPosition();
         const c = this.advance();
+
+        if (c === '\uFEFF' && start.offset === 0) {
+            this.sawLeadingBom = true;
+            return;
+        }
 
         switch (c) {
             // Single character tokens
@@ -524,7 +530,7 @@ export class Lexer {
             }
 
             const codePoint = parseInt(hex, 16);
-            if (codePoint > 0x10FFFF) {
+            if (codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
                 this.errors.push(new InvalidEscapeSequenceError(
                     `\\u{${hex}}`,
                     createSpan(start, this.currentPosition())
@@ -1119,7 +1125,10 @@ export class Lexer {
     }
 
     private isLeadingShebangStart(start: Position): boolean {
-        return start.offset === 0 && start.line === 1 && start.column === 1;
+        return start.line === 1 && (
+            (start.offset === 0 && start.column === 1)
+            || (this.sawLeadingBom && start.offset === 1 && start.column === 2)
+        );
     }
 
     private isHostDirectiveSlot(start: Position): boolean {
@@ -1332,6 +1341,7 @@ function isValidMinuteOrSecond(value: number): boolean {
 
 function isValidWtcReference(reference: string): boolean {
     if (reference.length === 0) return false;
+    if (reference.toLowerCase() === 'local' && reference !== 'local') return false;
     if (reference.startsWith('/')) return false;
     if (reference.endsWith('/')) return false;
     if (reference.includes('//')) return false;

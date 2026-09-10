@@ -1,7 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
+    adaptTypeScriptAssignmentEventsToPortableAes,
     compile,
+    compileToTelex,
+    checkTelexCompleteness,
     formatPath,
     inspectFilePreamble,
     VERSION,
@@ -40,6 +43,72 @@ describe('API Surface', () => {
         assert.ok(result);
     });
 
+    it('should export portable Telex without changing compile()', () => {
+        const result = compileToTelex('aeon:mode = "transport"\na = 1');
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.strictEqual(result.records.length, 1);
+        assert.match(result.telex ?? '', /^telex\.aes=1\n/u);
+        assert.match(result.telex ?? '', /path=\$\.a\nkind=NumberLiteral\nvalue=1/u);
+    });
+
+    it('should opt into source-backed UTF-8 provenance when exact bytes are supplied', () => {
+        const source = '\uFEFFanswer = "😀"';
+        const sourceBytes = Buffer.from(source, 'utf8');
+        const result = compileToTelex(source, { sourceBytes });
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.strictEqual(result.records[0]?.span, `3:${sourceBytes.length}`);
+        assert.match(String(result.records[0]?.origin), /^sha256:[0-9a-f]{64}$/u);
+        assert.match(result.telex ?? '', /origin=sha256:[0-9a-f]{64}\nspan=3:18/u);
+    });
+
+    it('should expose the named legacy-to-portable compatibility adapter', () => {
+        const compiled = compile('a = 1');
+        const converted = adaptTypeScriptAssignmentEventsToPortableAes(compiled.events);
+
+        assert.strictEqual(converted.report.sourceContract, 'aeon.typescript.assignment-events.v0');
+        assert.strictEqual(converted.report.targetContract, 'aes.events.v1');
+        assert.deepStrictEqual(converted.events.map(({ path }) => path), ['$.a']);
+    });
+
+    it('should expose the quick Telex completeness check', () => {
+        const result = checkTelexCompleteness('telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+        assert.strictEqual(result.complete, false);
+        assert.deepStrictEqual(result.missing.map(({ path }) => path), ['$.nested']);
+    });
+
+    it('should include headers only through the explicit AEON document projection', () => {
+        const result = compileToTelex('aeon:mode = "transport"\na = 1', { includeHeaders: true });
+
+        assert.match(result.telex ?? '', /projection=aeon\.document\.v1/u);
+        assert.match(result.telex ?? '', /header=\$\.\["aeon:mode"\]/u);
+        const firstRecord = result.records[0];
+        assert.ok(firstRecord && 'header' in firstRecord);
+        assert.strictEqual(firstRecord.header, '$.["aeon:mode"]');
+    });
+
+    it('should keep nested structured-header records in the header plane', () => {
+        const source = 'aeon:header = { mode = "transport", metadata = { owner = "team" } }\na = 1';
+        const result = compileToTelex(source, { includeHeaders: true });
+
+        assert.strictEqual(result.compile.errors.length, 0);
+        assert.match(result.telex ?? '', /header=\$\.\["aeon:metadata"\]\.owner/u);
+        assert.doesNotMatch(result.telex ?? '', /path=\$\.\["aeon:metadata"\]/u);
+    });
+
+    it('should preserve quoted aeon-prefixed payload keys beside actual headers', () => {
+        const source = 'aeon:mode = "transport"\n"aeon:mode" = 1';
+        const body = compileToTelex(source);
+        const document = compileToTelex(source, { includeHeaders: true });
+
+        assert.deepStrictEqual(document.compile.events.map((event) => event.sourcePlane), ['header', 'body']);
+        assert.match(body.telex ?? '', /path=\$\.\["aeon:mode"\]/u);
+        assert.doesNotMatch(body.telex ?? '', /header=/u);
+        assert.match(document.telex ?? '', /header=\$\.\["aeon:mode"\]/u);
+        assert.match(document.telex ?? '', /path=\$\.\["aeon:mode"\]/u);
+    });
+
     it('should accept maxInputBytes in CompileOptions', () => {
         const options: CompileOptions = { maxInputBytes: 16 };
         const result = compile('a = 1', options);
@@ -71,7 +140,7 @@ describe('API Surface', () => {
         assert.strictEqual(result.errors.length, 0);
         assert.deepStrictEqual(result.warnings.map((warning) => warning.code), [
             'AEON_NON_PORTABLE_POLICY_DEPTH',
-            'AEON_NON_PORTABLE_POLICY_DEPTH',
+            'AEON_NON_PORTABLE_CLARIFIER_VALUES',
             'AEON_NON_PORTABLE_POLICY_DEPTH',
             'AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH',
             'AEON_NON_PORTABLE_EVENT_BUDGET',
@@ -364,6 +433,7 @@ describe('Core - compile()', () => {
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(result.events.map((event) => formatPath(event.path)), ['$.value']);
+            assert.strictEqual(result.events[0]?.span.start.offset, 1);
         });
 
         it('should accept a leading BOM before shebang and host directive', () => {
@@ -419,6 +489,25 @@ describe('Core - compile()', () => {
 
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.length > 0);
+        });
+    });
+
+    describe('named structural resource limits', () => {
+        const code = (source: string, options: CompileOptions): string | undefined =>
+            compile(source, options).errors[0]?.code;
+
+        it('enforces decoded strings, keys, collection lengths, and numeric lexemes independently', () => {
+            assert.strictEqual(code('a = "xy"', { maxStringCodepoints: 1 }), 'MAX_STRING_CODEPOINTS_EXCEEDED');
+            assert.strictEqual(code('ab = 1', { maxKeySegmentCodepoints: 1 }), 'MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED');
+            assert.strictEqual(code('a = [1,2]', { maxListItems: 1 }), 'MAX_LIST_ITEMS_EXCEEDED');
+            assert.strictEqual(code('a = (1,2)', { maxTupleItems: 1 }), 'MAX_TUPLE_ITEMS_EXCEEDED');
+            assert.strictEqual(code('a = 1234', { maxNumericLiteralCharacters: 3 }), 'MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED');
+        });
+
+        it('enforces canonical path depth and structured-comment payload length', () => {
+            assert.strictEqual(code('a = { b = 1 }', { maxPathDepth: 1 }), 'MAX_PATH_DEPTH_EXCEEDED');
+            assert.strictEqual(code('//@abc\na = 1', { maxStructuredCommentCharacters: 2 }), 'MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED');
+            assert.strictEqual(code('//!abc\na = 1', { maxStructuredCommentCharacters: 2 }), 'MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED');
         });
     });
 
@@ -537,15 +626,15 @@ describe('Core - compile()', () => {
         });
     });
 
-    describe('separator depth policy', () => {
-        it('should enforce max_separator_depth by default', () => {
+    describe('clarifier value policy', () => {
+        it('should enforce max_clarifier_values by default', () => {
             const result = compile('a:grid["|", "x"] = ^1|2x3');
             assert.strictEqual(result.events.length, 0);
-            assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'SEPARATOR_DEPTH_EXCEEDED'));
+            assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'CLARIFIER_VALUES_EXCEEDED'));
         });
 
-        it('should allow clarifier lists when max_separator_depth is raised', () => {
-            const result = compile('a:grid["|", "x"] = ^1|2x3', { maxSeparatorDepth: 8 });
+        it('should allow clarifier lists when max_clarifier_values is raised', () => {
+            const result = compile('a:grid["|", "x"] = ^1|2x3', { maxClarifierValues: 8 });
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events.length, 1);
         });
@@ -586,13 +675,13 @@ describe('Core - compile()', () => {
 
     describe('generic depth policy', () => {
         it('should enforce max_generic_depth by default', () => {
-            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))');
+            const result = compile('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some((e) => (e as { code?: string }).code === 'GENERIC_DEPTH_EXCEEDED'));
         });
 
-        it('should allow nested generic annotations when max_generic_depth is raised', () => {
-            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))', { maxGenericDepth: 8 });
+        it('should allow nested generic annotations at max_generic_depth', () => {
+            const result = compile('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))', { maxGenericDepth: 1 });
             assert.strictEqual(result.errors.length, 0);
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t'));
             assert.ok(result.events.some((event) => formatPath(event.path) === '$.t[0]'));

@@ -156,6 +156,19 @@ describe('Lexer', () => {
             assert.strictEqual(nonEofTokens.length, 0);
             assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
         });
+
+        it('should reject surrogate code points in braced unicode escapes', () => {
+            for (const source of [
+                String.raw`"\u{D800}"`,
+                String.raw`"\u{DFFF}"`,
+                String.raw`"\u{D800}\uDC00"`,
+            ]) {
+                const result = tokenize(source);
+                const nonEofTokens = result.tokens.filter(token => token.type !== TokenType.EOF);
+                assert.strictEqual(nonEofTokens.length, 0);
+                assert.strictEqual(result.errors[0]?.code, 'INVALID_ESCAPE');
+            }
+        });
     });
 
     describe('numeric literals', () => {
@@ -483,7 +496,7 @@ describe('Lexer', () => {
                 '2025-01-01T09:30Z&Europe/Belgium/Brussels',
                 '2025-01-01T09:30+02:00&Europe/Belgium/Brussels',
                 '2025-01-01T09:+02:00&Europe/Belgium/Brussels',
-                '2025-01-01T09:30Z&Local',
+                '2025-01-01T09:30Z&local',
                 '2025-01-01T09:30Z&America/Port-au-Prince',
                 '2025-01-01T09:30Z&GB-Eire',
                 '2025-01-01T09:30Z&Etc/GMT-1',
@@ -568,6 +581,17 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
             assert.strictEqual(result.tokens[0]!.value, '2035-01-01T09:00&-36.7590183/144.2826718');
+        });
+
+        it('requires exact lowercase local for the reserved WTC reference', () => {
+            for (const source of [
+                '2025-01-01T00:00:00Z&Local',
+                '2025-01-01T00:00:00Z&LOCAL',
+            ]) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 1, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.EOF, source);
+            }
         });
 
         it('rejects WTC references that start with a slash', () => {
@@ -697,6 +721,25 @@ describe('Lexer', () => {
 
             assert.strictEqual(tokens[1]!.span.start.line, 2);
             assert.strictEqual(tokens[1]!.span.start.column, 1);
+        });
+
+        it('should expose JavaScript UTF-16 offsets and columns without claiming byte offsets', () => {
+            const result = tokenize('"😀" alpha');
+            const identifier = result.tokens.find(token => token.type === TokenType.Identifier);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(identifier?.span.start, { line: 1, column: 6, offset: 5 });
+            assert.deepStrictEqual(identifier?.span.end, { line: 1, column: 11, offset: 10 });
+        });
+
+        it('should retain a leading BOM in native coordinates while skipping it as syntax', () => {
+            const result = tokenize('\uFEFF#!/usr/bin/env aeon\r\nvalue = 1', { includeComments: true });
+            const comment = result.tokens.find(token => token.type === TokenType.LineComment);
+            const identifier = result.tokens.find(token => token.type === TokenType.Identifier);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(comment?.span.start, { line: 1, column: 2, offset: 1 });
+            assert.deepStrictEqual(identifier?.span.start, { line: 2, column: 1, offset: 22 });
         });
     });
 

@@ -129,6 +129,14 @@ export interface CanonicalReceiptVerificationResult {
     };
 }
 
+/**
+ * Serialize the legacy AEON canonical assignment projection used by AEON
+ * integrity envelopes and receipts.
+ *
+ * This is not the portable `aes.events.v1` logical-byte contract: it predates
+ * that contract and intentionally serializes only source paths and canonical
+ * AEON values after removing the top-level envelope.
+ */
 export function serializeCanonicalEvents(events: readonly AssignmentEvent[]): string {
     const envelopeRoots = new Set(
         events
@@ -148,6 +156,7 @@ export function serializeCanonicalEvents(events: readonly AssignmentEvent[]): st
     return ordered.map((event) => `${formatPath(event.path)}\t${serializeCanonicalValue(event.value)}\n`).join('');
 }
 
+/** Hash the legacy AEON canonical assignment projection. */
 export function computeCanonicalHash(
     events: readonly AssignmentEvent[],
     options: CanonicalHashOptions = {}

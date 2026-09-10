@@ -9,8 +9,8 @@ pub enum AnnotationTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnnotationRecord {
     pub kind: String,
-    pub form: String,
     pub subtype: Option<String>,
+    pub form: String,
     pub raw: String,
     pub span: Span,
     pub target: AnnotationTarget,
@@ -186,8 +186,8 @@ pub fn extract_annotations(source: &str) -> Vec<AnnotationRecord> {
             let placement = resolve_placement(comment.span, &target, &bindables);
             AnnotationRecord {
                 kind: comment.kind,
-                form: comment.form,
                 subtype: comment.subtype,
+                form: comment.form,
                 raw: comment.raw,
                 span: comment.span,
                 target,
@@ -419,8 +419,7 @@ fn resolve_placement(
     let previous = bindable
         .landmarks
         .iter()
-        .filter(|landmark| landmark.span.end.offset <= comment_span.start.offset)
-        .next_back();
+        .rfind(|landmark| landmark.span.end.offset <= comment_span.start.offset);
     let next = bindable
         .landmarks
         .iter()
@@ -1895,7 +1894,7 @@ impl<'a> AnnotationParser<'a> {
         let start = self.scanner.position();
         self.scanner.bump();
         let colon_end = self.scanner.position();
-        self.skip_trivia(false);
+        self.skip_trivia(true);
         let datatype_start = self.scanner.position();
         let mut brackets = 0usize;
         let mut angles = 0usize;
@@ -2400,6 +2399,18 @@ mod tests {
         assert_eq!(records.len(), 3);
         assert!(records.iter().all(
             |record| matches!(record.target, AnnotationTarget::Path { ref path } if path == "$.[\"aeon:version\"]")
+        ));
+    }
+
+    #[test]
+    fn tokenized_structured_header_trivia_targets_typed_header_fields() {
+        let records = extract_annotations(
+            "aeon\n:\nheader /# gap #/= {\n  mode:\nstring = \"strict\"\n  encoding:string = \"utf-8\"\n}\napp:string = \"ok\"",
+        );
+        assert_eq!(records.len(), 1);
+        assert!(matches!(
+            records[0].target,
+            AnnotationTarget::Path { ref path } if path == "$.[\"aeon:mode\"]"
         ));
     }
 }

@@ -16,6 +16,7 @@
 import type { Span } from '@altopelago/aeon-lexer';
 import type { Header, Value, Attribute, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
+import { formatDatatypeAnnotation } from './datatype.js';
 import { formatPath } from './paths.js';
 import { formatReferenceTargetPath } from './reference-target.js';
 
@@ -335,17 +336,17 @@ function defaultDatatypePolicyForMode(mode: Mode): DatatypePolicy {
 }
 
 function shouldSkipHeaderEvent(event: AssignmentEvent, header: Header | null): boolean {
+    if (event.sourcePlane !== undefined) {
+        return event.sourcePlane === 'header';
+    }
     if (!header) {
         return false;
     }
-    return isHeaderEvent(event);
-}
-
-function isHeaderEvent(event: AssignmentEvent): boolean {
-    return event.path.segments.length >= 2
-        && event.path.segments[0]?.type === 'root'
-        && event.path.segments[1]?.type === 'member'
-        && event.path.segments[1].key.startsWith('aeon:');
+    const segment = event.path.segments[1];
+    return event.path.segments[0]?.type === 'root'
+        && segment?.type === 'member'
+        && segment.key.startsWith('aeon:')
+        && header.fields.has(segment.key.slice('aeon:'.length));
 }
 
 // Legacy export for backward compatibility
@@ -785,7 +786,11 @@ function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<strin
     const result = new Map<string, AttributeEntry>();
     for (const attribute of attributes) {
         for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = { value: entry.value };
+            const mapped: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
+                value: entry.value,
+                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
+            };
             const nested = buildAnnotationMap(entry.attributes);
             if (nested) {
                 (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;

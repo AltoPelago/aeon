@@ -36,6 +36,15 @@ if (result.ok) {
 }
 ```
 
+For an interoperable boundary, `validateTelex(telex, schema, options?)` first
+checks Telex syntax and the declared AES profile, then applies the same AEOS
+schema to its body records. Portable datatype components are recombined only
+for schema comparison, flat attributes remain addressable through `.@`, and
+node cardinality counts content beneath the explicit `[0]` node head.
+Structural identity remains selection metadata and never becomes part of the
+path. The validator CLI likewise accepts either an `aes` array or a `telex`
+string in its JSON request.
+
 ## What AEOS Does
 
 AEOS answers: "Is this AES structurally and representationally valid?"

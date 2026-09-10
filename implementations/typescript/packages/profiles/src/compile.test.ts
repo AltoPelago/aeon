@@ -60,7 +60,7 @@ test('compile forwards core portability warnings through profile metadata', () =
 
     assert.deepEqual(result.meta?.warnings?.map((warning) => warning.code), [
         'AEON_NON_PORTABLE_POLICY_DEPTH',
-        'AEON_NON_PORTABLE_POLICY_DEPTH',
+        'AEON_NON_PORTABLE_CLARIFIER_VALUES',
         'AEON_NON_PORTABLE_POLICY_DEPTH',
     ]);
 });
@@ -315,6 +315,35 @@ test('aeon.gp.profile.v1 rejects undeclared datatype clarifiers', () => {
         assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED', source);
         assert.equal(result.meta?.errors?.[0]?.path, '$.a', source);
     }
+});
+
+test('aeon.gp.profile.v1 allows custom datatype clarifiers for separator and radix literals', () => {
+    const result = compile('version:ver["."] = ^1.2.0\nseparatorNumeric:custom[2] = ^a2a\nradixNumeric:bits[2] = %10101\nradixString:bits["binary"] = %10101', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        datatypePolicy: 'allow_custom',
+    });
+
+    assert.equal(result.meta?.errors?.length ?? 0, 0);
+    assert.deepEqual(result.aes.map((event) => event.datatype), [
+        'ver["."]',
+        'custom[2]',
+        'bits[2]',
+        'bits["binary"]',
+    ]);
+});
+
+test('aeon.gp.profile.v1 still rejects custom datatype clarifiers for other literal families', () => {
+    const result = compile('value:custom["."] = "1.2.0"', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        datatypePolicy: 'allow_custom',
+    });
+
+    assert.equal(result.aes.length, 0);
+    assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
 });
 
 test('aeon.gp.profile.v1 rejects invalid radix clarifier shapes', () => {

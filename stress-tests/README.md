@@ -13,6 +13,9 @@ Public-readiness classification:
 - `canonical/`
   - implementation hardening copies of canonicalization-sensitive fixtures
   - some reduced cases are already promoted into `aeonite-cts`
+- `canonical-corpus/`
+  - real-world documents checked for byte-identical canonical output across
+    TypeScript, Python, and Rust
 - `edge/`
   - implementation hardening negatives and boundary cases
   - reduced deterministic cases may later be promoted into `aeonite-cts`
@@ -115,10 +118,11 @@ python3 ./scripts/stress-fixtures.py --cts-ready
 | Negative snippets | `python3 ./scripts/stress-negative-snippets.py` | editable corpus of mini fixtures that must fail |
 | Combination corpora | `python3 ./scripts/stress-combinations.py --run both` | expands mode-aware combination matrices into generated positive/negative snippet corpora and can immediately run them |
 | Canonical snippet parity | `python3 ./scripts/stress-canonical-snippets.py` | positive structural snippets must canonicalize identically across implementations |
+| Canonical corpus parity | `python3 ./scripts/stress-canonical-corpus.py` | every real-world corpus document must canonicalize successfully and identically across TypeScript, Python, and Rust; `--php` additionally requires byte-identical TypeScript/PHP canonical Telex |
 | Diagnostic snippet parity | `python3 ./scripts/stress-diagnostic-snippets.py` | curated syntax diagnostics must match across implementations |
 | Whitespace mutation parity | `python3 ./scripts/stress-whitespace-mutations.py` | generated whitespace/newline variants around structural tokens must not drift across implementations |
 | Comment injection parity | `python3 ./scripts/stress-comment-injection.py` | compact grammar-rich source with structured comments at every marked legal trivia slot must keep canonical and annotation output aligned |
-| Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests plus cross-implementation canonical and diagnostic snippet parity |
+| Canonical CTS lane | `bash ./scripts/canonical-cts.sh` | canonical package tests, the external canonical CTS manifest on all three implementations, and cross-implementation corpus/snippet parity |
 | Stress CLI | `npm run stress` | `21/21` pass |
 | Stress CLI advanced | `npm run stress-advanced` | `15/15` pass |
 | Stress CLI phase timing | `npm run phase-timing` | `8/8` pass |
@@ -397,6 +401,12 @@ python3 ./scripts/stress-canonical-snippets.py --mode strict
 python3 ./scripts/stress-canonical-snippets.py --brief
 ```
 
+Run the real-document corpus with the sibling PHP implementation included:
+
+```bash
+npm run test:canonical:corpus:php -- --brief
+```
+
 Run diagnostic parity across the curated syntax corpus:
 
 ```bash
@@ -451,8 +461,10 @@ bash ./scripts/canonical-cts.sh --brief
 
 This lane intentionally bundles:
 - TypeScript canonical package tests from the TypeScript workspace
+- Python implementation tests
 - Rust canonical package tests from the Rust workspace
 - cross-implementation canonical snippet parity via `stress-canonical-snippets.py`
+- real-document canonical corpus parity via `stress-canonical-corpus.py`
 - cross-implementation diagnostic snippet parity via `stress-diagnostic-snippets.py`
 
 Canonical parity is intentionally limited to positive structural corpora. Negative

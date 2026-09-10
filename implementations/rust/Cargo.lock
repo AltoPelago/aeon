@@ -4,9 +4,10 @@ version = 4
 
 [[package]]
 name = "aeon-aeos"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
  "regex",
  "serde",
  "serde_json",
@@ -14,27 +15,29 @@ dependencies = [
 
 [[package]]
 name = "aeon-annotations"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-core",
 ]
 
 [[package]]
 name = "aeon-canonical"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
 ]
 
 [[package]]
 name = "aeon-cli"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-aeos",
  "aeon-annotations",
  "aeon-canonical",
  "aeon-core",
  "aeon-finalize",
+ "aes-telex",
  "ed25519-dalek",
  "pkcs8",
  "serde",
@@ -45,39 +48,54 @@ dependencies = [
 
 [[package]]
 name = "aeon-core"
-version = "0.12.0"
+version = "0.12.1"
+dependencies = [
+ "aes-telex",
+ "sha2",
+]
 
 [[package]]
 name = "aeon-finalize"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-core",
+ "aes-telex",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "aeon-sdk"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-aeos",
  "aeon-core",
  "aeon-finalize",
+ "aes-telex",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "aeon-wasm"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aeon-annotations",
  "aeon-canonical",
  "aeon-core",
  "aeon-finalize",
+ "aes-telex",
  "serde",
  "serde_json",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "aes-telex"
+version = "0.0.0"
+source = "git+https://github.com/AltoPelago/aes.git?rev=8816c403e698f2a6fd1dd47b08cfc44b099f4740#8816c403e698f2a6fd1dd47b08cfc44b099f4740"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]
@@ -169,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.8.0"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71fd89660b2dc699704064e59e9dba0147b903e85319429e131620d022be411b"
+checksum = "a878c850e9e421b20262e9b41f9c860e4785fa07541c266b62ff9d1ef998a80a"
 dependencies = [
  "const-oid",
  "pem-rfc7468",

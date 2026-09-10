@@ -1,8 +1,10 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
+
+pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalResult {
@@ -13,6 +15,7 @@ pub struct CanonicalResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Binding {
     key: String,
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     value: Value,
@@ -20,6 +23,7 @@ struct Binding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AttributeEntry {
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     value: Value,
@@ -28,6 +32,7 @@ struct AttributeEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NodeValue {
     tag: String,
+    structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
     children: Vec<Value>,
@@ -35,11 +40,8 @@ struct NodeValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Value {
-    Typed {
-        datatype: String,
-        value: Box<Value>,
-    },
     Attributed {
+        structural_id: Option<String>,
         attributes: BTreeMap<String, AttributeEntry>,
         datatype: Option<String>,
         value: Box<Value>,
@@ -125,6 +127,7 @@ fn split_header(bindings: Vec<Binding>) -> Result<(Vec<Binding>, Vec<Binding>), 
             }
             shorthand_header.push(Binding {
                 key: String::from(key),
+                structural_id: binding.structural_id,
                 datatype: binding.datatype,
                 attributes: binding.attributes,
                 value: binding.value,
@@ -199,9 +202,10 @@ fn render_document(mut header: Vec<Binding>, mut body: Vec<Binding>) -> String {
 fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let left = format!(
-        "{}{}{}{}",
+        "{}{}{}{}{}",
         prefix,
         render_key(&binding.key),
+        render_structural_identity(binding.structural_id.as_deref()),
         render_attributes(&binding.attributes),
         render_datatype(binding.datatype.as_deref())
     );
@@ -273,28 +277,16 @@ fn render_sequence(
 fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     match value {
-        Value::Typed { datatype, value } => {
-            let rendered = render_value_multiline(value, indent);
-            if let Some((first, rest)) = rendered.split_first() {
-                let first = first.strip_prefix(&prefix).unwrap_or(first);
-                let mut lines = vec![format!(
-                    "{prefix}:{} = {first}",
-                    normalize_datatype(datatype)
-                )];
-                lines.extend(rest.iter().cloned());
-                lines
-            } else {
-                vec![format!("{prefix}:{} = ", normalize_datatype(datatype))]
-            }
-        }
         Value::Attributed {
+            structural_id,
             attributes,
             datatype,
             value,
         } => {
             let rendered = render_value_multiline(value, indent);
             let head = format!(
-                "{}{}",
+                "{}{}{}",
+                render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
                 render_datatype(datatype.as_deref())
             );
@@ -360,8 +352,9 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
 fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let head = format!(
-        "<{}{}{}",
+        "<{}{}{}{}",
         render_key(&node.tag),
+        render_structural_identity(node.structural_id.as_deref()),
         render_attributes(&node.attributes),
         render_datatype(node.datatype.as_deref())
     );
@@ -430,8 +423,9 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
         .iter()
         .map(|(key, entry)| {
             format!(
-                "{}{}{} = {}",
+                "{}{}{}{} = {}",
                 render_key(key),
+                render_structural_identity(entry.structural_id.as_deref()),
                 render_attributes(&entry.attributes),
                 render_datatype(entry.datatype.as_deref()),
                 render_value_inline(&entry.value)
@@ -445,20 +439,15 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 
 fn render_value_inline(value: &Value) -> String {
     match value {
-        Value::Typed { datatype, value } => {
-            format!(
-                ":{} = {}",
-                normalize_datatype(datatype),
-                render_value_inline(value)
-            )
-        }
         Value::Attributed {
+            structural_id,
             attributes,
             datatype,
             value,
         } => {
             format!(
-                "{}{} = {}",
+                "{}{}{} = {}",
+                render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
                 render_datatype(datatype.as_deref()),
                 render_value_inline(value)
@@ -483,8 +472,9 @@ fn render_value_inline(value: &Value) -> String {
                     .iter()
                     .map(|binding| {
                         format!(
-                            "{}{}{} = {}",
+                            "{}{}{}{} = {}",
                             render_key(&binding.key),
+                            render_structural_identity(binding.structural_id.as_deref()),
                             render_attributes(&binding.attributes),
                             render_datatype(binding.datatype.as_deref()),
                             render_value_inline(&binding.value)
@@ -548,9 +538,15 @@ fn render_datatype(datatype: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
+fn render_structural_identity(structural_id: Option<&str>) -> String {
+    structural_id
+        .map(|value| format!("\\{value}\\"))
+        .unwrap_or_default()
+}
+
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_scalar(value),
+        Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -559,7 +555,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Typed { value, .. } | Value::Attributed { value, .. } => is_simple_value(value),
+        Value::Attributed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
         Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
         _ => false,
@@ -599,9 +595,28 @@ fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     let body_prefix = " ".repeat(indent + 2);
     let mut lines = vec![String::from(">`")];
-    lines.extend(value.split('\n').map(|line| format!("{body_prefix}{line}")));
+    lines.extend(
+        value
+            .split('\n')
+            .map(|line| format!("{body_prefix}{}", escape_trimtick_line(line))),
+    );
     lines.push(format!("{prefix}`"));
     lines
+}
+
+fn escape_trimtick_line(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '`' => out.push_str("\\`"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn apply_trimticks(raw: &str, marker_width: usize) -> String {
@@ -942,6 +957,7 @@ fn looks_like_zoned_time(value: &str) -> bool {
 
 fn is_valid_wtc_reference(reference: &str) -> bool {
     !reference.is_empty()
+        && (reference == "local" || !reference.eq_ignore_ascii_case("local"))
         && !reference.starts_with('/')
         && !reference.ends_with('/')
         && !reference.contains("//")
@@ -1419,6 +1435,7 @@ impl Binding {
     fn scalar(key: &str, value: Value) -> Self {
         Self {
             key: String::from(key),
+            structural_id: None,
             datatype: None,
             attributes: BTreeMap::new(),
             value,
@@ -1429,6 +1446,7 @@ impl Binding {
 struct Parser<'a> {
     source: &'a [u8],
     index: usize,
+    structural_identities: HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -1436,6 +1454,7 @@ impl<'a> Parser<'a> {
         Self {
             source: source.as_bytes(),
             index: 0,
+            structural_identities: HashSet::new(),
         }
     }
 
@@ -1451,6 +1470,8 @@ impl<'a> Parser<'a> {
 
     fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
         let key = self.parse_key()?;
+        self.skip_ws(true);
+        let structural_id = self.parse_optional_structural_identity()?;
         self.skip_ws(true);
         let attributes = if self.peek() == Some('@') {
             self.parse_attribute_block()?
@@ -1477,6 +1498,7 @@ impl<'a> Parser<'a> {
         let value = self.parse_value()?;
         Ok(Binding {
             key,
+            structural_id,
             datatype,
             attributes,
             value,
@@ -1489,7 +1511,7 @@ impl<'a> Parser<'a> {
             return self.parse_quoted_string();
         }
         let key = self.parse_identifier_like(&[
-            ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
+            '\\', ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
         ])?;
         if key == "aeon" {
             let before_separator = self.index;
@@ -1515,6 +1537,8 @@ impl<'a> Parser<'a> {
         self.skip_ws(true);
         while self.peek() != Some('}') {
             let key = self.parse_key()?;
+            self.skip_ws(true);
+            let structural_id = self.parse_optional_structural_identity()?;
             self.skip_ws(true);
             let nested = if self.peek() == Some('@') {
                 self.parse_attribute_block()?
@@ -1542,6 +1566,7 @@ impl<'a> Parser<'a> {
             entries.insert(
                 key,
                 AttributeEntry {
+                    structural_id,
                     datatype,
                     attributes: nested,
                     value,
@@ -1626,47 +1651,98 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if self.peek() == Some('@') {
-            let attributes = self.parse_attribute_block()?;
-            self.skip_ws(true);
-            let datatype = if self.peek() == Some(':') {
-                self.index += 1;
-                self.skip_ws(true);
-                let parsed = self.parse_datatype_like()?;
-                validate_binding_node_datatype(&parsed)
-                    .map_err(|message| self.syntax_error(&message))?;
-                Some(parsed)
-            } else {
-                None
-            };
-            self.skip_ws(true);
-            self.expect_char_message(
-                '=',
-                "Expected '=' after anonymous attribute/type annotation",
-            )?;
-            self.skip_ws(true);
-            let value = self.parse_value()?;
-            return Ok(Value::Attributed {
-                attributes,
-                datatype,
-                value: Box::new(value),
-            });
-        }
-        if self.peek() != Some(':') {
+        if !matches!(self.peek(), Some('\\' | '@' | ':')) {
             return self.parse_value();
         }
-        self.index += 1;
+        let structural_id = self.parse_optional_structural_identity()?;
         self.skip_ws(true);
-        let datatype = self.parse_datatype_like()?;
-        validate_binding_node_datatype(&datatype).map_err(|message| self.syntax_error(&message))?;
+        let attributes = if self.peek() == Some('@') {
+            self.parse_attribute_block()?
+        } else {
+            BTreeMap::new()
+        };
         self.skip_ws(true);
-        self.expect_char_message('=', "Expected '=' after anonymous type annotation")?;
+        let datatype = if self.peek() == Some(':') {
+            self.index += 1;
+            self.skip_ws(true);
+            let parsed = self.parse_datatype_like()?;
+            validate_binding_node_datatype(&parsed)
+                .map_err(|message| self.syntax_error(&message))?;
+            Some(parsed)
+        } else {
+            None
+        };
+        self.skip_ws(true);
+        self.expect_char_message('=', "Expected '=' after anonymous value head")?;
         self.skip_ws(true);
         let value = self.parse_value()?;
-        Ok(Value::Typed {
+        Ok(Value::Attributed {
+            structural_id,
+            attributes,
             datatype,
             value: Box::new(value),
         })
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
+        if self.peek() != Some('\\') {
+            return Ok(None);
+        }
+        let start = self.index;
+        self.index += 1;
+        let value_start = self.index;
+        while let Some(ch) = self.peek() {
+            if ch == '\\' {
+                break;
+            }
+            if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
+                while let Some(next) = self.peek() {
+                    self.index += 1;
+                    if next == '\\' {
+                        break;
+                    }
+                }
+                let mut diagnostic =
+                    Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
+                        .at_path("$");
+                diagnostic.span = Some(Span {
+                    start: self.position_at(start),
+                    end: self.position_at(self.index),
+                });
+                return Err(diagnostic);
+            }
+            self.index += 1;
+        }
+        if self.peek() != Some('\\') || self.index == value_start {
+            if self.peek() == Some('\\') {
+                self.index += 1;
+            }
+            let mut diagnostic =
+                Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
+                    .at_path("$");
+            diagnostic.span = Some(Span {
+                start: self.position_at(start),
+                end: self.position_at(self.index),
+            });
+            return Err(diagnostic);
+        }
+        let structural_id = std::str::from_utf8(&self.source[value_start..self.index])
+            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
+            .to_owned();
+        self.index += 1;
+        if !self.structural_identities.insert(structural_id.clone()) {
+            let mut diagnostic = Diagnostic::new(
+                "DUPLICATE_STRUCTURAL_IDENTITY",
+                format!("Duplicate structural identity: '{structural_id}'"),
+            )
+            .at_path("$");
+            diagnostic.span = Some(Span {
+                start: self.position_at(start),
+                end: self.position_at(self.index),
+            });
+            return Err(diagnostic);
+        }
+        Ok(Some(structural_id))
     }
 
     fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
@@ -1766,6 +1842,8 @@ impl<'a> Parser<'a> {
         self.expect_char('<')?;
         self.skip_ws(true);
         let tag = self.parse_key()?;
+        self.skip_ws(true);
+        let structural_id = self.parse_optional_structural_identity()?;
         let mut datatype = None;
         let mut attributes = BTreeMap::new();
         loop {
@@ -1807,6 +1885,7 @@ impl<'a> Parser<'a> {
         self.expect_char('>')?;
         Ok(Value::Node(NodeValue {
             tag,
+            structural_id,
             datatype,
             attributes,
             children,
@@ -1833,6 +1912,12 @@ impl<'a> Parser<'a> {
                 self.index += 1;
                 return Ok(value);
             }
+            if matches!(byte, b'\n' | b'\r') && quote != '`' {
+                return Err(self.error(
+                    "UNTERMINATED_STRING",
+                    &format!("Unterminated string literal (started with {quote})"),
+                ));
+            }
             if byte == b'\\' {
                 value.push_str(
                     std::str::from_utf8(&self.source[chunk_start..self.index])
@@ -1854,7 +1939,7 @@ impl<'a> Parser<'a> {
                     'f' => value.push('\u{000c}'),
                     'u' => {
                         self.index += 1;
-                        let codepoint = if self.peek() == Some('{') {
+                        let (codepoint, permits_surrogate_pair) = if self.peek() == Some('{') {
                             self.index += 1;
                             let hex_start = self.index;
                             let mut hex_digits = 0usize;
@@ -1863,33 +1948,74 @@ impl<'a> Parser<'a> {
                                 hex_digits += 1;
                             }
                             if hex_digits == 0 || hex_digits > 6 || self.peek() != Some('}') {
-                                return Err(self.syntax_error("Invalid unicode escape"));
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
                             }
                             let hex = std::str::from_utf8(&self.source[hex_start..self.index])
                                 .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
                             self.index += 1;
-                            u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                            (
+                                u32::from_str_radix(hex, 16).map_err(|_| {
+                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                })?,
+                                false,
+                            )
                         } else {
                             let hex_start = self.index;
                             for _ in 0..4 {
                                 if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
-                                    return Err(self.syntax_error("Invalid unicode escape"));
+                                    return Err(
+                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                    );
                                 }
                                 self.index += 1;
                             }
                             let hex = std::str::from_utf8(&self.source[hex_start..self.index])
                                 .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                            u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.syntax_error("Invalid unicode escape"))?
+                            (
+                                u32::from_str_radix(hex, 16).map_err(|_| {
+                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                })?,
+                                true,
+                            )
                         };
-                        let decoded = char::from_u32(codepoint)
-                            .ok_or_else(|| self.syntax_error("Invalid unicode escape"))?;
+                        let codepoint = if permits_surrogate_pair
+                            && (0xD800..=0xDBFF).contains(&codepoint)
+                        {
+                            if self.peek() != Some('\\') || self.peek_next() != Some('u') {
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                            }
+                            self.index += 2;
+                            let low_start = self.index;
+                            for _ in 0..4 {
+                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
+                                    return Err(
+                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                                    );
+                                }
+                                self.index += 1;
+                            }
+                            let low_hex = std::str::from_utf8(&self.source[low_start..self.index])
+                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
+                            let low = u32::from_str_radix(low_hex, 16).map_err(|_| {
+                                self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                            })?;
+                            if !(0xDC00..=0xDFFF).contains(&low) {
+                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                            }
+                            0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
+                        } else if (0xDC00..=0xDFFF).contains(&codepoint) {
+                            return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
+                        } else {
+                            codepoint
+                        };
+                        let decoded = char::from_u32(codepoint).ok_or_else(|| {
+                            self.error("INVALID_ESCAPE", "Invalid unicode escape")
+                        })?;
                         value.push(decoded);
                         chunk_start = self.index;
                         continue;
                     }
-                    _ => return Err(self.syntax_error("Invalid escape sequence")),
+                    _ => return Err(self.error("INVALID_ESCAPE", "Invalid escape sequence")),
                 }
                 self.index += 1;
                 chunk_start = self.index;
@@ -1912,19 +2038,8 @@ impl<'a> Parser<'a> {
         if self.peek() != Some('`') {
             return Err(self.syntax_error("Expected trimtick opener"));
         }
-        self.index += 1;
-        let start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == '`' {
-                let raw = std::str::from_utf8(&self.source[start..self.index])
-                    .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-                    .to_owned();
-                self.index += 1;
-                return Ok(apply_trimticks(&raw, marker_width.max(1)));
-            }
-            self.index += 1;
-        }
-        Err(self.syntax_error("Unterminated trimtick"))
+        let decoded = self.parse_quoted_string()?;
+        Ok(apply_trimticks(&decoded, marker_width.max(1)))
     }
 
     fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
@@ -2243,7 +2358,11 @@ impl<'a> Parser<'a> {
     }
 
     fn syntax_error(&self, message: &str) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new("SYNTAX_ERROR", message).at_path("$");
+        self.error("SYNTAX_ERROR", message)
+    }
+
+    fn error(&self, code: &str, message: &str) -> Diagnostic {
+        let mut diagnostic = Diagnostic::new(code, message).at_path("$");
         diagnostic.span = Some(self.current_span());
         diagnostic
     }
@@ -2312,6 +2431,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preserves_structural_identity_in_canonical_head_position() {
+        let result = canonicalize(
+            "items = [\\B2\\@{source = \"user\"}:string = \"green\"]\nage\\A1\\:int32 = 42",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("age\\A1\\:int32 = 42"));
+        assert!(
+            result
+                .text
+                .contains("\\B2\\@{source = \"user\"}:string = \"green\"")
+        );
+    }
+
+    #[test]
+    fn preserves_attribute_entry_and_node_head_structural_identity() {
+        let result = canonicalize("value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("source\\META\\:string = \"user\""));
+        assert!(result.text.contains("<tag\\HEAD\\>"));
+    }
+
+    #[test]
+    fn rejects_duplicate_structural_identity_during_canonicalization() {
+        let result = canonicalize("a\\A1\\ = 1\nb = [\\A1\\ = 2]");
+        assert_eq!(result.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
+    }
+
+    #[test]
     fn normalizes_line_endings_and_trailing_newline() {
         let result = canonicalize("a = [1, 2]");
         assert!(result.errors.is_empty());
@@ -2367,6 +2514,45 @@ mod tests {
             result.text,
             "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = \"\"\n"
         );
+    }
+
+    #[test]
+    fn decodes_the_complete_escape_vocabulary_in_trimticks() {
+        let source = r#"value = >`\"\'\`\\\n\r\t\b\f\u0041\u{1F600}\uD83D\uDE00`"#;
+        let bindings = Parser::new(source).parse_document().expect("parse");
+        assert_eq!(
+            bindings[0].value,
+            Value::String(String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_escapes_in_every_string_delimiter() {
+        for source in [
+            r#"value = "\q""#,
+            r#"value = '\q'"#,
+            r#"value = `\q`"#,
+            r#"value = >`\q`"#,
+            r#"value = "\u{D800}\uDC00""#,
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "INVALID_ESCAPE", "{source}");
+        }
+    }
+
+    #[test]
+    fn rejects_literal_newlines_in_ordinary_quoted_strings() {
+        for source in [
+            "value = \"line one\nline two\"",
+            "value = 'line one\nline two'",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "UNTERMINATED_STRING", "{source}");
+        }
     }
 
     #[test]
@@ -2795,6 +2981,20 @@ mod tests {
     }
 
     #[test]
+    fn escapes_trimtick_delimiters_backslashes_and_controls_in_multiline_output() {
+        let result = canonicalize("value = \"line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b\"");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result.text.contains(
+                "value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`"
+            )
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
     fn canonicalizes_one_line_trimticks_in_lists_to_strings() {
         let result = canonicalize(
             "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  >> `\n    one\n  `,\n  >> `\n    two\n  `\n]\n",
@@ -3050,5 +3250,16 @@ mod tests {
             assert_eq!(result.errors.len(), 1, "{source}");
             assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
         }
+    }
+
+    #[test]
+    fn canonicalizes_telex_through_the_canonicalization_crate() {
+        let source =
+            "telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n";
+        let result = canonicalize_telex(source).expect("canonical Telex");
+        assert_eq!(
+            result,
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
+        );
     }
 }

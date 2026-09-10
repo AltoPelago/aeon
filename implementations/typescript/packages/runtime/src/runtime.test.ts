@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTypedRuntimeBinder, runRuntime, runTypedRuntime } from './index.js';
+import fs from 'node:fs';
+import { compileToTelex, loadAeonicLimits } from '@altopelago/aeon-core';
+import { createTypedRuntimeBinder, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
 test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
@@ -19,6 +21,52 @@ test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     assert.equal(result.meta.errors.length, 0);
     assert.equal((result.document as Record<string, unknown>).name, 'AEON');
     assert.equal((result.document as Record<string, unknown>).copy, 'AEON');
+});
+
+test('runs Telex -> portable AES -> schema -> JSON materialization', () => {
+    const wire = compileToTelex('name = "AEON"\nvalues = [2, 3]\ncopy = ~values').telex;
+    assert.ok(wire);
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.name', constraints: { type: 'StringLiteral', required: true } },
+            { path: '$.values', constraints: { type: 'ListNode', required: true } },
+        ],
+    };
+
+    const result = runTelexRuntime(wire, { schema });
+
+    assert.equal(result.meta.errors.length, 0);
+    assert.equal(result.meta.telex?.valid, true);
+    assert.deepEqual(result.document, {
+        name: 'AEON',
+        values: [2, 3],
+        copy: [2, 3],
+    });
+});
+
+test('selects the common limits document for the Telex runtime path', () => {
+    const policy = fs.readFileSync(
+        new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+        'utf8',
+    );
+    const loaded = loadAeonicLimits(policy);
+    assert.ok(loaded.limits);
+    const result = runTelexRuntime(
+        'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n',
+        { aeonicLimits: loaded.limits, maxStringCodepoints: 2 },
+    );
+
+    assert.equal(result.meta.errors.length, 0);
+    assert.equal(result.meta.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
+    assert.equal(result.meta.effectiveLimits?.telex.maxStringCodepoints, 2);
+    assert.equal(result.meta.effectiveLimits?.overridesApplied, true);
+});
+
+test('Telex runtime fails before schema and finalization when AES is incomplete', () => {
+    const result = runTelexRuntime('telex.aes=1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n');
+
+    assert.equal(result.document, undefined);
+    assert.ok(result.meta.errors.some((diagnostic) => diagnostic.phase === 5 && diagnostic.code === 'AES_MISSING_PARENT'));
 });
 
 test('strict mode stops after schema errors', () => {
@@ -256,13 +304,13 @@ test('runtime optionally includes annotation stream records', () => {
     assert.deepEqual(result.annotations?.map((entry) => entry.kind), ['doc', 'hint']);
 });
 
-test('runtime enforces maxSeparatorDepth and allows override', () => {
+test('runtime maps maxSeparatorDepth to maxClarifierValues and allows override', () => {
     const strictFail = runRuntime('a:grid["|", ">"] = ^1|2>3', {
         mode: 'strict',
         output: 'json',
     });
 
-    assert.ok(strictFail.meta.errors.some((diag) => diag.code === 'SEPARATOR_DEPTH_EXCEEDED'));
+    assert.ok(strictFail.meta.errors.some((diag) => diag.code === 'CLARIFIER_VALUES_EXCEEDED'));
     assert.equal(strictFail.document, undefined);
 
     const strictPass = runRuntime('a:grid["|", ">"] = ^1|2>3', {

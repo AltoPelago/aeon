@@ -31,6 +31,11 @@ class AnnotationStreamTests(unittest.TestCase):
         self.assertEqual("doc", annotations[0]["kind"])
         self.assertEqual("$.a", annotations[0]["target"]["path"])
 
+    def test_reserved_subtype_is_presented_next_to_kind(self) -> None:
+        annotations = self.annotations_for("/{ structure }/\na = 1")
+        self.assertEqual(["kind", "subtype", "form"], list(annotations[0])[:3])
+        self.assertEqual("structure", annotations[0]["subtype"])
+
     def test_infix_container_comment_binds_to_nearest_element(self) -> None:
         annotations = self.annotations_for("a = [1, /? in-list ?/ 2]")
         self.assertEqual("$.a[1]", annotations[0]["target"]["path"])

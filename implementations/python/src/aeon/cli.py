@@ -9,6 +9,10 @@ from .annotations import build_annotation_stream, sort_annotation_records
 from .canonical import canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
+from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits
+from .portable import adapt_python_assignment_events_to_portable_aes, export_telex
+from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
+from .telex import TelexSyntaxError, canonicalize_telex, parse_telex, validate_telex_records
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     command = args[0]
     if command in {"version", "--version", "-v"}:
-        print("aeon-python 0.12.0")
+        print("aeon-python 0.12.1")
         return 0
     if command == "fmt":
         return fmt(args[1:])
@@ -28,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
         return inspect(args[1:])
     if command == "finalize":
         return finalize(args[1:])
+    if command == "telex":
+        return telex(args[1:])
     print(f"Error: Unknown command: {command}", file=sys.stderr)
     return 2
 
@@ -50,6 +56,10 @@ def cts_validate() -> int:
 
 def inspect(args: list[str]) -> int:
     json_output = "--json" in args
+    telex_output = "--telex" in args
+    include_headers = "--include-headers" in args
+    portable_aes = "--portable-aes" in args
+    source_provenance = "--source-provenance" in args
     recovery = "--recovery" in args
     annotations_only = "--annotations-only" in args
     include_annotations = "--annotations" in args or annotations_only
@@ -63,19 +73,36 @@ def inspect(args: list[str]) -> int:
         )
         return 2
     max_attribute_depth = numeric_flag_value(args, "--max-attribute-depth")
+    max_clarifier_values = numeric_flag_value(args, "--max-clarifier-values")
     max_separator_depth = numeric_flag_value(args, "--max-separator-depth")
     max_generic_depth = numeric_flag_value(args, "--max-generic-depth")
+    max_generic_arguments = numeric_flag_value(args, "--max-generic-arguments")
+    max_datatype_components = numeric_flag_value(args, "--max-datatype-components")
+    max_value_nesting_depth = numeric_flag_value(args, "--max-value-nesting-depth")
     max_nesting_depth = numeric_flag_value(args, "--max-nesting-depth")
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
     max_events = numeric_flag_value(args, "--max-events")
+    limits_file = flag_value(args, "--limits-file")
     if max_attribute_depth is None and "--max-attribute-depth" in args:
         print("Error: Invalid value for --max-attribute-depth (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_clarifier_values is None and "--max-clarifier-values" in args:
+        print("Error: Invalid value for --max-clarifier-values (expected a non-negative integer)", file=sys.stderr)
         return 2
     if max_separator_depth is None and "--max-separator-depth" in args:
         print("Error: Invalid value for --max-separator-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
     if max_generic_depth is None and "--max-generic-depth" in args:
         print("Error: Invalid value for --max-generic-depth (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_generic_arguments is None and "--max-generic-arguments" in args:
+        print("Error: Invalid value for --max-generic-arguments (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_datatype_components is None and "--max-datatype-components" in args:
+        print("Error: Invalid value for --max-datatype-components (expected a non-negative integer)", file=sys.stderr)
+        return 2
+    if max_value_nesting_depth is None and "--max-value-nesting-depth" in args:
+        print("Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
     if max_nesting_depth is None and "--max-nesting-depth" in args:
         print("Error: Invalid value for --max-nesting-depth (expected a non-negative integer)", file=sys.stderr)
@@ -86,24 +113,63 @@ def inspect(args: list[str]) -> int:
     if max_events is None and "--max-events" in args:
         print("Error: Invalid value for --max-events (expected a non-negative integer)", file=sys.stderr)
         return 2
+    if limits_file is None and "--limits-file" in args:
+        print("Error: --limits-file requires a path", file=sys.stderr)
+        return 2
+    if telex_output and (json_output or portable_aes or include_annotations):
+        print("Error: --telex cannot be combined with JSON or annotation output flags", file=sys.stderr)
+        return 2
+    if include_headers and not telex_output and not (json_output and portable_aes):
+        print("Error: --include-headers requires --telex or --json --portable-aes", file=sys.stderr)
+        return 2
+    if portable_aes and not json_output:
+        print("Error: --portable-aes requires --json", file=sys.stderr)
+        return 2
+    if source_provenance and not portable_aes and not telex_output:
+        print("Error: --source-provenance requires --portable-aes or --telex", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
         print("Error: No file specified", file=sys.stderr)
         return 2
-    source = Path(file_arg).read_text(encoding="utf-8")
+    source_bytes = Path(file_arg).read_bytes()
+    source = source_bytes.decode("utf-8")
+    compile_kwargs: dict[str, object] = {}
+    if limits_file is not None:
+        loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
+        if loaded.limits is None:
+            for error in loaded.errors:
+                print(f"[{error.code}] {error.path}: {error.message}", file=sys.stderr)
+            return 2
+        try:
+            compile_kwargs.update(aeon_compile_limits(loaded.limits))
+        except ValueError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+    compile_kwargs.update({"recovery": recovery, "datatype_policy": datatype_policy, "mode": mode})
+    if max_attribute_depth is not None:
+        compile_kwargs["max_attribute_depth"] = max_attribute_depth
+    if max_clarifier_values is not None:
+        compile_kwargs["max_clarifier_values"] = max_clarifier_values
+    elif max_separator_depth is not None:
+        compile_kwargs["max_separator_depth"] = max_separator_depth
+    if max_generic_depth is not None:
+        compile_kwargs["max_generic_depth"] = max_generic_depth
+    if max_generic_arguments is not None:
+        compile_kwargs["max_generic_arguments"] = max_generic_arguments
+    if max_datatype_components is not None:
+        compile_kwargs["max_datatype_components"] = max_datatype_components
+    if max_value_nesting_depth is not None:
+        compile_kwargs["max_value_nesting_depth"] = max_value_nesting_depth
+    elif max_nesting_depth is not None:
+        compile_kwargs["max_nesting_depth"] = max_nesting_depth
+    if max_input_bytes is not None:
+        compile_kwargs["max_input_bytes"] = max_input_bytes
+    if max_events is not None:
+        compile_kwargs["max_events"] = max_events
     result = compile_source(
         source,
-        CompileOptions(
-            recovery=recovery,
-            datatype_policy=datatype_policy,
-            max_attribute_depth=1 if max_attribute_depth is None else max_attribute_depth,
-            max_separator_depth=1 if max_separator_depth is None else max_separator_depth,
-            max_generic_depth=1 if max_generic_depth is None else max_generic_depth,
-            max_nesting_depth=256 if max_nesting_depth is None else max_nesting_depth,
-            mode=mode,
-            max_input_bytes=max_input_bytes,
-            max_events=max_events,
-        ),
+        CompileOptions(**compile_kwargs),
     )
     annotation_events = result.internal_events if result.internal_events is not None else result.events
     annotations = build_annotation_stream(source, annotation_events) if include_annotations else []
@@ -111,21 +177,115 @@ def inspect(args: list[str]) -> int:
         annotations = []
     if sort_annotations:
         annotations = sort_annotation_records(annotations)
-    if json_output:
+    if telex_output and not result.errors:
+        sys.stdout.write(export_telex(
+            result.events,
+            header=result.header,
+            include_headers=include_headers,
+            source_bytes=source_bytes if source_provenance else None,
+        ))
+    elif json_output:
         if annotations_only:
             print(json.dumps({"annotations": annotations}, indent=2))
             return 0
         payload = {
-            "events": result.events,
+            "events": (
+                adapt_python_assignment_events_to_portable_aes(
+                    result.events,
+                    header=result.header,
+                    include_headers=include_headers,
+                    source_bytes=source_bytes if source_provenance else None,
+                )["events"]
+                if portable_aes
+                else [
+                    {key: value for key, value in event.items() if key != "sourcePlane"}
+                    for event in result.events
+                ]
+            ),
             "errors": [error.to_json() for error in result.errors],
         }
         if include_annotations:
             payload["annotations"] = annotations
+        if portable_aes and include_headers:
+            payload["projection"] = "aeon.document.v1"
         print(json.dumps(payload, indent=2))
     else:
         for error in result.errors:
             print(error.message)
     return 1 if result.errors else 0
+
+
+def telex(args: list[str]) -> int:
+    usage = "Usage: aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
+    if len(args) < 2 or args[0] not in {"decode", "canonicalize", "materialize"} or args[1].startswith("--"):
+        print(usage, file=sys.stderr)
+        return 2
+    action, file_arg = args[0], args[1]
+    scope = flag_value(args, "--scope") or "payload"
+    if scope not in {"payload", "header", "full"}:
+        print("Error: Invalid value for --scope (expected payload, header, or full)", file=sys.stderr)
+        return 2
+    max_materialized_weight = numeric_flag_value(args, "--max-materialized-weight")
+    max_reference_depth = numeric_flag_value(args, "--max-reference-depth")
+    for flag, value in (("--max-materialized-weight", max_materialized_weight), ("--max-reference-depth", max_reference_depth)):
+        if flag in args and value is None:
+            print(f"Error: Invalid value for {flag} (expected a non-negative integer)", file=sys.stderr)
+            return 2
+    limits_file = flag_value(args, "--limits-file")
+    if "--limits-file" in args and limits_file is None:
+        print("Error: --limits-file requires a path", file=sys.stderr)
+        return 2
+    codec_limits: object = None
+    finalize_kwargs: dict[str, int] = {}
+    if limits_file is not None:
+        loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
+        if loaded.limits is None:
+            for error in loaded.errors:
+                print(f"[{error.code}] {error.path}: {error.message}", file=sys.stderr)
+            return 2
+        try:
+            codec_limits = telex_limits(loaded.limits)
+            finalize_kwargs.update(finalization_limits(loaded.limits))
+        except ValueError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+    if max_materialized_weight is not None:
+        finalize_kwargs["max_materialized_weight"] = max_materialized_weight
+    if max_reference_depth is not None:
+        finalize_kwargs["max_reference_depth"] = max_reference_depth
+    source = Path(file_arg).read_text(encoding="utf-8")
+    try:
+        if action == "canonicalize":
+            sys.stdout.write(canonicalize_telex(source, codec_limits))
+            return 0
+        parsed = parse_telex(source, codec_limits)
+    except TelexSyntaxError as error:
+        print(f"[{error.code}] {error.detail}", file=sys.stderr)
+        return 1
+    validation = validate_telex_records(
+        parsed.records,
+        profile=parsed.profile,
+        projection=parsed.projection,
+        limits=codec_limits,
+    )
+    if action == "decode":
+        print(json.dumps({**parsed.to_dict(), "validation": validation}, indent=2))
+        return 0 if validation["valid"] else 1
+    finalized = finalize_portable_json(
+        parsed.records,
+        PortableFinalizeOptions(
+            mode="loose" if "--loose" in args else "strict",
+            scope=scope,
+            profile=parsed.profile,
+            projection=parsed.projection,
+            limits=codec_limits,
+            **finalize_kwargs,
+        ),
+    )
+    print(json.dumps(finalized, indent=2))
+    meta = finalized.get("meta", {})
+    errors = meta.get("errors", []) if isinstance(meta, dict) else []
+    return 0 if validation["valid"] and not errors else 1
 
 
 def fmt(args: list[str]) -> int:
@@ -182,6 +342,7 @@ def finalize(args: list[str]) -> int:
     max_input_bytes = numeric_flag_value(args, "--max-input-bytes")
     max_materialized_weight = numeric_flag_value(args, "--max-materialized-weight")
     max_reference_depth = numeric_flag_value(args, "--max-reference-depth")
+    limits_file = flag_value(args, "--limits-file")
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
         return 2
@@ -191,28 +352,50 @@ def finalize(args: list[str]) -> int:
     if max_reference_depth is None and "--max-reference-depth" in args:
         print("Error: Invalid value for --max-reference-depth (expected a non-negative integer)", file=sys.stderr)
         return 2
+    if limits_file is None and "--limits-file" in args:
+        print("Error: --limits-file requires a path", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if file_arg is None:
         print("Error: No file specified", file=sys.stderr)
         return 2
 
+    compile_kwargs: dict[str, object] = {
+        "recovery": recovery,
+        "datatype_policy": datatype_policy,
+        "mode": mode,
+    }
+    finalize_kwargs: dict[str, int] = {}
+    if limits_file is not None:
+        loaded = load_aeonic_limits(Path(limits_file).read_text(encoding="utf-8"))
+        if loaded.limits is None:
+            for error in loaded.errors:
+                print(f"[{error.code}] {error.path}: {error.message}", file=sys.stderr)
+            return 2
+        try:
+            compile_kwargs.update(aeon_compile_limits(loaded.limits))
+            finalize_kwargs.update(finalization_limits(loaded.limits))
+        except ValueError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+    if max_input_bytes is not None:
+        compile_kwargs["max_input_bytes"] = max_input_bytes
+    if max_materialized_weight is not None:
+        finalize_kwargs["max_materialized_weight"] = max_materialized_weight
+    if max_reference_depth is not None:
+        finalize_kwargs["max_reference_depth"] = max_reference_depth
+
     source = Path(file_arg).read_text(encoding="utf-8")
     result = compile_source(
         source,
-        CompileOptions(
-            recovery=recovery,
-            datatype_policy=datatype_policy,
-            mode=mode,
-            max_input_bytes=max_input_bytes,
-        ),
+        CompileOptions(**compile_kwargs),
     )
     finalize_options = FinalizeOptions(
         mode="loose" if "--loose" in args else "strict",
         materialization="projected" if projected else "all",
         include_paths=include_paths or None,
         scope=scope,
-        max_materialized_weight=max_materialized_weight,
-        max_reference_depth=max_reference_depth,
+        **finalize_kwargs,
     )
     finalized = finalize_map(result, finalize_options) if map_output else finalize_json(result, finalize_options)
     print(json.dumps(finalized, indent=2))
@@ -260,12 +443,12 @@ def first_non_flag(args: list[str]) -> str | None:
         if skip_next:
             skip_next = False
             continue
-        if item in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if item in {"--datatype-policy", "--limits-file", "--max-attribute-depth", "--max-clarifier-values", "--max-separator-depth", "--max-generic-depth", "--max-generic-arguments", "--max-datatype-components", "--max-value-nesting-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             skip_next = True
             continue
         if item.startswith("--"):
             continue
-        if index > 0 and args[index - 1] in {"--datatype-policy", "--max-attribute-depth", "--max-separator-depth", "--max-generic-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
+        if index > 0 and args[index - 1] in {"--datatype-policy", "--limits-file", "--max-attribute-depth", "--max-clarifier-values", "--max-separator-depth", "--max-generic-depth", "--max-generic-arguments", "--max-datatype-components", "--max-value-nesting-depth", "--max-nesting-depth", "--max-input-bytes", "--max-events", "--max-materialized-weight", "--max-reference-depth", "--scope", "--include-path"}:
             continue
         return item
     return None
@@ -282,7 +465,7 @@ def numeric_flag_value(args: list[str], flag: str) -> int | None:
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
     )
 
 

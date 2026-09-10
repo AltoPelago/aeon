@@ -6,19 +6,29 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aeon_aeos::{
-    AesEvent, AttributeEntry as AeosAttributeEntry, EventPath, EventValue, OffsetOnly,
-    PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema, SpanInput,
-    ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
+    AesEvent, AesSourcePlane, AttributeEntry as AeosAttributeEntry, EventPath, EventValue,
+    OffsetOnly, PathSegmentInput, ReferencePathSegment as AeosReferencePathSegment, Schema,
+    SpanInput, ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
-    AssignmentEvent, AttributeValue, CompileOptions, DatatypePolicy, Diagnostic, NullLiteralMode,
-    PathSegment, ReferenceSegment, VERSION, Value, compile, format_path, normalize_number_literal,
+    AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
+    ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesCompatibilityEvent,
+    PortableAesCompatibilityOptions, ReferenceSegment, VERSION, Value,
+    adapt_rust_assignment_events_to_portable_aes, aeon_compile_limits, compile, export_telex,
+    finalization_limits, format_path, load_aeonic_limits, normalize_number_literal, telex_limits,
 };
+#[cfg(test)]
+use aeon_core::{PortableAesEvent, project_portable_events};
 use aeon_finalize::{
-    FinalizeMode, FinalizeOptions, FinalizeScope, Materialization, finalize_json, finalize_map,
-    value_to_ast_json,
+    FinalizeMode, FinalizeOptions, FinalizePortableJsonOptions, FinalizeScope, Materialization,
+    finalize_json, finalize_map, finalize_portable_json, value_to_ast_json,
+};
+use aes_telex::{
+    ClarifierKind, DatatypeDescriptor, GenericArgument, TelexLimits, TelexRecord,
+    canonicalize_telex_with_limits, parse_telex_with_limits,
+    validate_telex_records_with_projection_and_limits,
 };
 use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -108,6 +118,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         Some("inspect") => inspect(&args[2..]),
         Some("inspect-cases") => inspect_cases(&args[2..]),
         Some("finalize") => finalize(&args[2..]),
+        Some("telex") => telex(&args[2..]),
         Some("bind") => bind(&args[2..]),
         Some("integrity") => integrity(&args[2..]),
         Some("fmt") => fmt(&args[2..]),
@@ -118,6 +129,204 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         }
         Some(other) => Err(format!("Unknown command: {other}")),
     }
+}
+
+fn telex(args: &[String]) -> Result<ExitCode, String> {
+    const USAGE: &str = "Usage: aeon telex <decode|canonicalize|materialize> <file> [--limits-file <path>] [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
+    let Some(action @ ("decode" | "canonicalize" | "materialize")) =
+        args.first().map(String::as_str)
+    else {
+        return Err(USAGE.to_owned());
+    };
+    let Some(file) = args.get(1).filter(|file| !file.starts_with("--")) else {
+        return Err(USAGE.to_owned());
+    };
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let (limits, policy_max_materialized_weight, policy_max_reference_depth) =
+        if let Some(path) = limits_file.as_deref() {
+            let limits_source = fs::read_to_string(path)
+                .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+            let selected = load_aeonic_limits(&limits_source).map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
+            let telex = telex_limits(&selected)
+                .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?;
+            let finalization = finalization_limits(&selected);
+            (
+                telex,
+                finalization.max_materialized_weight,
+                finalization.max_reference_depth,
+            )
+        } else {
+            (TelexLimits::default(), None, None)
+        };
+    let source =
+        fs::read_to_string(file).map_err(|error| format!("failed to read {file}: {error}"))?;
+    if action == "canonicalize" {
+        let output = canonicalize_telex_with_limits(&source, &limits)
+            .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+        print!("{output}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let parsed = parse_telex_with_limits(&source, &limits)
+        .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+    let validation = validate_telex_records_with_projection_and_limits(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        &[],
+        &limits,
+    );
+    if action == "decode" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "version": parsed.version,
+                "profile": parsed.profile,
+                "profileExplicit": parsed.profile_explicit,
+                "projection": parsed.projection,
+                "projectionExplicit": parsed.projection_explicit,
+                "records": parsed.records.iter().map(telex_record_json).collect::<Vec<_>>(),
+                "canonical": parsed.canonical,
+                "validation": telex_validation_json(&validation),
+            }))
+            .map_err(|error| format!("failed to encode Telex output: {error}"))?
+        );
+        return Ok(if validation.valid {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
+    let mode =
+        resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{USAGE}"))?;
+    let scope = resolve_finalize_scope(flag_value(args, "--scope").as_deref())
+        .map_err(|message| format!("Error: {message}\n{USAGE}"))?;
+    let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight")
+        .map_err(|_| format!("Error: Invalid --max-materialized-weight\n{USAGE}"))?
+        .or(policy_max_materialized_weight);
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth")
+        .map_err(|_| format!("Error: Invalid --max-reference-depth\n{USAGE}"))?
+        .or(policy_max_reference_depth);
+    let finalized = finalize_portable_json(
+        &parsed.records,
+        FinalizePortableJsonOptions {
+            mode,
+            scope,
+            profile: parsed.profile,
+            projection: parsed.projection,
+            limits,
+            max_materialized_weight,
+            max_reference_depth,
+            ..FinalizePortableJsonOptions::default()
+        },
+    );
+    let has_errors = !validation.valid || !finalized.meta.errors.is_empty();
+    let output = json!({
+        "document": finalized.document,
+        "meta": {
+            "errors": serde_json::from_str::<JsonValue>(&render_errors(&finalized.meta.errors)).unwrap_or_else(|_| json!([])),
+            "warnings": serde_json::from_str::<JsonValue>(&render_errors(&finalized.meta.warnings)).unwrap_or_else(|_| json!([])),
+        },
+        "validation": telex_validation_json(&validation),
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output)
+            .map_err(|error| format!("failed to encode Telex output: {error}"))?
+    );
+    Ok(if has_errors {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn telex_record_json(record: &TelexRecord) -> JsonValue {
+    let mut object = Map::new();
+    for (field, value) in record.fields() {
+        object.insert(field.clone(), JsonValue::String(value.clone()));
+    }
+    if let Some(datatype) = record.datatype() {
+        object.insert(
+            "datatype".to_owned(),
+            JsonValue::String(datatype.datatype.clone()),
+        );
+        object.insert(
+            "generics".to_owned(),
+            JsonValue::Array(
+                datatype
+                    .generics
+                    .iter()
+                    .map(generic_argument_json)
+                    .collect(),
+            ),
+        );
+        object.insert(
+            "clarifiers".to_owned(),
+            JsonValue::Array(
+                datatype
+                    .clarifiers
+                    .iter()
+                    .map(|clarifier| {
+                        json!({
+                            "kind": match clarifier.kind {
+                                ClarifierKind::StringLiteral => "StringLiteral",
+                                ClarifierKind::NumberLiteral => "NumberLiteral",
+                            },
+                            "value": clarifier.value,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    JsonValue::Object(object)
+}
+
+fn generic_argument_json(argument: &GenericArgument) -> JsonValue {
+    match argument {
+        GenericArgument::Datatype(datatype) => datatype_descriptor_json(datatype),
+        GenericArgument::NumberLiteral(value) => {
+            json!({"kind": "NumberLiteral", "value": value})
+        }
+    }
+}
+
+fn datatype_descriptor_json(datatype: &DatatypeDescriptor) -> JsonValue {
+    json!({
+        "datatype": datatype.datatype,
+        "generics": datatype.generics.iter().map(generic_argument_json).collect::<Vec<_>>(),
+        "clarifiers": datatype.clarifiers.iter().map(|clarifier| json!({
+            "kind": match clarifier.kind {
+                ClarifierKind::StringLiteral => "StringLiteral",
+                ClarifierKind::NumberLiteral => "NumberLiteral",
+            },
+            "value": clarifier.value,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn telex_validation_json(validation: &aes_telex::ValidationResult) -> JsonValue {
+    json!({
+        "valid": validation.valid,
+        "profile": validation.profile,
+        "diagnostics": validation.diagnostics.iter().map(|diagnostic| json!({
+            "code": diagnostic.code,
+            "message": diagnostic.message,
+            "record": diagnostic.record,
+            "path": diagnostic.path,
+            "field": diagnostic.field,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn check(args: &[String]) -> Result<ExitCode, String> {
@@ -176,70 +385,184 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn inspect(args: &[String]) -> Result<ExitCode, String> {
-    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]";
+    const INSPECT_USAGE: &str = "Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]";
     let json_output = args.iter().any(|arg| arg == "--json");
+    let telex_output = args.iter().any(|arg| arg == "--telex");
+    let include_headers = args.iter().any(|arg| arg == "--include-headers");
+    let portable_aes = args.iter().any(|arg| arg == "--portable-aes");
+    let source_provenance = args.iter().any(|arg| arg == "--source-provenance");
     let include_annotations = args.iter().any(|arg| arg == "--annotations");
     let annotations_only = args.iter().any(|arg| arg == "--annotations-only");
     let sort_annotations_flag = args.iter().any(|arg| arg == "--sort-annotations");
     let recovery = args.iter().any(|arg| arg == "--recovery");
+    let effective_mode = resolve_behavior_mode(args)
+        .map_err(|message| format!("Error: {message}\n{INSPECT_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = flag_value(args, "--datatype-policy");
-    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
-        String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
-    })?;
-    let max_events = optional_numeric_flag_value(args, "--max-events").map_err(|_| {
-        String::from("Error: Invalid value for --max-events (expected a non-negative integer)")
-    })?;
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let policy_limits = if let Some(path) = limits_file.as_deref() {
+        let limits_source = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+        let limits = load_aeonic_limits(&limits_source).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        Some(
+            aeon_compile_limits(&limits)
+                .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?,
+        )
+    } else {
+        None
+    };
+    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-input-bytes (expected a non-negative integer)",
+            )
+        })?
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .and_then(|limits| limits.max_input_bytes)
+        });
+    let max_events = optional_numeric_flag_value(args, "--max-events")
+        .map_err(|_| {
+            String::from("Error: Invalid value for --max-events (expected a non-negative integer)")
+        })?
+        .or_else(|| policy_limits.as_ref().and_then(|limits| limits.max_events));
     let max_attribute_depth = numeric_flag_value(
         args,
         "--max-attribute-depth",
-        CompileOptions::default().max_attribute_depth,
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_attribute_depth, |limits| {
+                limits.max_attribute_depth
+            }),
     )
     .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-attribute-depth (expected a non-negative integer)",
         )
     })?;
-    let max_separator_depth = numeric_flag_value(
-        args,
-        "--max-separator-depth",
-        CompileOptions::default().max_separator_depth,
-    )
-    .map_err(|_| {
-        String::from(
-            "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
-        )
-    })?;
+    let max_separator_depth =
+        optional_numeric_flag_value(args, "--max-separator-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-separator-depth (expected a non-negative integer)",
+            )
+        })?;
+    let max_clarifier_values = optional_numeric_flag_value(args, "--max-clarifier-values")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-clarifier-values (expected a non-negative integer)",
+            )
+        })?
+        .or(max_separator_depth)
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .map(|limits| limits.max_clarifier_values)
+        });
     let max_generic_depth = numeric_flag_value(
         args,
         "--max-generic-depth",
-        CompileOptions::default().max_generic_depth,
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_generic_depth, |limits| {
+                limits.max_generic_depth
+            }),
     )
     .map_err(|_| {
         String::from(
             "Error: Invalid value for --max-generic-depth (expected a non-negative integer)",
         )
     })?;
-    let max_nesting_depth = numeric_flag_value(
+    let max_generic_arguments = numeric_flag_value(
         args,
-        "--max-nesting-depth",
-        CompileOptions::default().max_nesting_depth,
+        "--max-generic-arguments",
+        policy_limits
+            .as_ref()
+            .map_or(CompileOptions::default().max_generic_arguments, |limits| {
+                limits.max_generic_arguments
+            }),
     )
     .map_err(|_| {
         String::from(
-            "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+            "Error: Invalid value for --max-generic-arguments (expected a non-negative integer)",
         )
     })?;
+    let max_datatype_components = numeric_flag_value(
+        args,
+        "--max-datatype-components",
+        policy_limits.as_ref().map_or(
+            CompileOptions::default().max_datatype_components,
+            |limits| limits.max_datatype_components,
+        ),
+    )
+    .map_err(|_| {
+        String::from(
+            "Error: Invalid value for --max-datatype-components (expected a non-negative integer)",
+        )
+    })?;
+    let max_nesting_depth =
+        optional_numeric_flag_value(args, "--max-nesting-depth").map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-nesting-depth (expected a non-negative integer)",
+            )
+        })?;
+    let max_value_nesting_depth = optional_numeric_flag_value(args, "--max-value-nesting-depth")
+        .map_err(|_| String::from(
+            "Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)",
+        ))?
+        .or(max_nesting_depth)
+        .or_else(|| policy_limits.as_ref().map(|limits| limits.max_value_nesting_depth));
+
+    if portable_aes && !json_output {
+        return Err(format!(
+            "Error: --portable-aes requires --json\n{INSPECT_USAGE}"
+        ));
+    }
+    if source_provenance && !portable_aes && !telex_output {
+        return Err(format!(
+            "Error: --source-provenance requires --portable-aes or --telex\n{INSPECT_USAGE}"
+        ));
+    }
+    if include_headers && !telex_output && !(json_output && portable_aes) {
+        return Err(format!(
+            "Error: --include-headers requires --telex or --json --portable-aes\n{INSPECT_USAGE}"
+        ));
+    }
+    if telex_output
+        && (json_output
+            || portable_aes
+            || include_annotations
+            || annotations_only
+            || sort_annotations_flag)
+    {
+        return Err(format!(
+            "Error: --telex cannot be combined with JSON or annotation output flags\n{INSPECT_USAGE}"
+        ));
+    }
 
     let file = find_file(
         args,
         &[
             "--datatype-policy",
+            "--limits-file",
             "--max-input-bytes",
             "--max-events",
             "--max-attribute-depth",
+            "--max-clarifier-values",
             "--max-separator-depth",
             "--max-generic-depth",
+            "--max-generic-arguments",
+            "--max-datatype-components",
+            "--max-value-nesting-depth",
             "--max-nesting-depth",
         ],
     )
@@ -265,12 +588,45 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                 )
             })?,
             max_attribute_depth,
-            max_separator_depth,
+            max_clarifier_values,
+            max_separator_depth: CompileOptions::default().max_separator_depth,
             max_generic_depth,
-            max_nesting_depth,
+            max_generic_arguments,
+            max_datatype_components,
+            max_value_nesting_depth,
+            max_nesting_depth: CompileOptions::default().max_nesting_depth,
+            max_path_depth: policy_limits.as_ref().map_or(CompileOptions::default().max_path_depth, |limits| limits.max_path_depth),
+            max_string_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_string_codepoints, |limits| limits.max_string_codepoints),
+            max_key_segment_codepoints: policy_limits.as_ref().map_or(CompileOptions::default().max_key_segment_codepoints, |limits| limits.max_key_segment_codepoints),
+            max_list_items: policy_limits.as_ref().map_or(CompileOptions::default().max_list_items, |limits| limits.max_list_items),
+            max_tuple_items: policy_limits.as_ref().map_or(CompileOptions::default().max_tuple_items, |limits| limits.max_tuple_items),
+            max_path_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_path_characters, |limits| limits.max_path_characters),
+            max_numeric_literal_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_numeric_literal_characters, |limits| limits.max_numeric_literal_characters),
+            max_structured_comment_characters: policy_limits.as_ref().map_or(CompileOptions::default().max_structured_comment_characters, |limits| limits.max_structured_comment_characters),
+            mode: effective_mode,
             ..CompileOptions::default()
         },
     );
+    if telex_output {
+        if !result.errors.is_empty() {
+            for error in &result.errors {
+                eprintln!("{}", format_error_line(error));
+            }
+            return Ok(ExitCode::from(1));
+        }
+        let wire = export_telex(
+            &result.events,
+            &ExportTelexOptions {
+                include_headers,
+                header: result.header.clone(),
+                source_bytes: source_provenance.then(|| source.as_bytes().to_vec()),
+                ..ExportTelexOptions::default()
+            },
+        )
+        .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+        print!("{wire}");
+        return Ok(ExitCode::SUCCESS);
+    }
     let annotations_requested = include_annotations || annotations_only || sort_annotations_flag;
     let mut annotations = if annotations_requested {
         extract_annotations(&source)
@@ -293,9 +649,29 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                 header_field_value(result.header.as_ref(), "schema"),
             );
             println!("{{");
-            println!("  \"events\": {},", render_events(&result.events));
+            println!(
+                "  \"events\": {},",
+                if portable_aes {
+                    let converted = adapt_rust_assignment_events_to_portable_aes(
+                        &result.events,
+                        &PortableAesCompatibilityOptions {
+                            include_headers,
+                            header: result.header.clone(),
+                            source_bytes: source_provenance.then(|| source.as_bytes().to_vec()),
+                        },
+                    )
+                    .map_err(|error| format!("[{}] {}", error.code, error.detail))?;
+                    render_portable_compatibility_events(&converted.events)
+                } else {
+                    render_events(&result.events)
+                }
+            );
             println!("  \"errors\": {},", render_errors(&result.errors));
             println!("  \"warnings\": {}", render_errors(&result.warnings));
+            if portable_aes && include_headers {
+                println!(",");
+                println!("  \"projection\": \"aeon.document.v1\"");
+            }
             if let Some(contracts) = declared_contracts {
                 println!(",");
                 println!(
@@ -320,7 +696,13 @@ fn inspect(args: &[String]) -> Result<ExitCode, String> {
                     recovery,
                     include_annotations,
                     annotations_only,
-                    mode: header_field_value(result.header.as_ref(), "mode")
+                    mode: effective_mode
+                        .map(|mode| match mode {
+                            BehaviorMode::Transport => String::from("transport"),
+                            BehaviorMode::Strict => String::from("strict"),
+                            BehaviorMode::Custom => String::from("custom"),
+                        })
+                        .or_else(|| header_field_value(result.header.as_ref(), "mode"))
                         .unwrap_or_else(|| String::from("transport")),
                     version: header_field_value(result.header.as_ref(), "version"),
                     profile: header_field_value(result.header.as_ref(), "profile"),
@@ -442,13 +824,14 @@ fn inspect_cases(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn finalize(args: &[String]) -> Result<ExitCode, String> {
-    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
+    const FINALIZE_USAGE: &str = "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]";
     let file = find_file(
         args,
         &[
             "--datatype-policy",
             "--scope",
             "--include-path",
+            "--limits-file",
             "--max-input-bytes",
             "--max-materialized-weight",
             "--max-reference-depth",
@@ -456,6 +839,8 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
     )
     .ok_or_else(|| format!("Error: No file specified\n{FINALIZE_USAGE}"))?;
     let mode = resolve_finalize_mode(args)
+        .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
+    let compile_mode = resolve_behavior_mode(args)
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), false)
         .map_err(|_| {
@@ -465,18 +850,47 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
         })?;
     let scope = resolve_finalize_scope(flag_value(args, "--scope").as_deref())
         .map_err(|message| format!("Error: {message}\n{FINALIZE_USAGE}"))?;
-    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
-        String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
-    })?;
+    let limits_file = flag_value(args, "--limits-file");
+    if args.iter().any(|arg| arg == "--limits-file") && limits_file.is_none() {
+        return Err(String::from("Error: --limits-file requires a path"));
+    }
+    let (policy_limits, policy_finalize_limits) = if let Some(path) = limits_file.as_deref() {
+        let limits_source = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read limits file {path}: {error}"))?;
+        let limits = load_aeonic_limits(&limits_source).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| format!("[{}] {}: {}", error.code, error.path, error.message))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        let compile_limits = aeon_compile_limits(&limits)
+            .map_err(|error| format!("[{}] {}: {}", error.code, error.path, error.message))?;
+        (Some(compile_limits), Some(finalization_limits(&limits)))
+    } else {
+        (None, None)
+    };
+    let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes")
+        .map_err(|_| {
+            String::from(
+                "Error: Invalid value for --max-input-bytes (expected a non-negative integer)",
+            )
+        })?
+        .or_else(|| {
+            policy_limits
+                .as_ref()
+                .and_then(|limits| limits.max_input_bytes)
+        });
     let max_materialized_weight = optional_numeric_flag_value(args, "--max-materialized-weight").map_err(|_| {
         String::from("Error: Invalid value for --max-materialized-weight (expected a non-negative integer)")
-    })?;
-    let max_reference_depth =
-        optional_numeric_flag_value(args, "--max-reference-depth").map_err(|_| {
+    })?.or_else(|| policy_finalize_limits.and_then(|limits| limits.max_materialized_weight));
+    let max_reference_depth = optional_numeric_flag_value(args, "--max-reference-depth")
+        .map_err(|_| {
             String::from(
                 "Error: Invalid value for --max-reference-depth (expected a non-negative integer)",
             )
-        })?;
+        })?
+        .or_else(|| policy_finalize_limits.and_then(|limits| limits.max_reference_depth));
     let include_paths = flag_values(args, "--include-path");
     let projected = args.iter().any(|arg| arg == "--projected") || !include_paths.is_empty();
     if args.iter().any(|arg| arg == "--projected") && include_paths.is_empty() {
@@ -500,6 +914,70 @@ fn finalize(args: &[String]) -> Result<ExitCode, String> {
             recovery: args.iter().any(|arg| arg == "--recovery"),
             datatype_policy,
             max_input_bytes,
+            mode: compile_mode,
+            max_events: policy_limits.as_ref().and_then(|limits| limits.max_events),
+            max_attribute_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_attribute_depth, |limits| {
+                    limits.max_attribute_depth
+                }),
+            max_clarifier_values: policy_limits
+                .as_ref()
+                .map(|limits| limits.max_clarifier_values),
+            max_generic_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_generic_depth, |limits| {
+                    limits.max_generic_depth
+                }),
+            max_generic_arguments: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_generic_arguments, |limits| {
+                    limits.max_generic_arguments
+                }),
+            max_datatype_components: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_datatype_components,
+                |limits| limits.max_datatype_components,
+            ),
+            max_value_nesting_depth: policy_limits
+                .as_ref()
+                .map(|limits| limits.max_value_nesting_depth),
+            max_path_depth: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_path_depth, |limits| {
+                    limits.max_path_depth
+                }),
+            max_string_codepoints: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_string_codepoints, |limits| {
+                    limits.max_string_codepoints
+                }),
+            max_key_segment_codepoints: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_key_segment_codepoints,
+                |limits| limits.max_key_segment_codepoints,
+            ),
+            max_list_items: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_list_items, |limits| {
+                    limits.max_list_items
+                }),
+            max_tuple_items: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_tuple_items, |limits| {
+                    limits.max_tuple_items
+                }),
+            max_path_characters: policy_limits
+                .as_ref()
+                .map_or(CompileOptions::default().max_path_characters, |limits| {
+                    limits.max_path_characters
+                }),
+            max_numeric_literal_characters: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_numeric_literal_characters,
+                |limits| limits.max_numeric_literal_characters,
+            ),
+            max_structured_comment_characters: policy_limits.as_ref().map_or(
+                CompileOptions::default().max_structured_comment_characters,
+                |limits| limits.max_structured_comment_characters,
+            ),
             ..CompileOptions::default()
         },
     );
@@ -774,7 +1252,9 @@ fn integrity_verify(args: &[String]) -> Result<ExitCode, String> {
     if normalize_hash(&expected_hash) != normalize_hash(&computed.hash) {
         errors.push(EnvelopeDiagnostic {
             code: "ENVELOPE_HASH_MISMATCH",
-            message: String::from("canonical_hash does not match computed AES hash"),
+            message: String::from(
+                "canonical_hash does not match computed legacy AEON canonical hash",
+            ),
         });
     }
     if let Some(signature) = signature {
@@ -1033,6 +1513,8 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
     }
     let mode =
         resolve_finalize_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
+    let compile_mode =
+        resolve_behavior_mode(args).map_err(|message| format!("Error: {message}\n{BIND_USAGE}"))?;
     let rich = args.iter().any(|arg| arg == "--rich");
     let datatype_policy = resolve_datatype_policy(flag_value(args, "--datatype-policy").as_deref(), rich)
         .map_err(|_| {
@@ -1127,6 +1609,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
             recovery,
             datatype_policy: compile_datatype_policy,
             max_input_bytes,
+            mode: compile_mode,
             ..CompileOptions::default()
         },
     );
@@ -1214,7 +1697,7 @@ fn execute_bind(args: &[String]) -> Result<(ExitCode, JsonValue), String> {
         ));
     }
     if let Some(profile_id) = resolved_contracts.applied_profile_id.as_deref() {
-        warnings.push(profile_processors_skipped_warning(&profile_id));
+        warnings.push(profile_processors_skipped_warning(profile_id));
     }
     meta.insert(String::from("warnings"), JsonValue::Array(warnings));
     meta.insert(
@@ -1360,10 +1843,9 @@ fn cts_adapter() -> Result<ExitCode, String> {
 
 fn default_contract_registry_path() -> String {
     specs_repo_root()
+        .join("resources")
         .join("contracts")
         .join("v1")
-        .join("drafts")
-        .join("artifacts")
         .join("registry.json")
         .to_string_lossy()
         .into_owned()
@@ -1570,6 +2052,23 @@ fn resolve_integrity_mode(args: &[String]) -> Result<&'static str, String> {
         return Err(String::from("Cannot use both --strict and --loose"));
     }
     Ok(if loose { "loose" } else { "strict" })
+}
+
+fn resolve_behavior_mode(args: &[String]) -> Result<Option<BehaviorMode>, String> {
+    let strict = args.iter().any(|arg| arg == "--strict");
+    let transport = args
+        .iter()
+        .any(|arg| arg == "--transport" || arg == "--loose");
+    if strict && transport {
+        return Err(String::from("Cannot use both --strict and --transport"));
+    }
+    Ok(if strict {
+        Some(BehaviorMode::Strict)
+    } else if transport {
+        Some(BehaviorMode::Transport)
+    } else {
+        None
+    })
 }
 
 fn sign_string_payload(payload: &str, private_key_pem: &str) -> Result<String, String> {
@@ -2089,6 +2588,9 @@ fn current_receipt_timestamp() -> String {
         .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
 }
 
+// Legacy AEON envelope/receipt projection. This is not the portable
+// `aes.events.v1` logical-byte contract: it serializes source paths and
+// canonical AEON values and intentionally excludes the top-level envelope.
 fn compute_canonical_hash(events: &[AssignmentEvent], algorithm: &str) -> CanonicalHashResult {
     let stream = serialize_canonical_events(events);
     let mut hasher = Sha256::new();
@@ -2322,13 +2824,16 @@ fn print_help() {
     );
     println!("  doctor [--json] [--contract-registry <registry.json>]");
     println!(
-        "  inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
+        "  inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  inspect-cases <file> --mode <transport|strict|custom> [--recovery] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>]"
     );
     println!(
         "  finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>]"
+    );
+    println!(
+        "  telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
     );
     println!(
         "  bind <file> (--schema <schema.json> | --contract-registry <registry.json>) [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--annotations] [--sort-annotations] [--max-input-bytes <n>]"
@@ -2407,10 +2912,10 @@ fn render_annotations(records: &[aeon_annotations::AnnotationRecord]) -> String 
                 .map(|placement| format!(",\"placement\":{placement}"))
                 .unwrap_or_default();
             format!(
-                "{{\"kind\":\"{}\",\"form\":\"{}\"{}{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
+                "{{\"kind\":\"{}\"{},\"form\":\"{}\"{},\"raw\":\"{}\",\"span\":{},\"target\":{}}}",
                 escape_json(&record.kind),
-                escape_json(&record.form),
                 subtype,
+                escape_json(&record.form),
                 placement,
                 escape_json(&record.raw),
                 render_span(&record.span),
@@ -2593,6 +3098,10 @@ fn render_events(events: &[AssignmentEvent]) -> String {
         out.push_str(&escape_json(&path));
         out.push_str("\",\"key\":\"");
         out.push_str(&escape_json(&event.key));
+        if let Some(structural_id) = &event.structural_id {
+            out.push_str("\",\"structuralId\":\"");
+            out.push_str(&escape_json(structural_id));
+        }
         out.push_str("\",\"datatype\":");
         out.push_str(&datatype);
         out.push_str(",\"span\":");
@@ -2603,6 +3112,141 @@ fn render_events(events: &[AssignmentEvent]) -> String {
     }
     out.push(']');
     out
+}
+
+#[cfg(test)]
+fn render_portable_events(events: &[PortableAesEvent]) -> String {
+    let items = events
+        .iter()
+        .map(|event| {
+            let mut object = Map::new();
+            object.insert(String::from("path"), JsonValue::String(event.path.clone()));
+            object.insert(
+                String::from("kind"),
+                JsonValue::String(event.kind.to_owned()),
+            );
+            if let Some(identity) = &event.identity {
+                object.insert(
+                    String::from("identity"),
+                    JsonValue::String(identity.clone()),
+                );
+            }
+            if let Some(datatype) = &event.datatype {
+                object.insert(
+                    String::from("datatype"),
+                    JsonValue::String(datatype.clone()),
+                );
+                object.insert(
+                    String::from("generics"),
+                    JsonValue::Array(event.generics.iter().map(generic_argument_json).collect()),
+                );
+                object.insert(
+                    String::from("clarifiers"),
+                    JsonValue::Array(
+                        event
+                            .clarifiers
+                            .iter()
+                            .map(|clarifier| {
+                                json!({
+                                    "kind": match clarifier.kind {
+                                        ClarifierKind::StringLiteral => "StringLiteral",
+                                        ClarifierKind::NumberLiteral => "NumberLiteral",
+                                    },
+                                    "value": clarifier.value,
+                                })
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(value) = &event.value {
+                object.insert(String::from("value"), JsonValue::String(value.clone()));
+            }
+            if let Some(span) = &event.span {
+                object.insert(
+                    String::from("span"),
+                    json!({
+                        "start": {
+                            "line": span.start.line,
+                            "column": span.start.column,
+                            "offset": span.start.offset,
+                        },
+                        "end": {
+                            "line": span.end.line,
+                            "column": span.end.column,
+                            "offset": span.end.offset,
+                        },
+                    }),
+                );
+            }
+            JsonValue::Object(object)
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&items).unwrap_or_else(|_| String::from("[]"))
+}
+
+fn render_portable_compatibility_events(events: &[PortableAesCompatibilityEvent]) -> String {
+    let items = events
+        .iter()
+        .map(|event| {
+            let mut object = Map::new();
+            if let Some(path) = &event.path {
+                object.insert(String::from("path"), JsonValue::String(path.clone()));
+            }
+            if let Some(header) = &event.header {
+                object.insert(String::from("header"), JsonValue::String(header.clone()));
+            }
+            object.insert(
+                String::from("kind"),
+                JsonValue::String(event.kind.to_owned()),
+            );
+            if let Some(identity) = &event.identity {
+                object.insert(
+                    String::from("identity"),
+                    JsonValue::String(identity.clone()),
+                );
+            }
+            if let Some(datatype) = &event.datatype {
+                object.insert(
+                    String::from("datatype"),
+                    JsonValue::String(datatype.clone()),
+                );
+                object.insert(
+                    String::from("generics"),
+                    JsonValue::Array(event.generics.iter().map(generic_argument_json).collect()),
+                );
+                object.insert(
+                    String::from("clarifiers"),
+                    JsonValue::Array(
+                        event
+                            .clarifiers
+                            .iter()
+                            .map(|clarifier| {
+                                json!({
+                                    "kind": match clarifier.kind {
+                                        ClarifierKind::StringLiteral => "StringLiteral",
+                                        ClarifierKind::NumberLiteral => "NumberLiteral",
+                                    },
+                                    "value": clarifier.value,
+                                })
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(value) = &event.value {
+                object.insert(String::from("value"), JsonValue::String(value.clone()));
+            }
+            if let Some(origin) = &event.origin {
+                object.insert(String::from("origin"), JsonValue::String(origin.clone()));
+            }
+            if let Some(span) = &event.span {
+                object.insert(String::from("span"), JsonValue::String(span.clone()));
+            }
+            JsonValue::Object(object)
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&items).unwrap_or_else(|_| String::from("[]"))
 }
 
 fn render_errors(errors: &[Diagnostic]) -> String {
@@ -2654,7 +3298,10 @@ fn inspect_declared_contracts_json(
 fn render_value_json_string(value: &Value) -> String {
     match value {
         Value::TypedValue {
-            datatype, value, ..
+            structural_id,
+            datatype,
+            value,
+            ..
         } => {
             let datatype_json = datatype
                 .as_ref()
@@ -2666,7 +3313,11 @@ fn render_value_json_string(value: &Value) -> String {
                 })
                 .unwrap_or_else(|| String::from("null"));
             format!(
-                "{{\"type\":\"TypedValue\",\"datatype\":{},\"value\":{}}}",
+                "{{\"type\":\"TypedValue\",\"structuralId\":{},\"datatype\":{},\"value\":{}}}",
+                structural_id
+                    .as_ref()
+                    .map(|value| format!("\"{}\"", escape_json(value)))
+                    .unwrap_or_else(|| String::from("null")),
                 datatype_json,
                 render_value_json_string(value)
             )
@@ -3103,17 +3754,22 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         "UNEXPECTED_CHARACTER"
         | "UNTERMINATED_BLOCK_COMMENT"
         | "UNTERMINATED_STRING"
-        | "UNTERMINATED_TRIMTICK" => Some("Lexical Analysis"),
+        | "UNTERMINATED_TRIMTICK"
+        | "INVALID_STRUCTURAL_IDENTITY" => Some("Lexical Analysis"),
         "SYNTAX_ERROR"
         | "INVALID_DATE"
         | "INVALID_TIME"
         | "INVALID_DATETIME"
         | "INVALID_SEPARATOR_CHAR"
+        | "CLARIFIER_VALUES_EXCEEDED"
+        | "GENERIC_ARGUMENTS_EXCEEDED"
+        | "DATATYPE_COMPONENTS_EXCEEDED"
         | "SEPARATOR_DEPTH_EXCEEDED"
         | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
         "HEADER_CONFLICT"
         | "DUPLICATE_KEY"
         | "DUPLICATE_CANONICAL_PATH"
+        | "DUPLICATE_STRUCTURAL_IDENTITY"
         | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
         "MISSING_REFERENCE_TARGET"
         | "FORWARD_REFERENCE"
@@ -3293,6 +3949,11 @@ fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
                     .collect(),
             },
             key: event.key.clone(),
+            source_plane: Some(match event.source_plane {
+                aeon_core::SourcePlane::Header => AesSourcePlane::Header,
+                aeon_core::SourcePlane::Body => AesSourcePlane::Body,
+            }),
+            structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             annotations: event
                 .annotations
@@ -3498,6 +4159,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
 
 fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
     AeosAttributeEntry {
+        structural_id: entry.structural_id.clone(),
         value: entry
             .value
             .as_ref()
@@ -3943,12 +4605,12 @@ fn normalize_aeos_schema_contract_value(
             ));
         }
     };
-    if let Some(expected) = expected_schema_id {
-        if schema_id != expected {
-            return Err(format!(
-                "Schema contract id mismatch. Expected '{expected}', found '{schema_id}' in {file}"
-            ));
-        }
+    if let Some(expected) = expected_schema_id
+        && schema_id != expected
+    {
+        return Err(format!(
+            "Schema contract id mismatch. Expected '{expected}', found '{schema_id}' in {file}"
+        ));
     }
     match object.get("version") {
         Some(JsonValue::String(value)) if !value.is_empty() => {}
@@ -4385,6 +5047,114 @@ mod tests {
     }
 
     #[test]
+    fn telex_decode_and_materialize_accept_complete_streams() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.telex.aes");
+        fs::write(
+            &file,
+            "telex.aes=1\n\npath=$.answer\nkind=NumberLiteral\nvalue=42\n",
+        )
+        .expect("Telex fixture");
+        for action in ["decode", "materialize", "canonicalize"] {
+            let result = run(vec![
+                "aeon-rust".to_owned(),
+                "telex".to_owned(),
+                action.to_owned(),
+                file.to_string_lossy().into_owned(),
+            ])
+            .expect("Telex command");
+            assert_eq!(result, ExitCode::SUCCESS);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn telex_decode_applies_the_common_limits_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-limits-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.telex.aes");
+        let limits_file = dir.join("limits.aeon");
+        fs::write(
+            &file,
+            "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n",
+        )
+        .expect("Telex fixture");
+        let limits = include_str!("../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon")
+            .replace(
+                "max_string_codepoints = 1048576",
+                "max_string_codepoints = 1",
+            );
+        fs::write(&limits_file, limits).expect("limits fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "telex".to_owned(),
+            "decode".to_owned(),
+            file.to_string_lossy().into_owned(),
+            "--limits-file".to_owned(),
+            limits_file.to_string_lossy().into_owned(),
+        ])
+        .expect("Telex command");
+        assert_eq!(result, ExitCode::from(1));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn telex_materialize_rejects_partial_streams() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-telex-partial-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("partial.telex.aes");
+        fs::write(
+            &file,
+            "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.nested.answer\nkind=NumberLiteral\nvalue=42\n",
+        )
+        .expect("Telex fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "telex".to_owned(),
+            "materialize".to_owned(),
+            file.to_string_lossy().into_owned(),
+        ])
+        .expect("Telex command");
+        assert_eq!(result, ExitCode::from(1));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn inspect_exports_telex_with_opt_in_headers() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time ok")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aeon-rust-export-telex-{unique}"));
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let file = dir.join("sample.aeon");
+        fs::write(&file, "aeon:mode = \"transport\"\nanswer = 42\n").expect("AEON fixture");
+        let result = run(vec![
+            "aeon-rust".to_owned(),
+            "inspect".to_owned(),
+            file.to_string_lossy().into_owned(),
+            "--telex".to_owned(),
+            "--include-headers".to_owned(),
+        ])
+        .expect("Telex export");
+        assert_eq!(result, ExitCode::SUCCESS);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn integrity_without_subcommand_reports_usage() {
         let result = run(vec![String::from("aeon-rust"), String::from("integrity")])
             .expect_err("usage error");
@@ -4685,6 +5455,17 @@ mod tests {
     }
 
     #[test]
+    fn inspect_portable_aes_requires_json() {
+        let result = run(vec![
+            String::from("aeon-rust"),
+            String::from("inspect"),
+            String::from("--portable-aes"),
+        ])
+        .expect_err("portable AES requires JSON output");
+        assert!(result.contains("Error: --portable-aes requires --json"));
+    }
+
+    #[test]
     fn inspect_cases_reports_usage_for_missing_mode() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -4873,6 +5654,16 @@ mod tests {
     }
 
     #[test]
+    fn render_annotations_places_reserved_subtype_next_to_kind() {
+        let annotations = extract_annotations("/[ profile ]/\na = 1\n");
+        let rendered = render_annotations(&annotations);
+        assert!(
+            rendered
+                .starts_with("[{\"kind\":\"reserved\",\"subtype\":\"profile\",\"form\":\"block\"")
+        );
+    }
+
+    #[test]
     fn inspect_annotation_only_markdown_matches_fixture_contract() {
         let source = fs::read_to_string(fixture_path("inspect-annotations.aeon")).expect("fixture");
         let annotations = extract_annotations(&source);
@@ -4989,6 +5780,34 @@ mod tests {
             "errors": []
         });
         assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn inspect_json_renders_portable_expanded_node_projection() {
+        let result = compile(
+            r#"a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>"#,
+            CompileOptions::default(),
+        );
+        let rendered = render_portable_events(&project_portable_events(&result.events));
+        let events: JsonValue = serde_json::from_str(&rendered).expect("portable events JSON");
+        assert_eq!(
+            events
+                .as_array()
+                .expect("events array")
+                .iter()
+                .map(|event| json!({
+                    "path": event["path"],
+                    "kind": event["kind"],
+                    "identity": event.get("identity").cloned().unwrap_or(JsonValue::Null),
+                    "value": event.get("value").cloned().unwrap_or(JsonValue::Null),
+                }))
+                .collect::<Vec<_>>(),
+            vec![
+                json!({ "path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "value": null }),
+                json!({ "path": "$.a[0]", "kind": "NodeHead", "identity": "HEAD", "value": "tag" }),
+                json!({ "path": "$.a[0][0]", "kind": "StringLiteral", "identity": "CHILD", "value": "value" }),
+            ]
+        );
     }
 
     #[test]
@@ -5356,7 +6175,7 @@ mod tests {
             .expect_err("usage error");
         assert!(result.contains("Error: No file specified"));
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
         ));
     }
 
@@ -5514,7 +6333,7 @@ mod tests {
             result.contains("Error: --projected requires at least one --include-path <$.path>")
         );
         assert!(result.contains(
-            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>]"
+            "Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--loose] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]"
         ));
         let _ = fs::remove_dir_all(&dir);
     }

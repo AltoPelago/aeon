@@ -8,6 +8,9 @@
  * - aeon doctor                  Check environment and contract wiring
  * - aeon fmt [file]              Format AEON document (stdout by default)
  * - aeon inspect <file>          Inspect AEON document (human-readable)
+ * - aeon telex decode <file>     Decode and validate Telex
+ * - aeon telex canonicalize <file> Canonicalize Telex
+ * - aeon telex materialize <file> Materialize complete Telex as JSON
  * - aeon finalize <file>         Finalize AEON document to JSON
  * - aeon bind <file>             Run typed runtime binding with schema JSON
  * - aeon integrity validate <file>  Validate integrity envelope
@@ -16,6 +19,9 @@
  * 
  * Flags:
  * - --json         Output as JSON (inspect/finalize/integrity)
+ * - --portable-aes Emit the portable flat AES projection (inspect JSON only)
+ * - --source-provenance Bind portable origin/span to the exact inspected UTF-8 source
+ * - --telex        Export the portable AES stream as Telex (inspect only)
  * - --contract-registry Trusted contract registry JSON path (doctor/bind)
  * - --write        Write formatted output back to file (fmt only)
  * - --annotations  Include annotation stream records in inspect/bind output
@@ -28,9 +34,13 @@
  * - --recovery     Enable recovery mode (partial results with errors)
  * - --max-input-bytes  Maximum UTF-8 input size in bytes
  * - --max-attribute-depth  Maximum attribute selector depth
- * - --max-separator-depth  Maximum separator-spec depth
+ * - --max-clarifier-values  Maximum clarifier values per datatype descriptor
+ * - --max-separator-depth  Deprecated alias for --max-clarifier-values
  * - --max-generic-depth  Maximum nested generic type depth
- * - --max-nesting-depth  Maximum container nesting depth
+ * - --max-generic-arguments  Maximum generic arguments per datatype descriptor
+ * - --max-datatype-components  Maximum components in one recursive datatype
+ * - --max-value-nesting-depth  Maximum logical container nesting depth
+ * - --max-nesting-depth  Deprecated alias for --max-value-nesting-depth
  * - --max-materialized-weight  Maximum cumulative clone materialization weight
  * - --max-reference-depth  Maximum clone resolution depth
  * - --schema       Schema JSON path (bind only)
@@ -55,9 +65,10 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { compile, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, telexLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { canonicalizeTelex, parseTelex, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
-import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
+import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
     buildCanonicalReceipt,
     computeCanonicalHash,
@@ -118,6 +129,9 @@ switch (command) {
     case 'inspect':
         inspect(args.slice(1));
         break;
+    case 'telex':
+        telex(args.slice(1));
+        break;
     case 'finalize':
         finalize(args.slice(1));
         break;
@@ -159,6 +173,9 @@ Commands:
   doctor             Check environment and contract wiring
   fmt [file]         Format AEON document (stdout by default)
   inspect <file>     Inspect AEON document
+  telex decode <file>        Decode and validate Telex as JSON
+  telex canonicalize <file>  Canonicalize a Telex stream
+  telex materialize <file>   Materialize complete Telex as JSON
   finalize <file>    Finalize AEON document to JSON
   bind <file>        Run typed runtime binding with schema JSON
   integrity validate <file>  Validate integrity envelope
@@ -169,6 +186,10 @@ Options:
   --write            Write formatted output back to file (fmt only)
   --contract-registry Trusted contract registry JSON path (doctor/bind)
   --json             Output as JSON (inspect/finalize)
+  --portable-aes     Emit portable flat AES node projection (inspect JSON only)
+  --source-provenance  Include exact-source origin/span (requires --portable-aes or --telex)
+  --telex            Emit Telex instead of the inspect report
+  --include-headers  Include AEON headers in the explicit document projection
     --annotations      Include annotation stream records in inspect/bind output
     --annotations-only Output only annotation stream records in inspect output
     --sort-annotations Sort annotation records deterministically before output (inspect/bind)
@@ -179,9 +200,13 @@ Options:
   --recovery         Enable recovery mode (partial results)
   --max-input-bytes  Maximum UTF-8 input size in bytes
   --max-attribute-depth  Maximum attribute selector depth
-  --max-separator-depth  Maximum separator-spec depth
+  --max-clarifier-values  Maximum clarifier values per datatype descriptor
+  --max-separator-depth  Deprecated alias for --max-clarifier-values
   --max-generic-depth  Maximum nested generic type depth
-  --max-nesting-depth  Maximum container nesting depth
+  --max-generic-arguments  Maximum generic arguments per datatype descriptor
+  --max-datatype-components  Maximum components in one recursive datatype
+  --max-value-nesting-depth  Maximum logical container nesting depth
+  --max-nesting-depth  Deprecated alias for --max-value-nesting-depth
   --schema           Schema JSON path (bind only)
   --profile          Profile id (bind only)
   --contract-registry Trusted contract registry JSON path (bind only)
@@ -208,6 +233,10 @@ Examples:
   aeon fmt config.aeon --write
   aeon inspect config.aeon
   aeon inspect config.aeon --json
+  aeon inspect config.aeon --telex
+  aeon telex decode stream.telex.aes
+  aeon telex canonicalize stream.telex.aes
+  aeon telex materialize stream.telex.aes --scope full
     aeon inspect config.aeon --json --annotations
     aeon inspect config.aeon --json --annotations-only
     aeon inspect config.aeon --json --annotations-only --sort-annotations
@@ -370,14 +399,98 @@ function fmt(args: string[]): void {
     process.stdout.write(formatted);
 }
 
+/** Decode/validate or canonicalize an existing Telex stream. */
+function telex(args: string[]): void {
+    const action = args[0];
+    const file = args[1];
+    const usage = 'Usage: aeon telex <decode|canonicalize|materialize> <file> [--limits-file <path>] [--scope <payload|header|full>] [--strict|--transport] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    if ((action !== 'decode' && action !== 'canonicalize' && action !== 'materialize') || !file || file.startsWith('--')) {
+        console.error(usage);
+        process.exit(2);
+    }
+
+    const mode = resolveFinalizeMode(args);
+    const scope = resolveFinalizeScope(args);
+    const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
+    const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
+    if (mode === null || scope === null || maxMaterializedWeight === null || maxReferenceDepth === null) {
+        console.error(usage);
+        process.exit(2);
+    }
+    if (args.includes('--limits-file') && !limitsFile) {
+        console.error('Error: --limits-file requires a path');
+        process.exit(2);
+    }
+
+    let selectedTelexLimits: ReturnType<typeof telexLimits> | undefined;
+    let selectedFinalizationLimits: ReturnType<typeof finalizationLimits> | undefined;
+    if (limitsFile) {
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            selectedTelexLimits = telexLimits(loaded.limits);
+            selectedFinalizationLimits = finalizationLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const input = selectedTelexLimits
+        ? readFileWithLimit(file, selectedTelexLimits.maxInputBytes)
+        : readFile(file);
+    try {
+        if (action === 'canonicalize') {
+            process.stdout.write(canonicalizeTelex(input, selectedTelexLimits));
+            return;
+        }
+
+        const parsed = parseTelex(input, selectedTelexLimits);
+        const validation = validateTelex(parsed, {
+            ...selectedTelexLimits,
+            profile: parsed.profile,
+            projection: parsed.projection,
+        });
+        if (action === 'materialize') {
+            const finalized = finalizePortableJson(parsed.records, {
+                profile: parsed.profile,
+                projection: parsed.projection,
+                mode,
+                scope,
+                ...selectedTelexLimits,
+                ...selectedFinalizationLimits,
+                ...(maxMaterializedWeight !== undefined ? { maxMaterializedWeight } : {}),
+                ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
+            });
+            console.log(JSON.stringify(finalized, null, 2));
+            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            return;
+        }
+        console.log(JSON.stringify({ ...parsed, validation }, null, 2));
+        if (!validation.valid) process.exit(1);
+    } catch (error) {
+        const failure = error as { code?: string; message?: string };
+        console.error(`[${failure.code ?? 'TELEX_SYNTAX_ERROR'}] ${failure.message ?? String(error)}`);
+        process.exit(1);
+    }
+}
+
 /**
  * aeon inspect <file> [--json] [--recovery] [--annotations] [--annotations-only] [--sort-annotations]
  * Purpose: human inspection (default) or JSON output
  */
 function inspect(args: string[]): void {
-    const inspectUsage = 'Usage: aeon inspect <file> [--json] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-separator-depth <n>] [--max-generic-depth <n>] [--max-nesting-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-separator-depth', '--max-generic-depth', '--max-nesting-depth']);
+    const inspectUsage = 'Usage: aeon inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--strict|--transport] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-events <n>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--limits-file', '--max-input-bytes', '--max-events', '--max-attribute-depth', '--max-clarifier-values', '--max-separator-depth', '--max-generic-depth', '--max-generic-arguments', '--max-datatype-components', '--max-value-nesting-depth', '--max-nesting-depth']);
     const jsonOutput = args.includes('--json');
+    const telexOutput = args.includes('--telex');
+    const includeHeaders = args.includes('--include-headers');
+    const portableAes = args.includes('--portable-aes');
+    const sourceProvenance = args.includes('--source-provenance');
     const recovery = args.includes('--recovery');
      const annotationsOnly = args.includes('--annotations-only');
      const includeAnnotations = args.includes('--annotations');
@@ -387,12 +500,37 @@ function inspect(args: string[]): void {
     const maxInputBytes = resolveMaxInputBytes(args);
     const maxEvents = resolveDepthOption(args, '--max-events');
     const maxAttributeDepth = resolveDepthOption(args, '--max-attribute-depth');
+    const maxClarifierValues = resolveDepthOption(args, '--max-clarifier-values');
     const maxSeparatorDepth = resolveDepthOption(args, '--max-separator-depth');
     const maxGenericDepth = resolveDepthOption(args, '--max-generic-depth');
+    const maxGenericArguments = resolveDepthOption(args, '--max-generic-arguments');
+    const maxDatatypeComponents = resolveDepthOption(args, '--max-datatype-components');
+    const maxValueNestingDepth = resolveDepthOption(args, '--max-value-nesting-depth');
     const maxNestingDepth = resolveDepthOption(args, '--max-nesting-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
 
     if (!file) {
         console.error('Error: No file specified');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (portableAes && !jsonOutput) {
+        console.error('Error: --portable-aes requires --json');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (sourceProvenance && !portableAes && !telexOutput) {
+        console.error('Error: --source-provenance requires --portable-aes or --telex');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (telexOutput && (jsonOutput || portableAes || annotationsOnly || includeAnnotations)) {
+        console.error('Error: --telex cannot be combined with JSON or annotation output flags');
+        console.error(inspectUsage);
+        process.exit(2);
+    }
+    if (includeHeaders && !telexOutput && !(jsonOutput && portableAes)) {
+        console.error('Error: --include-headers requires --telex or --json --portable-aes');
         console.error(inspectUsage);
         process.exit(2);
     }
@@ -419,6 +557,10 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-attribute-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxClarifierValues === null) {
+        console.error('Error: Invalid value for --max-clarifier-values (expected a non-negative integer)');
+        process.exit(2);
+    }
     if (maxSeparatorDepth === null) {
         console.error('Error: Invalid value for --max-separator-depth (expected a non-negative integer)');
         process.exit(2);
@@ -427,13 +569,46 @@ function inspect(args: string[]): void {
         console.error('Error: Invalid value for --max-generic-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (maxGenericArguments === null) {
+        console.error('Error: Invalid value for --max-generic-arguments (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxDatatypeComponents === null) {
+        console.error('Error: Invalid value for --max-datatype-components (expected a non-negative integer)');
+        process.exit(2);
+    }
+    if (maxValueNestingDepth === null) {
+        console.error('Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)');
+        process.exit(2);
+    }
     if (maxNestingDepth === null) {
         console.error('Error: Invalid value for --max-nesting-depth (expected a non-negative integer)');
         process.exit(2);
     }
 
-    const input = readFileWithLimit(file, maxInputBytes);
+    let limitsOptions: ReturnType<typeof aeonCompileLimits> | undefined;
+    if (args.includes('--limits-file')) {
+        if (!limitsFile) {
+            console.error('Error: --limits-file requires a path');
+            process.exit(2);
+        }
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            limitsOptions = aeonCompileLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const effectiveInputLimit = maxInputBytes ?? limitsOptions?.maxInputBytes;
+    const input = readFileWithLimit(file, effectiveInputLimit);
     const result = compile(input, {
+        ...limitsOptions,
         recovery,
         emitAnnotations: includeAnnotations || annotationsOnly,
         ...(effectiveMode ? { mode: effectiveMode } : {}),
@@ -441,16 +616,35 @@ function inspect(args: string[]): void {
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         ...(maxEvents !== undefined ? { maxEvents } : {}),
         ...(maxAttributeDepth !== undefined ? { maxAttributeDepth } : {}),
-        ...(maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
+        ...(maxClarifierValues !== undefined
+            ? { maxClarifierValues }
+            : maxSeparatorDepth !== undefined ? { maxSeparatorDepth } : {}),
         ...(maxGenericDepth !== undefined ? { maxGenericDepth } : {}),
-        ...(maxNestingDepth !== undefined ? { maxNestingDepth } : {}),
+        ...(maxGenericArguments !== undefined ? { maxGenericArguments } : {}),
+        ...(maxDatatypeComponents !== undefined ? { maxDatatypeComponents } : {}),
+        ...(maxValueNestingDepth !== undefined
+            ? { maxValueNestingDepth }
+            : maxNestingDepth !== undefined ? { maxNestingDepth } : {}),
     });
 
     const headerInfo = extractHeaderInfo(input);
     const mode = headerInfo.mode;
 
-    if (jsonOutput) {
-        outputJSON(result, { includeAnnotations, annotationsOnly, sortAnnotations }, headerInfo);
+    if (telexOutput && result.errors.length === 0) {
+        process.stdout.write(exportTelex(result.events, {
+            includeHeaders,
+            headerFieldNames: result.header ? [...result.header.fields.keys()] : [],
+            ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
+        }));
+    } else if (jsonOutput) {
+        outputJSON(result, {
+            includeAnnotations,
+            annotationsOnly,
+            sortAnnotations,
+            portableAes,
+            includeHeaders,
+            ...(sourceProvenance ? { sourceBytes: Buffer.from(input, 'utf8') } : {}),
+        }, headerInfo);
     } else {
         outputMarkdown(file, result, {
             recovery,
@@ -476,8 +670,8 @@ function inspect(args: string[]): void {
  * Purpose: finalize AES into JSON output
  */
 function finalize(args: string[]): void {
-    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
-    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
+    const finalizeUsage = 'Usage: aeon finalize <file> [--json|--map] [--recovery] [--strict|--transport] [--projected] [--include-path <$.path>] [--scope <payload|header|full>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    const file = findFileWithValueFlags(args, ['--datatype-policy', '--include-path', '--scope', '--limits-file', '--max-input-bytes', '--max-materialized-weight', '--max-reference-depth']);
     const recovery = args.includes('--recovery');
     const mode = resolveFinalizeMode(args);
     const effectiveMode = resolveCoreMode(args);
@@ -487,6 +681,7 @@ function finalize(args: string[]): void {
     const maxInputBytes = resolveMaxInputBytes(args);
     const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
     const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
     const includePaths = getFlagValues(args, '--include-path');
     const projected = args.includes('--projected') || includePaths.length > 0;
 
@@ -523,6 +718,10 @@ function finalize(args: string[]): void {
         console.error('Error: Invalid value for --max-reference-depth (expected a non-negative integer)');
         process.exit(2);
     }
+    if (args.includes('--limits-file') && !limitsFile) {
+        console.error('Error: --limits-file requires a path');
+        process.exit(2);
+    }
 
     if (args.includes('--include-path') && includePaths.length === 0) {
         console.error('Error: Missing value for --include-path <$.path>');
@@ -536,14 +735,34 @@ function finalize(args: string[]): void {
         process.exit(2);
     }
 
-    const input = readFileWithLimit(file, maxInputBytes);
+    let limitsOptions: ReturnType<typeof aeonCompileLimits> | undefined;
+    let finalizeLimitOptions: ReturnType<typeof finalizationLimits> | undefined;
+    if (limitsFile) {
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            limitsOptions = aeonCompileLimits(loaded.limits);
+            finalizeLimitOptions = finalizationLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const effectiveInputLimit = maxInputBytes ?? limitsOptions?.maxInputBytes;
+    const input = readFileWithLimit(file, effectiveInputLimit);
     const result = compile(input, {
+        ...limitsOptions,
         recovery,
         ...(effectiveMode ? { mode: effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
     });
     const finalizeOptions: FinalizeOptions = {
+        ...finalizeLimitOptions,
         mode,
         scope,
         ...(result.header ? { header: result.header } : {}),
@@ -962,7 +1181,7 @@ function integrityVerify(args: string[]): void {
                     diagnostics.errors.push({
                         level: 'error',
                         code: 'ENVELOPE_HASH_MISMATCH',
-                        message: 'canonical_hash does not match computed AES hash',
+                        message: 'canonical_hash does not match computed legacy AEON canonical hash',
                     });
                 }
             }
@@ -1335,12 +1554,19 @@ function integritySign(args: string[]): void {
 /**
  * JSON output (--json flag)
  */
+function isLegacyVisibleEvent(event: AssignmentEvent): boolean {
+    if (event.sourcePlane !== undefined) {
+        return event.sourcePlane !== 'header' || event.path.segments.length > 2;
+    }
+    return !event.key.startsWith('aeon:');
+}
+
 function outputJSON(
     result: CompileResult,
-    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean },
+    options: { includeAnnotations: boolean; annotationsOnly: boolean; sortAnnotations: boolean; portableAes: boolean; includeHeaders: boolean; sourceBytes?: Uint8Array },
     headerInfo?: HeaderInfo,
 ): void {
-    const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
+    const visibleEvents = result.events.filter(isLegacyVisibleEvent);
     const annotations = options.sortAnnotations
         ? sortAnnotationRecords(result.annotations ?? [])
         : (result.annotations ?? []);
@@ -1349,13 +1575,7 @@ function outputJSON(
         return;
     }
     const output: {
-        events: Array<{
-            path: string;
-            key: string;
-            datatype: string | null;
-            span: Span;
-            value: unknown;
-        }>;
+        events: unknown[];
         errors: Array<{
             code: string | undefined;
             path: string;
@@ -1364,15 +1584,24 @@ function outputJSON(
             message: string;
         }>;
         annotations?: NonNullable<CompileResult['annotations']>;
+        projection?: 'aeon.document.v1';
     } = {
-        events: visibleEvents.map(event => ({
-            path: formatPath(event.path),
-            key: event.key,
-            datatype: event.datatype ?? null,
-            span: event.span,
-            // Preserve AST-like shape (no coercion/inference)
-            value: jsonSafe(event.value),
-        })),
+        events: options.portableAes
+            ? [...adaptTypeScriptAssignmentEventsToPortableAes(options.includeHeaders ? result.events : visibleEvents, {
+                includeHeaders: options.includeHeaders,
+                headerFieldNames: result.header ? [...result.header.fields.keys()] : [],
+                ...(options.sourceBytes === undefined ? {} : { sourceBytes: options.sourceBytes }),
+            }).events]
+            : visibleEvents.map(event => ({
+                path: formatPath(event.path),
+                key: event.key,
+                ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
+                datatype: event.datatype ?? null,
+                span: event.span,
+                // Preserve AST-like shape (no coercion/inference)
+                value: jsonSafe(event.value),
+                ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
+            })),
         errors: result.errors.map(error => ({
             code: (error as { code?: string }).code,
             path: getErrorPath(error) ?? '$',
@@ -1383,6 +1612,9 @@ function outputJSON(
             message: error.message,
         })),
     };
+    if (options.portableAes && options.includeHeaders) {
+        output.projection = 'aeon.document.v1';
+    }
     if (options.includeAnnotations) {
         output.annotations = annotations;
     }
@@ -1510,19 +1742,29 @@ function finalizeMapOutput(result: CompileResult, options: FinalizeOptions) {
 function entryToJson(entry: FinalizedEntry) {
     return {
         path: entry.path,
-        value: entry.value,
+        ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
+        value: jsonSafe(entry.value),
         span: entry.span,
         ...(entry.datatype ? { datatype: entry.datatype } : {}),
         ...(entry.annotations ? { annotations: mapAnnotations(entry.annotations) } : {}),
     };
 }
 
-function mapAnnotations(annotations: ReadonlyMap<string, { value: unknown; datatype?: string }>) {
-    const entries: Record<string, { value: unknown; datatype?: string }> = {};
+type SerializableAnnotationEntry = {
+    structuralId?: string | null;
+    value: unknown;
+    datatype?: string;
+    annotations?: ReadonlyMap<string, SerializableAnnotationEntry>;
+};
+
+function mapAnnotations(annotations: ReadonlyMap<string, SerializableAnnotationEntry>) {
+    const entries: Record<string, Record<string, unknown>> = {};
     for (const [key, value] of annotations.entries()) {
         entries[key] = {
-            value: value.value,
+            ...(value.structuralId !== undefined ? { structuralId: value.structuralId } : {}),
+            value: jsonSafe(value.value),
             ...(value.datatype ? { datatype: value.datatype } : {}),
+            ...(value.annotations ? { annotations: mapAnnotations(value.annotations) } : {}),
         };
     }
     return entries;
@@ -1981,7 +2223,10 @@ function readSchemaContractAeonFile(file: string, expectedSchemaId?: string): Lo
         process.exit(2);
     }
 
-    const finalized = finalizeJson(compiled.events, { mode: 'strict' });
+    const finalized = finalizeJson(compiled.events, {
+        mode: 'strict',
+        ...(compiled.header ? { header: compiled.header } : {}),
+    });
     if ((finalized.meta?.errors?.length ?? 0) > 0) {
         console.error(`Error: Schema contract AEON file failed to finalize: ${file}`);
         for (const error of finalized.meta?.errors ?? []) {
@@ -2880,7 +3125,7 @@ function outputMarkdown(
         sortAnnotations: boolean;
     },
 ): void {
-    const visibleEvents = result.events.filter(e => !e.key.startsWith('aeon:'));
+    const visibleEvents = result.events.filter(isLegacyVisibleEvent);
     const annotations = info.sortAnnotations
         ? sortAnnotationRecords(result.annotations ?? [])
         : (result.annotations ?? []);
@@ -3043,18 +3288,23 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'UNTERMINATED_BLOCK_COMMENT':
         case 'UNTERMINATED_STRING':
         case 'UNTERMINATED_TRIMTICK':
+        case 'INVALID_STRUCTURAL_IDENTITY':
             return 'Lexical Analysis';
         case 'SYNTAX_ERROR':
         case 'INVALID_DATE':
         case 'INVALID_TIME':
         case 'INVALID_DATETIME':
         case 'INVALID_SEPARATOR_CHAR':
+        case 'CLARIFIER_VALUES_EXCEEDED':
+        case 'GENERIC_ARGUMENTS_EXCEEDED':
+        case 'DATATYPE_COMPONENTS_EXCEEDED':
         case 'SEPARATOR_DEPTH_EXCEEDED':
         case 'GENERIC_DEPTH_EXCEEDED':
             return 'Parsing';
         case 'HEADER_CONFLICT':
         case 'DUPLICATE_KEY':
         case 'DUPLICATE_CANONICAL_PATH':
+        case 'DUPLICATE_STRUCTURAL_IDENTITY':
         case 'DATATYPE_LITERAL_MISMATCH':
             return 'Core Validation';
         case 'MISSING_REFERENCE_TARGET':

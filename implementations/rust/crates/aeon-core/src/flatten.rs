@@ -39,7 +39,7 @@ pub(crate) enum ValidationReferenceStep {
     ValidateValue {
         path: String,
         owner_path: String,
-        value: Value,
+        value: Box<Value>,
     },
     VisibleTarget(String),
 }
@@ -51,10 +51,26 @@ fn typed_datatype(value: &Value) -> Option<String> {
     }
 }
 
+fn typed_structural_id(value: &Value) -> Option<String> {
+    match value {
+        Value::TypedValue { structural_id, .. } => structural_id.clone(),
+        _ => None,
+    }
+}
+
 fn typed_annotations(value: &Value) -> BTreeMap<String, AttributeValue> {
     match value {
         Value::TypedValue { attributes, .. } => attributes.clone(),
         _ => BTreeMap::new(),
+    }
+}
+
+fn typed_annotation_order(value: &Value) -> Vec<String> {
+    match value {
+        Value::TypedValue {
+            attribute_order, ..
+        } => attribute_order.clone(),
+        _ => Vec::new(),
     }
 }
 
@@ -87,6 +103,7 @@ pub(crate) fn flatten_document(
     flatten_bindings(
         bindings,
         root,
+        crate::SourcePlane::Body,
         shallow_event_values,
         emit_binding_projections,
         include_event_annotations,
@@ -153,7 +170,7 @@ fn track_reference_binding(
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         owner_path: String::from(path_text),
-        value: clone_validation_value(value, shallow_event_values),
+        value: Box::new(clone_validation_value(value, shallow_event_values)),
     });
     collect_attribute_reference_steps(
         path_text,
@@ -177,7 +194,7 @@ fn track_reference_sequence_item(
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: item_target.clone(),
         owner_path: String::from(parent_path),
-        value: clone_validation_value(value, shallow_event_values),
+        value: Box::new(clone_validation_value(value, shallow_event_values)),
     });
     let _ = reference_targets.insert(item_target.clone());
     reference_steps.push(ValidationReferenceStep::VisibleTarget(item_target));
@@ -206,7 +223,7 @@ fn flatten_validation_bindings(
             &binding.value,
             shallow_event_values,
         );
-        if !binding.key.starts_with("aeon:") {
+        if !binding.is_header {
             events.push(ValidationEvent {
                 path: path_text.clone(),
                 datatype: binding.datatype.clone(),
@@ -460,6 +477,7 @@ fn flatten_validation_value(
 fn flatten_bindings(
     bindings: &[Binding],
     parent: &CanonicalPath,
+    inherited_source_plane: crate::SourcePlane,
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
@@ -471,6 +489,11 @@ fn flatten_bindings(
 ) {
     let parent_path = format_path(parent);
     for binding in bindings {
+        let source_plane = if binding.is_header {
+            crate::SourcePlane::Header
+        } else {
+            inherited_source_plane
+        };
         let path = parent.member(binding.key.clone());
         let path_text = format_path(&path);
         track_reference_binding(
@@ -484,16 +507,23 @@ fn flatten_bindings(
             &binding.value,
             shallow_event_values,
         );
-        let visible = !binding.key.starts_with("aeon:");
+        let visible = !binding.is_header;
         if visible {
             events.push(AssignmentEvent {
                 path: path.clone(),
                 key: binding.key.clone(),
+                source_plane,
+                structural_id: binding.structural_id.clone(),
                 datatype: binding.datatype.clone(),
                 annotations: if include_event_annotations {
                     binding.attributes.clone()
                 } else {
                     BTreeMap::new()
+                },
+                annotation_order: if include_event_annotations {
+                    binding.attribute_order.clone()
+                } else {
+                    Vec::new()
                 },
                 value: clone_event_value(&binding.value, shallow_event_values),
                 span: binding.span,
@@ -525,8 +555,11 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        source_plane,
+                        structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
+                        annotation_order: typed_annotation_order(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
@@ -541,6 +574,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(item),
                         &path.index(index),
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -569,8 +603,11 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
+                        source_plane,
+                        structural_id: typed_structural_id(item),
                         datatype: typed_datatype(item),
                         annotations: typed_annotations(item),
+                        annotation_order: typed_annotation_order(item),
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
@@ -585,6 +622,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(item),
                         &path.index(index),
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -601,6 +639,7 @@ fn flatten_bindings(
                 flatten_bindings(
                     nested,
                     &path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -627,8 +666,11 @@ fn flatten_bindings(
                     events.push(AssignmentEvent {
                         path: child_path.clone(),
                         key: index.to_string(),
+                        source_plane,
+                        structural_id: typed_structural_id(child),
                         datatype: typed_datatype(child),
                         annotations: typed_annotations(child),
+                        annotation_order: typed_annotation_order(child),
                         value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                         span: binding.span,
                     });
@@ -643,6 +685,7 @@ fn flatten_bindings(
                     flatten_container_item(
                         unwrap_typed_value(child),
                         &child_path,
+                        source_plane,
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
@@ -663,6 +706,7 @@ fn flatten_bindings(
 fn flatten_container_item(
     value: &Value,
     parent: &CanonicalPath,
+    source_plane: crate::SourcePlane,
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
@@ -677,6 +721,7 @@ fn flatten_container_item(
         Value::ObjectNode { bindings } => flatten_bindings(
             bindings,
             parent,
+            source_plane,
             shallow_event_values,
             emit_binding_projections,
             include_event_annotations,
@@ -702,8 +747,11 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: item_path.clone(),
                     key: index.to_string(),
+                    source_plane,
+                    structural_id: typed_structural_id(item),
                     datatype: typed_datatype(item),
                     annotations: typed_annotations(item),
+                    annotation_order: typed_annotation_order(item),
                     value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                     span,
                 });
@@ -718,6 +766,7 @@ fn flatten_container_item(
                 flatten_container_item(
                     unwrap_typed_value(item),
                     &item_path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -746,8 +795,11 @@ fn flatten_container_item(
                 events.push(AssignmentEvent {
                     path: child_path.clone(),
                     key: index.to_string(),
+                    source_plane,
+                    structural_id: typed_structural_id(child),
                     datatype: typed_datatype(child),
                     annotations: typed_annotations(child),
+                    annotation_order: typed_annotation_order(child),
                     value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                     span,
                 });
@@ -762,6 +814,7 @@ fn flatten_container_item(
                 flatten_container_item(
                     unwrap_typed_value(child),
                     &child_path,
+                    source_plane,
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
@@ -791,15 +844,21 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::NodeLiteral {
             raw,
             tag,
+            structural_id,
             attributes,
+            attribute_order,
             datatype,
+            head_span,
             ..
         } => Value::NodeLiteral {
             raw: raw.clone(),
             tag: tag.clone(),
+            structural_id: structural_id.clone(),
             attributes: attributes.clone(),
+            attribute_order: attribute_order.clone(),
             datatype: datatype.clone(),
             children: Vec::new(),
+            head_span: *head_span,
         },
         _ => value.clone(),
     }
@@ -844,12 +903,15 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         Value::DateTimeLiteral { .. } => Value::DateTimeLiteral { raw: String::new() },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
         Value::SansaAddressLiteral { .. } => unwrap_typed_value(value).clone(),
-        Value::NodeLiteral { .. } => Value::NodeLiteral {
+        Value::NodeLiteral { head_span, .. } => Value::NodeLiteral {
             raw: String::new(),
             tag: String::new(),
+            structural_id: None,
             attributes: Vec::new(),
+            attribute_order: Vec::new(),
             datatype: None,
             children: Vec::new(),
+            head_span: *head_span,
         },
         Value::ListNode { .. } => Value::ListNode { items: Vec::new() },
         Value::TupleLiteral { .. } => Value::TupleLiteral { items: Vec::new() },
@@ -958,7 +1020,7 @@ fn collect_attribute_reference_steps(
             steps.push(ValidationReferenceStep::ValidateValue {
                 path: current_path.clone(),
                 owner_path: current_path.clone(),
-                value: clone_validation_value(entry_value, shallow_event_values),
+                value: Box::new(clone_validation_value(entry_value, shallow_event_values)),
             });
         }
         collect_attribute_object_reference_steps(
@@ -999,7 +1061,7 @@ fn collect_attribute_object_reference_steps(
             steps.push(ValidationReferenceStep::ValidateValue {
                 path: current_path.clone(),
                 owner_path: current_path.clone(),
-                value: clone_validation_value(entry_value, shallow_event_values),
+                value: Box::new(clone_validation_value(entry_value, shallow_event_values)),
             });
         }
         collect_attribute_object_reference_steps(

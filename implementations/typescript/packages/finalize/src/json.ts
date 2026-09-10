@@ -156,7 +156,7 @@ function payloadToJson(
         const segment = event.path.segments[1];
         if (!segment || segment.type !== 'member') continue;
         const key = segment.key;
-        if (isHeaderEventKey(key, header)) {
+        if (isHeaderEvent(event, key, header)) {
             continue;
         }
         const eventPath = scopedTopLevelPath(scope, 'payload', key);
@@ -711,7 +711,11 @@ function buildAnnotationEntries(
     const result = new Map<string, AttributeEntry>();
     for (const attribute of attributes) {
         for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = { value: entry.value };
+            const mapped: AttributeEntry = {
+                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
+                value: entry.value,
+                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
+            };
             const nested = buildAnnotationEntries(entry.attributes);
             if (nested) {
                 (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;
@@ -900,7 +904,8 @@ function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', 
     return appendMemberPath(basePath, key);
 }
 
-function isHeaderEventKey(key: string, header: FinalizeHeader | undefined): boolean {
+function isHeaderEvent(event: AssignmentEvent, key: string, header: FinalizeHeader | undefined): boolean {
+    if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
     if (key === 'aeon:header') return true;
     if (!header || !key.startsWith('aeon:')) return false;
     return header.fields.has(key.slice('aeon:'.length));
@@ -927,7 +932,7 @@ function linkPointerReferences(
         if (event.value.type !== 'PointerReference') continue;
 
         const topLevelKey = topLevelPayloadMemberKey(event);
-        if (topLevelKey && isHeaderEventKey(topLevelKey, header)) {
+        if (topLevelKey && isHeaderEvent(event, topLevelKey, header)) {
             continue;
         }
 

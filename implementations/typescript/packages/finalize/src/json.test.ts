@@ -482,6 +482,21 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         });
     });
 
+    it('keeps a same-name quoted aeon header key in the payload plane', () => {
+        const input = 'aeon:mode = "transport"\n"aeon:mode" = 1';
+        const events = compileToEvents(input);
+        const header = compileHeader(input);
+
+        assert.deepStrictEqual(finalizeJson(events, {
+            mode: 'strict',
+            scope: 'full',
+            header,
+        }).document, {
+            header: { mode: 'transport' },
+            payload: { 'aeon:mode': 1 },
+        });
+    });
+
     it('rejects prototype pollution via __proto__ in strict mode', () => {
         const events = compileToEvents('"__proto__" = { polluted = "yes" }');
         const result = finalizeJson(events, { mode: 'strict' });

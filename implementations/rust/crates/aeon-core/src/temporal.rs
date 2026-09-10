@@ -157,6 +157,7 @@ fn looks_like_zoned_time(value: &str) -> bool {
 
 fn is_valid_wtc_reference(reference: &str) -> bool {
     !reference.is_empty()
+        && (reference == "local" || !reference.eq_ignore_ascii_case("local"))
         && !reference.starts_with('/')
         && !reference.ends_with('/')
         && !reference.contains("//")
@@ -361,7 +362,9 @@ mod tests {
         assert!(
             classify_temporal_literal("2025-01-01T09:+02:00&Europe/Belgium/Brussels").is_some()
         );
-        assert!(classify_temporal_literal("2025-01-01T09:30Z&Local").is_some());
+        assert!(classify_temporal_literal("2025-01-01T09:30Z&local").is_some());
+        assert!(classify_temporal_literal("2025-01-01T09:30Z&Local").is_none());
+        assert!(classify_temporal_literal("2025-01-01T09:30Z&LOCAL").is_none());
         assert!(classify_temporal_literal("2024-02-29").is_some());
         assert!(classify_temporal_literal("2024-02-29T09:30:00").is_some());
     }

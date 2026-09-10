@@ -47,6 +47,15 @@ class CanonicalResult:
     errors: list[AeonError]
 
 
+@dataclass(slots=True)
+class CanonicalizeOptions:
+    max_attribute_depth: int = 1
+    max_clarifier_values: int = 1
+    max_generic_depth: int = 1
+    max_generic_arguments: int = 32
+    max_datatype_components: int = 64
+
+
 def _zero_span() -> Span:
     from .spans import Position
 
@@ -62,12 +71,21 @@ DEFAULT_HEADER = {
 }
 
 
-def canonicalize(source: str) -> CanonicalResult:
+def canonicalize(source: str, options: CanonicalizeOptions | None = None) -> CanonicalResult:
+    effective = options or CanonicalizeOptions()
     source = strip_leading_bom(source)
     lex_result = tokenize(source)
     if lex_result.errors:
         return CanonicalResult(text="", errors=lex_result.errors)
-    parse_result = parse_tokens(source, lex_result.tokens, max_separator_depth=8, max_generic_depth=8)
+    parse_result = parse_tokens(
+        source,
+        lex_result.tokens,
+        max_attribute_depth=effective.max_attribute_depth,
+        max_clarifier_values=effective.max_clarifier_values,
+        max_generic_depth=effective.max_generic_depth,
+        max_generic_arguments=effective.max_generic_arguments,
+        max_datatype_components=effective.max_datatype_components,
+    )
     if parse_result.errors or parse_result.document is None:
         return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])
     return CanonicalResult(text=render_document(parse_result.document), errors=[])
@@ -102,7 +120,8 @@ def render_header(header: Header | None) -> list[str]:
 
 def render_binding(binding: Binding, indent: int) -> list[str]:
     prefix = " " * indent
-    key = f"{format_binding_key(binding.key)}{render_attributes(binding.attributes)}{render_type(binding.datatype)}"
+    identity = f"\\{binding.structural_id}\\" if binding.structural_id is not None else ""
+    key = f"{format_binding_key(binding.key)}{identity}{render_attributes(binding.attributes)}{render_type(binding.datatype)}"
 
     if isinstance(binding.value, ObjectNode):
         lines = [f"{prefix}{key} = {{"]
@@ -165,7 +184,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
 
     if isinstance(value, TypedValue):
         rendered = render_value(value.value, indent, inline_only) if value.value is not None else [""]
-        head = f"{render_attributes(value.attributes)}{render_type(value.datatype)}"
+        identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+        head = f"{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
         if not rendered:
             return [f"{head} = "]
         return [f"{head} = {rendered[0]}", *rendered[1:]]
@@ -240,7 +260,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
 
 def render_node_value(value: NodeLiteral, indent: int, inline_only: bool) -> list[str]:
     prefix = " " * indent
-    head = f"<{value.tag}{render_attributes(value.attributes)}{render_type(value.datatype)}"
+    identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+    head = f"<{value.tag}{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
     simple = all(is_simple_value(child) for child in value.children)
 
     if not value.children:
@@ -272,8 +293,9 @@ def render_attributes(attributes: list[Attribute]) -> str:
 
     rendered = []
     for key, entry in sorted(merged_entries.items(), key=lambda item: item[0]):
+        identity = f"\\{entry.structural_id}\\" if entry.structural_id is not None else ""
         rendered.append(
-            f"{format_binding_key(key)}{render_attributes(entry.attributes)}{render_type(entry.datatype)} = {render_value_inline(entry.value)}"
+            f"{format_binding_key(key)}{identity}{render_attributes(entry.attributes)}{render_type(entry.datatype)} = {render_value_inline(entry.value)}"
         )
     return f"@{{{', '.join(rendered)}}}"
 
@@ -345,7 +367,8 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, TupleLiteral):
         return "(" + ", ".join(render_compact_inline_value(element) for element in value.elements) + ")"
     if isinstance(value, NodeLiteral):
-        head = f"<{value.tag}{render_attributes(value.attributes)}{render_type(value.datatype)}"
+        identity = f"\\{value.structural_id}\\" if value.structural_id is not None else ""
+        head = f"<{value.tag}{identity}{render_attributes(value.attributes)}{render_type(value.datatype)}"
         if not value.children:
             return f"{head}>"
         return f"{head}({', '.join(render_compact_inline_value(child) for child in value.children)})>"
@@ -415,7 +438,25 @@ def format_string_lines(value: str, indent: int) -> list[str]:
         return [format_string(value)]
     prefix = " " * indent
     body_prefix = " " * (indent + 2)
-    return [">`", *(f"{body_prefix}{line}" for line in value.split("\n")), f"{prefix}`"]
+    return [">`", *(f"{body_prefix}{format_trimtick_line(line)}" for line in value.split("\n")), f"{prefix}`"]
+
+
+def format_trimtick_line(value: str) -> str:
+    out: list[str] = []
+    for char in value:
+        if char == "\\":
+            out.append("\\\\")
+        elif char == "`":
+            out.append("\\`")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        elif ord(char) < 0x20:
+            out.append(f"\\u{ord(char):04x}")
+        else:
+            out.append(char)
+    return "".join(out)
 
 
 def format_number(raw: str) -> str:

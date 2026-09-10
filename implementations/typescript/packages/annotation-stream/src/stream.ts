@@ -54,11 +54,11 @@ export type AnnotationTarget = AnnotationTargetPath | AnnotationTargetSpan | Ann
 
 export interface AnnotationRecord {
     readonly kind: AnnotationKind;
+    readonly subtype?: AnnotationReservedSubtype;
     readonly form: AnnotationForm;
     readonly raw: string;
     readonly span: Span;
     readonly target: AnnotationTarget;
-    readonly subtype?: AnnotationReservedSubtype;
     readonly placement?: AnnotationPlacement;
 }
 
@@ -218,6 +218,7 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
         const target = resolver.resolveTarget(token.span);
         const record: AnnotationRecord = {
             kind: token.comment.channel,
+            ...(token.comment.subtype ? { subtype: token.comment.subtype } : {}),
             form: token.comment.form,
             raw: token.value,
             span: token.span,
@@ -226,9 +227,6 @@ export function buildAnnotationStream(input: BuildAnnotationStreamInput): readon
         const placement = resolvePlacement(token, target, bindableByPath);
         if (placement) {
             (record as { placement: AnnotationPlacement }).placement = placement;
-        }
-        if (token.comment.subtype) {
-            (record as { subtype: AnnotationReservedSubtype }).subtype = token.comment.subtype;
         }
         records.push(record);
     }

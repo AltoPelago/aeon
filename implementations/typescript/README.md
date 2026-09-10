@@ -2,7 +2,7 @@
 
 Reference AEON implementation workspace.
 
-Current package line: `0.12.0`.
+Current package line: `0.12.1`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -53,12 +53,26 @@ pnpm test:fuzz
 pnpm test:stress
 pnpm test:cts
 pnpm test:cts:core
+pnpm test:cts:core:released
 pnpm test:cts:aes
+pnpm test:cts:aes:released
+pnpm test:cts:aes:legacy
+pnpm test:cts:aes:next
+pnpm test:cts:finalize:limits
+pnpm test:cts:transport:limits
 pnpm test:cts:annotations
 pnpm test:cts:all
 ```
 
-The CTS commands now check for the required built outputs first and will tell you to run `pnpm build` if those artifacts are missing.
+`test:cts:core` and `test:cts:core:released` pin the immutable
+`core-cts-v1-snapshot-0.3` compatibility target. Use
+`test:cts:core:legacy` only to check the historical 0.2 limit semantics. The CTS commands check for the required built outputs first
+and will tell you to run `pnpm build` if those artifacts are missing.
+
+`test:cts:aes` and `test:cts:aes:released` pin the immutable AES 0.3
+compatibility target. Use `test:cts:aes:legacy` for the historical 0.2 target
+and `test:cts:aes:next` for the mutable 0.4 development target. The aggregate
+uses the released 0.3 target.
 
 Package-scoped examples from this workspace:
 

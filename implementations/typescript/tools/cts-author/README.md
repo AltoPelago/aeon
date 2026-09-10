@@ -5,7 +5,7 @@ CTS authoring utilities for AEON and AEOS conformance suites.
 ## Quick Start
 
 ```bash
-aeon-cts-author lint ./cts/core/v1/core-cts.v1.json
+aeon-cts-author lint ./cts/core/v1/core-cts.v1.snapshot-0.3.json
 ```
 
 ## Command

@@ -1,0 +1,97 @@
+title:string = "Start with AEON"
+description:string = "A start hub for AEON: overview, motivation, capabilities, developer setup, AI guidance, and the guided walkthrough sequence."
+activePage:string = "start"
+keywords:list<string> = ["start", "overview", "developer", "walkthrough", "AI", "capabilities", "why AEON"]
+
+page:node = <page(
+  <section @{type:string = "feature", layout:string = "stacked", level:string = "1"} (
+    <kicker("Start")>
+    <title("Begin with the pages that introduce AEON in order.")>
+    <copy("This hub gathers the orientation pages: what AEON is, why it exists, what it can do, and how to move from first syntax into practical use.")>
+    <copy("Use it when you want a readable path through the language before opening the reference pages.")>
+  )>
+
+  <section @{type:string = "cards", id:string = "orientation"} (
+    <kicker("Orientation")>
+    <title("Understand the shape of the system first.")>
+    <cards(
+      <card(
+        <topline("Overview")>
+        <heading("Meet AEON")>
+        <copy("Start with the homepage for the smallest framing of AEON as a human-readable data notation for explicit meaning.")>
+        <href("/")>
+        <cta("Open overview")>
+      )>
+      <card(
+        <topline("Why")>
+        <heading("See the problem AEON solves")>
+        <copy("Read why hidden parser guesses, implicit meaning, and runtime surprises make important documents harder to trust.")>
+        <href("/why-aeon.php")>
+        <cta("Read why AEON")>
+      )>
+      <card(
+        <topline("Capabilities")>
+        <heading("Scan the main features")>
+        <copy("Use the capabilities page for the high-level map: typed structure, validation layers, canonical form, references, annotations, and non-execution.")>
+        <href("/capabilities.php")>
+        <cta("Open capabilities")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "first-use"} (
+    <kicker("First Use")>
+    <title("Move from reading into writing and integration.")>
+    <cards(
+      <card(
+        <topline("Developer")>
+        <heading("Run the first pipeline")>
+        <copy("See source text enter the TypeScript runtime, pass strict validation, and become finalized JSON data.")>
+        <href("/developer-start.php")>
+        <cta("Developer start")>
+      )>
+      <card(
+        <topline("AI")>
+        <heading("Use AEON around AI systems")>
+        <copy("Learn how AEON supports language help, deterministic integration, typed API calls, audited tool use, and AI-native source context.")>
+        <href("/ai.php")>
+        <cta("Open AI page")>
+      )>
+      <card(
+        <topline("Basics")>
+        <heading("Learn the syntax in order")>
+        <copy("Walk through bindings, scalar values, containers, type labels, comments, multiline text, and the first verification exercise.")>
+        <href("/walkthrough.php")>
+        <cta("Start walkthrough")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "walkthroughs"} (
+    <kicker("Guided Sequence")>
+    <title("Continue through the focused walkthroughs.")>
+    <cards(
+      <card(
+        <topline("Advanced")>
+        <heading("Add AEON's richer forms")>
+        <copy("Continue with custom types, anonymous typed values, nulls, attributes, separator values, references, nodes, and semantic comments.")>
+        <href("/walkthrough-advanced.php")>
+        <cta("Open advanced")>
+      )>
+      <card(
+        <topline("Processing")>
+        <heading("Follow source through the pipeline")>
+        <copy("Trace one document through canonical form, assignment events, schema validation, meaning validation, and Tonic materialization.")>
+        <href("/walkthrough-processing.php")>
+        <cta("Open processing")>
+      )>
+      <card(
+        <topline("Annotations")>
+        <heading("Connect data, comments, and rendering")>
+        <copy("See AEON data, node templates, and semantic comments become an annotation stream and rendered HTML without hidden behavior.")>
+        <href("/walkthrough-annotations.php")>
+        <cta("Open annotations")>
+      )>
+    )>
+  )>
+)>

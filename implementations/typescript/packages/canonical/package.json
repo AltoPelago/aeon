@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-canonical",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Canonical AEON serialization for the TypeScript implementation.",
   "license": "MIT",
   "type": "module",
@@ -49,6 +49,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-lexer": "workspace:*",
     "@altopelago/aeon-parser": "workspace:*"
   }

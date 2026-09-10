@@ -148,6 +148,26 @@ describe('Parser', () => {
             assert.strictEqual(group.bindings[1]!.key, 'off');
         });
 
+        it('should parse literal words as custom datatype names', () => {
+            const tokens = tokenize([
+                'a:yes = yes',
+                'b:no = no',
+                'c:on = on',
+                'd:off = off',
+                'e:true = true',
+                'f:false = false',
+                'g:list<yes> = [yes]',
+            ].join('\n')).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            assert.deepStrictEqual(
+                result.document!.bindings.map((binding) => binding.datatype?.name),
+                ['yes', 'no', 'on', 'off', 'true', 'false', 'list']
+            );
+            assert.deepStrictEqual(result.document!.bindings[6]!.datatype?.genericArgs, ['yes']);
+        });
+
         it('should parse multiple bindings with newlines', () => {
             const tokens = tokenize('a = 1\nb = 2\nc = 3').tokens;
             const result = parse(tokens);
@@ -214,6 +234,48 @@ describe('Parser', () => {
             assert.strictEqual(value.elements[1]!.structuralId, 'B2');
             assert.strictEqual(value.elements[1]!.attributes.length, 1);
             assert.strictEqual(value.elements[1]!.datatype?.name, 'string');
+        });
+
+        it('should preserve structural identities on attribute-entry and node heads', () => {
+            const tokens = tokenize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`).tokens;
+            const result = parse(tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const binding = result.document!.bindings[0]!;
+            assert.strictEqual(binding.attributes[0]!.entries.get('source')!.structuralId, 'META');
+            assert.strictEqual(binding.value.type, 'NodeLiteral');
+            if (binding.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(binding.value.structuralId, 'HEAD');
+        });
+
+        it('should retain the exact node-head and attribute-entry ranges independently', () => {
+            const source = String.raw`value = <"tag😀"\HEAD\@{role:string = "café"}:node("child")>`;
+            const result = parse(tokenize(source).tokens);
+
+            assert.strictEqual(result.errors.length, 0);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            if (value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
+            assert.strictEqual(
+                source.slice(value.headSpan!.start.offset, value.headSpan!.end.offset),
+                String.raw`"tag😀"\HEAD\@{role:string = "café"}:node`,
+            );
+            const role = value.attributes[0]!.entries.get('role')!;
+            assert.strictEqual(
+                source.slice(role.span!.start.offset, role.span!.end.offset),
+                'role:string = "café"',
+            );
+            assert.strictEqual(
+                source.slice(value.span.start.offset, value.span.end.offset),
+                String.raw`<"tag😀"\HEAD\@{role:string = "café"}:node("child")>`,
+            );
+        });
+
+        it('should reject duplicate structural identities across attribute-entry and node heads', () => {
+            const tokens = tokenize(String.raw`value@{source\same\ = "user"} = <tag\same\>`).tokens;
+            const result = parse(tokens);
+
+            assert.ok(result.errors.some(error => error.code === 'DUPLICATE_STRUCTURAL_IDENTITY'));
         });
 
         it('should reject duplicate structural identities document-wide', () => {
@@ -473,19 +535,33 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should enforce max_generic_depth for nested generic type arguments', () => {
-            const tokens = tokenize('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))').tokens;
+            const tokens = tokenize('t:tuple<tuple<tuple<n, n>, n>, n> = (((1,2),3),4)').tokens;
             const result = parse(tokens, { maxGenericDepth: 1 });
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'GENERIC_DEPTH_EXCEEDED');
         });
 
-        it('should allow nested generic type arguments when maxGenericDepth is raised', () => {
+        it('should allow nested generic type arguments at maxGenericDepth', () => {
             const tokens = tokenize('t:tuple<tuple<n, n>, tuple<n, n>> = ((1,2),(1,2))').tokens;
-            const result = parse(tokens, { maxGenericDepth: 8 });
+            const result = parse(tokens, { maxGenericDepth: 1 });
 
             assert.strictEqual(result.errors.length, 0);
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['tuple<n, n>', 'tuple<n, n>']);
+        });
+
+        it('should enforce max_generic_arguments independently from generic depth', () => {
+            const tokens = tokenize('t:tuple<n, n, n> = (1,2,3)').tokens;
+            const result = parse(tokens, { maxGenericArguments: 2 });
+
+            assert.strictEqual(result.errors[0]!.code, 'GENERIC_ARGUMENTS_EXCEEDED');
+        });
+
+        it('should enforce aggregate max_datatype_components', () => {
+            const tokens = tokenize('t:tuple<n, n> = (1,2)').tokens;
+            const result = parse(tokens, { maxDatatypeComponents: 2 });
+
+            assert.strictEqual(result.errors[0]!.code, 'DATATYPE_COMPONENTS_EXCEEDED');
         });
 
         it('should reject malformed generic argument lists in core v1', () => {
@@ -1225,12 +1301,12 @@ b = [\A1\ = 2]`).tokens;
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [2]);
         });
 
-        it('should enforce max_separator_depth policy for clarifier values', () => {
+        it('should enforce max_clarifier_values policy', () => {
             const tokens = tokenize('matrix:grid["|", ">"] = 1').tokens;
-            const result = parse(tokens, { maxSeparatorDepth: 1 });
+            const result = parse(tokens, { maxClarifierValues: 1 });
 
             assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SEPARATOR_DEPTH_EXCEEDED');
+            assert.strictEqual(result.errors[0]!.code, 'CLARIFIER_VALUES_EXCEEDED');
         });
 
         it('should reject repeated clarifier brackets', () => {

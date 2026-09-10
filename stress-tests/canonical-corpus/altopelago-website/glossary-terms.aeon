@@ -1,0 +1,136 @@
+terms:list<object> = [
+  {
+    name:string = "AES"
+    definition:string = "Assignment Event Stream. The ordered preservation artifact produced from AEON source, used by later validation, canonicalization, auditing, and materialization steps."
+    aliases:list<string> = ["Assignment Event Stream"]
+  },
+  {
+    name:string = "AEON"
+    definition:string = "a deterministic language and processing model for preserving structured semantic claims without granting the source executable authority."
+  },
+  {
+    name:string = "AEON Core"
+    definition:string = "the core language and parser layer responsible for recognizing AEON syntax and preserving structure as assignment events, without deciding domain meaning."
+  },
+  {
+    name:string = "AEOS"
+    definition:string = "the AEON schema layer. AEOS validates shape, required fields, declared types, and structural constraints; it does not prove business truth or domain meaning by itself."
+  },
+  {
+    name:string = "Attribute"
+    definition:string = "structured local metadata attached to a binding, anonymous value, or node. Attributes carry side information without changing the value itself."
+    aliases:list<string> = ["Attributes"]
+  },
+  {
+    name:string = "Author"
+    definition:string = "the person, tool, system, or AI agent producing AEON source. The author can make claims, but does not automatically grant those claims authority."
+  },
+  {
+    name:string = "Authority"
+    definition:string = "the right to decide trust or materialization. In AEON, authority belongs to the receiving context, not to the source document by itself."
+  },
+  {
+    name:string = "Binding"
+    definition:string = "an assignment from an identity to a value, with optional attributes and type labels. At the surface it can look like key plus value; semantically it carries identity plus claims."
+    aliases:list<string> = ["Bindings"]
+  },
+  {
+    name:string = "Canonical form"
+    definition:string = "a stable representation of accepted AEON used for comparison, signing, hashing, review, caching, and reproducible processing without preserving irrelevant formatting differences."
+  },
+  {
+    name:string = "Claim"
+    definition:string = "something the document says about structure, type, intent, relationship, or meaning. Claims are preserved by AEON and accepted, rejected, or interpreted by consumers."
+    aliases:list<string> = ["Claims"]
+  },
+  {
+    name:string = "Consumer"
+    definition:string = "the system receiving AEON. The consumer chooses which schemas, profiles, policies, conventions, and Tonics it trusts for the current context."
+    aliases:list<string> = ["Consumers"]
+  },
+  {
+    name:string = "Contract"
+    definition:string = "an explicit agreement a consumer can verify against, usually combining expectations about schemas, profiles, accepted claims, and materialization rules."
+  },
+  {
+    name:string = "Convention"
+    definition:string = "a documented meaning pattern layered on top of AEON Core. Conventions let communities share intent without making that intent an implicit parser rule."
+    aliases:list<string> = ["Conventions"]
+  },
+  {
+    name:string = "CTS"
+    definition:string = "Conformance Test Suite. A shared test corpus used to check that AEON implementations agree on syntax, parsing behavior, canonical expectations, and edge cases."
+    aliases:list<string> = ["Conformance Test Suite"]
+  },
+  {
+    name:string = "Deterministic"
+    definition:string = "producing the same accepted result for the same input and rules. Determinism lets AEON support reproducible validation, canonicalization, signing, and audit trails."
+    aliases:list<string> = ["Determinism"]
+  },
+  {
+    name:string = "Materialization"
+    definition:string = "the explicit step where accepted AEON meaning becomes a runtime object, rendered document, generated code, API payload, or other concrete output."
+  },
+  {
+    name:string = "Negative space semantics"
+    definition:string = "meaning created by what AEON refuses to infer: references are not automatically values, schemas are not truth, comments are not execution, and type labels are not runtime classes."
+  },
+  {
+    name:string = "Node"
+    definition:string = "a tagged tree value for ordered, nested, document-like structure. Nodes are semantic structures that may later materialize as HTML, Markdown, PDFs, UI trees, or other projections."
+    aliases:list<string> = ["Nodes"]
+  },
+  {
+    name:string = "Non-executable"
+    definition:string = "AEON source describes and preserves claims; it does not run as code. Any action happens in authorized consumer tools outside the source document's own authority."
+  },
+  {
+    name:string = "Profile"
+    definition:string = "a named processing or interpretation context that narrows which features, schemas, conventions, or materialization behavior a consumer accepts."
+    aliases:list<string> = ["Profiles"]
+  },
+  {
+    name:string = "Reference"
+    definition:string = "a symbolic relationship to another address in the document. AEON preserves the relationship graph before any trusted consumer resolves it."
+    aliases:list<string> = ["References"]
+  },
+  {
+    name:string = "Schema"
+    definition:string = "a validation document or rule set that checks form: existence, required fields, declared types, shape, and structural constraints."
+    aliases:list<string> = ["Schemas"]
+  },
+  {
+    name:string = "Semantic comment"
+    definition:string = "a preserved comment channel for notes, annotations, review context, or AI instructions. Semantic comments can be interpreted by consumers, but they do not execute by themselves."
+    aliases:list<string> = ["Semantic comments"]
+  },
+  {
+    name:string = "Semantic preservation"
+    definition:string = "the design principle of preserving distinctions such as type labels, references, comments, identity, order, and structure until a trusted consumer explicitly collapses them."
+  },
+  {
+    name:string = "Structural identity"
+    definition:string = "an optional head marker written as \\id\\ that gives a binding, node, attribute entry, or anonymous child value a stable occurrence identity without changing its canonical path or value."
+    aliases:list<string> = ["Structural identities", "Structured identity", "Structured identities"]
+  },
+  {
+    name:string = "Tonic"
+    definition:string = "a consumer-side materializer or adapter that turns accepted AEON meaning into a runtime object, rendered document, API payload, or other projection under consumer policy."
+    aliases:list<string> = ["Tonics"]
+  },
+  {
+    name:string = "Type label"
+    definition:string = "an explicit claim about the intended value family or domain type. A type label is preserved by the parser; it is not automatically a runtime class."
+    aliases:list<string> = ["Type labels"]
+  },
+  {
+    name:string = "Value"
+    definition:string = "the assigned content of a binding or anonymous item: a scalar, object, list, tuple, node, reference, prose block, encoded value, or special literal."
+    aliases:list<string> = ["Values"]
+  },
+  {
+    name:string = "Zero Trust"
+    definition:string = "the stance that AEON preserves claims without treating them as true, authoritative, safe, or materialized until a consumer verifies the relevant evidence, policy, and authority."
+    aliases:list<string> = ["zero-trust", "Zero-trust"]
+  }
+]

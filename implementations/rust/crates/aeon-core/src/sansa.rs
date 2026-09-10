@@ -86,6 +86,8 @@ impl SansaParseError {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SansaResolveBinding {
     pub address: Option<String>,
+    /// Opaque structural occurrence identity supplied by the host namespace.
+    pub identity: Option<String>,
     pub name: Option<String>,
     pub key: Option<String>,
     pub index: Option<usize>,
@@ -545,7 +547,7 @@ fn matches_representation_kind(binding: &SansaResolveBinding, expected: &str) ->
         .as_deref()
         .or(binding.kind.as_deref())
         .or(binding.value_type.as_deref());
-    actual.is_some_and(|actual| lower_first(actual) == expected)
+    actual.is_some_and(|actual| actual == expected || lower_first(actual) == expected)
 }
 
 fn resolve_error(
@@ -1294,6 +1296,144 @@ mod tests {
         assert_eq!(
             resolved_addresses(&resolve_address(
                 "$.inventory.items[2].sku",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn preserves_identity_as_metadata_without_using_it_for_paths() {
+        let child = SansaResolveBinding {
+            address: Some(String::from("$.item")),
+            identity: Some(String::from("ITEM")),
+            name: Some(String::from("item")),
+            ..SansaResolveBinding::default()
+        };
+        let namespace = SansaResolveNamespace::new(SansaResolveBinding {
+            address: Some(String::from("$")),
+            children: vec![child],
+            ..SansaResolveBinding::default()
+        });
+
+        let result = resolve_address("$.item", &namespace, &SansaResolveOptions::default());
+        assert!(result.ok);
+        assert_eq!(result.bindings[0].address.as_deref(), Some("$.item"));
+        assert_eq!(result.bindings[0].identity.as_deref(), Some("ITEM"));
+    }
+
+    #[test]
+    fn navigates_portable_node_heads_with_pascal_case_kind_filters() {
+        assert_eq!(
+            parse_address("$.document[0]%NodeHead")
+                .expect("parse")
+                .canonical,
+            "$.document[0]%NodeHead"
+        );
+
+        let mut nested_text = binding(
+            "$.document[0][1][0][0]",
+            None,
+            Some(0),
+            None,
+            Some("StringLiteral"),
+            vec![],
+        );
+        nested_text.parent = Some(Box::new(binding(
+            "$.document[0][1][0]",
+            None,
+            Some(0),
+            None,
+            Some("NodeHead"),
+            vec![],
+        )));
+        let mut nested_head = binding(
+            "$.document[0][1][0]",
+            None,
+            Some(0),
+            None,
+            Some("NodeHead"),
+            vec![nested_text],
+        );
+        nested_head.parent = Some(Box::new(binding(
+            "$.document[0][1]",
+            None,
+            Some(1),
+            None,
+            Some("NodeLiteral"),
+            vec![],
+        )));
+        let mut nested_node = binding(
+            "$.document[0][1]",
+            None,
+            Some(1),
+            None,
+            Some("NodeLiteral"),
+            vec![nested_head],
+        );
+        nested_node.parent = Some(Box::new(binding(
+            "$.document[0]",
+            None,
+            Some(0),
+            None,
+            Some("NodeHead"),
+            vec![],
+        )));
+        let outer_head = binding(
+            "$.document[0]",
+            None,
+            Some(0),
+            None,
+            Some("NodeHead"),
+            vec![
+                binding(
+                    "$.document[0][0]",
+                    None,
+                    Some(0),
+                    None,
+                    Some("StringLiteral"),
+                    vec![],
+                ),
+                nested_node,
+            ],
+        );
+        let mut namespace = SansaResolveNamespace::new(binding(
+            "$",
+            None,
+            None,
+            None,
+            Some("ObjectNode"),
+            vec![binding(
+                "$.document",
+                Some("document"),
+                None,
+                None,
+                Some("NodeLiteral"),
+                vec![outer_head],
+            )],
+        ));
+        namespace.supports_parent_traversal = true;
+
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document.**%NodeHead",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.document[0]", "$.document[0][1][0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document[0][1].^%NodeHead",
+                &namespace,
+                &SansaResolveOptions::default()
+            )),
+            vec!["$.document[0]"]
+        );
+        assert_eq!(
+            resolved_addresses(&resolve_address(
+                "$.document[1]",
                 &namespace,
                 &SansaResolveOptions::default()
             )),

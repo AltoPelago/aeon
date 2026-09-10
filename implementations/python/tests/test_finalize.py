@@ -365,6 +365,20 @@ class FinalizeJsonTests(unittest.TestCase):
             full["document"],
         )
 
+    def test_same_name_quoted_header_key_stays_in_payload_scope(self) -> None:
+        source = 'aeon:mode = "transport"\n"aeon:mode" = 1'
+        compiled = compile_source(source)
+        self.assertEqual([], compiled.errors)
+
+        full = finalize_json(
+            compiled,
+            FinalizeOptions(mode="strict", scope="full"),
+        )
+        self.assertEqual(
+            {"header": {"mode": "transport"}, "payload": {"aeon:mode": 1}},
+            full["document"],
+        )
+
     def test_infers_tokenized_structured_header_from_compile_result(self) -> None:
         source = 'aeon : header /# gap #/= {\n  mode:string = "strict"\n  encoding:string = "utf-8"\n}\napp:string = "ok"'
         result = finalize_json(

@@ -1,0 +1,165 @@
+title:string = "AEON Language Guide"
+description:string = "A practical guide to AEON syntax: bindings, scalar values, objects, lists, tuples, references, nodes, modes, and common grammar shapes."
+activePage:string = "language"
+keywords:list<string> = ["guide", "syntax", "bindings", "objects", "lists", "tuples", "references", "nodes", "modes"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Language")>
+    <title("A practical reference for reading AEON.")>
+    <copy("This page is intentionally less formal than the specification. It explains the visible language surface: how bindings read, how containers are shaped, and how references, nodes, and modes fit together.")>
+    <copy("Use the value types page for special value features, the type reference for the lookup table, and the playground to experiment.")>
+    <actions(
+      <action @{href:string = "#bindings", primary:boolean = true} ("Read the core forms")>
+      <action @{href:string = "#glossary"} ("Glossary")>
+      <action @{href:string = "/value-types.php"} ("Value types")>
+      <action @{href:string = "/type-reference.php"} ("Type reference")>
+      <action @{href:string = "/playground.php"} ("Open playground")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "bindings"} (
+    <kicker("Bindings")>
+    <title("Most AEON starts with a name, a type, and a value.")>
+    <copy("A binding assigns a value to a key. The datatype annotation tells a reader and a validator what kind of value is intended. In strict authoring, ordinary bindings are typed; in transport scenarios, untyped data can still be carried.")>
+    <code(`
+title:string = "Release notes"
+published:boolean = true
+count:number = 3
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Structural identities")>
+    <title("A head can carry stable occurrence identity.")>
+    <copy("A structural identity is optional metadata on a binding or anonymous child head. It gives tools a stable occurrence handle without making that handle part of the ordinary value or canonical path.")>
+    <code(`
+person\\person-1\\:object = {
+  name\\name-1\\:string = "Ada"
+}
+
+items:list = [
+  \\item-1\\:string = "red"
+  \\item-2\\@{source:string = "user"}:string = "green"
+]
+`)>
+    <copy("The identity marker appears before attributes and datatype. Identity values must be unique within the document and are preserved by parser, AES, and canonical output metadata.")>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Containers")>
+    <title("Objects, lists, and tuples cover the ordinary document shapes.")>
+    <copy("Objects contain named bindings. Lists contain repeated values. A list can declare the value family in the list type, or each child can carry an anonymous type head when that is clearer.")>
+    <code(`
+document:object = {
+  title:string = "Release notes"
+  tags:list<string> = ["spec", "draft"]
+  measurements:list = [
+    :number = 3
+    :number = 4
+  ]
+}
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("References")>
+    <title("Copies and live references use different marks.")>
+    <copy("AEON does not blur reference intent. ~path records value-copy intent. ~>path records pointer-like intent. That distinction matters when documents are transformed, validated, or bound into systems.")>
+    <code(`
+total:number = 12
+published:number = ~total
+livePointer = ~>total
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Nodes")>
+    <title("Node values make tree-shaped content explicit.")>
+    <copy("Nodes are useful when the document needs tagged, child-bearing structure without becoming HTML, XML, or executable code. They are data values with visible heads and children.")>
+    <code(`
+content:node = <article (
+  <h1("AEON")>
+  <p("Readable structure for data and documents.")>
+)>
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Modes")>
+    <title("Transport, strict, and custom are authoring contracts.")>
+    <copy("Transport mode favors carriage. Strict mode reserves the core language surface and requires typed ordinary bindings. Custom mode keeps the typing requirement while allowing ecosystem-defined datatype labels.")>
+    <code(`
+aeon:mode = "strict"
+
+title:string = "Typed document"
+tags:list = ["reference", "public"]
+`)>
+  )>
+
+  <section @{type:string = "feature", id:string = "glossary"} (
+    <kicker("Glossary")>
+    <title("Common AEON words in plain language.")>
+    <referenceList(
+      <item(
+        <name("Binding")>
+        <definition("a key, optional attributes, an optional datatype annotation, and a value.")>
+      )>
+      <item(
+        <name("Attribute")>
+        <definition("structured metadata attached to a binding or value head.")>
+      )>
+      <item(
+        <name("Annotation")>
+        <definition("a semantic comment side channel that can travel beside data without becoming the data.")>
+      )>
+      <item(
+        <name("AES (Assignment Event Stream)")>
+        <definition("the ordered preservation artifact produced by AEON Core from a document, carrying assignment events, paths, source order, datatype hints, attributes, references, and structure.")>
+      )>
+      <item(
+        <name("AEOS")>
+        <definition("the validation layer that checks whether the assignment stream satisfies a schema without silently coercing or mutating values.")>
+      )>
+      <item(
+        <name("Canonical form")>
+        <definition("a stable, normalized representation used for deterministic comparison, cryptographic hashing, and signing.")>
+      )>
+      <item(
+        <name("Structural identity")>
+        <definition("an optional head marker written as \\id\\ that gives a binding, node, attribute entry, or anonymous child value a stable occurrence identity without changing its canonical path or value.")>
+      )>
+      <item(
+        <name("Profile")>
+        <definition("a policy bundle that defines how an AEON document should be processed once selected by the consumer.")>
+      )>
+      <item(
+        <name("Schema")>
+        <definition("a contract that defines acceptability constraints over an AEON document's structure and values.")>
+      )>
+      <item(
+        <name("Convention")>
+        <definition("a named interpretation agreement layered on top of AEON Core, declared by documents but trusted by consumers.")>
+      )>
+      <item(
+        <name("Tonic")>
+        <definition("the downstream materialization processor that consumes AES and produces a domain-specific runtime representation.")>
+      )>
+      <item(
+        <name("Reference")>
+        <definition("a value that points at another path. Clone references record copy intent with ~path; pointer references record live pointer intent with ~>path.")>
+      )>
+      <item(
+        <name("Contract")>
+        <definition("a published, versioned artifact that identifies a trusted profile or schema surface, resolved against the consumer's trusted registry.")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Grammar")>
+    <title("The formal grammar should support the language, not become the page.")>
+    <copy("The exact EBNF belongs in the specification and conformance tests. This site should keep the common shapes visible and readable.")>
+    <copy("When you need authority-level detail, use the specification and conformance tests; when you need intuition, use this page and the walkthrough.")>
+  )>
+)>

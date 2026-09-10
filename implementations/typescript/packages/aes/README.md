@@ -1,6 +1,6 @@
 # @altopelago/aeon-aes
 
-Assignment Event Stream emission and supporting AEON path utilities.
+Assignment Event Stream emission, portable projection, and Telex v1 codec.
 
 ## Installation
 
@@ -25,12 +25,28 @@ if (result.errors.length === 0) {
 - emits Assignment Events from AEON source or parsed syntax
 - formats and works with canonical AEON paths
 - exposes event-level data used by AEOS validation, finalization, and tooling
+- parses, validates, encodes, and canonicalizes `telex.aes` v1 streams
+- splits compact Telex datatypes into `datatype`, `generics`, and `clarifiers`
 
 ## API
 
 - `emitAssignmentEvents(input, options?)`
+- `projectPortableEvents(events)` emits the default body-only portable
+  projection
+- `adaptTypeScriptAssignmentEventsToPortableAes(events, options?)` returns the
+  named `aeon.typescript.assignment-events.v0-to-aes.events.v1` compatibility
+  result and its conversion report; optional exact `sourceBytes` derive a
+  SHA-256 origin and convert native UTF-16 ranges to UTF-8 byte spans;
+  `includeHeaders: true` selects `aeon.document.v1`
+- `parseTelex(input, options?)`
+- `encodeTelex(records, options?)`
+- `canonicalizeTelex(input, options?)`
+- `validateTelex(input, options?)`
+- `validateTelexRecords(records, options?)`
 - canonical path helpers
 - Assignment Event Stream types
+  - emitted native events carry `sourcePlane: 'header' | 'body'`; consumers
+    must not infer control-plane identity from an `aeon:` key prefix
 - reconstructed candidate AES types:
   - `CandidateAES`
   - `CandidateAssignmentEvent`
@@ -39,7 +55,8 @@ if (result.errors.length === 0) {
 
 ## When To Use It
 
-Use this package when you need direct access to emitted AEON assignment events.
+Use this package when you need direct access to assignment events or the
+encoding-neutral portable AES/Telex boundary.
 If you want the stable application-facing entry point, prefer `@altopelago/aeon-core`.
 
 ## Notes

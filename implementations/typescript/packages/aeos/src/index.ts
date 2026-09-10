@@ -25,6 +25,8 @@
 
 export { validate } from './validate.js';
 export type { ValidateOptions } from './validate.js';
+export { validateTelex } from './telex.js';
+export type { ValidateTelexOptions } from './telex.js';
 export {
     normalizeSchemaObject,
     parseSchemaSource,
@@ -73,7 +75,7 @@ export type {
 } from './types/schema.js';
 
 // AES types (re-exported from @altopelago/aeon-aes)
-export type { AES, AssignmentEvent } from './types/aes.js';
+export type { AES, AssignmentEvent, PortableAesBodyEvent, TelexRecord } from './types/aes.js';
 
 // =============================================================================
 // DIAGNOSTICS

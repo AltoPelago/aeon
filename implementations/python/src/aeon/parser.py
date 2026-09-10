@@ -41,11 +41,14 @@ from .ast import (
 from .errors import (
     AeonError,
     AttributeDepthExceededError,
+    DuplicateStructuralIdentityError,
+    DatatypeComponentsExceededError,
+    GenericArgumentsExceededError,
     GenericDepthExceededError,
     HeaderConflictError,
     InvalidSeparatorCharError,
     NestingDepthExceededError,
-    SeparatorDepthExceededError,
+    ClarifierValuesExceededError,
     SyntaxError,
     UnsafeMaxNestingDepthError,
 )
@@ -70,6 +73,7 @@ RESERVED_ATTRIBUTE_KEYS = {"@", "@items", "__proto__", "constructor", "prototype
 
 RESERVED_NULL_SENTINELS = {"none", "notSet", "notApplicable", "tombstone"}
 BARE_KEY_TOKEN_KINDS = {"IDENT", "TRUE", "FALSE", "YES", "NO", "ON", "OFF"}
+DATATYPE_NAME_TOKEN_KINDS = BARE_KEY_TOKEN_KINDS
 
 PARSER_STACK_SAFE_MAX_NESTING_DEPTH = 512
 
@@ -94,21 +98,26 @@ class Parser:
         self,
         source: str,
         tokens: list[Token],
-        max_separator_depth: int = 1,
+        max_clarifier_values: int = 1,
         max_generic_depth: int = 1,
+        max_generic_arguments: int = 32,
+        max_datatype_components: int = 64,
         max_attribute_depth: int = 1,
-        max_nesting_depth: int = 256,
+        max_value_nesting_depth: int = 256,
     ) -> None:
         self.source = source
         self.tokens = tokens
         self.current = 0
-        self.max_separator_depth = max_separator_depth
+        self.max_clarifier_values = max_clarifier_values
         self.max_generic_depth = max_generic_depth
+        self.max_generic_arguments = max_generic_arguments
+        self.max_datatype_components = max_datatype_components
         self.max_attribute_depth = max_attribute_depth
-        self.max_nesting_depth = max_nesting_depth
+        self.max_value_nesting_depth = max_value_nesting_depth
         self.current_nesting_depth = 0
         self.errors: list[Exception] = []
         self.deferred_errors: list[Exception] = []
+        self.structural_identities: set[str] = set()
 
     def skip_layout(self) -> None:
         while self.check("NEWLINE"):
@@ -221,6 +230,7 @@ class Parser:
         has_shorthand = False
         end = start
         while self.is_header_start():
+            field_start = self.peek().span.start
             self.advance()
             self.skip_separators()
             self.consume("COLON", "Expected ':' after 'aeon'")
@@ -245,7 +255,7 @@ class Parser:
                         value=value,
                         datatype=None,
                         attributes=[],
-                        span=Span(start=field_token.span.start, end=value.span.end if value.span else end),
+                        span=Span(start=field_start, end=value.span.end if value.span else end),
                     )
                 )
                 fields[field_name] = value
@@ -258,6 +268,8 @@ class Parser:
         start = self.peek().span.start
         key_token = self.consume_key_token("Expected binding key")
         key = self.key_from_token(key_token)
+        self.skip_layout()
+        structural_id = self.parse_optional_structural_identity()
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
@@ -278,7 +290,7 @@ class Parser:
         end = self.previous().span.end
         if self.check("AT"):
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
-        return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end))
+        return Binding(key=key, value=value, datatype=datatype, attributes=attributes, span=Span(start=start, end=end), structural_id=structural_id)
 
     def parse_attribute(self, depth: int) -> Attribute:
         if depth > self.max_attribute_depth:
@@ -291,11 +303,14 @@ class Parser:
         self.skip_layout()
         while not self.check("RBRACE"):
             key_token = self.consume_key_token("Expected attribute key")
+            entry_start = key_token.span.start
             key = self.key_from_token(key_token)
             if key in RESERVED_ATTRIBUTE_KEYS:
                 raise SyntaxError(f"Reserved attribute key: {key}", key_token.span)
             if key in entries:
                 raise AeonError(message=f"Duplicate key: '{key}'", span=key_token.span, code="DUPLICATE_KEY")
+            self.skip_layout()
+            structural_id = self.parse_optional_structural_identity()
             self.skip_layout()
             attributes: list[Attribute] = []
             if self.check("AT"):
@@ -313,32 +328,52 @@ class Parser:
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
             value = self.parse_value()
-            entries[key] = AttributeEntry(value=value, datatype=datatype, attributes=attributes)
+            entries[key] = AttributeEntry(
+                value=value,
+                datatype=datatype,
+                attributes=attributes,
+                structural_id=structural_id,
+                span=Span(start=entry_start, end=value.span.end if value.span else self.previous().span.end),
+            )
             self.consume_member_delimiter("RBRACE", "Expected attribute delimiter")
         end = self.consume("RBRACE", "Expected '}' to close attribute").span.end
         return Attribute(entries=entries, span=Span(start=start, end=end))
 
-    def parse_type_annotation(self, generic_depth: int = 0) -> TypeAnnotation:
-        if generic_depth > self.max_generic_depth:
-            raise GenericDepthExceededError(generic_depth, self.max_generic_depth, self.peek().span)
+    def parse_type_annotation(
+        self,
+        generic_depth: int = 0,
+        components: list[int] | None = None,
+    ) -> TypeAnnotation:
+        if components is None:
+            components = [0]
+        self.count_datatype_component(components, self.peek().span)
         start = self.peek().span.start
-        name = self.consume("IDENT", "Expected type name").value
+        name_token = self.peek()
+        if name_token.kind not in DATATYPE_NAME_TOKEN_KINDS:
+            raise SyntaxError("Expected type name", name_token.span)
+        self.advance()
+        name = name_token.value
+        end = name_token.span.end
         generic_args: list[str] = []
         clarifiers: list[str | int | float] = []
         self.skip_layout()
         if self.check("LANGLE"):
+            if generic_depth > self.max_generic_depth:
+                raise GenericDepthExceededError(generic_depth, self.max_generic_depth, self.peek().span)
             if name == "radix":
                 raise SyntaxError("Radix datatype bases must use bracket syntax like 'radix[10]'", self.peek().span)
             self.advance()
             self.skip_layout()
-            generic_args.append(self.parse_generic_argument(generic_depth))
+            generic_args.append(self.parse_generic_argument(generic_depth, components))
+            self.enforce_generic_argument_count(len(generic_args))
             self.skip_layout()
             while self.check("COMMA"):
                 self.advance()
                 self.skip_layout()
-                generic_args.append(self.parse_generic_argument(generic_depth))
+                generic_args.append(self.parse_generic_argument(generic_depth, components))
+                self.enforce_generic_argument_count(len(generic_args))
                 self.skip_layout()
-            self.consume("RANGLE", "Expected '>' to close generic arguments")
+            end = self.consume("RANGLE", "Expected '>' to close generic arguments").span.end
             self.skip_layout()
         if self.check("LBRACKET"):
             self.advance()
@@ -357,29 +392,45 @@ class Parser:
                     self.advance()
                 else:
                     raise SyntaxError("Expected clarifier value", token.span)
-                if len(clarifiers) > self.max_separator_depth:
-                    raise SeparatorDepthExceededError(len(clarifiers), self.max_separator_depth, token.span)
+                if len(clarifiers) > self.max_clarifier_values:
+                    raise ClarifierValuesExceededError(len(clarifiers), self.max_clarifier_values, token.span)
+                self.count_datatype_component(components, token.span)
                 self.skip_layout()
                 if self.check("RBRACKET"):
                     break
                 self.consume("COMMA", "Expected ',' between clarifier values")
                 self.skip_layout()
-            self.consume("RBRACKET", "Expected ']' to close datatype clarifier")
+            end = self.consume("RBRACKET", "Expected ']' to close datatype clarifier").span.end
             self.skip_layout()
             if self.check("LBRACKET"):
                 raise SyntaxError('Datatype clarifiers must use a single bracketed list like \'sep["/", "."]\'', self.peek().span)
         self.validate_reserved_datatype_adornments(name, generic_args)
-        return TypeAnnotation(name=name, generic_args=generic_args, clarifiers=clarifiers, span=Span(start=start, end=self.previous().span.end))
+        return TypeAnnotation(
+            name=name,
+            generic_args=generic_args,
+            clarifiers=clarifiers,
+            span=Span(start=start, end=end),
+        )
 
-    def parse_generic_argument(self, generic_depth: int) -> str:
+    def parse_generic_argument(self, generic_depth: int, components: list[int]) -> str:
         token = self.peek()
-        if token.kind not in {"IDENT", "NUMBER"}:
+        if token.kind not in DATATYPE_NAME_TOKEN_KINDS | {"NUMBER"}:
             raise SyntaxError("Expected generic argument", token.span)
         if token.kind == "NUMBER":
             self.advance()
+            self.count_datatype_component(components, token.span)
             return token.value
-        nested = self.parse_type_annotation(generic_depth + 1)
+        nested = self.parse_type_annotation(generic_depth + 1, components)
         return self.format_type_annotation(nested)
+
+    def enforce_generic_argument_count(self, observed: int) -> None:
+        if observed > self.max_generic_arguments:
+            raise GenericArgumentsExceededError(observed, self.max_generic_arguments, self.previous().span)
+
+    def count_datatype_component(self, components: list[int], span: Span) -> None:
+        components[0] += 1
+        if components[0] > self.max_datatype_components:
+            raise DatatypeComponentsExceededError(components[0], self.max_datatype_components, span)
 
     def format_type_annotation(self, annotation: TypeAnnotation) -> str:
         generic_suffix = ""
@@ -521,10 +572,10 @@ class Parser:
         counts_toward_nesting = self.check("LANGLE") or self.check("LBRACE") or self.check("LBRACKET") or self.check("LPAREN")
         if counts_toward_nesting:
             self.current_nesting_depth += 1
-            if self.current_nesting_depth > self.max_nesting_depth:
+            if self.current_nesting_depth > self.max_value_nesting_depth:
                 observed_depth = self.current_nesting_depth
                 self.current_nesting_depth -= 1
-                raise NestingDepthExceededError(observed_depth, self.max_nesting_depth, self.peek().span)
+                raise NestingDepthExceededError(observed_depth, self.max_value_nesting_depth, self.peek().span)
         try:
             if self.check("LANGLE"):
                 return self.parse_node()
@@ -549,9 +600,11 @@ class Parser:
                 self.current_nesting_depth -= 1
 
     def parse_anonymous_value(self) -> Value:
-        if not self.check("COLON") and not self.check("AT"):
+        if not self.check("STRUCTURAL_IDENTITY") and not self.check("COLON") and not self.check("AT"):
             return self.parse_value()
         start = self.peek().span.start
+        structural_id = self.parse_optional_structural_identity()
+        self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
@@ -573,16 +626,35 @@ class Parser:
             attributes=attributes,
             value=value,
             span=Span(start=start, end=value.span.end if value.span else self.previous().span.end),
+            structural_id=structural_id,
         )
+
+    def parse_optional_structural_identity(self) -> str | None:
+        if not self.check("STRUCTURAL_IDENTITY"):
+            return None
+        token = self.advance()
+        structural_id = token.value
+        if structural_id in self.structural_identities:
+            raise DuplicateStructuralIdentityError(structural_id, token.span)
+        self.structural_identities.add(structural_id)
+        return structural_id
 
     def parse_node(self) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
-        tag = self.key_from_token(self.consume_key_token("Expected node tag after '<'"))
+        tag_token = self.consume_key_token("Expected node tag after '<'")
+        tag = self.key_from_token(tag_token)
+        head_start = tag_token.span.start
+        head_end = tag_token.span.end
+        self.skip_layout()
+        structural_id = self.parse_optional_structural_identity()
+        if structural_id is not None:
+            head_end = self.previous().span.end
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
             attributes.append(self.parse_attribute(1))
+            head_end = attributes[-1].span.end
             self.skip_layout()
             if self.check("AT"):
                 raise SyntaxError("Only one attribute block is allowed before a node datatype", self.peek().span)
@@ -591,13 +663,22 @@ class Parser:
             self.advance()
             self.skip_layout()
             datatype = self.parse_type_annotation()
+            head_end = datatype.span.end
             if (datatype.generic_args and datatype.name != "node") or datatype.clarifiers:
                 raise SyntaxError("Node head datatypes must be simple labels or node<T> without clarifiers", datatype.span)
             self.skip_layout()
         children: list[Value] = []
         if self.check("RANGLE"):
             end = self.advance().span.end
-            return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end))
+            return NodeLiteral(
+                tag=tag,
+                attributes=attributes,
+                datatype=datatype,
+                children=children,
+                span=Span(start=start, end=end),
+                structural_id=structural_id,
+                head_span=Span(start=head_start, end=head_end),
+            )
         self.consume("LPAREN", "Expected '(' or '>' after node tag")
         self.skip_layout()
         while not self.check("RPAREN"):
@@ -606,7 +687,15 @@ class Parser:
         self.consume("RPAREN", "Expected ')' to close node children")
         self.skip_layout()
         end = self.consume("RANGLE", "Expected '>' after node children").span.end
-        return NodeLiteral(tag=tag, attributes=attributes, datatype=datatype, children=children, span=Span(start=start, end=end))
+        return NodeLiteral(
+            tag=tag,
+            attributes=attributes,
+            datatype=datatype,
+            children=children,
+            span=Span(start=start, end=end),
+            structural_id=structural_id,
+            head_span=Span(start=head_start, end=head_end),
+        )
 
     def parse_object(self) -> ObjectNode:
         start = self.consume("LBRACE", "Expected '{'").span.start
@@ -979,17 +1068,23 @@ class Parser:
 def parse_tokens(
     source: str,
     tokens: list[Token],
-    max_separator_depth: int = 1,
+    max_clarifier_values: int | None = None,
     max_generic_depth: int = 1,
+    max_generic_arguments: int = 32,
+    max_datatype_components: int = 64,
     max_attribute_depth: int = 1,
+    max_value_nesting_depth: int | None = None,
+    max_separator_depth: int = 1,
     max_nesting_depth: int = 256,
 ) -> ParseResult:
-    if max_nesting_depth > PARSER_STACK_SAFE_MAX_NESTING_DEPTH:
+    effective_clarifier_values = max_separator_depth if max_clarifier_values is None else max_clarifier_values
+    effective_value_nesting_depth = max_nesting_depth if max_value_nesting_depth is None else max_value_nesting_depth
+    if effective_value_nesting_depth > PARSER_STACK_SAFE_MAX_NESTING_DEPTH:
         return ParseResult(
             document=None,
             errors=[
                 UnsafeMaxNestingDepthError(
-                    max_nesting_depth,
+                    effective_value_nesting_depth,
                     PARSER_STACK_SAFE_MAX_NESTING_DEPTH,
                 )
             ],
@@ -997,10 +1092,12 @@ def parse_tokens(
     return Parser(
         source,
         tokens,
-        max_separator_depth=max_separator_depth,
+        max_clarifier_values=effective_clarifier_values,
         max_generic_depth=max_generic_depth,
+        max_generic_arguments=max_generic_arguments,
+        max_datatype_components=max_datatype_components,
         max_attribute_depth=max_attribute_depth,
-        max_nesting_depth=max_nesting_depth,
+        max_value_nesting_depth=effective_value_nesting_depth,
     ).parse()
 
 

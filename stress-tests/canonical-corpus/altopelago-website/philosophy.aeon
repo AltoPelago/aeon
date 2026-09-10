@@ -1,0 +1,195 @@
+title:string = "AEON Language Philosophy"
+description:string = "The philosophy behind AEON: negative space semantics, semantic preservation, visible meaning, consumer authority, deterministic processing, validation boundaries, and safer documents."
+activePage:string = "philosophy"
+keywords:list<string> = ["philosophy", "trust", "authority", "determinism", "validation", "execution", "security", "meaning", "identity", "claims", "semantic preservation", "negative space semantics", "materialization", "references"]
+
+page:node = <page(
+  <section @{type:string = "feature", level:string = "1"} (
+    <kicker("Philosophy")>
+    <title("AEON preserves meaning by refusing premature inference.")>
+    <copy("AEON is defined not only by what it transports, but by what it refuses to infer. A document may declare structure, types, references, contracts, and intent, but it does not get to prove those [& claims|Claim] about itself. Consumers bring the trusted contract.")>
+    <copy("That refusal is AEON's negative space semantics: references are not automatically values, type labels are not runtime classes, schemas are not truth, comments are not execution, and structure is not forced materialization. AEON keeps those spaces open until a trusted consumer chooses how to close them.")>
+    <actions(
+      <action @{href:string = "#negative-space", primary:boolean = true} ("Negative space")>
+      <action @{href:string = "#meaning"} ("Meaning layers")>
+      <action @{href:string = "#security"} ("Security mindset")>
+      <action @{href:string = "https://github.com/AltoPelago/aeon/wiki/Security-Model"} ("Security model")>
+    )>
+  )>
+
+  <section @{type:string = "feature", id:string = "negative-space"} (
+    <kicker("Negative Space")>
+    <title("The uncollapsed distinctions are part of the meaning.")>
+    <copy("AEON is not best understood as typed JSON, a configuration format, a schema language, or a programming language. It is a [& semantic preservation|Semantic preservation] system. Its core principle is simple: preserve distinctions until a trusted consumer explicitly chooses to collapse them.")>
+    <copy("Most systems reduce meaning early. AEON delays that reduction. The gap between what the source claims and what a consumer later accepts is not accidental; it is where trust, validation, and materialization stay visible.")>
+    <code(`
+reference -> value
+type      -> runtime object
+document  -> HTML
+list      -> set
+schema    -> meaning
+`)>
+    <copy("Those reductions may be valid later, but they should be explicit, trusted, and auditable. AEON keeps the source independent of those later choices.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "meaning"} (
+    <kicker("Meaning")>
+    <title("The parser preserves claims; it does not decide their domain truth.")>
+    <copy("AEON separates claim, meaning, authority, and materialization. A value can be syntactically valid, structurally valid, and still fail domain meaning. For example, 0 may be a valid number but an invalid temperature reading if the consumer requires a unit.")>
+    <copy("The point is not to eliminate meaning. The point is to prevent implicit, invisible, uncontrolled decisions about meaning.")>
+    <copy("At the surface, a binding can look like key plus value. Semantically, it is better to read it as identity plus claims: the name gives a document address, while the type label, value, attributes, comments, and references make claims preserved for later validation and materialization.")>
+    <code(`
+person:person = {
+  name:string = "Bob"
+}
+`)>
+    <copy("Here person identifies a place in the document. :person claims a domain type. name:string creates a nested identity with a string claim. The parser preserves those claims; it does not decide whether this is a real person or construct a runtime object.")>
+    <code(`
+temperature:number = 0 // celsius, fahrenheit ?
+---
+temperature@{unit:string = "celsius"}:number = 0
+---
+temperature@{unit:string = "fahrenheit"}:number = 32
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Layers")>
+    <title("Each layer proves one thing and nothing more.")>
+    <copy("AEON's processing model is deliberately layered. The parser is not trying to turn source text directly into runtime objects. It is trying to preserve semantic representation. The lexer handles syntax. [& AEON Core] produces the [& Assignment Event Stream|AES]. [& AEOS] validates form. Meaning validation applies consumer context. A [& Tonic] may materialize meaning only after those earlier boundaries have held.")>
+    <copy("This keeps validation separate from execution and processing. No layer is allowed to quietly upgrade trust by doing work that belongs to another layer.")>
+    <code(`
+bytes → tokens → AES → AEOS → meaning validation → Tonic → runtime
+`)>
+    <copy("Many parsers effectively read text and materialize application objects in one move. AEON splits that path. The pre-parse boundary controls bytes and sizes before syntax is trusted. The lexer only recognizes syntax and advances without backtracking traps. The parser builds structure and paths without creating domain objects. AES records what was assigned. AEOS checks shape without silently mutating values or typecasting them. Meaning validation checks whether the accepted claims make sense for the consumer. Only after those checks can a consumer-selected Tonic materialize references and runtime objects, with limits in place for oversized graphs or memory-heavy reference expansion.")>
+    <copy("That split gives the consumer control over what the parser should accept, what should fail, and which later stages are allowed for the current context. A public upload, a signed internal document, and a local authoring draft can all use different acceptance boundaries without asking the document to secure itself.")>
+    <copy("Schemas belong to that discipline too. A schema can adjudicate form: existence, required fields, shape, declared type, and structural constraints. It does not inherently adjudicate truth, business meaning, or domain correctness.")>
+    <code(`
+pre-parse → byte limits, encoding checks, size controls
+lexer     → syntax tokens, one pass, no backtracking traps
+parser    → structure and paths, no runtime objects
+AES       → ordered assignment events
+AEOS      → validation, no mutation or typecasting
+Tonic     → materialization after limits and policy
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("References")>
+    <title("References preserve relationships before they become values.")>
+    <copy("One common mistake is to materialize references mentally as soon as they appear. In AEON, the relationship graph is part of the meaning, so preservation comes before resolution.")>
+    <code(`
+a = 3
+b = ~a
+c = ~>b
+`)>
+    <copy("The better reading is not simply c equals 3. It is: a contains 3, b references a, and c references b. A trusted consumer may resolve that graph later, but the parser should not erase the distinction early.")>
+  )>
+
+  <section @{type:string = "feature", id:string = "security"} (
+    <kicker("Security")>
+    <title("Documents declare intent. Consumers decide trust.")>
+    <copy("Headers, contracts, profiles, schema declarations, and datatype labels are claims. They are useful claims, but they are not self-authenticating. A consumer verifies those claims against its own trusted registry, schema, profile, or policy.")>
+    <copy("This is AEON's zero-trust posture: the document can ask to be interpreted a certain way, but it must never select its own trusted execution surface.")>
+    <copy("There is a second security layer as well: the [& consumer|Consumer] controls what it is willing to accept before materialization. Byte limits, nesting limits, reference limits, datatype policy, schema requirements, profile allowlists, and Tonic permissions can all be set by the receiving context.")>
+    <copy("That creates a fail-first path for hostile or oversized input. A document should not be able to force expensive parsing, reference expansion, memory-heavy graphs, or weaponized payloads into runtime objects before the consumer has explicitly accepted the relevant layer.")>
+    <copy("Every verification check - against a registry, against a schema, against a policy - happens outside the document and under consumer authority. The document presents; the consumer decides.")>
+    <code(`
+aeon:contracts = [
+  "example.weather.v1"
+]
+
+temperature:number = 0
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Boundaries")>
+    <title("Explicit forms prevent accidental coercion.")>
+    <copy("AEON keeps similar-looking values distinct until a trusted consumer decides what to do with them. Strings that look numeric, toggles that read like words, and booleans that carry truth values are not collapsed into one vague space.")>
+    <copy("That restraint is practical security: validation can reject input before runtime objects exist, and audit tools can inspect what was claimed without first accepting what it means.")>
+    <code(`
+amount:string = "0"
+amount:number = 0
+approved:toggle = no
+verified:boolean = false
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Why")>
+    <title("AEON avoids familiar data-format ambiguity by making claims visible.")>
+    <copy("YAML has the classic Norway problem: a value such as NO may be read as a boolean instead of a country code. JSON permits duplicate object keys, which leaves consumers to decide whether first key, last key, or error wins. CSV relies on tools that often infer dates, numbers, and identifiers differently. XML preserves structure, but most values arrive as strings until conventions or schemas give them stronger meaning.")>
+    <copy("AEON sidesteps these problems by keeping each claim explicit. A country code is a string. A toggle is a toggle. A duplicate key is an error rather than a mystery. A date is a date. A number-looking identifier can stay a string. A value like 7_000 is explicitly seven thousand rather than a locale-dependent spreadsheet guess. When a consumer needs stronger guarantees, AEOS can validate the assignment stream before anything becomes a runtime object.")>
+    <code(`
+//# YAML Norway problem: "NO" can become false.
+countryCode:string = "NO"
+decision:toggle = no
+
+//# JSON duplicate keys: consumers disagree on the winner.
+id:string = "invoice-100"
+id:string = "invoice-099" // duplicate key; AEON rejects this
+
+//# CSV spreadsheet inference: values become dates or numbers.
+sku:string = "00123"
+shipDate:date = 2026-05-05
+attendees:number = 7_000
+
+//# XML conventions: text needs external typing rules.
+quantity:number = 12
+quantityText:string = "12"
+`)>
+  )>
+
+  <section @{type:string = "feature"} (
+    <kicker("Canonical")>
+    <title("Canonical form signs what was accepted without erasing author intent too early.")>
+    <copy("AEON distinguishes source text, accepted assignment events, [& canonical form|Canonical form], and Tonic materialization. Author intent stays visible through parsing and validation; canonicalization gives tools a stable representation only after the consumer has chosen the rules it trusts.")>
+    <copy("That stable form is what makes cryptographic signing, tamper hashes, and encryption practical. A signer can hash the canonical stream instead of whatever whitespace, ordering, or editor formatting happened to be present in the source, while a Tonic can still materialize richer runtime objects later.")>
+    <code(`
+document:object={
+  title:string="Release notes"
+  total:number=7_000
+
+  //? First names only
+  authors:list=[
+    "Bob"
+    "Alice"
+  ]
+}
+signature:envelope={
+  algorithm:string="ed25519"
+  keyId:string="example.publisher.2026"
+  value:base64=&MEUCIQDx
+}
+`)>
+    <copy("A canonical representation can then normalize spacing, ordering, and numeric spelling for stable hashing while keeping the accepted values and envelope explicit.")>
+    <code(`
+aeon:header = {
+  encoding = "utf-8"
+  mode = "transport"
+  profile = "core"
+  version = "1.0"
+}
+document:object = {
+  authors:list = ["Bob", "Alice"]
+  title:string = "Release notes"
+  total:number = 7000
+}
+signature:envelope = {
+  algorithm:string = "ed25519"
+  keyId:string = "example.publisher.2026"
+  value:base64 = &MEUCIQDx
+}
+`)>
+  )>
+
+  <section @{type:string = "copy"} (
+    <kicker("Design Center")>
+    <title("AEON is readable because its responsibilities are narrow.")>
+    <copy("The core language preserves structure, identity, order, provenance, and symbolic references. It does not coerce, execute, materialize, or infer hidden context.")>
+    <copy("Flexibility enters through explicit layers: schemas, profiles, contracts, comments, security envelopes, and Tonics. Each layer can be verified, accepted, ignored, or rejected by the consumer.")>
+    <copy("AEON should not be modeled around JavaScript, Python, Rust, XML, YAML, or any other host language. Host languages are consumers. They are not authorities over the semantic model.")>
+    <copy("That is the philosophy: do not pretend messy real-world meaning does not exist. Give it visible paths, strict boundaries, and an audit trail.")>
+  )>
+)>

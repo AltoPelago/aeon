@@ -146,9 +146,11 @@ function toCliJson(result: CompileResult) {
         events: visibleEvents.map(event => ({
             path: formatPath(event.path),
             key: event.key,
+            ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
             datatype: event.datatype ?? null,
             span: event.span,
             value: jsonSafe(event.value),
+            ...(event.annotations ? { annotations: jsonSafe(event.annotations) } : {}),
         })),
         errors: result.errors.map(error => ({
             code: (error as { code?: string }).code,
@@ -195,7 +197,8 @@ function toFinalizeMapCliJson(result: CompileResult, options: FinalizeOptions = 
     const meta = mergeDiagnostics(finalized, result.errors);
     const entries = Array.from(finalized.document.entries.values()).map(entry => ({
         path: entry.path,
-        value: entry.value,
+        ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
+        value: jsonSafe(entry.value),
         span: entry.span,
         ...(entry.datatype ? { datatype: entry.datatype } : {}),
         ...(entry.annotations ? { annotations: mapAnnotations(entry.annotations) } : {}),
@@ -268,6 +271,9 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
             return 'Lexical Analysis';
         case 'SYNTAX_ERROR':
         case 'INVALID_SEPARATOR_CHAR':
+        case 'CLARIFIER_VALUES_EXCEEDED':
+        case 'GENERIC_ARGUMENTS_EXCEEDED':
+        case 'DATATYPE_COMPONENTS_EXCEEDED':
         case 'SEPARATOR_DEPTH_EXCEEDED':
         case 'GENERIC_DEPTH_EXCEEDED':
             return 'Parsing';
@@ -330,12 +336,21 @@ function toDiagnosticFromError(error: AEONError) {
     };
 }
 
-function mapAnnotations(annotations: ReadonlyMap<string, { value: unknown; datatype?: string }>) {
-    const entries: Record<string, { value: unknown; datatype?: string }> = {};
+type SerializableAnnotationEntry = {
+    structuralId?: string | null;
+    value: unknown;
+    datatype?: string;
+    annotations?: ReadonlyMap<string, SerializableAnnotationEntry>;
+};
+
+function mapAnnotations(annotations: ReadonlyMap<string, SerializableAnnotationEntry>) {
+    const entries: Record<string, Record<string, unknown>> = {};
     for (const [key, value] of annotations.entries()) {
         entries[key] = {
-            value: value.value,
+            ...(value.structuralId !== undefined ? { structuralId: value.structuralId } : {}),
+            value: jsonSafe(value.value),
             ...(value.datatype ? { datatype: value.datatype } : {}),
+            ...(value.annotations ? { annotations: mapAnnotations(value.annotations) } : {}),
         };
     }
     return entries;
@@ -655,6 +670,18 @@ describe('AEON CLI output contract', () => {
             assert.deepStrictEqual(parsed, expected);
         });
 
+        it('keeps a same-name quoted aeon header key in the legacy body view', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-header-plane-'));
+            const file = path.join(dir, 'document.aeon');
+            fs.writeFileSync(file, 'aeon:mode = "transport"\n"aeon:mode" = 1\n', 'utf-8');
+
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as { events: Array<{ key: string }> };
+            assert.deepStrictEqual(parsed.events.map((event) => event.key), ['aeon:mode']);
+        });
+
         it('exits 2 and prints usage error on stderr when file missing', async () => {
             const { code, stdout, stderr } = await runCli(['inspect']);
             assert.strictEqual(code, 2);
@@ -747,6 +774,151 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(node?.attributes?.[0]?.entries?.class?.datatype?.name, 'string');
             assert.strictEqual(node?.attributes?.[0]?.entries?.class?.value?.type, 'StringLiteral');
             assert.strictEqual(node?.attributes?.[0]?.entries?.class?.value?.value, 'dark');
+        });
+
+        it('preserves structural identities and binding annotations', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-identity-'));
+            const file = path.join(dir, 'identity.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                events: Array<{
+                    structuralId?: string;
+                    annotations?: Record<string, { structuralId?: string }>;
+                    value: { structuralId?: string };
+                }>;
+            };
+            assert.strictEqual(parsed.events[0]?.structuralId, 'ROOT');
+            assert.strictEqual(parsed.events[0]?.annotations?.source?.structuralId, 'META');
+            assert.strictEqual(parsed.events[0]?.value.structuralId, 'HEAD');
+        });
+
+        it('emits the portable expanded node projection on explicit request', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-portable-node-'));
+            const file = path.join(dir, 'portable-node.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['inspect', file, '--json', '--portable-aes', '--transport']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                events: Array<{ path: string; kind: string; identity?: string; value?: string }>;
+            };
+            assert.deepStrictEqual(
+                parsed.events.map(({ path, kind, identity, value }) => ({
+                    path,
+                    kind,
+                    identity: identity ?? null,
+                    value: value ?? null,
+                })),
+                [
+                    { path: '$.a', kind: 'NodeLiteral', identity: 'ROOT', value: null },
+                    { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD', value: 'tag' },
+                    { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD', value: 'value' },
+                ],
+            );
+        });
+
+        it('exports Telex and keeps headers opt-in', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-export-'));
+            const file = path.join(dir, 'document.aeon');
+            fs.writeFileSync(file, 'aeon:mode = "transport"\nanswer = 42\n', 'utf-8');
+
+            const bodyOnly = await runCli(['inspect', file, '--telex']);
+            assert.strictEqual(bodyOnly.code, 0);
+            assert.strictEqual(bodyOnly.stderr, '');
+            assert.match(bodyOnly.stdout, /path=\$\.answer\nkind=NumberLiteral\nvalue=42/u);
+            assert.doesNotMatch(bodyOnly.stdout, /header=/u);
+
+            const withHeaders = await runCli(['inspect', file, '--telex', '--include-headers']);
+            assert.strictEqual(withHeaders.code, 0);
+            assert.match(withHeaders.stdout, /projection=aeon\.document\.v1/u);
+            assert.match(withHeaders.stdout, /header=\$\.\["aeon:mode"\]/u);
+
+            const withSourceProvenance = await runCli(['inspect', file, '--telex', '--source-provenance']);
+            assert.strictEqual(withSourceProvenance.code, 0);
+            assert.match(withSourceProvenance.stdout, /origin=sha256:[0-9a-f]{64}/u);
+            assert.match(withSourceProvenance.stdout, /span=24:35/u);
+        });
+
+        it('decodes and canonicalizes Telex input', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-import-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            fs.writeFileSync(
+                file,
+                'telex.aes=1\r\n\r\nvalue=\\u{000041}\r\nkind=StringLiteral\r\npath=$.answer\r\n',
+                'utf-8',
+            );
+
+            const decoded = await runCli(['telex', 'decode', file]);
+            assert.strictEqual(decoded.code, 0);
+            assert.strictEqual(decoded.stderr, '');
+            const payload = JSON.parse(decoded.stdout) as { records: Array<{ value?: string }>; validation: { valid: boolean } };
+            assert.strictEqual(payload.validation.valid, true);
+            assert.strictEqual(payload.records[0]?.value, 'A');
+
+            const canonical = await runCli(['telex', 'canonicalize', file]);
+            assert.strictEqual(canonical.code, 0);
+            assert.strictEqual(canonical.stdout, 'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n');
+        });
+
+        it('applies the common limits file to direct Telex ingress', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-limits-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            const limitsFile = path.join(dir, 'limits.aeon');
+            const sharedPolicy = path.resolve(__dirname, '../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon');
+            fs.writeFileSync(file, 'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n', 'utf-8');
+            fs.writeFileSync(
+                limitsFile,
+                fs.readFileSync(sharedPolicy, 'utf-8').replace('max_string_codepoints = 1048576', 'max_string_codepoints = 1'),
+                'utf-8',
+            );
+
+            const decoded = await runCli(['telex', 'decode', file, '--limits-file', limitsFile]);
+            assert.strictEqual(decoded.code, 1);
+            const payload = JSON.parse(decoded.stdout) as { validation: { diagnostics: Array<{ counter?: string }> } };
+            assert.ok(payload.validation.diagnostics.some(({ counter }) => counter === 'max_string_codepoints'));
+        });
+
+        it('materializes complete Telex input', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-materialize-'));
+            const file = path.join(dir, 'stream.telex.aes');
+            fs.writeFileSync(file, [
+                'telex.aes=1',
+                '',
+                'path=$.config',
+                'kind=ObjectNode',
+                '',
+                'path=$.config.name',
+                'kind=StringLiteral',
+                'value=AEON',
+                '',
+                'path=$.copy',
+                'kind=CloneReference',
+                'value=$.config',
+                '',
+            ].join('\n'), 'utf-8');
+
+            const result = await runCli(['telex', 'materialize', file]);
+            assert.strictEqual(result.code, 0);
+            assert.strictEqual(result.stderr, '');
+            assert.deepStrictEqual(JSON.parse(result.stdout), {
+                document: {
+                    config: { name: 'AEON' },
+                    copy: { name: 'AEON' },
+                },
+            });
         });
 
         it('supports --sort-annotations with annotations-only JSON output', async () => {
@@ -959,6 +1131,32 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(stderr, '');
             const parsed = JSON.parse(stdout);
             assert.deepStrictEqual(parsed, expected);
+        });
+
+        it('preserves structural identities in map output', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-finalize-identity-'));
+            const file = path.join(dir, 'identity.aeon');
+            fs.writeFileSync(
+                file,
+                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                'utf-8',
+            );
+            const { code, stdout, stderr } = await runCli(['finalize', file, '--map']);
+
+            assert.strictEqual(code, 0);
+            assert.strictEqual(stderr, '');
+            const parsed = JSON.parse(stdout) as {
+                document: {
+                    entries: Array<{
+                        structuralId?: string;
+                        annotations?: Record<string, { structuralId?: string }>;
+                        value: { structuralId?: string };
+                    }>;
+                };
+            };
+            assert.strictEqual(parsed.document.entries[0]?.structuralId, 'ROOT');
+            assert.strictEqual(parsed.document.entries[0]?.annotations?.source?.structuralId, 'META');
+            assert.strictEqual(parsed.document.entries[0]?.value.structuralId, 'HEAD');
         });
     });
 

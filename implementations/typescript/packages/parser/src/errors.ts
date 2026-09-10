@@ -40,21 +40,24 @@ export class InvalidSeparatorCharError extends ParserError {
     }
 }
 
-export class SeparatorDepthExceededError extends ParserError {
-    readonly observedDepth: number;
+export class ClarifierValuesExceededError extends ParserError {
+    readonly observedValues: number;
     readonly limit: number;
 
-    constructor(observedDepth: number, limit: number, span: Span) {
+    constructor(observedValues: number, limit: number, span: Span) {
         super(
-            `Separator depth ${observedDepth} exceeds max_separator_depth ${limit}`,
+            `Clarifier value count ${observedValues} exceeds max_clarifier_values ${limit}`,
             span,
-            'SEPARATOR_DEPTH_EXCEEDED'
+            'CLARIFIER_VALUES_EXCEEDED'
         );
-        this.name = 'SeparatorDepthExceededError';
-        this.observedDepth = observedDepth;
+        this.name = 'ClarifierValuesExceededError';
+        this.observedValues = observedValues;
         this.limit = limit;
     }
 }
+
+/** @deprecated Use ClarifierValuesExceededError. */
+export { ClarifierValuesExceededError as SeparatorDepthExceededError };
 
 export class GenericDepthExceededError extends ParserError {
     readonly observedDepth: number;
@@ -68,6 +71,38 @@ export class GenericDepthExceededError extends ParserError {
         );
         this.name = 'GenericDepthExceededError';
         this.observedDepth = observedDepth;
+        this.limit = limit;
+    }
+}
+
+export class GenericArgumentsExceededError extends ParserError {
+    readonly observedArguments: number;
+    readonly limit: number;
+
+    constructor(observedArguments: number, limit: number, span: Span) {
+        super(
+            `Generic argument count ${observedArguments} exceeds max_generic_arguments ${limit}`,
+            span,
+            'GENERIC_ARGUMENTS_EXCEEDED'
+        );
+        this.name = 'GenericArgumentsExceededError';
+        this.observedArguments = observedArguments;
+        this.limit = limit;
+    }
+}
+
+export class DatatypeComponentsExceededError extends ParserError {
+    readonly observedComponents: number;
+    readonly limit: number;
+
+    constructor(observedComponents: number, limit: number, span: Span) {
+        super(
+            `Datatype component count ${observedComponents} exceeds max_datatype_components ${limit}`,
+            span,
+            'DATATYPE_COMPONENTS_EXCEEDED'
+        );
+        this.name = 'DatatypeComponentsExceededError';
+        this.observedComponents = observedComponents;
         this.limit = limit;
     }
 }
@@ -94,7 +129,7 @@ export class NestingDepthExceededError extends ParserError {
 
     constructor(observedDepth: number, limit: number, span: Span) {
         super(
-            `Value nesting depth ${observedDepth} exceeds max_nesting_depth ${limit}`,
+            `Value nesting depth ${observedDepth} exceeds max_value_nesting_depth ${limit}`,
             span,
             'NESTING_DEPTH_EXCEEDED'
         );

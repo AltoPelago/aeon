@@ -57,7 +57,7 @@ Not currently modeled:
 - root-qualified references: `~$.a`
 - mixed quoted traversal: `~a.["b.c"]`
 - quoted attribute selectors: `~a.@.["x.y"]`
-- local WTC convention: `...&Local`
+- local WTC convention: `...&local`
 - invalid numeric underscore forms
 - malformed quoted-key escapes
 - host comments: `//!`

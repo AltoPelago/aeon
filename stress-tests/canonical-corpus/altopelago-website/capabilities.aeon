@@ -1,0 +1,110 @@
+title:string = "AEON Capabilities"
+description:string = "A high-level overview of AEON's key capabilities: deterministic transport, typed structure, validation layers, canonical form, addressing, references, annotations, and non-executable design."
+activePage:string = "capabilities"
+keywords:list<string> = ["capabilities", "key features", "deterministic", "typed transport", "validation", "canonical", "addressing", "annotations", "security"]
+
+page:node = <page(
+  <section @{type:string = "copyList"} (
+    <typeIndex(
+      <item @{href:string = "#top"} ("Key Features")>
+      <item @{href:string = "#deterministic"} ("Deterministic")>
+      <item @{href:string = "#non-executable"} ("Non-Executable")>
+      <item @{href:string = "#explicit"} ("Explicit")>
+      <item @{href:string = "#structure"} ("Structure")>
+      <item @{href:string = "#annotation"} ("Annotation")>
+      <item @{href:string = "#validation"} ("Validation")>
+      <item @{href:string = "#canonical"} ("Canonical")>
+      <item @{href:string = "#references"} ("References")>
+      <item @{href:string = "#ecosystem"} ("Extensible")>
+      <item @{href:string = "#point"} ("The Point")>
+    )>
+
+    <entry @{id:string = "top", level:string = "1"} (
+      <kicker("Key Features")>
+      <title("AEON is a deterministic, layered transport system.")>
+      <copy("AEON is more than a notation language. It safely moves structured information between systems while keeping representation, validation, and meaning clearly separated.")>
+      <copy("The core idea is simple: documents can make claims, but consumers decide what to trust. Parsing, structure, schema validation, meaning validation, canonical form, and materialization remain distinct layers.")>
+      <actions(
+        <action @{href:string = "#deterministic", primary:boolean = true} ("Start reading")>
+        <action @{href:string = "/ecosystem.php"} ("System map")>
+      )>
+    )>
+
+    <entry @{id:string = "deterministic"} (
+      <kicker("Deterministic")>
+      <title("The same document should mean the same structure everywhere.")>
+      <copy("AEON prioritizes predictable parsing, deterministic processing, stable canonical output, and reduced ambiguity across implementations.")>
+      <copy("This makes documents practical to compare, test, sign, diff, replay, and validate across independent runtimes.")>
+    )>
+
+    <entry @{id:string = "non-executable"} (
+      <kicker("Non-Executable")>
+      <title("AEON transports declarations; it does not run programs.")>
+      <copy("AEON does not execute logic, evaluate expressions, or embed runtime behavior. Transformation and materialization happen later, under consumer authority.")>
+      <copy("This means untrusted input can be parsed and inspected before anything becomes a runtime object or executable workflow.")>
+    )>
+
+    <entry @{id:string = "explicit"} (
+      <kicker("Explicit By Design")>
+      <title("Meaning should be visible before it becomes authority.")>
+      <copy("AEON encourages explicit types, references, structure, constraints, metadata, and conventions rather than hidden parser interpretation.")>
+      <copy("Strings do not silently become numbers, arbitrary labels do not become booleans, and custom datatypes remain structural claims until a trusted consumer gives them domain meaning.")>
+    )>
+
+    <entry @{id:string = "structure"} (
+      <kicker("Hybrid Structure")>
+      <title("Application data and document structure can live in the same model.")>
+      <copy("AEON supports key/value bindings, objects, ordered lists, tuples, tree-oriented nodes, attributes, and graph-style references without forcing every shape into one abstraction.")>
+      <copy("That lets AEON carry configuration, interchange data, template-like structures, prose-adjacent content, and symbolic relationships while preserving stable addresses through the document.")>
+      <actions(
+        <action @{href:string = "/orthogonal-composition.php", primary:boolean = true} ("Orthogonal composition")>
+      )>
+    )>
+
+    <entry @{id:string = "annotation"} (
+      <kicker("Annotation")>
+      <title("Metadata does not have to pretend it is ordinary data.")>
+      <copy("Attributes are structural metadata attached to values. Semantic comments are advisory side channels for documentation, hints, workflow state, or tooling context.")>
+      <copy("Tools can preserve comments and annotations without mutating the canonical data model or flattening every note into application content.")>
+    )>
+
+    <entry @{id:string = "validation"} (
+      <kicker("Layered Validation")>
+      <title("Each processing layer answers a different question.")>
+      <copy("Syntax checks whether the text is AEON. Structure checks what was assigned. AEOS validates form. Meaning validation applies consumer context. Canonical form records the accepted structure. Tonics materialize output under consumer policy.")>
+      <copy("This prevents semantic concerns from leaking into the parser and prevents runtime materialization from happening before the consumer has accepted the relevant claims.")>
+    )>
+
+    <entry @{id:string = "canonical"} (
+      <kicker("Canonical Representation")>
+      <title("Accepted structure can be normalized without erasing meaning boundaries.")>
+      <copy("Canonicalization gives tools a stable representation for structural equivalence, reproducible signatures, hashing, normalization, and reliable diffs.")>
+      <copy("Canonical form records what has been accepted. It does not decide domain truth; that remains the consumer's responsibility.")>
+    )>
+
+    <entry @{id:string = "references"} (
+      <kicker("References")>
+      <title("Relationships stay symbolic until a consumer-selected layer resolves them.")>
+      <copy("AEON supports explicit references between structures, including clone-style and pointer-style relationships. The reference remains visible in the transported document.")>
+      <copy("Resolution policy, expansion limits, and runtime materialization belong to the receiving context, not to the source document itself.")>
+    )>
+
+    <entry @{id:string = "ecosystem"} (
+      <kicker("Extensible")>
+      <title("Domain meaning can grow around Core without mutating Core.")>
+      <copy("Profiles and conventions can define shared interpretation rules, domain contracts, temporal behavior, collection policies, or materialization expectations while preserving interoperability at the transport layer.")>
+      <copy("AEON stays platform agnostic: not tied to one operating system, programming language, runtime, or execution model.")>
+    )>
+
+    <entry @{id:string = "point"} (
+      <kicker("The Point")>
+      <title("The richness comes from how the parts connect.")>
+      <copy("Each capability is useful on its own: deterministic parsing, explicit types, hybrid structure, annotations, schemas, canonical form, references, and policy-controlled materialization. AEON becomes more interesting when those pieces reinforce one another.")>
+      <copy("The same document can carry visible claims, preserve local metadata, validate form, defer meaning to the consumer, keep relationships symbolic, record an accepted representation, and materialize only after the trust boundaries have held. The capability is not any single part. It is the layered system they create together.")>
+      <actions(
+        <action @{href:string = "/ecosystem.php", primary:boolean = true} ("Open system map")>
+        <action @{href:string = "/walkthrough-processing.php"} ("Processing walkthrough")>
+      )>
+    )>
+  )>
+)>

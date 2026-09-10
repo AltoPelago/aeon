@@ -1,0 +1,118 @@
+title:string = "AEON Reference"
+description:string = "A reference hub for AEON: language model, syntax guide, value types, type lookup, schemas, glossary, philosophy, and ecosystem map."
+activePage:string = "reference"
+keywords:list<string> = ["reference", "language", "types", "schemas", "glossary", "ecosystem", "syntax"]
+
+page:node = <page(
+  <section @{type:string = "feature", layout:string = "stacked", level:string = "1"} (
+    <kicker("Reference")>
+    <title("Use these pages when you need the language model, lookup tables, or terminology.")>
+    <copy("This hub gathers the explanatory reference pages for AEON. It is the stable place to move from syntax intuition into named concepts, validation surfaces, value forms, and ecosystem boundaries.")>
+    <copy("Use the Aeonite specs for normative authority; use this section for implementation-oriented reading and quick lookup.")>
+  )>
+
+  <section @{type:string = "cards", id:string = "language-model"} (
+    <kicker("Language Model")>
+    <title("Read the explanatory map before looking up details.")>
+    <cards(
+      <card(
+        <topline("How")>
+        <heading("Understand how AEON works")>
+        <copy("Read the language model: vocabulary, grammar shape, processing boundaries, profiles, schemas, conventions, canonical form, AES, AEOS, and Tonics.")>
+        <href("/aeon-language.php")>
+        <cta("Open language")>
+      )>
+      <card(
+        <topline("Composition")>
+        <heading("Understand orthogonal grammar")>
+        <copy("Learn why AEON's grammar surfaces reappear across bindings, attributes, anonymous children, containers, nodes, and references.")>
+        <href("/orthogonal-composition.php")>
+        <cta("Open composition")>
+      )>
+      <card(
+        <topline("Philosophy")>
+        <heading("Understand the design stance")>
+        <copy("Use the philosophy page for semantic preservation, consumer authority, negative space semantics, and validation boundaries.")>
+        <href("/philosophy.php")>
+        <cta("Open philosophy")>
+      )>
+      <card(
+        <topline("Zero Trust")>
+        <heading("Separate form from truth")>
+        <copy("Read why AEON validates structure and preserves claims without proving authenticity, authority, accuracy, or truth.")>
+        <href("/zero-trust.php")>
+        <cta("Open zero trust")>
+      )>
+      <card(
+        <topline("System")>
+        <heading("See the wider ecosystem")>
+        <copy("Map Core syntax, AES, AEOS validation, meaning validation, canonical representation, Tonics, profiles, and conventions.")>
+        <href("/ecosystem.php")>
+        <cta("Open ecosystem")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "syntax-and-types"} (
+    <kicker("Syntax and Types")>
+    <title("Look up the concrete language surfaces.")>
+    <cards(
+      <card(
+        <topline("Guide")>
+        <heading("Read the practical syntax guide")>
+        <copy("Use the language guide for bindings, scalar values, objects, lists, tuples, references, nodes, modes, and common grammar shapes.")>
+        <href("/language.php")>
+        <cta("Open guide")>
+      )>
+      <card(
+        <topline("Values")>
+        <heading("Understand special value forms")>
+        <copy("Read about null reasons, NaN, Infinity, hex, radix, encoded payloads, dates, times, WTC, and comments.")>
+        <href("/value-types.php")>
+        <cta("Open value types")>
+      )>
+      <card(
+        <topline("Lookup")>
+        <heading("Use the dry type table")>
+        <copy("Open the type reference for syntax, accepted values, alternative type names, reserved names, and reference forms.")>
+        <href("/type-reference.php")>
+        <cta("Open type reference")>
+      )>
+      <card(
+        <topline("Addressing")>
+        <heading("Learn SANSA paths and selectors")>
+        <copy("Use the SANSA page for exact paths, selectors, attribute address space, filters, qualifiers, and the boundary with AEON references.")>
+        <href("/sansa-addressing.php")>
+        <cta("Open SANSA")>
+      )>
+    )>
+  )>
+
+  <section @{type:string = "cards", id:string = "validation-and-terms"} (
+    <kicker("Validation and Terms")>
+    <title("Keep validation concepts and vocabulary close at hand.")>
+    <cards(
+      <card(
+        <topline("Schemas")>
+        <heading("Validate assignment streams")>
+        <copy("Learn how AEOS schemas validate AEON assignment streams with path rules, required fields, value kinds, attributes, and constraints.")>
+        <href("/schemas.php")>
+        <cta("Open schemas")>
+      )>
+      <card(
+        <topline("Glossary")>
+        <heading("Look up ecosystem terms")>
+        <copy("Use the glossary for AES, AEOS, Tonics, canonical form, claims, authority, consumers, profiles, and conventions.")>
+        <href("/glossary.php")>
+        <cta("Open glossary")>
+      )>
+      <card(
+        <topline("Specs")>
+        <heading("Open the authority surface")>
+        <copy("Use Aeonite when you need the formal specification, conformance boundaries, contracts, conventions, and source repositories.")>
+        <href("https://aeonite.org/specifications.php")>
+        <cta("Open Aeonite")>
+      )>
+    )>
+  )>
+)>

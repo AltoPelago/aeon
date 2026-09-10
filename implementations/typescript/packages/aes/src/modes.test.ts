@@ -538,6 +538,12 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('should not treat a quoted aeon-prefixed payload key as a header field', () => {
+            const result = enforce('aeon:mode = "strict"\n"aeon:payload" = 1');
+
+            assert.ok(result.errors.some((error) => error.code === 'UNTYPED_VALUE_IN_STRICT_MODE'));
+        });
+
         it('should error when structured header and shorthand header are both present', () => {
             const result = enforce('aeon:header = { mode = "strict" }\naeon:mode = "strict"\na:int32 = 1');
 
