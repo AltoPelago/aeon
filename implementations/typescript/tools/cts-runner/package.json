@@ -16,6 +16,6 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "devDependencies": {
-        "@types/node": "^26.4.0"
+        "@types/node": "^26.4.1"
     }
 }
