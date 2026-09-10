@@ -303,7 +303,7 @@ importers:
 packages:
 
   '@altopelago/sansa@0.10.1':
-    resolution: {integrity: sha512-tly/CY8oam7xWxNZmdzJ/UqxBfhlCIL7vqKi5JoJ8dZpCU0XJSpS3WuInK67z6lVUAQ1rDDVUZUzOYhgvShtkA==}
+    resolution: {integrity: sha512-+azHv/BZiP+84OGO15FwbfUwIU1BhlKQC2DOoDHFajf2FVe8iB9GrviLJ+gW7C7cI/wj+xhBu14YyTT2Lr7Nog==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 

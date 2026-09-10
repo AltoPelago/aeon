@@ -27,7 +27,7 @@ test('reads and writes Telex as a portable boundary format', () => {
 
 test('selects one common limits document across SDK Telex boundaries', () => {
   const policySource = fs.readFileSync(
-    new URL('../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+    new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
     'utf8',
   );
   const loaded = loadAeonicLimits(policySource);

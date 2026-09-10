@@ -208,7 +208,7 @@ changes:list = [
     <title("Semantic comments")>
     <copy("AEON also has semantic comment channels. These let a document carry semantic or workflow-related side information without turning those comments into ordinary data bindings.")>
     <code(`
-/# 
+/#
   # Publishing note
 
   This draft is still [* under review]. Before publishing:

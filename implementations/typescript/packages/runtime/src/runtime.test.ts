@@ -46,7 +46,7 @@ test('runs Telex -> portable AES -> schema -> JSON materialization', () => {
 
 test('selects the common limits document for the Telex runtime path', () => {
     const policy = fs.readFileSync(
-        new URL('../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+        new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
         'utf8',
     );
     const loaded = loadAeonicLimits(policy);

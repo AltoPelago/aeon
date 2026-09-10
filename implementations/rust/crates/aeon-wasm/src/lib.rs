@@ -951,7 +951,7 @@ mod tests {
     fn selects_common_limits_source_at_the_wasm_telex_boundary() {
         let options = serde_json::json!({
             "limitsSource": include_str!(
-                "../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon"
+                "../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon"
             ),
             "maxStringCodepoints": 2,
         })

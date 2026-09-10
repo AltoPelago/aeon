@@ -877,7 +877,7 @@ describe('AEON CLI output contract', () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-telex-limits-'));
             const file = path.join(dir, 'stream.telex.aes');
             const limitsFile = path.join(dir, 'limits.aeon');
-            const sharedPolicy = path.resolve(__dirname, '../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon');
+            const sharedPolicy = path.resolve(__dirname, '../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon');
             fs.writeFileSync(file, 'telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n', 'utf-8');
             fs.writeFileSync(
                 limitsFile,

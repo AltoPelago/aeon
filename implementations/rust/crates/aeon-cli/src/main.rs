@@ -5088,12 +5088,11 @@ mod tests {
             "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=xx\n",
         )
         .expect("Telex fixture");
-        let limits =
-            include_str!("../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon")
-                .replace(
-                    "max_string_codepoints = 1048576",
-                    "max_string_codepoints = 1",
-                );
+        let limits = include_str!("../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon")
+            .replace(
+                "max_string_codepoints = 1048576",
+                "max_string_codepoints = 1",
+            );
         fs::write(&limits_file, limits).expect("limits fixture");
         let result = run(vec![
             "aeon-rust".to_owned(),

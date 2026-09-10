@@ -1164,7 +1164,7 @@ mod tests {
     #[test]
     fn selects_common_limits_for_the_sdk_telex_boundary() {
         let limits = load_aeonic_limits(include_str!(
-            "../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon"
+            "../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon"
         ))
         .expect("common limits");
         let wire = "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=x\n";
@@ -1204,12 +1204,11 @@ mod tests {
 
     #[test]
     fn exports_aeon_to_telex_with_common_limits_and_explicit_overrides() {
-        let policy =
-            include_str!("../../../../../../aes/policies/altopelago.aeonic-limits.v1.aeon")
-                .replace(
-                    "max_string_codepoints = 1048576",
-                    "max_string_codepoints = 1",
-                );
+        let policy = include_str!("../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon")
+            .replace(
+                "max_string_codepoints = 1048576",
+                "max_string_codepoints = 1",
+            );
         let limits = load_aeonic_limits(&policy).expect("constrained common limits");
         let constrained = aeon_to_telex_with_limits(
             "answer = \"xx\"",

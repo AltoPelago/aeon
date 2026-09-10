@@ -6,7 +6,7 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
-## 0.12.1 - 2026-09-05
+## 0.12.1 - 2026-09-11
 
 ### Added
 
@@ -46,6 +46,8 @@ repositories.
 - Enforced exact lowercase `local` for the reserved WTC resolver-local
   reference while preserving authored case for named references.
 - Aligned datatype-clarifier parsing across the implementation surfaces.
+- Pinned the Rust Telex codec to an immutable public AES revision and made
+  limits-policy conformance fixtures independent of sibling checkout layout.
 
 ## 0.12.0 - 2026-08-10
 
