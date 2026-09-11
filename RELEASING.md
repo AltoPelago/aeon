@@ -45,8 +45,8 @@ Avoid ad hoc folder-by-folder `npm publish`.
 From `implementations/typescript/`:
 
 1. Install dependencies.
-2. Build the workspace.
-3. Run the relevant CTS and package tests.
+2. Regenerate the committed WASM artifact when one of its build inputs changed.
+3. Build and run the relevant CTS and package tests against that artifact.
 4. Confirm package tarballs are clean.
 5. Update [`CHANGELOG.md`](./CHANGELOG.md) for the package version being released.
 
@@ -54,20 +54,26 @@ Recommended commands:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm run ci
-pnpm publish:preflight
 ```
 
-Regenerate the committed WASM artifact before preflight only when the Rust/WASM
-source, locked Rust dependency graph, pinned Rust toolchain, WASM wrapper
-version, or pinned generator changes:
+Regenerate the committed WASM artifact after installation and before CI whenever
+the Rust/WASM source, locked Rust dependency graph, pinned Rust toolchain, WASM
+wrapper version, or pinned generator changes:
 
 ```bash
 pnpm --filter @altopelago/aeon-wasm build:wasm
 ```
 
-Do not rebuild an already reviewed artifact merely to verify an otherwise
-unchanged patch release. The build requires the Rust version in
+Then test and run package preflight against that committed artifact:
+
+```bash
+pnpm run ci
+pnpm publish:preflight
+```
+
+Once the artifact has been generated and reviewed for the current wrapper
+version, do not rebuild it merely to repeat verification with unchanged build
+inputs. The build requires the Rust version in
 `implementations/rust/rust-toolchain.toml` and exactly `wasm-pack 0.14.0`.
 After generation, the build script synchronizes `pkg/package.json` to the WASM
 wrapper version, so a TypeScript-only wrapper release does not require a

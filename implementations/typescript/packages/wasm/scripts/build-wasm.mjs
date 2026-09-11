@@ -24,7 +24,7 @@ const wasmPack = spawnSync('wasm-pack', ['--version'], {
 
 if (wasmPack.error?.code === 'ENOENT') {
   console.error('wasm-pack is required to build @altopelago/aeon-wasm.');
-  console.error('Install it with `cargo install wasm-pack --version 0.14.0 --locked --force`.');
+  console.error("Install it with `cargo install wasm-pack --version '=0.14.0' --locked --force`.");
   process.exit(1);
 }
 
@@ -38,7 +38,7 @@ if (actualWasmPackVersion !== expectedWasmPackVersion) {
   console.error(
     `Expected ${expectedWasmPackVersion}; found ${actualWasmPackVersion || 'an unknown version'}.`,
   );
-  console.error('Install it with `cargo install wasm-pack --version 0.14.0 --locked --force`.');
+  console.error("Install it with `cargo install wasm-pack --version '=0.14.0' --locked --force`.");
   process.exit(1);
 }
 
@@ -54,6 +54,8 @@ const result = spawnSync(
     '--out-name',
     'aeon_wasm',
     '--release',
+    '--',
+    '--locked',
   ],
   { stdio: 'inherit' },
 );
