@@ -59,8 +59,8 @@ pnpm publish:preflight
 ```
 
 Regenerate the committed WASM artifact before preflight only when the Rust/WASM
-source, locked Rust dependency graph, WASM wrapper version, or pinned generator
-changes:
+source, locked Rust dependency graph, pinned Rust toolchain, WASM wrapper
+version, or pinned generator changes:
 
 ```bash
 pnpm --filter @altopelago/aeon-wasm build:wasm
@@ -69,6 +69,9 @@ pnpm --filter @altopelago/aeon-wasm build:wasm
 Do not rebuild an already reviewed artifact merely to verify an otherwise
 unchanged patch release. The build requires the Rust version in
 `implementations/rust/rust-toolchain.toml` and exactly `wasm-pack 0.14.0`.
+After generation, the build script synchronizes `pkg/package.json` to the WASM
+wrapper version, so a TypeScript-only wrapper release does not require a
+coordinated Rust crate version bump.
 
 Optional dry-run npm publish verification:
 
@@ -131,7 +134,7 @@ Prefer the CI path for public releases so npm can attach package provenance.
 
 - If version bumps are needed, do them before the build and dry-run pass.
 - If `@altopelago/aeon-wasm` has a changed Rust/WASM source, locked Rust
-  dependency, wrapper version, or generator, regenerate
+  dependency, pinned Rust toolchain, wrapper version, or generator, regenerate
   `implementations/typescript/packages/wasm/pkg/` with
   `pnpm --filter @altopelago/aeon-wasm build:wasm` after version bumps and
   commit the generated artifacts. The build script rejects any `wasm-pack`
