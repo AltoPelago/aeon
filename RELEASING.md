@@ -54,7 +54,7 @@ Recommended commands:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm ci
+pnpm run ci
 pnpm --filter @altopelago/aeon-wasm build:wasm
 pnpm publish:preflight
 ```
