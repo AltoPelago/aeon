@@ -45,8 +45,8 @@ Avoid ad hoc folder-by-folder `npm publish`.
 From `implementations/typescript/`:
 
 1. Install dependencies.
-2. Build the workspace.
-3. Run the relevant CTS and package tests.
+2. Regenerate the committed WASM artifact when one of its build inputs changed.
+3. Build and run the relevant CTS and package tests against that artifact.
 4. Confirm package tarballs are clean.
 5. Update [`CHANGELOG.md`](./CHANGELOG.md) for the package version being released.
 
@@ -54,10 +54,30 @@ Recommended commands:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm run ci
+```
+
+Regenerate the committed WASM artifact after installation and before CI whenever
+the Rust/WASM source, locked Rust dependency graph, pinned Rust toolchain, WASM
+wrapper version, or pinned generator changes:
+
+```bash
 pnpm --filter @altopelago/aeon-wasm build:wasm
+```
+
+Then test and run package preflight against that committed artifact:
+
+```bash
+pnpm run ci
 pnpm publish:preflight
 ```
+
+Once the artifact has been generated and reviewed for the current wrapper
+version, do not rebuild it merely to repeat verification with unchanged build
+inputs. The build requires the Rust version in
+`implementations/rust/rust-toolchain.toml` and exactly `wasm-pack 0.14.0`.
+After generation, the build script synchronizes `pkg/package.json` to the WASM
+wrapper version, so a TypeScript-only wrapper release does not require a
+coordinated Rust crate version bump.
 
 Optional dry-run npm publish verification:
 
@@ -88,7 +108,14 @@ Preferred release path:
 1. Configure npm trusted publishing for each public package, pointing at
    `AltoPelago/aeon` and `.github/workflows/npm-publish.yml`.
 2. Run the `npm Publish` workflow from GitHub Actions with `dry_run` enabled.
-3. If the dry run is clean, rerun the workflow with `dry_run` disabled.
+3. If the dry run is clean, create and verify a signed annotated
+   `typescript/vX.Y.Z` tag on the release commit already present on `main`, then
+   push that tag. The tag-triggered workflow performs the real publication.
+
+Do not also rerun the workflow with `dry_run` disabled after pushing the tag;
+that would attempt to publish the same immutable npm versions twice. A manual
+non-dry-run dispatch is an explicit fallback when no release tag will be used,
+not part of the preferred tagged flow.
 
 The workflow uses GitHub OIDC (`id-token: write`) and npm provenance rather than
 long-lived npm tokens. It packs with `pnpm pack`, then publishes the resulting
@@ -112,10 +139,13 @@ Prefer the CI path for public releases so npm can attach package provenance.
 ## Notes
 
 - If version bumps are needed, do them before the build and dry-run pass.
-- If `@altopelago/aeon-wasm` is in the release set, regenerate
+- If `@altopelago/aeon-wasm` has a changed Rust/WASM source, locked Rust
+  dependency, pinned Rust toolchain, wrapper version, or generator, regenerate
   `implementations/typescript/packages/wasm/pkg/` with
   `pnpm --filter @altopelago/aeon-wasm build:wasm` after version bumps and
-  commit the generated artifacts.
+  commit the generated artifacts. The build script rejects any `wasm-pack`
+  version other than `0.14.0`; changing that pin requires an explicit review
+  and regenerated artifact diff.
 - If the workspace-root TypeScript toolchain baseline changes, such as
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,
