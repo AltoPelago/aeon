@@ -67,5 +67,7 @@ Build the Rust WASM artifact:
 pnpm --filter @altopelago/aeon-wasm build:wasm
 ```
 
-`build:wasm` requires `wasm-pack` and reads the Rust crate from
-`implementations/rust/crates/aeon-wasm`.
+`build:wasm` requires exactly `wasm-pack 0.14.0` and reads the Rust crate from
+`implementations/rust/crates/aeon-wasm`. The Rust compiler is pinned separately
+by `implementations/rust/rust-toolchain.toml`. A generator-version change is a
+reviewed build-input change and must regenerate the committed `pkg/` artifacts.

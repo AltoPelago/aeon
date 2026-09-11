@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rustCrate = resolve(packageRoot, '../../../rust/crates/aeon-wasm');
 const outDir = resolve(packageRoot, 'pkg');
+const expectedWasmPackVersion = 'wasm-pack 0.14.0';
 
 if (!existsSync(resolve(rustCrate, 'Cargo.toml'))) {
   console.error(`Rust WASM crate not found: ${rustCrate}`);
@@ -28,6 +29,15 @@ if (wasmPack.error?.code === 'ENOENT') {
 if (wasmPack.status !== 0) {
   process.stderr.write(wasmPack.stderr);
   process.exit(wasmPack.status ?? 1);
+}
+
+const actualWasmPackVersion = wasmPack.stdout.trim();
+if (actualWasmPackVersion !== expectedWasmPackVersion) {
+  console.error(
+    `Expected ${expectedWasmPackVersion}; found ${actualWasmPackVersion || 'an unknown version'}.`,
+  );
+  console.error('Install it with `cargo install wasm-pack --version 0.14.0 --locked --force`.');
+  process.exit(1);
 }
 
 const result = spawnSync(

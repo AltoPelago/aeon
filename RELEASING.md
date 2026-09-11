@@ -55,9 +55,20 @@ Recommended commands:
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm run ci
-pnpm --filter @altopelago/aeon-wasm build:wasm
 pnpm publish:preflight
 ```
+
+Regenerate the committed WASM artifact before preflight only when the Rust/WASM
+source, locked Rust dependency graph, WASM wrapper version, or pinned generator
+changes:
+
+```bash
+pnpm --filter @altopelago/aeon-wasm build:wasm
+```
+
+Do not rebuild an already reviewed artifact merely to verify an otherwise
+unchanged patch release. The build requires the Rust version in
+`implementations/rust/rust-toolchain.toml` and exactly `wasm-pack 0.14.0`.
 
 Optional dry-run npm publish verification:
 
@@ -88,7 +99,14 @@ Preferred release path:
 1. Configure npm trusted publishing for each public package, pointing at
    `AltoPelago/aeon` and `.github/workflows/npm-publish.yml`.
 2. Run the `npm Publish` workflow from GitHub Actions with `dry_run` enabled.
-3. If the dry run is clean, rerun the workflow with `dry_run` disabled.
+3. If the dry run is clean, create and verify a signed annotated
+   `typescript/vX.Y.Z` tag on the release commit already present on `main`, then
+   push that tag. The tag-triggered workflow performs the real publication.
+
+Do not also rerun the workflow with `dry_run` disabled after pushing the tag;
+that would attempt to publish the same immutable npm versions twice. A manual
+non-dry-run dispatch is an explicit fallback when no release tag will be used,
+not part of the preferred tagged flow.
 
 The workflow uses GitHub OIDC (`id-token: write`) and npm provenance rather than
 long-lived npm tokens. It packs with `pnpm pack`, then publishes the resulting
@@ -112,10 +130,13 @@ Prefer the CI path for public releases so npm can attach package provenance.
 ## Notes
 
 - If version bumps are needed, do them before the build and dry-run pass.
-- If `@altopelago/aeon-wasm` is in the release set, regenerate
+- If `@altopelago/aeon-wasm` has a changed Rust/WASM source, locked Rust
+  dependency, wrapper version, or generator, regenerate
   `implementations/typescript/packages/wasm/pkg/` with
   `pnpm --filter @altopelago/aeon-wasm build:wasm` after version bumps and
-  commit the generated artifacts.
+  commit the generated artifacts. The build script rejects any `wasm-pack`
+  version other than `0.14.0`; changing that pin requires an explicit review
+  and regenerated artifact diff.
 - If the workspace-root TypeScript toolchain baseline changes, such as
   `typescript`, `@types/node`, `packageManager`, or `.npmrc`, treat that as an
   explicit publish-surface review point and record the change in this document,
