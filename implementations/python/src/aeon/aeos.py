@@ -318,7 +318,10 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
             else:
                 emit_error(ctx, diag)
 
+    error_count_before_schema_index = len(ctx.errors)
     rule_index = build_rule_index(schema, ctx)
+    if len(ctx.errors) > error_count_before_schema_index:
+        return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
     expansion_budget = {"count": 0}
     expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
@@ -691,6 +694,16 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         emit_error(ctx, create_diag("$", None, f"Invalid schema reference_policy: {reference_policy}", ERROR_CODES["invalid_reference_constraint"]))
     datatype_allowlist = schema.get("datatype_allowlist")
     allowlist = datatype_allowlist if isinstance(datatype_allowlist, list) else None
+    datatype_rules = schema.get("datatype_rules")
+    if datatype_rules is not None and not isinstance(datatype_rules, dict):
+        emit_error(ctx, create_diag("datatype_rules", None, "datatype_rules must be an object", ERROR_CODES["unknown_constraint_key"]))
+    elif isinstance(datatype_rules, dict):
+        for datatype, constraints in datatype_rules.items():
+            rule_path = f"datatype_rules.{datatype}"
+            if not isinstance(constraints, dict):
+                emit_error(ctx, create_diag(rule_path, None, f"Invalid datatype rule for path: {rule_path}", ERROR_CODES["unknown_constraint_key"]))
+                continue
+            validate_constraint_tree(schema, rule_path, constraints, ctx)
     rules = schema.get("rules")
     if not isinstance(rules, list):
         return index
@@ -1714,7 +1727,7 @@ ExactDecimal = tuple[int, str, tuple[bool, str]]
 def parse_exact_decimal(raw: str) -> ExactDecimal | None:
     if len(raw) > 65_536:
         return None
-    match = re.fullmatch(r"([+-]?)(?:(\d+)(?:\.(\d+))?|\.(\d+))(?:[eE]([+-]?\d+))?", raw)
+    match = re.fullmatch(r"([+-]?)(?:([0-9]+)(?:\.([0-9]+))?|\.([0-9]+))(?:[eE]([+-]?[0-9]+))?", raw)
     if match is None:
         return None
     integer = match.group(2) or ""

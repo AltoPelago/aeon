@@ -345,6 +345,25 @@ class AeosTests(unittest.TestCase):
         reversed_bounds = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "2", "max_value": "1"}}]})
         self.assertFalse(reversed_bounds["ok"])
 
+    def test_invalid_and_reversed_datatype_rule_bounds_fail_schema_validation(self) -> None:
+        result = validate([], {
+            "rules": [],
+            "datatype_rules": {
+                "malformed": {"min_value": 1},
+                "reversed": {"min_value": "2", "max_value": "1"},
+            },
+        })
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            ["datatype_rules.malformed", "datatype_rules.reversed"],
+            [error["path"] for error in result["errors"]],
+        )
+
+    def test_numeric_bounds_accept_ascii_digits_only(self) -> None:
+        result = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "١"}}]})
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(error["code"] == "unknown_constraint_key" for error in result["errors"]))
+
     def test_cts_payload_adapter(self) -> None:
         payload = json.dumps({"aes": [], "schema": {"rules": []}, "options": {}})
         parsed = json.loads(validate_cts_payload(payload))

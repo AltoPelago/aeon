@@ -1580,6 +1580,51 @@ describe('validate()', () => {
             assert.strictEqual(result.ok, false);
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.value.@.unit'));
         });
+
+        it('enforces numeric bounds on attribute entries', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'value' }] },
+                    key: 'value',
+                    value: { type: 'NumberLiteral', value: '3', raw: '3', span: [1, 4] },
+                    annotations: new Map([
+                        ['amount', {
+                            value: { type: 'NumberLiteral', value: '9', raw: '9', span: [2, 3] },
+                        }],
+                    ]),
+                    span: [1, 4],
+                },
+            ] as unknown as AES;
+            const schema: SchemaV1 = {
+                rules: [{
+                    path: '$.value',
+                    constraints: { attributes: { amount: { min_value: '10' } } },
+                }],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) =>
+                error.code === ErrorCodes.NUMERIC_FORM_VIOLATION
+                && error.path === '$.value.@.amount'
+            ));
+        });
+
+        it('rejects malformed datatype-rule bounds before evaluation', () => {
+            const schema = {
+                rules: [],
+                datatype_rules: { number: { min_value: 1 } },
+            } as unknown as SchemaV1;
+
+            const result = validate([], schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) =>
+                error.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+                && error.path === 'datatype_rules.number'
+            ));
+        });
     });
 
     describe('Phase 5: representation type', () => {

@@ -557,7 +557,11 @@ export function validate(
     }
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
+    const errorCountBeforeSchemaIndex = ctx.errors.length;
     const ruleIndex = buildRuleIndex(schema, ctx);
+    if (ctx.errors.length > errorCountBeforeSchemaIndex) {
+        return createFailingEnvelope(ctx.errors, ctx.warnings, {});
+    }
     const selectorExpansionBudget = { count: 0 };
     const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
@@ -1377,6 +1381,36 @@ function validateAttributeEntry(
                     path,
                     entry.span,
                     `Numeric form violation: radix literal digit '${invalidDigit}' is outside radix ${effectiveConstraints.radix}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
+        }
+        if (effectiveConstraints.min_value !== undefined || effectiveConstraints.max_value !== undefined) {
+            const normalized = normalizeRangeLiteral(entry.type, entry.raw);
+            if (normalized === null) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    'Numeric form violation: range constraints require numeric literal form',
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                return;
+            }
+            if (effectiveConstraints.min_value !== undefined
+                && compareNumericValues(normalized, effectiveConstraints.min_value) === -1) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected value >= ${effectiveConstraints.min_value}, got ${normalized}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
+            if (effectiveConstraints.max_value !== undefined
+                && compareNumericValues(normalized, effectiveConstraints.max_value) === 1) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected value <= ${effectiveConstraints.max_value}, got ${normalized}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
             }

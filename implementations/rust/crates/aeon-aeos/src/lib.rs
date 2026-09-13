@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1308,7 +1309,11 @@ fn validate_inner(
         return finalize_result(ctx, &bound_paths, &events_by_path);
     };
 
+    let error_count_before_schema_index = ctx.errors.len();
     let rule_index = build_rule_index(schema, &mut ctx);
+    if ctx.errors.len() > error_count_before_schema_index {
+        return finalize_result(ctx, &bound_paths, &events_by_path);
+    }
     let mut expansion_budget = 0usize;
     let expanded_rule_index = expand_selector_rules(
         &rule_index,
@@ -1393,6 +1398,23 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
                 span: None,
             },
         );
+    }
+
+    for (datatype, constraints) in &schema.datatype_rules {
+        let path = format!("datatype_rules.{datatype}");
+        let Some(constraints) = constraints.as_object() else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            continue;
+        };
+        validate_constraint_tree(schema, &path, constraints, ctx);
     }
 
     for rule in &schema.rules {
@@ -3827,13 +3849,16 @@ struct SignedDecimal {
     digits: String,
 }
 
+static EXACT_DECIMAL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^([+-]?)(?:([0-9]+)(?:\.([0-9]+))?|\.([0-9]+))(?:[eE]([+-]?[0-9]+))?$")
+        .expect("exact decimal regex must compile")
+});
+
 fn parse_exact_decimal(raw: &str) -> Option<ExactDecimal> {
     if raw.len() > 65_536 {
         return None;
     }
-    let captures = Regex::new(r"^([+-]?)(?:(\d+)(?:\.(\d+))?|\.(\d+))(?:[eE]([+-]?\d+))?$")
-        .ok()?
-        .captures(raw)?;
+    let captures = EXACT_DECIMAL_PATTERN.captures(raw)?;
     let integer = captures.get(2).map_or("", |value| value.as_str());
     let fraction = captures
         .get(3)
@@ -5663,5 +5688,45 @@ mod tests {
             options: ValidationOptions::default(),
         };
         assert!(!validate(&reversed).ok);
+    }
+
+    #[test]
+    fn rejects_invalid_and_reversed_datatype_rule_bounds() {
+        let datatype_rules = BTreeMap::from([
+            (String::from("malformed"), json!({"min_value": 1})),
+            (
+                String::from("reversed"),
+                json!({"min_value": "2", "max_value": "1"}),
+            ),
+        ]);
+        let envelope = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: Vec::new(),
+                datatype_rules,
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+                resource_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+
+        let result = validate(&envelope);
+
+        assert!(!result.ok);
+        assert_eq!(result.errors.len(), 2);
+        assert!(
+            result
+                .errors
+                .iter()
+                .all(|error| error.code == "unknown_constraint_key")
+        );
+    }
+
+    #[test]
+    fn numeric_bounds_accept_ascii_digits_only() {
+        assert!(parse_exact_decimal("123.45e6").is_some());
+        assert!(parse_exact_decimal("١").is_none());
     }
 }

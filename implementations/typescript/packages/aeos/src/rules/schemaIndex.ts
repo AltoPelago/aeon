@@ -569,6 +569,20 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
         ));
     }
 
+    for (const [datatype, constraints] of Object.entries(schema.datatype_rules ?? {})) {
+        const rulePath = `datatype_rules.${datatype}`;
+        if (constraints === null || typeof constraints !== 'object' || Array.isArray(constraints)) {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `Invalid datatype rule for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            continue;
+        }
+        validateConstraintTree(schema, rulePath, constraints as Record<string, unknown>, ctx);
+    }
+
     for (const rule of schema.rules) {
         const hasPath = typeof rule.path === 'string' && rule.path.length > 0;
         const hasSelector = typeof rule.selector === 'string' && rule.selector.length > 0;
