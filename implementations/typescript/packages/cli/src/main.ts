@@ -11,6 +11,8 @@
  * - aeon telex decode <file>     Decode and validate Telex
  * - aeon telex canonicalize <file> Canonicalize Telex
  * - aeon telex materialize <file> Materialize complete Telex as JSON
+ * - aeon film decode <file>      Decode and validate Film v1
+ * - aeon film materialize <file> Materialize complete Film v1 as JSON
  * - aeon finalize <file>         Finalize AEON document to JSON
  * - aeon bind <file>             Run typed runtime binding with schema JSON
  * - aeon integrity validate <file>  Validate integrity envelope
@@ -66,7 +68,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
 import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, telexLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
-import { canonicalizeTelex, parseTelex, validateTelex } from '@altopelago/aeon-aes';
+import { canonicalizeTelex, decodeFilm, parseTelex, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -132,6 +134,9 @@ switch (command) {
     case 'telex':
         telex(args.slice(1));
         break;
+    case 'film':
+        film(args.slice(1));
+        break;
     case 'finalize':
         finalize(args.slice(1));
         break;
@@ -176,6 +181,8 @@ Commands:
   telex decode <file>        Decode and validate Telex as JSON
   telex canonicalize <file>  Canonicalize a Telex stream
   telex materialize <file>   Materialize complete Telex as JSON
+  film decode <file>         Decode and validate Film v1 as JSON
+  film materialize <file>    Materialize complete Film v1 as JSON
   finalize <file>    Finalize AEON document to JSON
   bind <file>        Run typed runtime binding with schema JSON
   integrity validate <file>  Validate integrity envelope
@@ -237,6 +244,8 @@ Examples:
   aeon telex decode stream.telex.aes
   aeon telex canonicalize stream.telex.aes
   aeon telex materialize stream.telex.aes --scope full
+  aeon film decode stream.film.aes
+  aeon film materialize stream.film.aes --scope full
     aeon inspect config.aeon --json --annotations
     aeon inspect config.aeon --json --annotations-only
     aeon inspect config.aeon --json --annotations-only --sort-annotations
@@ -475,6 +484,78 @@ function telex(args: string[]): void {
     } catch (error) {
         const failure = error as { code?: string; message?: string };
         console.error(`[${failure.code ?? 'TELEX_SYNTAX_ERROR'}] ${failure.message ?? String(error)}`);
+        process.exit(1);
+    }
+}
+
+/** Decode/validate or materialize an existing Film v1 stream. */
+function film(args: string[]): void {
+    const action = args[0];
+    const file = args[1];
+    const usage = 'Usage: aeon film <decode|materialize> <file> [--limits-file <path>] [--scope <payload|header|full>] [--strict|--transport] [--max-materialized-weight <n>] [--max-reference-depth <n>]';
+    if ((action !== 'decode' && action !== 'materialize') || !file || file.startsWith('--')) {
+        console.error(usage);
+        process.exit(2);
+    }
+
+    const mode = resolveFinalizeMode(args);
+    const scope = resolveFinalizeScope(args);
+    const maxMaterializedWeight = resolveDepthOption(args, '--max-materialized-weight');
+    const maxReferenceDepth = resolveDepthOption(args, '--max-reference-depth');
+    const limitsFile = getFlagValue(args, '--limits-file');
+    if (mode === null || scope === null || maxMaterializedWeight === null || maxReferenceDepth === null) {
+        console.error(usage);
+        process.exit(2);
+    }
+    if (args.includes('--limits-file') && !limitsFile) {
+        console.error('Error: --limits-file requires a path');
+        process.exit(2);
+    }
+
+    let selectedAesLimits: ReturnType<typeof telexLimits> | undefined;
+    let selectedFinalizationLimits: ReturnType<typeof finalizationLimits> | undefined;
+    if (limitsFile) {
+        const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
+        if (!loaded.limits) {
+            for (const error of loaded.errors) console.error(`[${error.code}] ${error.path}: ${error.message}`);
+            process.exit(2);
+        }
+        try {
+            selectedAesLimits = telexLimits(loaded.limits);
+            selectedFinalizationLimits = finalizationLimits(loaded.limits);
+        } catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exit(2);
+        }
+    }
+
+    const input = readBinaryFileWithLimit(file, selectedAesLimits?.maxInputBytes);
+    try {
+        const decoded = decodeFilm(input, {
+            ...(selectedAesLimits !== undefined ? { aesLimits: selectedAesLimits } : {}),
+            ...(selectedAesLimits?.maxInputBytes !== undefined
+                ? { filmLimits: { maxInputBytes: selectedAesLimits.maxInputBytes } }
+                : {}),
+        });
+        if (action === 'materialize') {
+            const finalized = finalizePortableJson(decoded.records, {
+                profile: decoded.profile,
+                projection: decoded.projection,
+                mode,
+                scope,
+                ...selectedAesLimits,
+                ...selectedFinalizationLimits,
+                ...(maxMaterializedWeight !== undefined ? { maxMaterializedWeight } : {}),
+                ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
+            });
+            console.log(JSON.stringify(finalized, null, 2));
+            if ((finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            return;
+        }
+        console.log(JSON.stringify(decoded, null, 2));
+    } catch (error) {
+        const failure = error as { code?: string; message?: string };
+        console.error(`[${failure.code ?? 'FILM_DECODE_ERROR'}] ${failure.message ?? String(error)}`);
         process.exit(1);
     }
 }
@@ -2075,6 +2156,19 @@ function readFileWithLimit(file: string, maxInputBytes: number | undefined): str
     const input = readFile(file);
     enforceInputByteLimitOrExit(input, maxInputBytes);
     return input;
+}
+
+function readBinaryFileWithLimit(file: string, maxInputBytes: number | undefined): Uint8Array {
+    try {
+        const stats = fs.statSync(file);
+        if (maxInputBytes !== undefined && stats.isFile() && stats.size > maxInputBytes) {
+            failInputByteLimit(stats.size, maxInputBytes);
+        }
+        return fs.readFileSync(file);
+    } catch (err) {
+        console.error(`Error: Cannot read file: ${file}`);
+        process.exit(2);
+    }
 }
 
 function readStdin(maxInputBytes?: number): string {

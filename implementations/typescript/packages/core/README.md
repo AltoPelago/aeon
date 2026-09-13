@@ -101,6 +101,19 @@ without an immutable origin are omitted and reported. Its optional
 `sourceBytes` input enables the same source-backed conversion while preserving
 the report.
 
+Film v1 uses the same portable AES records through a binary reader boundary:
+
+```ts
+import { decodeFilm } from '@altopelago/aeon-core';
+
+const stream = decodeFilm(filmBytes);
+console.log(stream.records);
+```
+
+`decodeFilm()` returns only completely validated streams. `decodeFilmSyntax()`
+and `IncrementalFilmDecoder` are available for provisional tooling. Film support
+is reader-only; Core does not export a Film encoder or AEON-to-Film writer.
+
 ### Inspect the file preamble without full parsing
 
 Use `inspectFilePreamble()` to read only the allowed file-header slot for:
@@ -149,6 +162,13 @@ Reads only the file-header preamble slot and returns:
 - `exportTelex(events, options?)`
 - `parseTelex`, `encodeTelex`, `canonicalizeTelex`
 - `validateTelex`, `validateTelexRecords`
+
+### Film reader APIs
+
+- `decodeFilm(input, options?)`
+- `decodeFilmSyntax(input, options?)`
+- `IncrementalFilmDecoder`
+- `normalizeFilmLimits(options?)`
 
 ## Exported Types
 

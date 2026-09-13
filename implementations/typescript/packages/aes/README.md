@@ -1,6 +1,7 @@
 # @altopelago/aeon-aes
 
-Assignment Event Stream emission, portable projection, and Telex v1 codec.
+Assignment Event Stream emission, portable projection, Telex v1 codec, and
+reader-only Film v1 decoding.
 
 ## Installation
 
@@ -26,6 +27,8 @@ if (result.errors.length === 0) {
 - formats and works with canonical AEON paths
 - exposes event-level data used by AEOS validation, finalization, and tooling
 - parses, validates, encodes, and canonicalizes `telex.aes` v1 streams
+- decodes one-shot and incremental `film.aes` v1 streams, withholding complete
+  acceptance until portable AES validation succeeds
 - splits compact Telex datatypes into `datatype`, `generics`, and `clarifiers`
 
 ## API
@@ -43,6 +46,9 @@ if (result.errors.length === 0) {
 - `canonicalizeTelex(input, options?)`
 - `validateTelex(input, options?)`
 - `validateTelexRecords(records, options?)`
+- `decodeFilmSyntax(input, options?)` for provisional inspection
+- `decodeFilm(input, options?)` for complete validated reads
+- `IncrementalFilmDecoder`
 - canonical path helpers
 - Assignment Event Stream types
   - emitted native events carry `sourcePlane: 'header' | 'body'`; consumers
@@ -65,5 +71,7 @@ If you want the stable application-facing entry point, prefer `@altopelago/aeon-
 - Candidate AES types describe reconstructed validation input for speculative
   post-commit state. They do not define substrate materialization policy.
 - This package does not materialize application objects.
+- Film support is reader-only. No Film encoder or durable-writer surface is
+  exported.
 - Schema validation belongs in `@altopelago/aeos-core`.
 - JSON or map materialization belongs in `@altopelago/aeon-finalize`.

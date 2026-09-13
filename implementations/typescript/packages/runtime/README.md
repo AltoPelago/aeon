@@ -50,6 +50,20 @@ This decodes and validates portable AES before applying the schema and direct
 JSON materialization. It does not rebuild the AEON parser AST or run
 source-language profile processors and tonics.
 
+Film v1 uses the same portable runtime pipeline after binary decoding:
+
+```ts
+import { runFilmRuntime } from '@altopelago/aeon-runtime';
+
+const result = runFilmRuntime(filmBytes, { schema });
+if (!result.meta.errors.length) {
+  console.log(result.document);
+}
+```
+
+Film input is completely validated before schema or materialization work begins.
+The runtime exposes no Film writer.
+
 ## When To Use This Package
 
 Use `@altopelago/aeon-runtime` when you need the full orchestrated pipeline.
@@ -108,6 +122,7 @@ export interface RuntimeOptions {
 
 export function runRuntime(input: string, options?: RuntimeOptions): RuntimeResult;
 export function runTelexRuntime(input: string, options?: TelexRuntimeOptions): TelexRuntimeResult;
+export function runFilmRuntime(input: Uint8Array, options?: FilmRuntimeOptions): FilmRuntimeResult;
 ```
 
 When `includeAnnotations` is enabled, `RuntimeResult` may include:
@@ -185,6 +200,8 @@ const result = runTypedRuntime<AppConfig>('name = "AEON"\\nport = 8080', {
 - `linked-json` is the opt-in live JSON materialization mode for `~>` pointer aliases.
 - Typed binding APIs operate on JSON finalization output and support optional runtime guards.
 - `runTelexRuntime` accepts `aes.complete.v1` Telex and fails before schema or finalization when the portable stream is invalid.
+- `runFilmRuntime` accepts Film v1 bytes and follows the same portable AES
+  schema/finalization path without enabling Film output.
 - `includeAnnotations` opts into annotation-stream passthrough for tooling/debug output.
 - Annotations are non-authoritative and non-influencing relative to runtime decisions.
 - `maxInputBytes` is available as an input-boundary fail-closed limit.
