@@ -67,8 +67,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalize } from '@altopelago/aeon-canonical';
-import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, telexLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
-import { canonicalizeTelex, decodeFilm, parseTelex, validateTelex } from '@altopelago/aeon-aes';
+import { adaptTypeScriptAssignmentEventsToPortableAes, aeonCompileLimits, aesStreamLimits, compile, exportTelex, finalizationLimits, loadAeonicLimits, telexLimits, VERSION, formatPath, type CompileResult, type AEONError, type AssignmentEvent } from '@altopelago/aeon-core';
+import { canonicalizeTelex, decodeFilm, DEFAULT_FILM_LIMITS, parseTelex, validateTelex } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import { finalizeJson, finalizeMap, finalizePortableJson, type Diagnostic, type FinalizeMeta, type FinalizedEntry, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import {
@@ -512,7 +512,7 @@ function film(args: string[]): void {
         process.exit(2);
     }
 
-    let selectedAesLimits: ReturnType<typeof telexLimits> | undefined;
+    let selectedAesLimits: ReturnType<typeof aesStreamLimits> | undefined;
     let selectedFinalizationLimits: ReturnType<typeof finalizationLimits> | undefined;
     if (limitsFile) {
         const loaded = loadAeonicLimits(fs.readFileSync(limitsFile, 'utf8'));
@@ -521,7 +521,7 @@ function film(args: string[]): void {
             process.exit(2);
         }
         try {
-            selectedAesLimits = telexLimits(loaded.limits);
+            selectedAesLimits = aesStreamLimits(loaded.limits);
             selectedFinalizationLimits = finalizationLimits(loaded.limits);
         } catch (error) {
             console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -529,13 +529,10 @@ function film(args: string[]): void {
         }
     }
 
-    const input = readBinaryFileWithLimit(file, selectedAesLimits?.maxInputBytes);
+    const input = readBinaryFileWithLimit(file, DEFAULT_FILM_LIMITS.maxInputBytes);
     try {
         const decoded = decodeFilm(input, {
             ...(selectedAesLimits !== undefined ? { aesLimits: selectedAesLimits } : {}),
-            ...(selectedAesLimits?.maxInputBytes !== undefined
-                ? { filmLimits: { maxInputBytes: selectedAesLimits.maxInputBytes } }
-                : {}),
         });
         if (action === 'materialize') {
             const finalized = finalizePortableJson(decoded.records, {
@@ -2164,7 +2161,11 @@ function readBinaryFileWithLimit(file: string, maxInputBytes: number | undefined
         if (maxInputBytes !== undefined && stats.isFile() && stats.size > maxInputBytes) {
             failInputByteLimit(stats.size, maxInputBytes);
         }
-        return fs.readFileSync(file);
+        const input = fs.readFileSync(file);
+        if (maxInputBytes !== undefined && input.byteLength > maxInputBytes) {
+            failInputByteLimit(input.byteLength, maxInputBytes);
+        }
+        return input;
     } catch (err) {
         console.error(`Error: Cannot read file: ${file}`);
         process.exit(2);

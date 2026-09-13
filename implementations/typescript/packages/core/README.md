@@ -169,6 +169,8 @@ Reads only the file-header preamble slot and returns:
 - `decodeFilmSyntax(input, options?)`
 - `IncrementalFilmDecoder`
 - `normalizeFilmLimits(options?)`
+- `aesStreamLimits(limits)` selects the encoding-neutral structural/event
+  subset of an AltoPelago limits document without importing Telex byte limits
 
 ## Exported Types
 

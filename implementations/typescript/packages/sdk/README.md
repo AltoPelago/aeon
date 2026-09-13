@@ -51,3 +51,5 @@ console.log(film.finalized.document);
 - Use `@altopelago/aeon-runtime` when you need the full orchestrated runtime pipeline.
 - Film is reader-only. This package deliberately exposes no Film writer or
   AEON-to-Film conversion helper.
+- `aeonicLimits` contributes its shared AES structural and processing values to
+  Film. Select Film-local byte ceilings separately with `filmLimits`.

@@ -14,11 +14,13 @@ function option(name) {
 }
 
 function vectorOptions(vector) {
-    const names = {
+    const filmNames = {
         max_input_bytes: 'maxInputBytes',
         max_record_bytes: 'maxRecordBytes',
         max_field_bytes: 'maxFieldBytes',
         max_buffered_bytes: 'maxBufferedBytes',
+    };
+    const aesNames = {
         max_events: 'maxEvents',
         max_path_depth: 'maxPathDepth',
         max_path_characters: 'maxPathCharacters',
@@ -33,13 +35,21 @@ function vectorOptions(vector) {
         max_clarifier_values: 'maxClarifierValues',
         max_datatype_components: 'maxDatatypeComponents',
     };
+    const filmLimits = {};
+    const aesLimits = {};
+    for (const [name, value] of Object.entries(vector.input.limits ?? {})) {
+        if (filmNames[name] !== undefined) {
+            filmLimits[filmNames[name]] = value;
+        } else if (aesNames[name] !== undefined) {
+            aesLimits[aesNames[name]] = value;
+        } else {
+            throw new Error(`Unknown Film CTS limit: ${name}`);
+        }
+    }
     return {
         registeredFields: vector.input.registered_fields ?? [],
-        limits: Object.fromEntries(Object.entries(vector.input.limits ?? {}).map(([name, value]) => {
-            const target = names[name];
-            if (target === undefined) throw new Error(`Unknown Film CTS limit: ${name}`);
-            return [target, value];
-        })),
+        filmLimits,
+        aesLimits,
     };
 }
 

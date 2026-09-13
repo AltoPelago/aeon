@@ -1,4 +1,4 @@
-import type { PartialTelexLimits, TelexLimitOptions, TelexRecord } from './telex.js';
+import type { PartialAesStreamLimits, TelexRecord } from './telex.js';
 import * as implementation from './film-internal.js';
 
 export const FILM_VERSION = '1' as const;
@@ -13,11 +13,13 @@ export interface FilmLimits {
 
 export type PartialFilmLimits = Partial<FilmLimits>;
 
-export interface FilmDecodeOptions extends TelexLimitOptions, PartialFilmLimits {
+export interface FilmDecodeOptions extends PartialAesStreamLimits, PartialFilmLimits {
     /** Film-local byte and buffering limits. */
     readonly filmLimits?: PartialFilmLimits;
     /** Shared AES structural limits applied to decoded records. */
-    readonly aesLimits?: PartialTelexLimits;
+    readonly aesLimits?: PartialAesStreamLimits;
+    /** Compatibility nesting for shared AES structural limits. */
+    readonly limits?: PartialAesStreamLimits;
     /** Registered extension fields accepted by the selected AES profile. */
     readonly registeredFields?: readonly string[];
 }

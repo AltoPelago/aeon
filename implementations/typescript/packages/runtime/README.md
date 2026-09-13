@@ -202,6 +202,9 @@ const result = runTypedRuntime<AppConfig>('name = "AEON"\\nport = 8080', {
 - `runTelexRuntime` accepts `aes.complete.v1` Telex and fails before schema or finalization when the portable stream is invalid.
 - `runFilmRuntime` accepts Film v1 bytes and follows the same portable AES
   schema/finalization path without enabling Film output.
+- Film runtime metadata reports the selected shared policy as
+  `effectiveAesLimits`; Film-local byte limits remain in `filmLimits` because
+  the published AltoPelago limits v1 file contains no Film format section.
 - `includeAnnotations` opts into annotation-stream passthrough for tooling/debug output.
 - Annotations are non-authoritative and non-influencing relative to runtime decisions.
 - `maxInputBytes` is available as an input-boundary fail-closed limit.

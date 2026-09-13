@@ -75,7 +75,7 @@ export class FilmDecodeError extends Error {
 
 /** Normalize the Film-local limits selected by the consumer. */
 export function normalizeFilmLimits(options = {}) {
-  const source = options.filmLimits ?? options.limits ?? options;
+  const source = { ...options, ...(options.filmLimits ?? {}) };
   return Object.freeze({
     maxInputBytes: limit(source, 'maxInputBytes', DEFAULT_FILM_LIMITS.maxInputBytes),
     maxRecordBytes: limit(source, 'maxRecordBytes', DEFAULT_FILM_LIMITS.maxRecordBytes),
@@ -813,7 +813,11 @@ class Reader {
 }
 
 function normalizeAesLimits(options) {
-  return normalizeTelexLimits({ limits: options.aesLimits ?? options.limits ?? {} });
+  return normalizeTelexLimits({
+    ...options,
+    ...(options.limits ?? {}),
+    ...(options.aesLimits ?? {}),
+  });
 }
 
 function limit(source, name, fallback) {
@@ -915,4 +919,3 @@ function lowerHex(bytes) {
   for (const byte of bytes) output += byte.toString(16).padStart(2, '0');
   return output;
 }
-

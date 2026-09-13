@@ -924,9 +924,19 @@ describe('AEON CLI output contract', () => {
         it('decodes and materializes Film v1 without exposing a writer', async () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-film-import-'));
             const file = path.join(dir, 'stream.film.aes');
+            const limitsFile = path.join(dir, 'limits.aeon');
+            const sharedPolicy = path.resolve(__dirname, '../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon');
             fs.writeFileSync(
                 file,
                 Buffer.from('4f5f5fff010012000109242e6d6573736167650568656c6c6f', 'hex'),
+            );
+            fs.writeFileSync(
+                limitsFile,
+                fs.readFileSync(sharedPolicy, 'utf8').replace(
+                    'max_input_bytes = 67108864',
+                    'max_input_bytes = 1',
+                ),
+                'utf8',
             );
 
             const decoded = await runCli(['film', 'decode', file]);
@@ -942,6 +952,11 @@ describe('AEON CLI output contract', () => {
                 kind: 'StringLiteral',
                 value: 'hello',
             }]);
+
+            // The published v1 limits file's Telex byte limit is not Film byte policy.
+            const withLimits = await runCli(['film', 'decode', file, '--limits-file', limitsFile]);
+            assert.strictEqual(withLimits.code, 0);
+            assert.strictEqual(withLimits.stderr, '');
 
             const materialized = await runCli(['film', 'materialize', file]);
             assert.strictEqual(materialized.code, 0);

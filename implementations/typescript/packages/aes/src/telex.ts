@@ -60,6 +60,25 @@ export interface TelexLimits {
 
 export type PartialTelexLimits = Partial<TelexLimits>;
 
+export type AesStreamLimits = Pick<
+    TelexLimits,
+    | 'maxEvents'
+    | 'maxPathDepth'
+    | 'maxPathCharacters'
+    | 'maxAttributeDepth'
+    | 'maxValueNestingDepth'
+    | 'maxStringCodepoints'
+    | 'maxKeySegmentCodepoints'
+    | 'maxListItems'
+    | 'maxTupleItems'
+    | 'maxGenericDepth'
+    | 'maxGenericArguments'
+    | 'maxClarifierValues'
+    | 'maxDatatypeComponents'
+>;
+
+export type PartialAesStreamLimits = Partial<AesStreamLimits>;
+
 export interface TelexLimitOptions extends PartialTelexLimits {
     readonly limits?: PartialTelexLimits;
     readonly datatypeLimits?: PartialTelexLimits & {

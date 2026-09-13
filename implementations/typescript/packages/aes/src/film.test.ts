@@ -8,6 +8,7 @@ import {
     decodeFilm,
     decodeFilmSyntax,
     filmV1IsDraft,
+    normalizeFilmLimits,
 } from './film.js';
 
 const CANONICAL_SCALAR = fromHex(
@@ -39,6 +40,29 @@ test('keeps syntax-only Film records provisional until AES validation', () => {
             && error.code === 'FILM_AES_INVALID'
             && error.stage === 'aes',
     );
+});
+
+test('merges flat and nested Film/AES limit options without crossing domains', () => {
+    assert.throws(
+        () => decodeFilm(CANONICAL_SCALAR, { maxEvents: 0 }),
+        (error: unknown) => error instanceof FilmDecodeError
+            && error.code === 'FILM_AES_INVALID'
+            && error.diagnostics.some(({ counter }) => counter === 'max_events'),
+    );
+    assert.throws(
+        () => decodeFilm(CANONICAL_SCALAR, { aesLimits: { maxEvents: 0 } }),
+        (error: unknown) => error instanceof FilmDecodeError
+            && error.code === 'FILM_AES_INVALID',
+    );
+    assert.deepEqual(normalizeFilmLimits({
+        maxRecordBytes: 7,
+        filmLimits: { maxInputBytes: 8 },
+    }), {
+        maxInputBytes: 8,
+        maxRecordBytes: 7,
+        maxFieldBytes: 4_194_304,
+        maxBufferedBytes: 16_777_216,
+    });
 });
 
 test('incremental Film decoding withholds completion until final input', () => {

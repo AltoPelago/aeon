@@ -36,6 +36,26 @@ test('Film runtime fails before schema and finalization on invalid Film', () => 
     )));
 });
 
+test('keeps Film byte policy separate from shared AES limits', () => {
+    const policySource = fs.readFileSync(
+        new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+        'utf8',
+    ).replace('max_input_bytes = 67108864', 'max_input_bytes = 1');
+    const loaded = loadAeonicLimits(policySource);
+    assert.ok(loaded.limits);
+
+    const accepted = runFilmRuntime(FILM_SCALAR, { aeonicLimits: loaded.limits });
+    assert.equal(accepted.meta.errors.length, 0);
+    assert.equal(accepted.meta.effectiveAesLimits?.aes.maxEvents, 100_000);
+    assert.equal('maxInputBytes' in (accepted.meta.effectiveAesLimits?.aes ?? {}), false);
+
+    const rejected = runFilmRuntime(FILM_SCALAR, {
+        aeonicLimits: loaded.limits,
+        filmLimits: { maxInputBytes: FILM_SCALAR.byteLength - 1 },
+    });
+    assert.ok(rejected.meta.errors.some(({ code }) => code === 'FILM_LIMIT_EXCEEDED'));
+});
+
 test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     const schema: SchemaV1 = {
         rules: [

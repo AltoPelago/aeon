@@ -73,5 +73,9 @@ If you want the stable application-facing entry point, prefer `@altopelago/aeon-
 - This package does not materialize application objects.
 - Film support is reader-only. No Film encoder or durable-writer surface is
   exported.
+- Film byte limits (`maxInputBytes`, `maxRecordBytes`, `maxFieldBytes`, and
+  `maxBufferedBytes`) are format-local. Shared event and structural limits may
+  be supplied flat or through `aesLimits`; Telex framing limits are never
+  imported as Film byte policy.
 - Schema validation belongs in `@altopelago/aeos-core`.
 - JSON or map materialization belongs in `@altopelago/aeon-finalize`.

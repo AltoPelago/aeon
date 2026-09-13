@@ -9,9 +9,11 @@ import {
 import {
     compile as compileCore,
     effectiveTelexConfiguration,
+    effectiveAesConfiguration,
     type AeonicLimitsV1,
     type AnnotationRecord,
     type EffectiveTelexConfiguration,
+    type EffectiveAesConfiguration,
 } from '@altopelago/aeon-core';
 import {
     FILM_VERSION,
@@ -99,6 +101,7 @@ export interface RuntimeMeta {
         readonly projection: string | null;
     };
     readonly effectiveLimits?: EffectiveTelexConfiguration;
+    readonly effectiveAesLimits?: EffectiveAesConfiguration;
 }
 
 export interface RuntimeResult {
@@ -544,9 +547,9 @@ export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}
 export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = {}): FilmRuntimeResult {
     const mode = options.mode ?? 'strict';
     const scope = options.scope ?? 'payload';
-    const effectiveLimits = runtimeEffectiveTelexConfiguration(options);
+    const effectiveLimits = runtimeEffectiveAesConfiguration(options);
     const codecOptions = effectiveLimits
-        ? { ...options, aesLimits: { ...effectiveLimits.telex, ...(options.aesLimits ?? {}) } }
+        ? { ...options, aesLimits: effectiveLimits.aes }
         : options;
     const errors: RuntimeDiagnostic[] = [];
     const warnings: RuntimeDiagnostic[] = [];
@@ -560,7 +563,7 @@ export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = 
             code: failure.code ?? 'FILM_DECODE_ERROR',
             message: failure.message ?? String(error),
         }));
-        return { aes: [], meta: { errors, warnings, ...(effectiveLimits ? { effectiveLimits } : {}) } };
+        return { aes: [], meta: { errors, warnings, ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}) } };
     }
 
     const film = {
@@ -593,7 +596,7 @@ export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = 
                     warnings,
                     film,
                     schema: schemaResult,
-                    ...(effectiveLimits ? { effectiveLimits } : {}),
+                    ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}),
                 },
             };
         }
@@ -601,7 +604,9 @@ export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = 
 
     const finalized = finalizePortableJson(decoded.records, {
         ...(effectiveLimits?.finalization ?? {}),
+        ...(effectiveLimits?.aes ?? {}),
         ...options,
+        ...runtimeFilmAesValidationOptions(options),
         profile: decoded.profile,
         projection: decoded.projection,
         mode,
@@ -618,15 +623,55 @@ export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = 
             errors,
             warnings,
             film,
-            ...(effectiveLimits ? { effectiveLimits } : {}),
+            ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}),
             ...(schemaResult ? { schema: schemaResult } : {}),
             ...(finalized.meta ? { finalization: finalized.meta } : {}),
         },
     };
 }
 
+function runtimeFilmAesValidationOptions(options: FilmDecodeOptions): TelexValidationOptions {
+    const {
+        filmLimits: _filmLimits,
+        maxInputBytes: _maxInputBytes,
+        maxRecordBytes: _maxRecordBytes,
+        maxFieldBytes: _maxFieldBytes,
+        maxBufferedBytes: _maxBufferedBytes,
+        aesLimits,
+        limits,
+        ...shared
+    } = options;
+    return { ...shared, ...(limits ?? {}), ...(aesLimits ?? {}) };
+}
+
+function runtimeEffectiveAesConfiguration(
+    options: FilmRuntimeOptions,
+): EffectiveAesConfiguration | undefined {
+    if (!options.aeonicLimits) return undefined;
+    const selected = effectiveAesConfiguration(options.aeonicLimits);
+    const aes = { ...selected.aes };
+    const overrides = runtimeFilmAesValidationOptions(options);
+    let overridesApplied = false;
+    for (const key of Object.keys(aes) as (keyof typeof aes)[]) {
+        const override = overrides[key];
+        if (override !== undefined && override !== aes[key]) {
+            aes[key] = override;
+            overridesApplied = true;
+        }
+    }
+    const finalization = { ...selected.finalization };
+    for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+        const override = options[key];
+        if (override !== undefined && override !== finalization[key]) {
+            finalization[key] = override;
+            overridesApplied = true;
+        }
+    }
+    return { ...selected, aes, finalization, overridesApplied };
+}
+
 function runtimeEffectiveTelexConfiguration(
-    options: TelexRuntimeOptions | FilmRuntimeOptions,
+    options: TelexRuntimeOptions,
 ): EffectiveTelexConfiguration | undefined {
     if (!options.aeonicLimits) return undefined;
     const selected = effectiveTelexConfiguration(options.aeonicLimits);
