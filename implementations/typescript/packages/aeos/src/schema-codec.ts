@@ -4,7 +4,7 @@
  * Parses and prints AEOS schema documents expressed as AEON source.
  */
 
-import { compile, type CompileOptions } from '@altopelago/aeon-core';
+import { compile, type AssignmentEvent, type CompileOptions } from '@altopelago/aeon-core';
 import { finalizeJson, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import { parseAddress, renderAddress } from '@altopelago/sansa';
 import type {
@@ -15,6 +15,7 @@ import type {
     SchemaRule,
     SchemaV1,
 } from './types/schema.js';
+import { normalizeNumericBound } from './util/numericBounds.js';
 
 type JsonLike = null | boolean | number | string | readonly JsonLike[] | { readonly [key: string]: JsonLike };
 type UnknownRecord = Record<string, unknown>;
@@ -40,7 +41,7 @@ export function parseSchemaSource(source: string, options: SchemaCodecOptions = 
         throw new SchemaCodecError(formatErrors(compiled.errors));
     }
 
-    const finalized = finalizeJson(compiled.events, {
+    const finalized = finalizeJson(prepareNumericBoundEvents(compiled.events), {
         mode: 'strict',
         scope: 'payload',
         ...options.finalizeOptions,
@@ -339,20 +340,36 @@ function normalizeConstraintMap(input: UnknownRecord, label: string): Readonly<R
 }
 
 function normalizeConstraints(input: UnknownRecord, label: string): ConstraintsV1 {
+    const result = cloneJsonObject(input);
     if (Array.isArray(input.any_of)) {
+        const branches: ConstraintsV1[] = [];
         for (let index = 0; index < input.any_of.length; index += 1) {
             if (!isRecord(input.any_of[index])) {
                 throw new SchemaCodecError(`${label}.any_of[${index}] must be an object`);
             }
+            branches.push(normalizeConstraints(input.any_of[index], `${label}.any_of[${index}]`));
         }
+        result.any_of = branches;
     }
     if (input.attributes !== undefined) {
         if (!isRecord(input.attributes)) {
             throw new SchemaCodecError(`${label}.attributes must be an object`);
         }
-        normalizeConstraintMap(input.attributes, `${label}.attributes`);
+        result.attributes = normalizeConstraintMap(input.attributes, `${label}.attributes`);
     }
-    return cloneJsonObject(input) as ConstraintsV1;
+    for (const key of ['min_value', 'max_value'] as const) {
+        const value = input[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'string') {
+            throw new SchemaCodecError(`${label}.${key} must be an AEON number literal`);
+        }
+        const normalized = normalizeNumericBound(value);
+        if (normalized === null) {
+            throw new SchemaCodecError(`${label}.${key} must be a valid finite AEON number literal`);
+        }
+        result[key] = normalized;
+    }
+    return result as ConstraintsV1;
 }
 
 function cloneJsonObject(input: UnknownRecord): UnknownRecord {
@@ -397,7 +414,14 @@ function renderAeonValue(value: JsonLike, indent: number): string {
     if (entries.length === 0) return '{}';
     const pad = '  '.repeat(indent);
     const childPad = '  '.repeat(indent + 1);
-    const rendered = entries.map(([key, item]) => `${childPad}${renderObjectKey(key)}:${datatypeForValue(item)} = ${renderAeonValue(item, indent + 1)}`);
+    const rendered = entries.map(([key, item]) => {
+        if ((key === 'min_value' || key === 'max_value') && typeof item === 'string') {
+            const bound = normalizeNumericBound(item);
+            if (bound === null) throw new SchemaCodecError(`${key} must be a valid finite AEON number literal`);
+            return `${childPad}${renderObjectKey(key)}:number = ${bound}`;
+        }
+        return `${childPad}${renderObjectKey(key)}:${datatypeForValue(item)} = ${renderAeonValue(item, indent + 1)}`;
+    });
     return `{\n${rendered.join('\n')}\n${pad}}`;
 }
 
@@ -455,4 +479,56 @@ function formatErrors(errors: readonly unknown[]): string {
         if (isRecord(error) && typeof error.message === 'string') return error.message;
         return String(error);
     }).join('\n');
+}
+
+type AeonValue = AssignmentEvent['value'];
+
+/**
+ * JSON has no lossless arbitrary-precision number type. At the source boundary,
+ * require native AEON NumberLiteral bounds and temporarily project those leaves
+ * as strings before JSON materialization. The portable SchemaV1 model therefore
+ * remains exact while authored `.aeos` stays naturally numeric.
+ */
+function prepareNumericBoundEvents(events: readonly AssignmentEvent[]): readonly AssignmentEvent[] {
+    return events.map((event) => ({ ...event, value: prepareNumericBoundValue(event.value) }));
+}
+
+function prepareNumericBoundValue(value: AeonValue): AeonValue {
+    switch (value.type) {
+        case 'TypedValue':
+            return { ...value, value: prepareNumericBoundValue(value.value) };
+        case 'ObjectNode':
+            return {
+                ...value,
+                bindings: value.bindings.map((binding) => {
+                    if (binding.key !== 'min_value' && binding.key !== 'max_value') {
+                        return { ...binding, value: prepareNumericBoundValue(binding.value) };
+                    }
+                    if (binding.value.type !== 'NumberLiteral') {
+                        throw new SchemaCodecError(`${binding.key} in AEOS source must be an AEON number literal, not a string`);
+                    }
+                    const normalized = normalizeNumericBound(binding.value.value);
+                    if (normalized === null) {
+                        throw new SchemaCodecError(`${binding.key} in AEOS source must be a valid finite AEON number literal`);
+                    }
+                    return {
+                        ...binding,
+                        value: {
+                            ...binding.value,
+                            type: 'StringLiteral' as const,
+                            value: normalized,
+                            raw: JSON.stringify(normalized),
+                            delimiter: '"' as const,
+                        },
+                    };
+                }),
+            };
+        case 'ListNode':
+        case 'TupleLiteral':
+            return { ...value, elements: value.elements.map(prepareNumericBoundValue) };
+        case 'NodeLiteral':
+            return { ...value, children: value.children.map(prepareNumericBoundValue) };
+        default:
+            return value;
+    }
 }

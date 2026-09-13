@@ -50,6 +50,14 @@ aeos:schema = {
         type:string = "StringLiteral"
       }
     }
+    {
+      path:sansa = $.contact.age
+      constraints:object = {
+        type:string = "IntegerLiteral"
+        min_value:number = 0
+        max_value:number = 120
+      }
+    }
   ]
 }
 ```
@@ -57,6 +65,10 @@ aeos:schema = {
 The package exports `parseSchemaSource(...)`, `normalizeSchemaObject(...)`, and
 `schemaToAeon(...)` for projecting between native `.aeos` source and the
 programmatic `SchemaV1` object consumed by `validate(...)`.
+
+In native `.aeos`, `min_value` and `max_value` are AEON number literals. In the
+programmatic and portable JSON models they are canonical strings, preserving
+exact values outside machine-number ranges.
 
 ## Options
 

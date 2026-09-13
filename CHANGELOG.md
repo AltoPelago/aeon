@@ -6,6 +6,20 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## Unreleased
+
+### Breaking
+
+- Native `.aeos` schema source now requires `min_value` and `max_value` to be
+  authored as AEON number literals rather than quoted strings. The portable
+  `SchemaV1`/JSON representation retains canonical strings so arbitrary-precision
+  bounds remain lossless across runtimes.
+
+### Fixed
+
+- Validate numeric-bound syntax and ordering, and compare integer, decimal, and
+  exponent bounds exactly across the TypeScript, Rust, and Python AEOS runtimes.
+
 ## 0.12.1 - 2026-09-11
 
 ### Added

@@ -76,10 +76,10 @@ export interface ConstraintsV1 {
     /** Allow RadixLiteral values without a matching radix datatype declaration */
     readonly allow_unspecified_radix?: boolean;
 
-    /** Minimum integer value (inclusive), encoded as base-10 string for exactness */
+    /** Minimum numeric value (inclusive), retained as an exact canonical AEON number lexeme */
     readonly min_value?: string;
 
-    /** Maximum integer value (inclusive), encoded as base-10 string for exactness */
+    /** Maximum numeric value (inclusive), retained as an exact canonical AEON number lexeme */
     readonly max_value?: string;
 
     /** Minimum string length in UTF-16 code units (JavaScript string.length) */

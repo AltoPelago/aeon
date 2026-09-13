@@ -18,6 +18,7 @@ import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
 import { datatypeBase, declaredRadixFromDatatype, parseClarifierValues } from './util/datatypes.js';
+import { compareNumericValues } from './util/numericBounds.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 import {
     parseAddress,
@@ -556,7 +557,11 @@ export function validate(
     }
 
     // Phase 3: Build rule index from schema (run after baseline invariants)
+    const errorCountBeforeSchemaIndex = ctx.errors.length;
     const ruleIndex = buildRuleIndex(schema, ctx);
+    if (ctx.errors.length > errorCountBeforeSchemaIndex) {
+        return createFailingEnvelope(ctx.errors, ctx.warnings, {});
+    }
     const selectorExpansionBudget = { count: 0 };
     const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
@@ -866,6 +871,12 @@ function constraintBranchMatchesEvent(
         if (constraints.min_digits !== undefined && digitCount < constraints.min_digits) return false;
         if (constraints.max_digits !== undefined && digitCount > constraints.max_digits) return false;
         if (event.type === 'RadixLiteral' && constraints.radix !== undefined && !radixConstraintMatches(event.datatype, event.raw, constraints)) return false;
+        if (constraints.min_value !== undefined || constraints.max_value !== undefined) {
+            const normalized = normalizeRangeLiteral(event.type, event.raw);
+            if (normalized === null) return false;
+            if (constraints.min_value !== undefined && compareNumericValues(normalized, constraints.min_value) === -1) return false;
+            if (constraints.max_value !== undefined && compareNumericValues(normalized, constraints.max_value) === 1) return false;
+        }
     }
     return true;
 }
@@ -1147,8 +1158,8 @@ function checkDatatypeRules(
         }
 
         if (constraints.min_value !== undefined || constraints.max_value !== undefined) {
-            const range = normalizeRangeLiteral(event.type, raw);
-            if (!range) {
+            const normalized = normalizeRangeLiteral(event.type, raw);
+            if (!normalized) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
@@ -1158,20 +1169,20 @@ function checkDatatypeRules(
                 continue;
             }
 
-            if (constraints.min_value !== undefined && isBelowRange(range, constraints.min_value)) {
+            if (constraints.min_value !== undefined && compareNumericValues(normalized, constraints.min_value) === -1) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Datatype rule violation for ':${event.datatype}': expected value >= ${constraints.min_value}, got ${range.raw}`,
+                    `Datatype rule violation for ':${event.datatype}': expected value >= ${constraints.min_value}, got ${normalized}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
-            if (constraints.max_value !== undefined && isAboveRange(range, constraints.max_value)) {
+            if (constraints.max_value !== undefined && compareNumericValues(normalized, constraints.max_value) === 1) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Datatype rule violation for ':${event.datatype}': expected value <= ${constraints.max_value}, got ${range.raw}`,
+                    `Datatype rule violation for ':${event.datatype}': expected value <= ${constraints.max_value}, got ${normalized}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
             }
@@ -1374,6 +1385,36 @@ function validateAttributeEntry(
                 ));
             }
         }
+        if (effectiveConstraints.min_value !== undefined || effectiveConstraints.max_value !== undefined) {
+            const normalized = normalizeRangeLiteral(entry.type, entry.raw);
+            if (normalized === null) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    'Numeric form violation: range constraints require numeric literal form',
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+                return;
+            }
+            if (effectiveConstraints.min_value !== undefined
+                && compareNumericValues(normalized, effectiveConstraints.min_value) === -1) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected value >= ${effectiveConstraints.min_value}, got ${normalized}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
+            if (effectiveConstraints.max_value !== undefined
+                && compareNumericValues(normalized, effectiveConstraints.max_value) === 1) {
+                emitError(ctx, createDiag(
+                    path,
+                    entry.span,
+                    `Numeric form violation: expected value <= ${effectiveConstraints.max_value}, got ${normalized}`,
+                    ErrorCodes.NUMERIC_FORM_VIOLATION
+                ));
+            }
+        }
     }
 
     if (isStringType(entry.type)) {
@@ -1516,35 +1557,10 @@ function datatypeTypeMatches(actualType: string, expectedType: string, raw: stri
     return false;
 }
 
-type NormalizedRange = { kind: 'integer'; raw: string; value: bigint } | { kind: 'float'; raw: string; value: number };
-
-function normalizeRangeLiteral(type: string, raw: string): NormalizedRange | null {
+function normalizeRangeLiteral(type: string, raw: string): string | null {
     const normalized = raw.replace(/_/g, '');
-    if (type === 'FloatLiteral' || /[.eE]/.test(normalized)) {
-        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
-        const value = Number(normalized);
-        return Number.isFinite(value) ? { kind: 'float', raw: normalized, value } : null;
-    }
-    if (!/^[+-]?\d+$/.test(normalized)) return null;
-    return { kind: 'integer', raw: normalized, value: BigInt(normalized) };
-}
-
-function isBelowRange(range: NormalizedRange, bound: string): boolean {
-    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
-        return range.value < BigInt(bound);
-    }
-    return rangeAsNumber(range) < Number(bound);
-}
-
-function isAboveRange(range: NormalizedRange, bound: string): boolean {
-    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
-        return range.value > BigInt(bound);
-    }
-    return rangeAsNumber(range) > Number(bound);
-}
-
-function rangeAsNumber(range: NormalizedRange): number {
-    return range.kind === 'integer' ? Number(range.value) : range.value;
+    if (type !== 'FloatLiteral' && type !== 'NumberLiteral' && type !== 'IntegerLiteral') return null;
+    return compareNumericValues(normalized, normalized) === null ? null : normalized;
 }
 
 function countIntegerDigits(raw: string): number {
@@ -1552,7 +1568,12 @@ function countIntegerDigits(raw: string): number {
 }
 
 function hasDigitFormConstraints(constraints: ConstraintsV1): boolean {
-    return constraints.sign !== undefined || constraints.min_digits !== undefined || constraints.max_digits !== undefined || constraints.radix !== undefined;
+    return constraints.sign !== undefined
+        || constraints.min_digits !== undefined
+        || constraints.max_digits !== undefined
+        || constraints.radix !== undefined
+        || constraints.min_value !== undefined
+        || constraints.max_value !== undefined;
 }
 
 function isDigitFormLiteral(type: string): boolean {

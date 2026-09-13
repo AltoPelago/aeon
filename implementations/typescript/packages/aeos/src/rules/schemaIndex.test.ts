@@ -468,4 +468,23 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(index.size, 0);
         assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.INVALID_REFERENCE_CONSTRAINT);
     });
+
+    it('validates numeric bounds in datatype rules', () => {
+        const schema = {
+            rules: [],
+            datatype_rules: {
+                malformed: { min_value: 1 },
+                reversed: { min_value: '2', max_value: '1' },
+            },
+        } as unknown as SchemaV1;
+        const ctx = createDiagContext();
+
+        buildRuleIndex(schema, ctx);
+
+        assert.deepStrictEqual(
+            ctx.errors.map((error) => error.path),
+            ['datatype_rules.malformed', 'datatype_rules.reversed']
+        );
+        assert.ok(ctx.errors.every((error) => error.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
+    });
 });

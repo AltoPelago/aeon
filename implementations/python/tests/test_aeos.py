@@ -324,6 +324,63 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.postcode", "constraints": {"type": "IntegerLiteral", "min_value": "1000", "max_value": "9999", "resolve_reference_form": True}}]})
         self.assertTrue(result["ok"])
 
+    def test_decimal_bounds_are_compared_exactly(self) -> None:
+        aes = [{
+            "path": {"segments": [{"type": "root"}, {"type": "member", "key": "value"}]},
+            "key": "value",
+            "value": {
+                "type": "NumberLiteral",
+                "raw": "0.1000000000000000000000000000000001",
+                "value": "0.1000000000000000000000000000000001",
+            },
+            "span": [0, 36],
+        }]
+        result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"type": "FloatLiteral", "max_value": "0.1"}}]})
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(error["code"] == "numeric_form_violation" for error in result["errors"]))
+
+    def test_invalid_and_reversed_bounds_fail_schema_validation(self) -> None:
+        invalid = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "not-a-number"}}]})
+        self.assertFalse(invalid["ok"])
+        reversed_bounds = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "2", "max_value": "1"}}]})
+        self.assertFalse(reversed_bounds["ok"])
+
+    def test_invalid_and_reversed_datatype_rule_bounds_fail_schema_validation(self) -> None:
+        result = validate([], {
+            "rules": [],
+            "datatype_rules": {
+                "malformed": {"min_value": 1},
+                "reversed": {"min_value": "2", "max_value": "1"},
+            },
+        })
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            ["datatype_rules.malformed", "datatype_rules.reversed"],
+            [error["path"] for error in result["errors"]],
+        )
+
+    def test_explicit_null_bounds_fail_schema_validation(self) -> None:
+        rule_result = validate([], {
+            "rules": [{"path": "$.value", "constraints": {"min_value": None}}],
+        })
+        datatype_result = validate([], {
+            "rules": [],
+            "datatype_rules": {"number": {"max_value": None}},
+        })
+
+        self.assertFalse(rule_result["ok"])
+        self.assertFalse(datatype_result["ok"])
+        self.assertTrue(all(
+            error["code"] == "unknown_constraint_key"
+            for result in (rule_result, datatype_result)
+            for error in result["errors"]
+        ))
+
+    def test_numeric_bounds_accept_ascii_digits_only(self) -> None:
+        result = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "١"}}]})
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(error["code"] == "unknown_constraint_key" for error in result["errors"]))
+
     def test_cts_payload_adapter(self) -> None:
         payload = json.dumps({"aes": [], "schema": {"rules": []}, "options": {}})
         parsed = json.loads(validate_cts_payload(payload))
