@@ -1349,7 +1349,7 @@ fn parse_number(
 ) -> JsonValue {
     let normalized = raw.replace('_', "");
     if let Ok(value) = normalized.parse::<i64>() {
-        if value.abs() > 9_007_199_254_740_991 {
+        if !(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&value) {
             let diag = Diagnostic::new(
                 "FINALIZE_UNSAFE_NUMBER",
                 format!("Numeric literal exceeds JSON safe range: {raw}"),
@@ -2650,6 +2650,16 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "n": "9007199254740993.0" }));
+        assert_eq!(finalized.meta.errors.len(), 1);
+        assert_eq!(finalized.meta.errors[0].code, "FINALIZE_UNSAFE_NUMBER");
+    }
+
+    #[test]
+    fn reports_the_i64_minimum_as_unsafe_without_overflowing() {
+        let source = "n = -9223372036854775808\n";
+        let result = compile(source, CompileOptions::default());
+        let finalized = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(finalized.document, json!({ "n": "-9223372036854775808" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert_eq!(finalized.meta.errors[0].code, "FINALIZE_UNSAFE_NUMBER");
     }

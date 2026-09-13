@@ -44,7 +44,7 @@ export * from './limits.js';
 // PUBLIC API
 // =============================================================================
 
-export const VERSION = '0.12.1';
+export const VERSION = '0.13.0';
 
 /**
  * Union of all possible AEON errors

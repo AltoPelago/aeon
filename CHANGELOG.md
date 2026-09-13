@@ -8,6 +8,8 @@ repositories.
 
 ## Unreleased
 
+## 0.13.0 - 2026-09-14
+
 ### Breaking
 
 - Native `.aeos` schema source now requires `min_value` and `max_value` to be
@@ -15,10 +17,36 @@ repositories.
   `SchemaV1`/JSON representation retains canonical strings so arbitrary-precision
   bounds remain lossless across runtimes.
 
+### Added
+
+- Added reader-only Film v1 support to the TypeScript AES package, including
+  one-shot syntax and validated decoding, incremental decoding, typed
+  format-local limits, and structured Film diagnostics.
+- Re-exported Film reading through AEON Core and added checked SDK,
+  materialization, schema-validation, runtime, and CLI decode paths over the
+  same portable AES records used by Telex.
+- Added the `AesStreamLimits` and `PartialAesStreamLimits` TypeScript surfaces
+  so encoding-neutral structural policy can be shared without importing Telex
+  framing limits into Film.
+- Added an internal incremental TypeScript Telex decoder, split-boundary and
+  byte-at-a-time tests, shared CTS coverage, and a benchmark harness.
+
+### Changed
+
+- Added the immutable `film-cts-v1-snapshot-0.1` reader lane to TypeScript CI
+  and declared only the `film-reader` / `decode` conformance claim. Film
+  encoding and durable writing remain outside the package surface.
+- Hardened reproducible WASM generation and release sequencing around the
+  pinned Rust toolchain, Cargo lockfile, wrapper version, and exact
+  `wasm-pack 0.14.0` generator.
+
 ### Fixed
 
 - Validate numeric-bound syntax and ordering, and compare integer, decimal, and
   exponent bounds exactly across the TypeScript, Rust, and Python AEOS runtimes.
+- Kept Film byte limits format-local, enforced input limits after file reads,
+  merged nested AES limits without bypassing trusted policy, and preserved
+  registered extension fields through SDK finalization.
 
 ## 0.12.1 - 2026-09-11
 

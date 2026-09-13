@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aeon-aeos"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-core",
  "aes-telex",
@@ -15,14 +15,14 @@ dependencies = [
 
 [[package]]
 name = "aeon-annotations"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-core",
 ]
 
 [[package]]
 name = "aeon-canonical"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-core",
  "aes-telex",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-cli"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-aeos",
  "aeon-annotations",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-core"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aes-telex",
  "sha2",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-finalize"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-core",
  "aes-telex",
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-sdk"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-aeos",
  "aeon-core",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-wasm"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "aeon-annotations",
  "aeon-canonical",
