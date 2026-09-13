@@ -786,7 +786,7 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
             return False
     for key in ("min_value", "max_value"):
         value = constraints.get(key)
-        if value is not None and (not isinstance(value, str) or parse_exact_decimal(value) is None):
+        if key in constraints and (not isinstance(value, str) or parse_exact_decimal(value) is None):
             emit_error(ctx, create_diag(path, None, f"{key} must be a canonical AEON number lexeme for path {path}", ERROR_CODES["unknown_constraint_key"]))
             return False
     minimum = constraints.get("min_value")

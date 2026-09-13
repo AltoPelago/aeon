@@ -359,6 +359,23 @@ class AeosTests(unittest.TestCase):
             [error["path"] for error in result["errors"]],
         )
 
+    def test_explicit_null_bounds_fail_schema_validation(self) -> None:
+        rule_result = validate([], {
+            "rules": [{"path": "$.value", "constraints": {"min_value": None}}],
+        })
+        datatype_result = validate([], {
+            "rules": [],
+            "datatype_rules": {"number": {"max_value": None}},
+        })
+
+        self.assertFalse(rule_result["ok"])
+        self.assertFalse(datatype_result["ok"])
+        self.assertTrue(all(
+            error["code"] == "unknown_constraint_key"
+            for result in (rule_result, datatype_result)
+            for error in result["errors"]
+        ))
+
     def test_numeric_bounds_accept_ascii_digits_only(self) -> None:
         result = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "١"}}]})
         self.assertFalse(result["ok"])
