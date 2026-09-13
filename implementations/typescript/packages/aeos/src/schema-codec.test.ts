@@ -262,6 +262,23 @@ aeos:schema = {
         }), /must be a valid finite AEON number literal/u);
     });
 
+    it('normalizes long zero runs without regex backtracking', () => {
+        const fraction = `1${'0'.repeat(60_000)}`;
+        const schema = normalizeSchemaObject({
+            rules: [{
+                path: '$.value',
+                constraints: {
+                    min_value: `0.${fraction}`,
+                    max_value: `1e${'0'.repeat(60_000)}1`,
+                },
+            }],
+        });
+
+        const rendered = schemaToAeon(schema);
+        assert.match(rendered, /min_value:number = 0\.1\n/u);
+        assert.match(rendered, /max_value:number = 1e1\n/u);
+    });
+
     it('round-trips declaration and lineage identities', () => {
         const source = schemaToAeon({
             rules: [{

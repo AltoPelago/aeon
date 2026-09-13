@@ -16,15 +16,16 @@ export function normalizeNumericBound(value: string): string | null {
     const parsed = parseExactDecimal(value);
     if (parsed === null) return null;
 
-    let normalized = value.replace(/E/g, 'e').replace(/^\+/, '');
+    let normalized = value.replaceAll('E', 'e');
+    if (normalized.startsWith('+')) normalized = normalized.slice(1);
     if (normalized.startsWith('.')) normalized = `0${normalized}`;
-    if (normalized.startsWith('-.')) normalized = normalized.replace('-.', '-0.');
+    if (normalized.startsWith('-.')) normalized = `-0${normalized.slice(1)}`;
 
     const [mantissaInput = '', exponentInput] = normalized.split('e');
     let mantissa = mantissaInput;
     if (mantissa.includes('.')) {
         const [integer = '', fractionInput = ''] = mantissa.split('.');
-        const fraction = fractionInput.replace(/0+$/u, '') || '0';
+        const fraction = trimTrailingZeros(fractionInput) || '0';
         mantissa = exponentInput !== undefined && fraction === '0'
             ? integer
             : `${integer}.${fraction}`;
@@ -34,7 +35,10 @@ export function normalizeNumericBound(value: string): string | null {
     if (exponentInput === undefined) return mantissa;
 
     const negativeExponent = exponentInput.startsWith('-');
-    const exponentDigits = exponentInput.replace(/^[+-]/u, '').replace(/^0+/u, '') || '0';
+    const unsignedExponent = exponentInput.startsWith('-') || exponentInput.startsWith('+')
+        ? exponentInput.slice(1)
+        : exponentInput;
+    const exponentDigits = trimLeadingZeros(unsignedExponent) || '0';
     const exponent = exponentDigits === '0' ? '0' : `${negativeExponent ? '-' : ''}${exponentDigits}`;
     return `${mantissa}e${exponent}`;
 }
@@ -60,7 +64,7 @@ function parseExactDecimal(value: string): ExactDecimal | null {
     const fraction = match[3] ?? match[4] ?? '';
     if (integer.length > 1 && integer.startsWith('0')) return null;
 
-    const digits = `${integer}${fraction}`.replace(/^0+/u, '');
+    const digits = trimLeadingZeros(`${integer}${fraction}`);
     if (digits.length === 0) return { sign: 0, digits: '0', scale: 0n };
 
     return {
@@ -68,6 +72,18 @@ function parseExactDecimal(value: string): ExactDecimal | null {
         digits,
         scale: BigInt(match[5] ?? '0') - BigInt(fraction.length),
     };
+}
+
+function trimLeadingZeros(value: string): string {
+    let start = 0;
+    while (start < value.length && value.charCodeAt(start) === 48) start += 1;
+    return value.slice(start);
+}
+
+function trimTrailingZeros(value: string): string {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 48) end -= 1;
+    return value.slice(0, end);
 }
 
 function compareMagnitude(left: ExactDecimal, right: ExactDecimal): NumericComparison {
