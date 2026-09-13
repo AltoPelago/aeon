@@ -91,12 +91,8 @@ export interface FinalizationLimits {
     readonly maxMaterializedWeight?: number;
 }
 
-export interface AeonTelexLimits {
-    readonly maxInputBytes: number;
-    readonly maxLineBytes: number;
-    readonly maxFieldsPerEvent: number;
+export interface AeonAesStreamLimits {
     readonly maxEvents: number;
-    readonly maxDecodedPayloadBytes: number;
     readonly maxPathDepth: number;
     readonly maxPathCharacters: number;
     readonly maxAttributeDepth: number;
@@ -111,6 +107,13 @@ export interface AeonTelexLimits {
     readonly maxDatatypeComponents: number;
 }
 
+export interface AeonTelexLimits extends AeonAesStreamLimits {
+    readonly maxInputBytes: number;
+    readonly maxLineBytes: number;
+    readonly maxFieldsPerEvent: number;
+    readonly maxDecodedPayloadBytes: number;
+}
+
 /**
  * Inspectable configuration selected for a Telex portable boundary.
  *
@@ -122,6 +125,17 @@ export interface EffectiveTelexConfiguration {
     readonly limitsVersion: typeof AEONIC_LIMITS_VERSION;
     readonly profileClaims: readonly string[];
     readonly telex: AeonTelexLimits;
+    readonly finalization: FinalizationLimits;
+    /** True when a trusted caller has changed a normalized selected value. */
+    readonly overridesApplied: boolean;
+}
+
+/** Inspectable shared AES/finalization limits selected for a Film boundary. */
+export interface EffectiveAesConfiguration {
+    readonly limitsId: typeof AEONIC_LIMITS_ID;
+    readonly limitsVersion: typeof AEONIC_LIMITS_VERSION;
+    readonly profileClaims: readonly string[];
+    readonly aes: AeonAesStreamLimits;
     readonly finalization: FinalizationLimits;
     /** True when a trusted caller has changed a normalized selected value. */
     readonly overridesApplied: boolean;
@@ -224,6 +238,13 @@ export function telexLimits(limits: AeonicLimitsV1): AeonTelexLimits {
         maxLineBytes: bounded(limits.formats.telex.maxLineBytes, 1_048_576, 67_108_864, 'max_line_bytes'),
         maxFieldsPerEvent: bounded(limits.formats.telex.maxFieldsPerEvent, 64, 4_096, 'max_fields_per_event'),
         maxDecodedPayloadBytes: bounded(limits.formats.telex.maxDecodedPayloadBytes, 33_554_432, 1_073_741_824, 'max_decoded_payload_bytes'),
+        ...aesStreamLimits(limits),
+    };
+}
+
+/** Resolve the encoding-neutral AES structural and event-count subset. */
+export function aesStreamLimits(limits: AeonicLimitsV1): AeonAesStreamLimits {
+    return {
         maxEvents: bounded(limits.processing.maxEvents, 100_000, 1_000_000, 'max_events'),
         maxPathDepth: bounded(limits.structure.maxPathDepth, 1_024, 4_096, 'max_path_depth'),
         maxPathCharacters: bounded(limits.structure.maxPathCharacters, 8_192, 65_536, 'max_path_characters'),
@@ -247,6 +268,18 @@ export function effectiveTelexConfiguration(limits: AeonicLimitsV1): EffectiveTe
         limitsVersion: limits.limitsVersion,
         profileClaims: [...limits.profileClaims],
         telex: telexLimits(limits),
+        finalization: finalizationLimits(limits),
+        overridesApplied: false,
+    };
+}
+
+/** Resolve inspectable shared limits without importing Telex byte policy. */
+export function effectiveAesConfiguration(limits: AeonicLimitsV1): EffectiveAesConfiguration {
+    return {
+        limitsId: limits.limitsId,
+        limitsVersion: limits.limitsVersion,
+        profileClaims: [...limits.profileClaims],
+        aes: aesStreamLimits(limits),
         finalization: finalizationLimits(limits),
         overridesApplied: false,
     };

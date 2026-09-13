@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
     aeonCompileLimits,
     aeonTransportLimits,
+    aesStreamLimits,
+    effectiveAesConfiguration,
     effectiveTelexConfiguration,
     finalizationLimits,
     loadAeonicLimits,
@@ -94,6 +96,16 @@ test('loads and normalizes the closed v1 limits file under bootstrap policy', ()
         overridesApplied: false,
     });
     assert.notStrictEqual(effectiveTelex.profileClaims, loaded.limits.profileClaims);
+    const effectiveAes = effectiveAesConfiguration(loaded.limits);
+    assert.deepStrictEqual(effectiveAes, {
+        limitsId: 'altopelago.aeonic-limits.v1',
+        limitsVersion: '1.0.0',
+        profileClaims: ['aeon.gp.profile.v1'],
+        aes: aesStreamLimits(loaded.limits),
+        finalization: finalizationLimits(loaded.limits),
+        overridesApplied: false,
+    });
+    assert.strictEqual('maxInputBytes' in effectiveAes.aes, false);
 });
 
 test('rejects unknown fields and accepts the two custom limit sentinels', () => {

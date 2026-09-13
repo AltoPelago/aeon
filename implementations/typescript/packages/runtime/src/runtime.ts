@@ -9,15 +9,21 @@ import {
 import {
     compile as compileCore,
     effectiveTelexConfiguration,
+    effectiveAesConfiguration,
     type AeonicLimitsV1,
     type AnnotationRecord,
     type EffectiveTelexConfiguration,
+    type EffectiveAesConfiguration,
 } from '@altopelago/aeon-core';
 import {
+    FILM_VERSION,
+    decodeFilm,
     parseTelex,
     resolveRefs,
     validateTelexRecords,
     type AssignmentEvent,
+    type FilmDecodeOptions,
+    type FilmStream,
     type ParsedTelex,
     type ResolveDiagnostic,
     type ResolveMeta,
@@ -88,7 +94,14 @@ export interface RuntimeMeta {
     readonly resolution?: ResolveMeta;
     readonly finalization?: FinalizeMeta;
     readonly telex?: TelexValidationResult;
+    readonly film?: {
+        readonly valid: true;
+        readonly version: typeof FILM_VERSION;
+        readonly profile: string;
+        readonly projection: string | null;
+    };
     readonly effectiveLimits?: EffectiveTelexConfiguration;
+    readonly effectiveAesLimits?: EffectiveAesConfiguration;
 }
 
 export interface RuntimeResult {
@@ -112,6 +125,24 @@ export interface TelexRuntimeOptions extends Omit<TelexValidationOptions, 'profi
 export interface TelexRuntimeResult {
     readonly aes: ParsedTelex['records'];
     readonly parsed?: ParsedTelex;
+    readonly document?: JsonObject;
+    readonly meta: RuntimeMeta;
+}
+
+export interface FilmRuntimeOptions extends FilmDecodeOptions {
+    readonly mode?: RuntimeMode;
+    readonly schema?: SchemaV1;
+    readonly scope?: FinalizeScope;
+    readonly maxMaterializedWeight?: number;
+    readonly maxReferenceDepth?: number;
+    readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
+    /** Trusted, consumer-selected common limits document. */
+    readonly aeonicLimits?: AeonicLimitsV1;
+}
+
+export interface FilmRuntimeResult {
+    readonly aes: FilmStream['records'];
+    readonly decoded?: FilmStream;
     readonly document?: JsonObject;
     readonly meta: RuntimeMeta;
 }
@@ -505,6 +536,138 @@ export function runTelexRuntime(input: string, options: TelexRuntimeOptions = {}
             ...(finalized.meta ? { finalization: finalized.meta } : {}),
         },
     };
+}
+
+/**
+ * Run the portable runtime path for a reader-first Film v1 stream.
+ *
+ * Film decoding performs complete AES validation before schema validation or
+ * materialization. This surface deliberately provides no Film encoder.
+ */
+export function runFilmRuntime(input: Uint8Array, options: FilmRuntimeOptions = {}): FilmRuntimeResult {
+    const mode = options.mode ?? 'strict';
+    const scope = options.scope ?? 'payload';
+    const effectiveLimits = runtimeEffectiveAesConfiguration(options);
+    const codecOptions = effectiveLimits
+        ? { ...options, aesLimits: effectiveLimits.aes }
+        : options;
+    const errors: RuntimeDiagnostic[] = [];
+    const warnings: RuntimeDiagnostic[] = [];
+    let decoded: FilmStream;
+
+    try {
+        decoded = decodeFilm(input, codecOptions);
+    } catch (error) {
+        const failure = error as { readonly code?: string; readonly message?: string };
+        errors.push(asDiag('error', 5, {
+            code: failure.code ?? 'FILM_DECODE_ERROR',
+            message: failure.message ?? String(error),
+        }));
+        return { aes: [], meta: { errors, warnings, ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}) } };
+    }
+
+    const film = {
+        valid: true as const,
+        version: FILM_VERSION,
+        profile: decoded.profile,
+        projection: decoded.projection,
+    };
+
+    let schemaResult: ResultEnvelope | undefined;
+    if (options.schema) {
+        const body = decoded.records.filter((record): record is PortableAesBodyEvent => (
+            typeof record.path === 'string'
+            && typeof record.kind === 'string'
+            && record.header === undefined
+        ));
+        schemaResult = validate(body, options.schema, {
+            ...(options.trailingSeparatorDelimiterPolicy !== undefined
+                ? { trailingSeparatorDelimiterPolicy: options.trailingSeparatorDelimiterPolicy }
+                : {}),
+        });
+        appendSchemaDiagnostics(errors, warnings, schemaResult.errors, 'error');
+        appendSchemaDiagnostics(errors, warnings, schemaResult.warnings, 'warning');
+        if (mode === 'strict' && schemaResult.errors.length > 0) {
+            return {
+                aes: decoded.records,
+                decoded,
+                meta: {
+                    errors,
+                    warnings,
+                    film,
+                    schema: schemaResult,
+                    ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}),
+                },
+            };
+        }
+    }
+
+    const finalized = finalizePortableJson(decoded.records, {
+        ...(effectiveLimits?.finalization ?? {}),
+        ...(effectiveLimits?.aes ?? {}),
+        ...options,
+        ...runtimeFilmAesValidationOptions(options),
+        profile: decoded.profile,
+        projection: decoded.projection,
+        mode,
+        scope,
+    });
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.errors, 'error');
+    appendFinalizeDiagnostics(errors, warnings, finalized.meta?.warnings, 'warning');
+
+    return {
+        aes: decoded.records,
+        decoded,
+        document: finalized.document,
+        meta: {
+            errors,
+            warnings,
+            film,
+            ...(effectiveLimits ? { effectiveAesLimits: effectiveLimits } : {}),
+            ...(schemaResult ? { schema: schemaResult } : {}),
+            ...(finalized.meta ? { finalization: finalized.meta } : {}),
+        },
+    };
+}
+
+function runtimeFilmAesValidationOptions(options: FilmDecodeOptions): TelexValidationOptions {
+    const {
+        filmLimits: _filmLimits,
+        maxInputBytes: _maxInputBytes,
+        maxRecordBytes: _maxRecordBytes,
+        maxFieldBytes: _maxFieldBytes,
+        maxBufferedBytes: _maxBufferedBytes,
+        aesLimits,
+        limits,
+        ...shared
+    } = options;
+    return { ...shared, ...(limits ?? {}), ...(aesLimits ?? {}) };
+}
+
+function runtimeEffectiveAesConfiguration(
+    options: FilmRuntimeOptions,
+): EffectiveAesConfiguration | undefined {
+    if (!options.aeonicLimits) return undefined;
+    const selected = effectiveAesConfiguration(options.aeonicLimits);
+    const aes = { ...selected.aes };
+    const overrides = runtimeFilmAesValidationOptions(options);
+    let overridesApplied = false;
+    for (const key of Object.keys(aes) as (keyof typeof aes)[]) {
+        const override = overrides[key];
+        if (override !== undefined && override !== aes[key]) {
+            aes[key] = override;
+            overridesApplied = true;
+        }
+    }
+    const finalization = { ...selected.finalization };
+    for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+        const override = options[key];
+        if (override !== undefined && override !== finalization[key]) {
+            finalization[key] = override;
+            overridesApplied = true;
+        }
+    }
+    return { ...selected, aes, finalization, overridesApplied };
 }
 
 function runtimeEffectiveTelexConfiguration(

@@ -3,6 +3,8 @@ import {
   compileToTelex,
   aeonCompileLimits,
   encodeTelex,
+  decodeFilm,
+  effectiveAesConfiguration,
   effectiveTelexConfiguration,
   formatPath,
   parseTelex,
@@ -12,6 +14,7 @@ import {
   type CompileToTelexOptions,
   type CompileToTelexResult,
   type AeonicLimitsV1,
+  type EffectiveAesConfiguration,
   type EffectiveTelexConfiguration,
   type FinalizationLimits,
   type ParsedTelex,
@@ -21,6 +24,8 @@ import {
   type TelexLimitOptions,
   type TelexValidationOptions,
   type TelexValidationResult,
+  type FilmDecodeOptions,
+  type FilmStream,
 } from '@altopelago/aeon-core';
 import {
   finalizeJson,
@@ -65,6 +70,28 @@ export interface ReadTelexDocumentOptions {
 }
 
 export interface ReadTelexDocumentResult extends ReadTelexResult {
+  readonly finalized: FinalizeJsonResult;
+}
+
+export interface ReadFilmOptions extends FilmDecodeOptions {
+  /** Trusted, consumer-selected common limits document. */
+  readonly aeonicLimits?: AeonicLimitsV1;
+}
+
+export interface ReadFilmResult {
+  readonly stream: FilmStream;
+  readonly records: FilmStream['records'];
+  readonly effectiveLimits?: EffectiveAesConfiguration;
+}
+
+export interface ReadFilmDocumentOptions {
+  readonly film?: FilmDecodeOptions;
+  readonly finalize?: Omit<FinalizePortableJsonOptions, 'profile' | 'projection'>;
+  /** Trusted, consumer-selected common limits document. */
+  readonly aeonicLimits?: AeonicLimitsV1;
+}
+
+export interface ReadFilmDocumentResult extends ReadFilmResult {
   readonly finalized: FinalizeJsonResult;
 }
 
@@ -199,6 +226,93 @@ export function readTelexDocumentChecked(
   return result;
 }
 
+/** Decode and completely validate a reader-first Film v1 stream. */
+export function readFilm(input: Uint8Array, options: ReadFilmOptions = {}): ReadFilmResult {
+  const { aeonicLimits, ...explicit } = options;
+  const effectiveLimits = resolveEffectiveAesConfiguration(aeonicLimits, explicit);
+  const stream = decodeFilm(input, effectiveLimits
+    ? { ...explicit, aesLimits: effectiveLimits.aes }
+    : explicit);
+  return {
+    stream,
+    records: stream.records,
+    ...(effectiveLimits ? { effectiveLimits } : {}),
+  };
+}
+
+/** Decode, validate, and materialize Film without exposing a Film writer. */
+export function readFilmDocument(
+  input: Uint8Array,
+  options: ReadFilmDocumentOptions = {},
+): ReadFilmDocumentResult {
+  const effectiveLimits = resolveEffectiveAesConfiguration(
+    options.aeonicLimits,
+    options.film,
+    options.finalize,
+  );
+  const result = readFilm(input, {
+    ...(options.film ?? {}),
+    ...(options.aeonicLimits ? { aeonicLimits: options.aeonicLimits } : {}),
+  });
+  const finalized = finalizePortableJson(result.records, {
+    ...(effectiveLimits?.finalization ?? {}),
+    ...(effectiveLimits?.aes ?? {}),
+    ...filmAesValidationOptions(options.film),
+    ...(options.finalize ?? {}),
+    profile: result.stream.profile,
+    projection: result.stream.projection,
+  });
+  return {
+    ...result,
+    finalized,
+    ...(effectiveLimits ? { effectiveLimits } : {}),
+  };
+}
+
+function filmAesValidationOptions(options: FilmDecodeOptions = {}): TelexValidationOptions {
+  const {
+    filmLimits: _filmLimits,
+    maxInputBytes: _maxInputBytes,
+    maxRecordBytes: _maxRecordBytes,
+    maxFieldBytes: _maxFieldBytes,
+    maxBufferedBytes: _maxBufferedBytes,
+    aesLimits,
+    limits,
+    ...shared
+  } = options;
+  return { ...shared, ...(limits ?? {}), ...(aesLimits ?? {}) };
+}
+
+function resolveEffectiveAesConfiguration(
+  limits: AeonicLimitsV1 | undefined,
+  filmOverrides: FilmDecodeOptions | undefined,
+  finalizationOverrides: FinalizationLimits | undefined = undefined,
+): EffectiveAesConfiguration | undefined {
+  if (!limits) return undefined;
+  const selected = effectiveAesConfiguration(limits);
+  const aes = { ...selected.aes };
+  const finalization = { ...selected.finalization };
+  const overrides = filmAesValidationOptions(filmOverrides);
+  let overridesApplied = false;
+
+  for (const key of Object.keys(aes) as (keyof typeof aes)[]) {
+    const override = overrides[key];
+    if (override !== undefined && override !== aes[key]) {
+      aes[key] = override;
+      overridesApplied = true;
+    }
+  }
+  for (const key of ['maxReferenceDepth', 'maxMaterializedWeight'] as const) {
+    const override = finalizationOverrides?.[key];
+    if (override !== undefined && override !== finalization[key]) {
+      finalization[key] = override;
+      overridesApplied = true;
+    }
+  }
+
+  return { ...selected, aes, finalization, overridesApplied };
+}
+
 /** Encode portable AES records as a Telex stream. */
 export function writeTelex(
   records: readonly (TelexRecord | PortableAesEvent)[],
@@ -272,4 +386,6 @@ export type {
   TelexRecord,
   TelexValidationOptions,
   TelexValidationResult,
+  FilmDecodeOptions,
+  FilmStream,
 };

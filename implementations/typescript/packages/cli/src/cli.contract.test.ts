@@ -921,6 +921,55 @@ describe('AEON CLI output contract', () => {
             });
         });
 
+        it('decodes and materializes Film v1 without exposing a writer', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-film-import-'));
+            const file = path.join(dir, 'stream.film.aes');
+            const limitsFile = path.join(dir, 'limits.aeon');
+            const sharedPolicy = path.resolve(__dirname, '../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon');
+            fs.writeFileSync(
+                file,
+                Buffer.from('4f5f5fff010012000109242e6d6573736167650568656c6c6f', 'hex'),
+            );
+            fs.writeFileSync(
+                limitsFile,
+                fs.readFileSync(sharedPolicy, 'utf8').replace(
+                    'max_input_bytes = 67108864',
+                    'max_input_bytes = 1',
+                ),
+                'utf8',
+            );
+
+            const decoded = await runCli(['film', 'decode', file]);
+            assert.strictEqual(decoded.code, 0);
+            assert.strictEqual(decoded.stderr, '');
+            const stream = JSON.parse(decoded.stdout) as {
+                profile: string;
+                records: Array<{ path: string; kind: string; value: string }>;
+            };
+            assert.strictEqual(stream.profile, 'aes.complete.v1');
+            assert.deepStrictEqual(stream.records, [{
+                path: '$.message',
+                kind: 'StringLiteral',
+                value: 'hello',
+            }]);
+
+            // The published v1 limits file's Telex byte limit is not Film byte policy.
+            const withLimits = await runCli(['film', 'decode', file, '--limits-file', limitsFile]);
+            assert.strictEqual(withLimits.code, 0);
+            assert.strictEqual(withLimits.stderr, '');
+
+            const materialized = await runCli(['film', 'materialize', file]);
+            assert.strictEqual(materialized.code, 0);
+            assert.strictEqual(materialized.stderr, '');
+            assert.deepStrictEqual(JSON.parse(materialized.stdout), {
+                document: { message: 'hello' },
+            });
+
+            const writer = await runCli(['film', 'encode', file]);
+            assert.strictEqual(writer.code, 2);
+            assert.match(writer.stderr, /Usage: aeon film <decode\|materialize>/u);
+        });
+
         it('supports --sort-annotations with annotations-only JSON output', async () => {
             const { code, stdout, stderr } = await runCli([
                 'inspect',

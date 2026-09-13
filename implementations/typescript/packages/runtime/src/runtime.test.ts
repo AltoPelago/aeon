@@ -2,8 +2,59 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { compileToTelex, loadAeonicLimits } from '@altopelago/aeon-core';
-import { createTypedRuntimeBinder, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
+import { createTypedRuntimeBinder, runFilmRuntime, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
+
+const FILM_SCALAR = Uint8Array.from(
+    '4f5f5fff010012000109242e6d6573736167650568656c6c6f'.match(/../gu) ?? [],
+    (pair) => Number.parseInt(pair, 16),
+);
+
+test('runs Film -> portable AES -> schema -> JSON materialization', () => {
+    const schema: SchemaV1 = {
+        rules: [
+            { path: '$.message', constraints: { type: 'StringLiteral', required: true } },
+        ],
+    };
+    const result = runFilmRuntime(FILM_SCALAR, { schema });
+
+    assert.equal(result.meta.errors.length, 0);
+    assert.equal(result.meta.film?.valid, true);
+    assert.deepEqual(result.aes, [
+        { path: '$.message', kind: 'StringLiteral', value: 'hello' },
+    ]);
+    assert.deepEqual(result.document, { message: 'hello' });
+});
+
+test('Film runtime fails before schema and finalization on invalid Film', () => {
+    const result = runFilmRuntime(Uint8Array.from([0x00]));
+
+    assert.equal(result.document, undefined);
+    assert.equal(result.aes.length, 0);
+    assert.ok(result.meta.errors.some((diagnostic) => (
+        diagnostic.phase === 5 && diagnostic.code === 'FILM_TRUNCATED'
+    )));
+});
+
+test('keeps Film byte policy separate from shared AES limits', () => {
+    const policySource = fs.readFileSync(
+        new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+        'utf8',
+    ).replace('max_input_bytes = 67108864', 'max_input_bytes = 1');
+    const loaded = loadAeonicLimits(policySource);
+    assert.ok(loaded.limits);
+
+    const accepted = runFilmRuntime(FILM_SCALAR, { aeonicLimits: loaded.limits });
+    assert.equal(accepted.meta.errors.length, 0);
+    assert.equal(accepted.meta.effectiveAesLimits?.aes.maxEvents, 100_000);
+    assert.equal('maxInputBytes' in (accepted.meta.effectiveAesLimits?.aes ?? {}), false);
+
+    const rejected = runFilmRuntime(FILM_SCALAR, {
+        aeonicLimits: loaded.limits,
+        filmLimits: { maxInputBytes: FILM_SCALAR.byteLength - 1 },
+    });
+    assert.ok(rejected.meta.errors.some(({ code }) => code === 'FILM_LIMIT_EXCEEDED'));
+});
 
 test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     const schema: SchemaV1 = {

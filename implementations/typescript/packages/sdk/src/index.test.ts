@@ -8,6 +8,8 @@ import {
   readAeon,
   readAeonChecked,
   readAeonStrictCustom,
+  readFilm,
+  readFilmDocument,
   readTelex,
   readTelexChecked,
   readTelexDocument,
@@ -15,6 +17,72 @@ import {
   writeAeon,
   writeTelex,
 } from './index.js';
+
+const FILM_SCALAR = Uint8Array.from(
+  '4f5f5fff010012000109242e6d6573736167650568656c6c6f'.match(/../gu) ?? [],
+  (pair) => Number.parseInt(pair, 16),
+);
+const FILM_EXTENSION = Uint8Array.from(
+  '4f5f5fff01002f000103242e6101780f782e6578616d706c652e616c70686101310e782e6578616d706c652e6e6f746505636166c3a9'.match(/../gu) ?? [],
+  (pair) => Number.parseInt(pair, 16),
+);
+
+test('reads and materializes Film through the reader-only SDK boundary', () => {
+  const decoded = readFilm(FILM_SCALAR);
+  assert.deepEqual(decoded.records, [
+    { path: '$.message', kind: 'StringLiteral', value: 'hello' },
+  ]);
+
+  const materialized = readFilmDocument(FILM_SCALAR);
+  assert.deepEqual(materialized.finalized.document, { message: 'hello' });
+  assert.equal(materialized.finalized.meta?.errors?.length ?? 0, 0);
+});
+
+test('applies the common structural limits document to Film reads', () => {
+  const policySource = fs.readFileSync(
+    new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
+    'utf8',
+  );
+  const loaded = loadAeonicLimits(policySource);
+  assert.ok(loaded.limits);
+
+  assert.throws(
+    () => readFilm(FILM_SCALAR, {
+      aeonicLimits: loaded.limits,
+      maxStringCodepoints: 4,
+    }),
+    (error: unknown) => (
+      typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && error.code === 'FILM_AES_INVALID'
+    ),
+  );
+
+  const decoded = readFilm(FILM_SCALAR, {
+    aeonicLimits: loaded.limits,
+    maxStringCodepoints: 5,
+  });
+  assert.equal(decoded.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
+  assert.equal(decoded.effectiveLimits?.aes.maxStringCodepoints, 5);
+  assert.equal(decoded.effectiveLimits?.overridesApplied, true);
+});
+
+test('preserves registered Film extensions through portable finalization', () => {
+  const result = readFilmDocument(FILM_EXTENSION, {
+    film: { registeredFields: ['x.example.alpha', 'x.example.note'] },
+  });
+
+  assert.deepEqual(result.records, [{
+    path: '$.a',
+    kind: 'StringLiteral',
+    value: 'x',
+    'x.example.alpha': '1',
+    'x.example.note': 'café',
+  }]);
+  assert.deepEqual(result.finalized.document, { a: 'x' });
+  assert.equal(result.finalized.meta?.errors?.length ?? 0, 0);
+});
 
 test('reads and writes Telex as a portable boundary format', () => {
   const encoded = writeTelex([{ path: '$.answer', kind: 'NumberLiteral', value: '42' }]);
