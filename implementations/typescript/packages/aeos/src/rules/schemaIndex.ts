@@ -10,6 +10,7 @@ import type { DiagContext } from '../diag/emit.js';
 import { createDiag, emitError } from '../diag/emit.js';
 import { ErrorCodes } from '../diag/codes.js';
 import { parseAddress } from '@altopelago/sansa';
+import { compareNumericValues, normalizeNumericBound } from '../util/numericBounds.js';
 
 const MAX_SCHEMA_REGEX_LENGTH = 512;
 const PORTABLE_REGEX_ESCAPES = new Set([
@@ -470,15 +471,29 @@ function validateConstraintTree(
 
     for (const key of ['min_value', 'max_value'] as const) {
         const value = constraints[key];
-        if (value !== undefined && typeof value !== 'string') {
+        if (value !== undefined && (typeof value !== 'string' || normalizeNumericBound(value) === null)) {
             emitError(ctx, createDiag(
                 rulePath,
                 null,
-                `${key} must be string for path ${rulePath}`,
+                `${key} must be a canonical AEON number lexeme for path ${rulePath}`,
                 ErrorCodes.UNKNOWN_CONSTRAINT_KEY
             ));
             return false;
         }
+    }
+
+    const minimumValue = constraints.min_value;
+    const maximumValue = constraints.max_value;
+    if (typeof minimumValue === 'string'
+        && typeof maximumValue === 'string'
+        && compareNumericValues(minimumValue, maximumValue) === 1) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `min_value must be less than or equal to max_value for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
     }
 
     const nestedAttributes = constraints.attributes;

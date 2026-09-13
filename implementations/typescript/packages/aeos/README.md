@@ -101,6 +101,14 @@ aeos:schema = {
         type:string = "StringLiteral"
       }
     }
+    {
+      path:sansa = $.contact.age
+      constraints:object = {
+        type:string = "IntegerLiteral"
+        min_value:number = 0
+        max_value:number = 120
+      }
+    }
   ]
 }
 `);
@@ -111,6 +119,10 @@ const source = schemaToAeon(schema);
 Native `.aeos` source uses `path:sansa` for exact targets and
 `selector:sansa` for expansion targets. The in-memory `SchemaV1` object still
 uses string `path` / `selector` fields.
+
+Numeric value bounds are native AEON numbers in `.aeos` source. The in-memory
+and portable JSON schema models retain their canonical number lexemes as
+strings, avoiding JSON and JavaScript precision loss.
 
 ### Indexed child paths
 

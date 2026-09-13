@@ -773,9 +773,14 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
             return False
     for key in ("min_value", "max_value"):
         value = constraints.get(key)
-        if value is not None and not isinstance(value, str):
-            emit_error(ctx, create_diag(path, None, f"{key} must be string for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        if value is not None and (not isinstance(value, str) or parse_exact_decimal(value) is None):
+            emit_error(ctx, create_diag(path, None, f"{key} must be a canonical AEON number lexeme for path {path}", ERROR_CODES["unknown_constraint_key"]))
             return False
+    minimum = constraints.get("min_value")
+    maximum = constraints.get("max_value")
+    if isinstance(minimum, str) and isinstance(maximum, str) and compare_decimal_literals(minimum, maximum) == 1:
+        emit_error(ctx, create_diag(path, None, f"min_value must be less than or equal to max_value for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
     any_of = constraints.get("any_of")
     if any_of is not None:
         if not isinstance(any_of, list) or len(any_of) == 0:
@@ -1008,16 +1013,15 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
             if invalid_digit is not None:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
                 continue
-        normalized = normalize_integer_literal(raw)
         if min_value is not None or max_value is not None:
-            if normalized is None:
-                emit_error(ctx, create_diag(path, event.get("span"), "Numeric form violation: exact integer range constraints require integer literal form", ERROR_CODES["numeric_form_violation"]))
+            normalized = raw.replace("_", "")
+            if parse_exact_decimal(normalized) is None:
+                emit_error(ctx, create_diag(path, event.get("span"), "Numeric form violation: range constraints require numeric literal form", ERROR_CODES["numeric_form_violation"]))
                 continue
-            numeric = int(normalized)
-            if isinstance(min_value, str) and numeric < int(min_value):
+            if isinstance(min_value, str) and compare_decimal_literals(normalized, min_value) == -1:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected value >= {min_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
                 continue
-            if isinstance(max_value, str) and numeric > int(max_value):
+            if isinstance(max_value, str) and compare_decimal_literals(normalized, max_value) == 1:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
 
 
@@ -1174,14 +1178,13 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
             if invalid_digit is not None:
                 emit_error(ctx, create_diag(path, span, f"Numeric form violation: radix literal digit '{invalid_digit}' is outside radix {radix}", ERROR_CODES["numeric_form_violation"]))
         if min_value is not None or max_value is not None:
-            normalized = normalize_integer_literal(raw)
-            if normalized is None:
-                emit_error(ctx, create_diag(path, span, "Numeric form violation: exact integer range constraints require integer literal form", ERROR_CODES["numeric_form_violation"]))
+            normalized = raw.replace("_", "")
+            if parse_exact_decimal(normalized) is None:
+                emit_error(ctx, create_diag(path, span, "Numeric form violation: range constraints require numeric literal form", ERROR_CODES["numeric_form_violation"]))
             else:
-                numeric = int(normalized)
-                if isinstance(min_value, str) and numeric < int(min_value):
+                if isinstance(min_value, str) and compare_decimal_literals(normalized, min_value) == -1:
                     emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected value >= {min_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
-                if isinstance(max_value, str) and numeric > int(max_value):
+                if isinstance(max_value, str) and compare_decimal_literals(normalized, max_value) == 1:
                     emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected value <= {max_value}, got {normalized}", ERROR_CODES["numeric_form_violation"]))
 
     if is_string_like_literal(str(actual_type)):
@@ -1587,6 +1590,16 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
                 return False
             if first_invalid_radix_digit(raw, radix) is not None:
                 return False
+        if constraints.get("min_value") is not None or constraints.get("max_value") is not None:
+            normalized = raw.replace("_", "")
+            if parse_exact_decimal(normalized) is None:
+                return False
+            minimum = constraints.get("min_value")
+            maximum = constraints.get("max_value")
+            if isinstance(minimum, str) and compare_decimal_literals(normalized, minimum) == -1:
+                return False
+            if isinstance(maximum, str) and compare_decimal_literals(normalized, maximum) == 1:
+                return False
     return True
 
 
@@ -1695,10 +1708,117 @@ def is_reference_type(value_type: object) -> bool:
     return value_type in {"CloneReference", "PointerReference"}
 
 
-def normalize_integer_literal(raw: str) -> str | None:
-    if re.fullmatch(r"[+-]?\d[\d_]*", raw) is None:
+ExactDecimal = tuple[int, str, tuple[bool, str]]
+
+
+def parse_exact_decimal(raw: str) -> ExactDecimal | None:
+    if len(raw) > 65_536:
         return None
-    return raw.replace("_", "")
+    match = re.fullmatch(r"([+-]?)(?:(\d+)(?:\.(\d+))?|\.(\d+))(?:[eE]([+-]?\d+))?", raw)
+    if match is None:
+        return None
+    integer = match.group(2) or ""
+    fraction = match.group(3) or match.group(4) or ""
+    if len(integer) > 1 and integer.startswith("0"):
+        return None
+    digits = f"{integer}{fraction}".lstrip("0")
+    if not digits:
+        return (0, "0", (False, "0"))
+    exponent = _parse_signed_decimal(match.group(5) or "0")
+    if exponent is None:
+        return None
+    order = _signed_decimal_add_small(exponent, len(digits) - len(fraction))
+    return (-1 if match.group(1) == "-" else 1, digits, order)
+
+
+def compare_decimal_literals(left: str, right: str) -> int | None:
+    left_value = parse_exact_decimal(left)
+    right_value = parse_exact_decimal(right)
+    if left_value is None or right_value is None:
+        return None
+    left_sign, left_digits, left_order = left_value
+    right_sign, right_digits, right_order = right_value
+    if left_sign != right_sign:
+        return -1 if left_sign < right_sign else 1
+    if left_sign == 0:
+        return 0
+    comparison = _compare_signed_decimal(left_order, right_order)
+    if comparison == 0:
+        width = max(len(left_digits), len(right_digits))
+        padded_left = left_digits.ljust(width, "0")
+        padded_right = right_digits.ljust(width, "0")
+        comparison = -1 if padded_left < padded_right else 1 if padded_left > padded_right else 0
+    return -comparison if left_sign < 0 else comparison
+
+
+def _parse_signed_decimal(value: str) -> tuple[bool, str] | None:
+    negative = value.startswith("-")
+    unsigned = value[1:] if value[:1] in {"+", "-"} else value
+    if not unsigned or not unsigned.isascii() or not unsigned.isdigit():
+        return None
+    digits = unsigned.lstrip("0") or "0"
+    return (negative and digits != "0", digits)
+
+
+def _signed_decimal_add_small(value: tuple[bool, str], addition: int) -> tuple[bool, str]:
+    negative, digits = value
+    if addition == 0:
+        return value
+    addition_negative = addition < 0
+    addition_digits = str(abs(addition))
+    if digits == "0":
+        return (addition_negative, addition_digits)
+    if negative == addition_negative:
+        return (negative, _add_unsigned_decimal(digits, addition_digits))
+    comparison = _compare_unsigned_decimal(digits, addition_digits)
+    if comparison == 0:
+        return (False, "0")
+    if comparison > 0:
+        return (negative, _subtract_unsigned_decimal(digits, addition_digits))
+    return (addition_negative, _subtract_unsigned_decimal(addition_digits, digits))
+
+
+def _compare_signed_decimal(left: tuple[bool, str], right: tuple[bool, str]) -> int:
+    if left[0] != right[0]:
+        return -1 if left[0] else 1
+    comparison = _compare_unsigned_decimal(left[1], right[1])
+    return -comparison if left[0] else comparison
+
+
+def _compare_unsigned_decimal(left: str, right: str) -> int:
+    if len(left) != len(right):
+        return -1 if len(left) < len(right) else 1
+    return -1 if left < right else 1 if left > right else 0
+
+
+def _add_unsigned_decimal(left: str, right: str) -> str:
+    carry = 0
+    output: list[str] = []
+    left_index = len(left) - 1
+    right_index = len(right) - 1
+    while left_index >= 0 or right_index >= 0 or carry:
+        total = (ord(left[left_index]) - 48 if left_index >= 0 else 0) + (ord(right[right_index]) - 48 if right_index >= 0 else 0) + carry
+        output.append(str(total % 10))
+        carry = total // 10
+        left_index -= 1
+        right_index -= 1
+    return "".join(reversed(output))
+
+
+def _subtract_unsigned_decimal(left: str, right: str) -> str:
+    borrow = 0
+    output: list[str] = []
+    right_index = len(right) - 1
+    for left_index in range(len(left) - 1, -1, -1):
+        difference = ord(left[left_index]) - 48 - borrow - (ord(right[right_index]) - 48 if right_index >= 0 else 0)
+        if difference < 0:
+            difference += 10
+            borrow = 1
+        else:
+            borrow = 0
+        output.append(str(difference))
+        right_index -= 1
+    return "".join(reversed(output)).lstrip("0") or "0"
 
 
 def canonical_path_to_json(path: str) -> dict[str, object]:
@@ -1886,7 +2006,7 @@ def matches_portable_pattern(pattern: str | None, value: str) -> bool:
 
 
 def has_digit_form_constraints(constraints: dict[str, object]) -> bool:
-    return any(constraints.get(key) is not None for key in ("sign", "min_digits", "max_digits", "radix"))
+    return any(constraints.get(key) is not None for key in ("sign", "min_digits", "max_digits", "radix", "min_value", "max_value"))
 
 
 def count_form_digits(value_type: str, raw: str) -> int:

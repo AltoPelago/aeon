@@ -216,6 +216,52 @@ aeos:schema = {
         });
     });
 
+    it('authors numeric bounds as AEON numbers while retaining exact portable lexemes', () => {
+        const schema = parseSchemaSource(`
+aeos:schema = {
+  rules:list<object> = [
+    {
+      path:sansa = $.measurement
+      constraints:object = {
+        type:string = "NumberLiteral"
+        min_value:number = -0.100_000_000_000_000_000_000_000_000_000_000_1
+        max_value:number = 9_007_199_254_740_993
+      }
+    }
+  ]
+}
+`);
+
+        assert.deepStrictEqual(schema.rules[0]?.constraints, {
+            type: 'NumberLiteral',
+            min_value: '-0.1000000000000000000000000000000001',
+            max_value: '9007199254740993',
+        });
+
+        const rendered = schemaToAeon(schema);
+        assert.match(rendered, /min_value:number = -0\.1000000000000000000000000000000001/u);
+        assert.match(rendered, /max_value:number = 9007199254740993/u);
+        assert.doesNotMatch(rendered, /(?:min_value|max_value):string/u);
+        assert.deepStrictEqual(parseSchemaSource(rendered), schema);
+    });
+
+    it('rejects quoted and malformed numeric bounds', () => {
+        assert.throws(() => parseSchemaSource(`
+aeos:schema = {
+  rules:list<object> = [
+    {
+      path:sansa = $.value
+      constraints:object = { min_value:string = "1" }
+    }
+  ]
+}
+`), /must be an AEON number literal, not a string/u);
+
+        assert.throws(() => normalizeSchemaObject({
+            rules: [{ path: '$.value', constraints: { max_value: 'not-a-number' } }],
+        }), /must be a valid finite AEON number literal/u);
+    });
+
     it('round-trips declaration and lineage identities', () => {
         const source = schemaToAeon({
             rules: [{

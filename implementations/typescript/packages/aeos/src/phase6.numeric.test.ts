@@ -105,6 +105,30 @@ describe('Phase 6: Numeric Form (draft tests)', () => {
         assert.ok(result.errors.some(e => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION || e.code === 'numeric_form_violation'));
     });
 
+    it('compares decimal bounds without JavaScript Number precision loss', () => {
+        const aes: AES = [
+            {
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'f' }] },
+                key: 'f',
+                value: {
+                    type: 'NumberLiteral',
+                    raw: '0.1000000000000000000000000000000001',
+                    value: '0.1000000000000000000000000000000001',
+                    span: [26, 62],
+                },
+                span: [26, 62],
+            },
+        ] as unknown as AES;
+
+        const schema: SchemaV1 = {
+            rules: [{ path: '$.f', constraints: { type: 'FloatLiteral', max_value: '0.1' } }],
+        };
+
+        const result = validate(aes, schema);
+        assert.strictEqual(result.ok, false);
+        assert.ok(result.errors.some(e => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION || e.code === 'numeric_form_violation'));
+    });
+
     it('datatype_rules reject negative uint values', () => {
         const aes: AES = [
             {

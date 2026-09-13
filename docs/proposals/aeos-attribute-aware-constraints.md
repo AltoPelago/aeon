@@ -107,6 +107,11 @@ interface ConstraintsV1 {
 }
 ```
 
+`min_value` and `max_value` above describe the portable object representation,
+where exact number lexemes remain strings. Native `.aeos` source authors the
+same bounds as AEON numbers (`min_value:number = 1`), and the schema codec
+preserves their canonical lexemes at the portable boundary.
+
 Design intent:
 
 - `attributes` defines constraints for named attribute entries.

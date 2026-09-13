@@ -324,6 +324,27 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.postcode", "constraints": {"type": "IntegerLiteral", "min_value": "1000", "max_value": "9999", "resolve_reference_form": True}}]})
         self.assertTrue(result["ok"])
 
+    def test_decimal_bounds_are_compared_exactly(self) -> None:
+        aes = [{
+            "path": {"segments": [{"type": "root"}, {"type": "member", "key": "value"}]},
+            "key": "value",
+            "value": {
+                "type": "NumberLiteral",
+                "raw": "0.1000000000000000000000000000000001",
+                "value": "0.1000000000000000000000000000000001",
+            },
+            "span": [0, 36],
+        }]
+        result = validate(aes, {"rules": [{"path": "$.value", "constraints": {"type": "FloatLiteral", "max_value": "0.1"}}]})
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(error["code"] == "numeric_form_violation" for error in result["errors"]))
+
+    def test_invalid_and_reversed_bounds_fail_schema_validation(self) -> None:
+        invalid = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "not-a-number"}}]})
+        self.assertFalse(invalid["ok"])
+        reversed_bounds = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "2", "max_value": "1"}}]})
+        self.assertFalse(reversed_bounds["ok"])
+
     def test_cts_payload_adapter(self) -> None:
         payload = json.dumps({"aes": [], "schema": {"rules": []}, "options": {}})
         parsed = json.loads(validate_cts_payload(payload))

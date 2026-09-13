@@ -11,6 +11,7 @@ import type { Span } from '../types/spans.js';
 import type { RuleIndex } from './schemaIndex.js';
 import { countIntegerDigits, isNegative } from '../util/digits.js';
 import { declaredRadixFromDatatype } from '../util/datatypes.js';
+import { compareNumericValues } from '../util/numericBounds.js';
 
 /**
  * Event value with type, raw representation, and span
@@ -125,8 +126,8 @@ export function checkNumericForm(
         }
 
         if (min_value !== undefined || max_value !== undefined) {
-            const range = normalizeRangeLiteral(event.type, raw);
-            if (!range) {
+            const normalized = normalizeRangeLiteral(event.type, raw);
+            if (!normalized) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
@@ -136,21 +137,21 @@ export function checkNumericForm(
                 continue;
             }
 
-            if (min_value !== undefined && isBelowRange(range, min_value)) {
+            if (min_value !== undefined && compareNumericValues(normalized, min_value) === -1) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Numeric form violation: expected value >= ${min_value}, got ${range.raw}`,
+                    `Numeric form violation: expected value >= ${min_value}, got ${normalized}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
                 continue;
             }
 
-            if (max_value !== undefined && isAboveRange(range, max_value)) {
+            if (max_value !== undefined && compareNumericValues(normalized, max_value) === 1) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
-                    `Numeric form violation: expected value <= ${max_value}, got ${range.raw}`,
+                    `Numeric form violation: expected value <= ${max_value}, got ${normalized}`,
                     ErrorCodes.NUMERIC_FORM_VIOLATION
                 ));
             }
@@ -199,33 +200,8 @@ function radixDigitValue(char: string): number | null {
     return null;
 }
 
-type NormalizedRange = { kind: 'integer'; raw: string; value: bigint } | { kind: 'float'; raw: string; value: number };
-
-function normalizeRangeLiteral(type: string, raw: string): NormalizedRange | null {
+function normalizeRangeLiteral(type: string, raw: string): string | null {
     const normalized = raw.replace(/_/g, '');
-    if (type === 'FloatLiteral' || /[.eE]/.test(normalized)) {
-        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
-        const value = Number(normalized);
-        return Number.isFinite(value) ? { kind: 'float', raw: normalized, value } : null;
-    }
-    if (!/^[+-]?\d+$/.test(normalized)) return null;
-    return { kind: 'integer', raw: normalized, value: BigInt(normalized) };
-}
-
-function isBelowRange(range: NormalizedRange, bound: string): boolean {
-    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
-        return range.value < BigInt(bound);
-    }
-    return rangeAsNumber(range) < Number(bound);
-}
-
-function isAboveRange(range: NormalizedRange, bound: string): boolean {
-    if (range.kind === 'integer' && /^[-+]?\d+$/.test(bound)) {
-        return range.value > BigInt(bound);
-    }
-    return rangeAsNumber(range) > Number(bound);
-}
-
-function rangeAsNumber(range: NormalizedRange): number {
-    return range.kind === 'integer' ? Number(range.value) : range.value;
+    if (type !== 'FloatLiteral' && type !== 'NumberLiteral' && type !== 'IntegerLiteral') return null;
+    return compareNumericValues(normalized, normalized) === null ? null : normalized;
 }

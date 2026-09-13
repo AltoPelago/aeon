@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use regex::Regex;
@@ -1618,7 +1619,11 @@ fn validate_constraint_tree(
     }
 
     for key in ["min_value", "max_value"] {
-        if constraints.get(key).is_some_and(|value| !value.is_string()) {
+        if constraints.get(key).is_some_and(|value| {
+            value
+                .as_str()
+                .is_none_or(|bound| parse_exact_decimal(bound).is_none())
+        }) {
             emit_error(
                 ctx,
                 ValidationDiagnostic {
@@ -1630,6 +1635,23 @@ fn validate_constraint_tree(
             );
             return false;
         }
+    }
+
+    if let (Some(minimum), Some(maximum)) = (
+        constraints.get("min_value").and_then(JsonValue::as_str),
+        constraints.get("max_value").and_then(JsonValue::as_str),
+    ) && compare_decimal_literals(minimum, maximum) == Some(Ordering::Greater)
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
     }
 
     if !validate_reference_constraints(schema, path, constraints, ctx) {
@@ -2353,7 +2375,8 @@ fn check_numeric_form(
         }
 
         if constraints.get("min_value").is_some() || constraints.get("max_value").is_some() {
-            let Some(normalized) = normalize_integer_literal(&event.raw) else {
+            let normalized = event.raw.replace('_', "");
+            if parse_exact_decimal(&normalized).is_none() {
                 emit_error(
                     ctx,
                     ValidationDiagnostic {
@@ -2364,16 +2387,9 @@ fn check_numeric_form(
                     },
                 );
                 continue;
-            };
-            let numeric = normalized.parse::<i128>().ok();
-            let Some(numeric) = numeric else {
-                continue;
-            };
+            }
             if let Some(min_value) = constraints.get("min_value").and_then(JsonValue::as_str)
-                && min_value
-                    .parse::<i128>()
-                    .ok()
-                    .is_some_and(|min| numeric < min)
+                && compare_decimal_literals(&normalized, min_value) == Some(Ordering::Less)
             {
                 emit_error(
                     ctx,
@@ -2387,10 +2403,7 @@ fn check_numeric_form(
                 continue;
             }
             if let Some(max_value) = constraints.get("max_value").and_then(JsonValue::as_str)
-                && max_value
-                    .parse::<i128>()
-                    .ok()
-                    .is_some_and(|max| numeric > max)
+                && compare_decimal_literals(&normalized, max_value) == Some(Ordering::Greater)
             {
                 emit_error(
                     ctx,
@@ -2775,7 +2788,8 @@ fn validate_attribute_entry(
         if effective_constraints.get("min_value").is_some()
             || effective_constraints.get("max_value").is_some()
         {
-            let Some(normalized) = normalize_integer_literal(&entry.raw) else {
+            let normalized = entry.raw.replace('_', "");
+            if parse_exact_decimal(&normalized).is_none() {
                 emit_error(
                     ctx,
                     ValidationDiagnostic {
@@ -2786,17 +2800,11 @@ fn validate_attribute_entry(
                     },
                 );
                 return;
-            };
-            let Some(numeric) = normalized.parse::<i128>().ok() else {
-                return;
-            };
+            }
             if let Some(min_value) = effective_constraints
                 .get("min_value")
                 .and_then(JsonValue::as_str)
-                && min_value
-                    .parse::<i128>()
-                    .ok()
-                    .is_some_and(|min| numeric < min)
+                && compare_decimal_literals(&normalized, min_value) == Some(Ordering::Less)
             {
                 emit_error(
                     ctx,
@@ -2811,10 +2819,7 @@ fn validate_attribute_entry(
             if let Some(max_value) = effective_constraints
                 .get("max_value")
                 .and_then(JsonValue::as_str)
-                && max_value
-                    .parse::<i128>()
-                    .ok()
-                    .is_some_and(|max| numeric > max)
+                && compare_decimal_literals(&normalized, max_value) == Some(Ordering::Greater)
             {
                 emit_error(
                     ctx,
@@ -3355,6 +3360,22 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
                 return false;
             }
         }
+        if constraints.get("min_value").is_some() || constraints.get("max_value").is_some() {
+            let normalized = event.raw.replace('_', "");
+            if parse_exact_decimal(&normalized).is_none() {
+                return false;
+            }
+            if let Some(minimum) = constraints.get("min_value").and_then(JsonValue::as_str)
+                && compare_decimal_literals(&normalized, minimum) == Some(Ordering::Less)
+            {
+                return false;
+            }
+            if let Some(maximum) = constraints.get("max_value").and_then(JsonValue::as_str)
+                && compare_decimal_literals(&normalized, maximum) == Some(Ordering::Greater)
+            {
+                return false;
+            }
+        }
     }
     true
 }
@@ -3726,6 +3747,8 @@ fn has_digit_form_constraints(constraints: &JsonValue) -> bool {
         || constraints.get("min_digits").is_some()
         || constraints.get("max_digits").is_some()
         || constraints.get("radix").is_some()
+        || constraints.get("min_value").is_some()
+        || constraints.get("max_value").is_some()
 }
 
 fn count_form_digits(value_type: &str, raw: &str) -> usize {
@@ -3791,19 +3814,220 @@ fn expected_null_values(constraints: &JsonValue) -> Vec<String> {
     values
 }
 
-fn normalize_integer_literal(raw: &str) -> Option<String> {
-    if raw.is_empty() {
+#[derive(Debug, Clone)]
+struct ExactDecimal {
+    sign: i8,
+    digits: String,
+    order: SignedDecimal,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SignedDecimal {
+    negative: bool,
+    digits: String,
+}
+
+fn parse_exact_decimal(raw: &str) -> Option<ExactDecimal> {
+    if raw.len() > 65_536 {
         return None;
     }
-    let valid = raw.chars().enumerate().all(|(idx, ch)| match ch {
-        '+' | '-' => idx == 0,
-        '_' => true,
-        _ => ch.is_ascii_digit(),
-    });
-    if !valid || !raw.chars().any(|ch| ch.is_ascii_digit()) || raw.contains('.') {
+    let captures = Regex::new(r"^([+-]?)(?:(\d+)(?:\.(\d+))?|\.(\d+))(?:[eE]([+-]?\d+))?$")
+        .ok()?
+        .captures(raw)?;
+    let integer = captures.get(2).map_or("", |value| value.as_str());
+    let fraction = captures
+        .get(3)
+        .or_else(|| captures.get(4))
+        .map_or("", |value| value.as_str());
+    if integer.len() > 1 && integer.starts_with('0') {
         return None;
     }
-    Some(raw.replace('_', ""))
+
+    let coefficient = format!("{integer}{fraction}");
+    let digits = coefficient.trim_start_matches('0');
+    if digits.is_empty() {
+        return Some(ExactDecimal {
+            sign: 0,
+            digits: String::from("0"),
+            order: SignedDecimal::zero(),
+        });
+    }
+
+    let exponent = SignedDecimal::parse(captures.get(5).map_or("0", |value| value.as_str()))?;
+    let significant_length = i64::try_from(digits.len()).ok()?;
+    let fraction_length = i64::try_from(fraction.len()).ok()?;
+    Some(ExactDecimal {
+        sign: if captures.get(1).is_some_and(|value| value.as_str() == "-") {
+            -1
+        } else {
+            1
+        },
+        digits: String::from(digits),
+        order: exponent.add_small(significant_length - fraction_length),
+    })
+}
+
+fn compare_decimal_literals(left: &str, right: &str) -> Option<Ordering> {
+    let left = parse_exact_decimal(left)?;
+    let right = parse_exact_decimal(right)?;
+    if left.sign != right.sign {
+        return Some(left.sign.cmp(&right.sign));
+    }
+    if left.sign == 0 {
+        return Some(Ordering::Equal);
+    }
+
+    let magnitude = left
+        .order
+        .cmp(&right.order)
+        .then_with(|| compare_right_padded_digits(&left.digits, &right.digits));
+    Some(if left.sign < 0 {
+        magnitude.reverse()
+    } else {
+        magnitude
+    })
+}
+
+fn compare_right_padded_digits(left: &str, right: &str) -> Ordering {
+    let width = left.len().max(right.len());
+    for index in 0..width {
+        let left_digit = left.as_bytes().get(index).copied().unwrap_or(b'0');
+        let right_digit = right.as_bytes().get(index).copied().unwrap_or(b'0');
+        match left_digit.cmp(&right_digit) {
+            Ordering::Equal => {}
+            ordering => return ordering,
+        }
+    }
+    Ordering::Equal
+}
+
+impl SignedDecimal {
+    fn zero() -> Self {
+        Self {
+            negative: false,
+            digits: String::from("0"),
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        let (negative, unsigned) = value
+            .strip_prefix('-')
+            .map_or((false, value), |digits| (true, digits));
+        let unsigned = unsigned.strip_prefix('+').unwrap_or(unsigned);
+        if unsigned.is_empty() || !unsigned.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let digits = unsigned.trim_start_matches('0');
+        if digits.is_empty() {
+            return Some(Self::zero());
+        }
+        Some(Self {
+            negative,
+            digits: String::from(digits),
+        })
+    }
+
+    fn add_small(&self, value: i64) -> Self {
+        if value == 0 {
+            return self.clone();
+        }
+        let value_negative = value < 0;
+        let value_digits = value.unsigned_abs().to_string();
+        if self.digits == "0" {
+            return Self {
+                negative: value_negative,
+                digits: value_digits,
+            };
+        }
+        if self.negative == value_negative {
+            return Self {
+                negative: self.negative,
+                digits: add_unsigned_decimal(&self.digits, &value_digits),
+            };
+        }
+
+        match compare_unsigned_decimal(&self.digits, &value_digits) {
+            Ordering::Equal => Self::zero(),
+            Ordering::Greater => Self {
+                negative: self.negative,
+                digits: subtract_unsigned_decimal(&self.digits, &value_digits),
+            },
+            Ordering::Less => Self {
+                negative: value_negative,
+                digits: subtract_unsigned_decimal(&value_digits, &self.digits),
+            },
+        }
+    }
+}
+
+impl Ord for SignedDecimal {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.negative != other.negative {
+            return if self.negative {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
+        let magnitude = compare_unsigned_decimal(&self.digits, &other.digits);
+        if self.negative {
+            magnitude.reverse()
+        } else {
+            magnitude
+        }
+    }
+}
+
+impl PartialOrd for SignedDecimal {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn compare_unsigned_decimal(left: &str, right: &str) -> Ordering {
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
+fn add_unsigned_decimal(left: &str, right: &str) -> String {
+    let mut carry = 0_u8;
+    let mut output = Vec::with_capacity(left.len().max(right.len()) + 1);
+    let mut left = left.bytes().rev();
+    let mut right = right.bytes().rev();
+    loop {
+        let left_digit = left.next().map(|digit| digit - b'0');
+        let right_digit = right.next().map(|digit| digit - b'0');
+        if left_digit.is_none() && right_digit.is_none() && carry == 0 {
+            break;
+        }
+        let sum = left_digit.unwrap_or(0) + right_digit.unwrap_or(0) + carry;
+        output.push(b'0' + (sum % 10));
+        carry = sum / 10;
+    }
+    output.reverse();
+    String::from_utf8(output).unwrap_or_else(|_| String::from("0"))
+}
+
+fn subtract_unsigned_decimal(left: &str, right: &str) -> String {
+    let mut borrow = 0_i8;
+    let mut output = Vec::with_capacity(left.len());
+    let mut right = right.bytes().rev();
+    for left_digit in left.bytes().rev() {
+        let mut difference = i8::try_from(left_digit - b'0').unwrap_or(0)
+            - borrow
+            - i8::try_from(right.next().unwrap_or(b'0') - b'0').unwrap_or(0);
+        if difference < 0 {
+            difference += 10;
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        output.push(b'0' + u8::try_from(difference).unwrap_or(0));
+    }
+    while output.len() > 1 && output.last() == Some(&b'0') {
+        output.pop();
+    }
+    output.reverse();
+    String::from_utf8(output).unwrap_or_else(|_| String::from("0"))
 }
 
 fn datatype_base(datatype: &str) -> &str {
@@ -5380,5 +5604,64 @@ mod tests {
             &[],
         );
         assert!(result.ok, "{:?}", result.errors);
+    }
+
+    #[test]
+    fn compares_numeric_bounds_without_i128_or_float_precision_limits() {
+        assert_eq!(
+            compare_decimal_literals("9007199254740993", "9007199254740992"),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_decimal_literals("0.1000000000000000000000000000000001", "0.1"),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_decimal_literals("1e999999999999999999999", "9e999999999999999999998"),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_decimal_literals("-12.50", "-1.25e1"),
+            Some(Ordering::Equal)
+        );
+    }
+
+    #[test]
+    fn rejects_non_numeric_and_reversed_schema_bounds() {
+        let invalid_bound = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.value")),
+                    selector: None,
+                    constraints: json!({"min_value": "not-a-number"}),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+                resource_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+        assert!(!validate(&invalid_bound).ok);
+
+        let reversed = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.value")),
+                    selector: None,
+                    constraints: json!({"min_value": "2", "max_value": "1"}),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+                resource_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+        assert!(!validate(&reversed).ok);
     }
 }
