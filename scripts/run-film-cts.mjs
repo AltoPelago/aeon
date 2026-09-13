@@ -78,26 +78,27 @@ async function main() {
 
     let passed = 0;
     let encoderOnly = 0;
+    let expectedEncoderOnly = 0;
     for (const suiteRef of manifest.suites) {
         const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
         const suite = JSON.parse(await readFile(suitePath, 'utf8'));
         assert.equal(suite.id, suiteRef.id);
+        expectedEncoderOnly += suite.tests.filter((vector) => vector.operation === 'encode').length;
         for (const vector of suite.tests) {
-            const filmHex = vector.operation === 'decode'
-                ? vector.input.film_hex
-                : vector.expected.film_hex;
-            if (filmHex === undefined) {
+            if (vector.operation === 'encode') {
                 encoderOnly += 1;
                 continue;
             }
+            const filmHex = vector.operation === 'decode'
+                ? vector.input.film_hex
+                : vector.expected.film_hex;
+            assert.notEqual(filmHex, undefined, `${vector.operation} vector does not provide Film bytes for reader verification`);
             try {
                 try {
                     const stream = codec.decodeFilm(fromHex(filmHex), vectorOptions(vector));
                     assert.notEqual(vector.expected.ok, false, 'expected Film decoding to fail');
                     if (vector.operation === 'decode' && vector.expected.stream !== undefined) {
                         assert.deepEqual(streamForCts(stream), vector.expected.stream);
-                    } else if (vector.operation === 'encode') {
-                        assert.deepEqual(streamForCts(stream), vector.input.stream);
                     } else if (vector.operation === 'transcode') {
                         const telex = codec.parseTelex(vector.input.telex);
                         assert.deepEqual(streamForCts(stream), streamForCts(telex));
@@ -121,8 +122,9 @@ async function main() {
             }
         }
     }
-    assert.equal(encoderOnly, 1);
-    process.stdout.write(`Film reader CTS passed: ${passed} vector(s); ${encoderOnly} encoder-only vector skipped\n`);
+    assert.equal(encoderOnly, expectedEncoderOnly);
+    const encoderOnlyLabel = encoderOnly === 1 ? 'vector' : 'vectors';
+    process.stdout.write(`Film reader CTS passed: ${passed} vector(s); ${encoderOnly} encoder-only ${encoderOnlyLabel} skipped\n`);
 }
 
 main().catch((error) => {

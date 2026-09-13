@@ -73,8 +73,8 @@ pnpm publish:preflight
 
 `pnpm run ci` includes `pnpm test:cts:film`. The TypeScript Film v1 release
 surface currently claims reader conformance only: it must decode every
-reader-decodable vector in `film-cts-v1-snapshot-0.1`, while the encoder-only
-vector remains outside the claim. Adding Film encoding or durable writing to a
+reader-decodable vector in `film-cts-v1-snapshot-0.1`, while encoder-only
+vectors remain outside the claim. Adding Film encoding or durable writing to a
 publishable package requires a separate release-policy update and review.
 
 Once the artifact has been generated and reviewed for the current wrapper
