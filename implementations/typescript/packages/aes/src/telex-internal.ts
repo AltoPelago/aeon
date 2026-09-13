@@ -432,6 +432,13 @@ export function validateTelexRecords(records, options = {}) {
   if (!Array.isArray(records)) {
     throw new TypeError('Telex records must be an array');
   }
+  const state = createTelexValidationState(options);
+  prepareTelexValidationRecords(state, records, 0);
+  return finalizeTelexValidationState(state, records.length);
+}
+
+/** Internal state shared by one-shot and incremental semantic validation. */
+export function createTelexValidationState(options = {}) {
   const limits = normalizeTelexLimits(options);
 
   const profile = options.profile ?? COMPLETE_AES_PROFILE;
@@ -451,9 +458,6 @@ export function validateTelexRecords(records, options = {}) {
 
   const diagnostics = [];
   const events = [];
-  if (records.length > limits.maxEvents) {
-    diagnostics.push(limitDiagnostic('max_events', records.length, limits.maxEvents));
-  }
   if (profile !== COMPLETE_AES_PROFILE && profile !== PARTIAL_AES_PROFILE) {
     diagnostics.push(diagnostic(
       'AES_UNSUPPORTED_PROFILE',
@@ -467,34 +471,51 @@ export function validateTelexRecords(records, options = {}) {
     ));
   }
 
-  let bodySeen = false;
+  return {
+    profile,
+    projection,
+    registeredFields,
+    limits,
+    diagnostics,
+    events,
+    bodySeen: false,
+    finalized: false,
+  };
+}
+
+/** Prepare event-local semantics while retaining final cross-event checks. */
+export function prepareTelexValidationRecords(state, records, firstRecord) {
+  if (state.finalized) {
+    throw new Error('The Telex semantic accumulator is already complete');
+  }
   for (let index = 0; index < records.length; index += 1) {
     const source = records[index];
+    const recordIndex = firstRecord + index;
     if (source === null || typeof source !== 'object') {
-      diagnostics.push(diagnostic(
+      state.diagnostics.push(diagnostic(
         'AES_INVALID_EVENT',
         'An AES event must be an object or Map',
-        { record: index },
+        { record: recordIndex },
       ));
       continue;
     }
     const event = source instanceof Map ? Object.fromEntries(source) : source;
     const addressField = recordAddressField(event);
     const address = addressField === null ? undefined : event[addressField];
-    const context = { record: index, ...(typeof address === 'string' ? { path: address } : {}) };
+    const context = { record: recordIndex, ...(typeof address === 'string' ? { path: address } : {}) };
 
     for (const [field, payload] of Object.entries(event)) {
       if (field !== 'generics' && field !== 'clarifiers' && typeof payload !== 'string') {
-        diagnostics.push(diagnostic(
+        state.diagnostics.push(diagnostic(
           'AES_INVALID_PAYLOAD',
           `Field '${field}' must have a string payload`,
           { ...context, field },
         ));
       }
-      if (!CORE_FIELDS.has(field) && !registeredFields.has(field)) {
-        diagnostics.push(diagnostic(
+      if (!CORE_FIELDS.has(field) && !state.registeredFields.has(field)) {
+        state.diagnostics.push(diagnostic(
           'AES_UNKNOWN_FIELD',
-          `Field '${field}' is not registered by profile '${profile}'`,
+          `Field '${field}' is not registered by profile '${state.profile}'`,
           { ...context, field },
         ));
       }
@@ -503,12 +524,12 @@ export function validateTelexRecords(records, options = {}) {
     const hasPath = Object.hasOwn(event, 'path');
     const hasHeader = Object.hasOwn(event, 'header');
     if (!hasPath && !hasHeader) {
-      diagnostics.push(diagnostic('AES_MISSING_ADDRESS', "AES records require exactly one of 'path' or 'header'", context));
+      state.diagnostics.push(diagnostic('AES_MISSING_ADDRESS', "AES records require exactly one of 'path' or 'header'", context));
     } else if (hasPath && hasHeader) {
-      diagnostics.push(diagnostic('AES_MULTIPLE_ADDRESSES', "AES records cannot carry both 'path' and 'header'", context));
+      state.diagnostics.push(diagnostic('AES_MULTIPLE_ADDRESSES', "AES records cannot carry both 'path' and 'header'", context));
     }
     if (!Object.hasOwn(event, 'kind')) {
-      diagnostics.push(diagnostic('AES_MISSING_FIELD', "AES records require 'kind'", { ...context, field: 'kind' }));
+      state.diagnostics.push(diagnostic('AES_MISSING_FIELD', "AES records require 'kind'", { ...context, field: 'kind' }));
     }
 
     let pathDetails;
@@ -518,9 +539,9 @@ export function validateTelexRecords(records, options = {}) {
         if (address === '$') {
           throw new TypeError('The root is not an event path');
         }
-        validatePathLimits(address, pathDetails, limits, diagnostics, context, addressField ?? 'path');
+        validatePathLimits(address, pathDetails, state.limits, state.diagnostics, context, addressField ?? 'path');
       } catch (error) {
-        diagnostics.push(diagnostic(
+        state.diagnostics.push(diagnostic(
           addressField === 'header' ? 'AES_INVALID_HEADER_PATH' : 'AES_INVALID_PATH',
           error.message,
           { ...context, field: addressField ?? 'path' },
@@ -528,22 +549,22 @@ export function validateTelexRecords(records, options = {}) {
       }
     }
     if (addressField === 'header') {
-      if (projection !== AEON_DOCUMENT_PROJECTION) {
-        diagnostics.push(diagnostic(
+      if (state.projection !== AEON_DOCUMENT_PROJECTION) {
+        state.diagnostics.push(diagnostic(
           'AES_HEADER_REQUIRES_PROJECTION',
           `Header records require projection '${AEON_DOCUMENT_PROJECTION}'`,
           { ...context, field: 'header' },
         ));
       }
-      if (bodySeen) {
-        diagnostics.push(diagnostic(
+      if (state.bodySeen) {
+        state.diagnostics.push(diagnostic(
           'AES_HEADER_ORDER',
           'Header records must precede body events',
           { ...context, field: 'header' },
         ));
       }
       if (pathDetails !== undefined && !isAeonHeaderPath(address, pathDetails)) {
-        diagnostics.push(diagnostic(
+        state.diagnostics.push(diagnostic(
           'AES_INVALID_HEADER_PATH',
           "Header paths must begin with a quoted 'aeon:' member",
           { ...context, field: 'header' },
@@ -551,47 +572,61 @@ export function validateTelexRecords(records, options = {}) {
         pathDetails = undefined;
       }
     } else if (addressField === 'path') {
-      bodySeen = true;
+      state.bodySeen = true;
     }
 
     const knownKind = typeof event.kind === 'string' && VALUE_KINDS.has(event.kind);
     if (typeof event.kind === 'string' && !knownKind) {
-      diagnostics.push(diagnostic(
+      state.diagnostics.push(diagnostic(
         'AES_UNKNOWN_KIND',
         `Unknown AES value kind: ${event.kind}`,
         { ...context, field: 'kind' },
       ));
     }
 
-    if (knownKind) validateEventValue(event, index, diagnostics, limits);
-    validateOptionalCoreFields(event, index, diagnostics, limits);
+    if (knownKind) validateEventValue(event, recordIndex, state.diagnostics, state.limits);
+    validateOptionalCoreFields(event, recordIndex, state.diagnostics, state.limits);
 
-    events.push({ event, index, addressField, address, pathDetails, knownKind });
+    state.events.push({ event, index: recordIndex, addressField, address, pathDetails, knownKind });
   }
+}
 
-  const bodyEvents = events.filter(({ addressField }) => addressField === 'path');
-  const headerEvents = events.filter(({ addressField }) => addressField === 'header');
-  validateRepresentedStructuralLimits(bodyEvents, limits, diagnostics);
-  validateRepresentedStructuralLimits(headerEvents, limits, diagnostics);
-  if (profile === COMPLETE_AES_PROFILE) {
-    validateCompleteStream(bodyEvents, diagnostics);
+/** Perform whole-stream validation after syntax and record ingestion finish. */
+export function finalizeTelexValidationState(state, recordCount) {
+  if (state.finalized) {
+    throw new Error('The Telex semantic accumulator is already complete');
+  }
+  state.finalized = true;
+  if (recordCount > state.limits.maxEvents) {
+    state.diagnostics.unshift(limitDiagnostic('max_events', recordCount, state.limits.maxEvents));
+  }
+  const bodyEvents = state.events.filter(({ addressField }) => addressField === 'path');
+  const headerEvents = state.events.filter(({ addressField }) => addressField === 'header');
+  validateRepresentedStructuralLimits(bodyEvents, state.limits, state.diagnostics);
+  validateRepresentedStructuralLimits(headerEvents, state.limits, state.diagnostics);
+  if (state.profile === COMPLETE_AES_PROFILE) {
+    validateCompleteStream(bodyEvents, state.diagnostics);
     validateReferenceTargets(
-      [...bodyEvents, ...(projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [])],
+      [...bodyEvents, ...(state.projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [])],
       bodyEvents,
-      diagnostics,
+      state.diagnostics,
     );
   }
-  if (projection === AEON_DOCUMENT_PROJECTION) {
-    validateCompleteStream(headerEvents, diagnostics);
+  if (state.projection === AEON_DOCUMENT_PROJECTION) {
+    validateCompleteStream(headerEvents, state.diagnostics);
   }
   validateIdentityUniqueness(
-    profile === COMPLETE_AES_PROFILE
-      ? [...bodyEvents, ...(projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [])]
-      : projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [],
-    diagnostics,
+    state.profile === COMPLETE_AES_PROFILE
+      ? [...bodyEvents, ...(state.projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [])]
+      : state.projection === AEON_DOCUMENT_PROJECTION ? headerEvents : [],
+    state.diagnostics,
   );
 
-  return { valid: diagnostics.length === 0, profile, diagnostics };
+  return {
+    valid: state.diagnostics.length === 0,
+    profile: state.profile,
+    diagnostics: state.diagnostics,
+  };
 }
 
 function validateEventValue(event, index, diagnostics, limits) {
@@ -1002,7 +1037,7 @@ function limitDiagnostic(counter, observed, limit, context = {}) {
   );
 }
 
-function decodePayloadBounded(payload, lineNumber, limits, state) {
+export function decodePayloadBounded(payload, lineNumber, limits, state) {
   const decoded = decodePayload(payload, lineNumber);
   state.decodedPayloadBytes = addDecodedPayloadBytes(state.decodedPayloadBytes, decoded.value, limits, lineNumber);
   return decoded;
@@ -1014,7 +1049,7 @@ function addDecodedPayloadBytes(current, value, limits, lineNumber) {
   return observed;
 }
 
-function assertTelexLimit(counter, observed, limit, line) {
+export function assertTelexLimit(counter, observed, limit, line) {
   if (observed <= limit) return;
   throw new TelexSyntaxError(
     limitMessage(counter, observed, limit),
@@ -1050,7 +1085,7 @@ function compareTelexFieldNames(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function hasCanonicalFieldOrder(record) {
+export function hasCanonicalFieldOrder(record) {
   const fields = record instanceof Map ? record.keys() : Object.keys(record);
   let previous;
   for (const field of fields) {
@@ -1067,7 +1102,7 @@ function hasCanonicalEntryOrder(entries) {
   return true;
 }
 
-function decodeWireRecord(fields, datatypeLine, datatypeComponentLine, datatypeLimits) {
+export function decodeWireRecord(fields, datatypeLine, datatypeComponentLine, datatypeLimits) {
   const record = {};
   let canonical = true;
   for (const [field, value] of fields) {
