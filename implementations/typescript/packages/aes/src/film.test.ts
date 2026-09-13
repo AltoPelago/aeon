@@ -54,6 +54,19 @@ test('merges flat and nested Film/AES limit options without crossing domains', (
         (error: unknown) => error instanceof FilmDecodeError
             && error.code === 'FILM_AES_INVALID',
     );
+    assert.doesNotThrow(() => decodeFilm(CANONICAL_SCALAR, {
+        limits: { maxEvents: 1, maxStringCodepoints: 4 },
+        aesLimits: { maxStringCodepoints: 5 },
+    }));
+    assert.throws(
+        () => decodeFilm(CANONICAL_SCALAR, {
+            limits: { maxEvents: 0 },
+            aesLimits: { maxStringCodepoints: 5 },
+        }),
+        (error: unknown) => error instanceof FilmDecodeError
+            && error.code === 'FILM_AES_INVALID'
+            && error.diagnostics.some(({ counter }) => counter === 'max_events'),
+    );
     assert.deepEqual(normalizeFilmLimits({
         maxRecordBytes: 7,
         filmLimits: { maxInputBytes: 8 },

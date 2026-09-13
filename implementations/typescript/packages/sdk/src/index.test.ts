@@ -66,6 +66,25 @@ test('applies the common structural limits document to Film reads', () => {
   assert.equal(decoded.effectiveLimits?.limitsId, 'altopelago.aeonic-limits.v1');
   assert.equal(decoded.effectiveLimits?.aes.maxStringCodepoints, 5);
   assert.equal(decoded.effectiveLimits?.overridesApplied, true);
+
+  const zeroEventPolicy = loadAeonicLimits(policySource.replace(
+    'max_events = 100000',
+    'max_events = 0',
+  ));
+  assert.ok(zeroEventPolicy.limits);
+  assert.throws(
+    () => readFilm(FILM_SCALAR, {
+      aeonicLimits: zeroEventPolicy.limits,
+      limits: { maxStringCodepoints: 5 },
+    }),
+    (error: unknown) => (
+      typeof error === 'object'
+      && error !== null
+      && 'diagnostics' in error
+      && Array.isArray(error.diagnostics)
+      && error.diagnostics.some((diagnostic: { counter?: string }) => diagnostic.counter === 'max_events')
+    ),
+  );
 });
 
 test('preserves registered Film extensions through portable finalization', () => {

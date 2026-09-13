@@ -813,10 +813,21 @@ class Reader {
 }
 
 function normalizeAesLimits(options) {
+  const {
+    filmLimits: _filmLimits,
+    maxInputBytes: _maxInputBytes,
+    maxRecordBytes: _maxRecordBytes,
+    maxFieldBytes: _maxFieldBytes,
+    maxBufferedBytes: _maxBufferedBytes,
+    registeredFields: _registeredFields,
+    limits,
+    aesLimits,
+    ...flatAesLimits
+  } = options;
   return normalizeTelexLimits({
-    ...options,
-    ...(options.limits ?? {}),
-    ...(options.aesLimits ?? {}),
+    ...flatAesLimits,
+    ...(limits ?? {}),
+    ...(aesLimits ?? {}),
   });
 }
 
