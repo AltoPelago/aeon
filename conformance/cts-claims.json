@@ -28,6 +28,13 @@
           "command": "pnpm test:cts:aes"
         },
         {
+          "surface": "film-reader",
+          "snapshot_id": "film-cts-v1-snapshot-0.1",
+          "operations": ["decode"],
+          "status": "claimed",
+          "command": "pnpm test:cts:film"
+        },
+        {
           "surface": "canonical",
           "snapshot_id": "canonical-cts-v1-snapshot-0.1",
           "status": "claimed",

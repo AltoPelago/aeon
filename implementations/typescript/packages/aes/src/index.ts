@@ -12,3 +12,4 @@ export * from './modes.js';
 export * from './resolve.js';
 export * from './portable.js';
 export * from './telex.js';
+export * from './film.js';

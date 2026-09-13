@@ -18,6 +18,9 @@ The CLI MUST support these commands:
 - `aeon inspect <file> --telex --include-headers`
 - `aeon telex decode <file>`
 - `aeon telex canonicalize <file>`
+- `aeon telex materialize <file>`
+- `aeon film decode <file>`
+- `aeon film materialize <file>`
 - `aeon finalize <file>`
 - `aeon finalize <file> --json`
 - `aeon finalize <file> --map`
@@ -395,3 +398,28 @@ Recommended v1 receipt storage rules:
 - sidecar discovery SHOULD be filename-based only
 - manifest/index discovery is out of scope for v1
 - envelope pointer fields are out of scope for v1
+
+## 11) `aeon film <decode|materialize> <file>`
+
+Film input MUST be read as bytes and accepted only after Film framing and the
+declared or default AES profile both validate completely.
+
+`film decode` MUST emit this deterministic JSON shape:
+
+```json
+{
+  "profile": "aes.complete.v1",
+  "profileExplicit": false,
+  "projection": null,
+  "projectionExplicit": false,
+  "records": []
+}
+```
+
+`film materialize` MUST use the same portable AES finalization contract as
+Telex materialization. Film decoding failures MUST be written to `stderr` and
+exit with code `1`; usage and file-read failures MUST exit with code `2`.
+
+The Film v1 CLI surface is reader-only. `film encode`, `film canonicalize`, and
+AEON-to-Film export are unsupported until the separate durable-writer gate is
+approved.

@@ -23,6 +23,8 @@ aeon inspect ./document.aeon --json
 aeon inspect ./document.aeon --telex
 aeon telex decode ./stream.telex.aes
 aeon telex canonicalize ./stream.telex.aes
+aeon film decode ./stream.film.aes
+aeon film materialize ./stream.film.aes
 aeon finalize ./document.aeon --json
 aeon fmt ./document.aeon --write
 ```
@@ -36,6 +38,7 @@ aeon fmt ./document.aeon --write
 - `aeon inspect <file>` - inspect Assignment Events, diagnostics, and optional annotations
 - `aeon inspect <file> --telex` - export body events as Telex (`--include-headers` is explicit)
 - `aeon telex decode|canonicalize <file>` - import or canonicalize Telex
+- `aeon film decode|materialize <file>` - import or materialize Film v1
 - `aeon finalize <file>` - materialize AEON into JSON, map, header, or full views
 - `aeon bind <file>` - run the typed runtime binding pipeline with a schema
 - `aeon integrity validate|verify|sign <file>` - work with integrity envelopes
@@ -70,3 +73,5 @@ tracked in [`OUTPUT_CONTRACT.md`](./OUTPUT_CONTRACT.md).
 - `--recovery` is intended for editors and diagnostics, not production loading.
 - The CLI does not execute AEON documents or coerce values into application
   semantics.
+- Film support is reader-only. The CLI deliberately exposes no Film encoder or
+  canonical writer while the durable-writer gate remains open.
