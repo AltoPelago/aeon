@@ -6,7 +6,7 @@
   "claim_sets": [
     {
       "implementation": "typescript",
-      "implementation_version": "0.12.1",
+      "implementation_version": "0.13.0",
       "workspace": "implementations/typescript",
       "claims": [
         {
@@ -62,7 +62,7 @@
     },
     {
       "implementation": "rust",
-      "implementation_version": "0.12.1",
+      "implementation_version": "0.13.0",
       "workspace": "implementations/rust",
       "claims": [
         {
@@ -117,7 +117,7 @@
     },
     {
       "implementation": "python",
-      "implementation_version": "0.12.1",
+      "implementation_version": "0.13.0",
       "workspace": "implementations/python",
       "claims": [
         {

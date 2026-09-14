@@ -35,6 +35,14 @@ function fixtureSources(version = '1.2.3') {
   const sources = new Map();
   const put = (relativePath, source) => sources.set(relativePath, source);
   put('CHANGELOG.md', `# Changelog\n\n## Unreleased\n\n## ${version} - 2026-09-14\n`);
+  put('conformance/cts-claims.json', `${JSON.stringify({
+    claim_format: 'aeonite.cts-claims.v1',
+    claim_sets: ['typescript', 'rust', 'python'].map((implementation) => ({
+      implementation,
+      implementation_version: version,
+      claims: [],
+    })),
+  }, null, 2)}\n`);
   put('VERSIONING.md', [
     `- TypeScript: \`${version}\``,
     `- Python: \`${version}\``,
@@ -184,6 +192,10 @@ test('version set updates only the selected TypeScript track', (t) => {
   assert.equal(JSON.parse(readFileSync(join(root, 'implementations/typescript/tools/cts-runner/package.json'))).version, '1.3.0');
   assert.equal(JSON.parse(readFileSync(join(root, 'implementations/typescript/packages/wasm/pkg/package.json'))).version, '1.3.0');
   assert.match(readFileSync(join(root, 'implementations/typescript/packages/core/src/index.ts'), 'utf8'), /1\.3\.0/);
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(root, 'conformance/cts-claims.json'))).claim_sets.map((claimSet) => claimSet.implementation_version),
+    ['1.3.0', '1.2.3', '1.2.3'],
+  );
   assert.match(readFileSync(join(root, 'implementations/rust/Cargo.toml'), 'utf8'), /1\.2\.3/);
   assert.match(readFileSync(join(root, 'implementations/python/pyproject.toml'), 'utf8'), /1\.2\.3/);
   assert.equal(existsSync(join(root, transactionDirectory)), false);
@@ -198,6 +210,10 @@ test('version set all updates TypeScript, Rust, and Python together', (t) => {
   assert.match(readFileSync(join(root, 'implementations/rust/Cargo.lock'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/python/pyproject.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/python/src/aeon/cli.py'), 'utf8'), /1\.3\.0/);
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(root, 'conformance/cts-claims.json'))).claim_sets.map((claimSet) => claimSet.implementation_version),
+    ['1.3.0', '1.3.0', '1.3.0'],
+  );
   assert.match(readFileSync(join(root, 'VERSIONING.md'), 'utf8'), /TypeScript: `1\.3\.0`/);
   assert.doesNotMatch(readFileSync(join(root, 'VERSIONING.md'), 'utf8'), /1\.2\.3/);
 });
@@ -230,6 +246,19 @@ test('version check rejects a mismatched workspace manifest and missing changelo
   assert.equal(result.status, 1);
   assert.match(result.stderr, /sdk\/package\.json version 1\.2\.4 does not match TypeScript 1\.2\.3/);
   assert.match(result.stderr, /CHANGELOG\.md must have exactly one dated release heading/);
+});
+
+test('version check rejects a mismatched implementation claim version', (t) => {
+  const { root } = createFixture(t);
+  const claimsPath = join(root, 'conformance/cts-claims.json');
+  writeFileSync(
+    claimsPath,
+    readFileSync(claimsPath, 'utf8').replace('"implementation_version": "1.2.3"', '"implementation_version": "1.2.2"'),
+  );
+  const result = runVersion(root, ['check']);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /typescript implementation_version 1\.2\.2 does not match 1\.2\.3/);
 });
 
 test('version check rejects malformed JSON without a stack trace', (t) => {

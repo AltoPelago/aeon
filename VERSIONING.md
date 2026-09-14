@@ -94,8 +94,9 @@ npm run version:check
 
 The setter updates the selected manifests, runtime version constants, local
 dependency and lock metadata, generated WASM package metadata, current-version
-README pointers, and release/tag examples as one recoverable transaction. It
-does not add human-authored changelog notes, commit, tag, build, or publish.
+README pointers, CTS claim implementation versions, and release/tag examples as
+one recoverable transaction. It does not add human-authored changelog notes,
+commit, tag, build, or publish.
 
 Exact reruns are harmless. Downgrades and equal-precedence build-metadata
 changes fail closed. If an interrupted operation leaves

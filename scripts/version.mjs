@@ -28,6 +28,7 @@ const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d
 
 const sharedRelativePaths = [
   'CHANGELOG.md',
+  'conformance/cts-claims.json',
   'VERSIONING.md',
   'docs/release-strategy.md',
 ];
@@ -388,6 +389,42 @@ function replaceJsonVersion(source, current, next, label) {
   );
 }
 
+function ctsClaimVersions(source) {
+  const label = 'conformance/cts-claims.json';
+  const document = parseJsonSource(source, label);
+  if (!Array.isArray(document.claim_sets)) {
+    throw new Error(`${label} claim_sets must be an array`);
+  }
+  const versions = {};
+  for (const track of concreteTracks) {
+    const claimSets = document.claim_sets.filter((claimSet) => claimSet?.implementation === track);
+    if (claimSets.length !== 1) {
+      throw new Error(`${label} must contain exactly one ${track} claim set`);
+    }
+    const version = claimSets[0].implementation_version;
+    if (typeof version !== 'string' || !semverPattern.test(version)) {
+      throw new Error(`${label} ${track} implementation_version must be valid SemVer`);
+    }
+    versions[track] = version;
+  }
+  return versions;
+}
+
+function replaceCtsClaimVersion(source, track, current, next) {
+  const versions = ctsClaimVersions(source);
+  if (versions[track] !== current) {
+    throw new Error(
+      `conformance/cts-claims.json ${track} implementation_version ${versions[track]} does not match ${current}`,
+    );
+  }
+  return replacePattern(
+    source,
+    new RegExp(`("implementation"\\s*:\\s*"${track}"\\s*,\\s*"implementation_version"\\s*:\\s*")${escapeRegExp(current)}(")`, 'g'),
+    `$1${next}$2`,
+    `conformance/cts-claims.json ${track} implementation_version`,
+  );
+}
+
 function currentVersions(sources) {
   const versions = {
     typescript: jsonVersion(
@@ -443,6 +480,18 @@ function releaseHeadingProblem(changelog, version) {
 
 function consistencyProblems(sources, versions) {
   const problems = [];
+  try {
+    const claimedVersions = ctsClaimVersions(sources.get('conformance/cts-claims.json'));
+    for (const track of concreteTracks) {
+      if (claimedVersions[track] !== versions[track]) {
+        problems.push(
+          `conformance/cts-claims.json ${track} implementation_version ${claimedVersions[track]} does not match ${versions[track]}`,
+        );
+      }
+    }
+  } catch (error) {
+    problems.push(errorMessage(error));
+  }
   for (const relativePath of typescriptManifestRelativePaths) {
     try {
       const version = jsonVersion(sources.get(relativePath), relativePath);
@@ -531,6 +580,7 @@ function updateSource(updates, relativePath, transform) {
 }
 
 function updateTypeScript(updates, current, next) {
+  updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'typescript', current, next));
   for (const relativePath of typescriptManifestRelativePaths) {
     updateSource(updates, relativePath, (source) => replaceJsonVersion(source, current, next, relativePath));
   }
@@ -567,6 +617,7 @@ function replaceCargoLockVersions(source, names, current, next, label) {
 }
 
 function updateRust(updates, current, next) {
+  updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'rust', current, next));
   updateSource(updates, 'implementations/rust/Cargo.toml', (source) => {
     let result = replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Rust workspace package version');
     for (const name of rustWorkspacePackages) {
@@ -593,6 +644,7 @@ function updateRust(updates, current, next) {
 }
 
 function updatePython(updates, current, next) {
+  updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'python', current, next));
   updateSource(updates, 'implementations/python/pyproject.toml', (source) => replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Python project version'));
   updateSource(updates, 'implementations/python/README.md', (source) => replaceLiteral(source, `Current package line: \`${current}\`.`, `Current package line: \`${next}\`.`, 'Python README current line'));
   updateSource(updates, 'implementations/python/src/aeon/cli.py', (source) => replaceLiteral(source, `print("aeon-python ${current}")`, `print("aeon-python ${next}")`, 'Python CLI version'));

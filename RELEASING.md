@@ -61,9 +61,9 @@ npm run version:set -- typescript X.Y.Z
 ```
 
 The setter performs one recoverable transaction across every machine-owned
-version field for the selected track. It intentionally leaves the dated,
-human-authored `CHANGELOG.md` section to the release author. After adding that
-section, run:
+version field for the selected track, including its implementation version in
+`conformance/cts-claims.json`. It intentionally leaves the dated, human-authored
+`CHANGELOG.md` section to the release author. After adding that section, run:
 
 ```bash
 npm run version:check
