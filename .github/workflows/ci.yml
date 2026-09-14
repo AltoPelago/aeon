@@ -36,6 +36,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: implementations/typescript/pnpm-lock.yaml
 
+      - name: Version-tool tests
+        working-directory: .
+        run: npm run test:version
+
+      - name: Version consistency
+        working-directory: .
+        run: npm run version:check
+
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts
 

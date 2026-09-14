@@ -50,6 +50,30 @@ From `implementations/typescript/`:
 4. Confirm package tarballs are clean.
 5. Update [`CHANGELOG.md`](./CHANGELOG.md) for the package version being released.
 
+Set and validate implementation versions from the repository root. Select one
+independent track, or use `all` only for an intentional parity release:
+
+```bash
+npm run version:set -- typescript X.Y.Z
+# or: npm run version:set -- rust X.Y.Z
+# or: npm run version:set -- python X.Y.Z
+# or: npm run version:set -- all X.Y.Z
+```
+
+The setter performs one recoverable transaction across every machine-owned
+version field for the selected track. It intentionally leaves the dated,
+human-authored `CHANGELOG.md` section to the release author. After adding that
+section, run:
+
+```bash
+npm run version:check
+npm run test:version
+```
+
+If either command reports an interrupted transaction, first confirm no other
+version command is active, then run `npm run version:recover`. Never delete an
+unknown or malformed transaction directory; preserve it for manual review.
+
 Recommended commands:
 
 ```bash
@@ -82,8 +106,10 @@ version, do not rebuild it merely to repeat verification with unchanged build
 inputs. The build requires the Rust version in
 `implementations/rust/rust-toolchain.toml` and exactly `wasm-pack 0.14.0`.
 After generation, the build script synchronizes `pkg/package.json` to the WASM
-wrapper version, so a TypeScript-only wrapper release does not require a
-coordinated Rust crate version bump.
+wrapper version. The version tool also updates that generated manifest as part
+of its TypeScript transaction, but this does not replace required regeneration
+when a listed WASM build input changed. A TypeScript-only wrapper release does
+not require a coordinated Rust crate version bump.
 
 Optional dry-run npm publish verification:
 
@@ -117,6 +143,10 @@ Preferred release path:
 3. If the dry run is clean, create and verify a signed annotated
    `typescript/vX.Y.Z` tag on the release commit already present on `main`, then
    push that tag. The tag-triggered workflow performs the real publication.
+
+The workflow runs `npm run version:check` and verifies that the pushed tag is
+exactly `typescript/vX.Y.Z` for the checked TypeScript package line before it
+installs or publishes workspace packages.
 
 Do not also rerun the workflow with `dry_run` disabled after pushing the tag;
 that would attempt to publish the same immutable npm versions twice. A manual

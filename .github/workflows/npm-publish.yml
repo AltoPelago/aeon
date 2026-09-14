@@ -81,6 +81,15 @@ jobs:
       - name: Setup npm for trusted publishing
         run: npm install -g npm@11.14.1 --ignore-scripts --no-audit --fund=false
 
+      - name: Version consistency
+        working-directory: .
+        run: npm run version:check
+
+      - name: Match tag to TypeScript version
+        if: ${{ github.event_name == 'push' }}
+        working-directory: .
+        run: npm run version:check-tag -- typescript "${GITHUB_REF_NAME}"
+
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts
 

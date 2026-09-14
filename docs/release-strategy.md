@@ -111,7 +111,9 @@ TypeScript should be treated as a workspace release unit.
 
 Before cutting a TypeScript release:
 
-- update intended package versions in the TypeScript workspace
+- run `npm run version:set -- typescript X.Y.Z` from the repository root
+- add the matching dated `CHANGELOG.md` section and run
+  `npm run version:check` plus `npm run test:version`
 - verify any publish-surface changes are intentional and documented
 - run:
 
@@ -150,6 +152,10 @@ user-facing binary.
 
 Before cutting a Rust release:
 
+- run `npm run version:set -- rust X.Y.Z` from the repository root
+- add the matching dated `CHANGELOG.md` section and run
+  `npm run version:check` plus `npm run test:version`
+
 ```bash
 cd implementations/rust
 cargo fmt --all --check
@@ -183,6 +189,10 @@ Tag shape:
 Python should be treated as its own package release unit.
 
 Before cutting a Python release:
+
+- run `npm run version:set -- python X.Y.Z` from the repository root
+- add the matching dated `CHANGELOG.md` section and run
+  `npm run version:check` plus `npm run test:version`
 
 ```bash
 cd implementations/python

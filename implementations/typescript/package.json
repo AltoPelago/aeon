@@ -19,7 +19,7 @@
 		"lint": "pnpm -r --filter './packages/**' --filter './tools/**' typecheck",
 		"depcheck": "node ./tools/depcheck.mjs",
 		"pack:preflight": "node ./tools/package-preflight.mjs",
-		"publish:preflight": "pnpm build && pnpm pack:preflight",
+		"publish:preflight": "node ../../scripts/version.mjs check typescript && pnpm build && pnpm pack:preflight",
 		"publish:npm": "node ./tools/publish-npm-packages.mjs",
 		"publish:npm:dry-run": "node ./tools/publish-npm-packages.mjs --dry-run --no-provenance",
 		"test:cts": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/cts-runner/dist/index.js --sut ./packages/aeos/dist/bin/aeos-validator.js --cts ../../cts/aeos/v1/aeos-validator-cts.v1.json",
