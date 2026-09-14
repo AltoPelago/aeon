@@ -2026,6 +2026,10 @@ mod tests {
   :number = 1
   { "nested key"\nested\:object = {} }
 ]"#,
+            r#"payload:custom<
+  tuple<string, number>,
+  3
+>["x", 1_0] = 1"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
             "tree:node = <root(child, :string = \"typed\")>",

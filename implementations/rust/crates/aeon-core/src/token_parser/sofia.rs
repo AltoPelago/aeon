@@ -4,7 +4,8 @@ use crate::{Binding, Span, Token, TokenKind, Value};
 
 use super::{
     ParserLimits, classify_temporal_literal, decode_quoted_token, invalid_temporal_literal,
-    is_bare_key_kind, is_valid_number_literal,
+    is_bare_key_kind, is_valid_number_literal, validate_binding_node_datatype,
+    validate_reserved_datatype_adornments,
 };
 
 pub(super) enum ParseOutcome {
@@ -20,8 +21,12 @@ struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
     max_value_nesting_depth: usize,
+    max_clarifier_values: usize,
+    max_generic_depth: usize,
+    max_generic_arguments: usize,
     max_datatype_components: usize,
     current_value_nesting_depth: usize,
+    current_datatype_components: usize,
     structural_identities: HashSet<String>,
 }
 
@@ -32,8 +37,12 @@ impl<'a> Parser<'a> {
             tokens,
             current: 0,
             max_value_nesting_depth: limits.max_value_nesting_depth,
+            max_clarifier_values: limits.max_clarifier_values,
+            max_generic_depth: limits.max_generic_depth,
+            max_generic_arguments: limits.max_generic_arguments,
             max_datatype_components: limits.max_datatype_components,
             current_value_nesting_depth: 0,
+            current_datatype_components: 0,
             structural_identities: HashSet::new(),
         }
     }
@@ -64,7 +73,8 @@ impl<'a> Parser<'a> {
                             debug_assert_eq!(self.current_value_nesting_depth, 0);
                             ParseOutcome::Parsed(bindings)
                         }
-                        Some(Product::Binding(_) | Product::Value(_)) | None => {
+                        Some(Product::Binding(_) | Product::Datatype(_) | Product::Value(_))
+                        | None => {
                             debug_assert!(false, "Sofia root frame returned the wrong product");
                             ParseOutcome::Unsupported
                         }
@@ -169,16 +179,29 @@ impl<'a> Parser<'a> {
             .then_some(Some(identity))
     }
 
-    fn parse_unadorned_datatype(&mut self) -> Option<String> {
-        if self.max_datatype_components == 0 || !is_bare_key_kind(self.peek().kind) {
-            return None;
-        }
-        let datatype = self.advance().text.clone();
-        self.skip_newlines();
-        if self.check(TokenKind::LeftAngle) || self.check(TokenKind::LeftBracket) {
-            return None;
-        }
-        Some(datatype)
+    fn begin_datatype(&mut self) {
+        self.current_datatype_components = 0;
+    }
+
+    fn count_datatype_component(&mut self) -> bool {
+        self.current_datatype_components += 1;
+        self.current_datatype_components <= self.max_datatype_components
+    }
+
+    fn normalized_datatype(&self, start: usize, end: usize) -> String {
+        self.tokens[start..end]
+            .iter()
+            .fold(String::new(), |mut datatype, token| {
+                if token.kind == TokenKind::Number {
+                    datatype.push_str(&crate::normalize_number_literal(&token.text));
+                } else {
+                    datatype.push_str(&token.text);
+                }
+                datatype
+            })
+            .chars()
+            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
+            .collect()
     }
 
     fn leave_value_container(&mut self) {
@@ -230,6 +253,7 @@ impl<'a> Parser<'a> {
 
 enum Frame {
     AnonymousValue(AnonymousValueFrame),
+    Datatype(DatatypeFrame),
     Document(DocumentFrame),
     Binding(BindingFrame),
     Sequence(ValueSequenceFrame),
@@ -246,6 +270,7 @@ impl Frame {
     ) -> Step {
         match self {
             Self::AnonymousValue(frame) => frame.step(parser, product, output),
+            Self::Datatype(frame) => frame.step(parser, product, output),
             Self::Document(frame) => frame.step(parser, product, output),
             Self::Binding(frame) => frame.step(parser, product, output),
             Self::Sequence(frame) => frame.step(parser, product, output),
@@ -283,6 +308,7 @@ impl Frame {
 }
 
 enum Product {
+    Datatype(String),
     Document(Vec<Binding>),
     Binding(Binding),
     Value(Value),
@@ -400,43 +426,38 @@ impl BindingFrame {
                 if parser.check(TokenKind::At) {
                     return Step::Unsupported;
                 }
-                let datatype = if parser.check(TokenKind::Colon) {
+                let head = BindingHead {
+                    start,
+                    key,
+                    is_header,
+                    structural_id,
+                    datatype: None,
+                };
+                if parser.check(TokenKind::Colon) {
                     parser.advance();
                     parser.skip_newlines();
-                    let Some(datatype) = parser.parse_unadorned_datatype() else {
-                        return Step::Unsupported;
+                    parser.begin_datatype();
+                    return Step::Push {
+                        parent: Frame::Binding(Self {
+                            phase: BindingPhase::Datatype(head),
+                        }),
+                        child: Frame::Datatype(DatatypeFrame::new(0)),
                     };
-                    Some(datatype)
-                } else {
-                    None
+                }
+                Self::push_value(parser, head)
+            }
+            BindingPhase::Datatype(mut head) => {
+                let Some(Product::Datatype(datatype)) = product else {
+                    debug_assert!(false, "Sofia binding frame expected a datatype product");
+                    return Step::Unsupported;
                 };
-                parser.skip_newlines();
-                if !parser.check(TokenKind::Equals) {
+                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
                     return Step::Unsupported;
                 }
-                parser.advance();
-                parser.skip_newlines();
-
-                Step::Push {
-                    parent: Frame::Binding(Self {
-                        phase: BindingPhase::Value {
-                            start,
-                            key,
-                            is_header,
-                            structural_id,
-                            datatype,
-                        },
-                    }),
-                    child: Frame::Value,
-                }
+                head.datatype = Some(datatype);
+                Self::push_value(parser, head)
             }
-            BindingPhase::Value {
-                start,
-                key,
-                is_header,
-                structural_id,
-                datatype,
-            } => {
+            BindingPhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
                     debug_assert!(false, "Sofia binding frame expected a value product");
                     return Step::Unsupported;
@@ -445,30 +466,51 @@ impl BindingFrame {
                 complete(
                     output,
                     Product::Binding(Binding {
-                        key,
-                        is_header,
-                        structural_id,
-                        datatype,
+                        key: head.key,
+                        is_header: head.is_header,
+                        structural_id: head.structural_id,
+                        datatype: head.datatype,
                         attributes: BTreeMap::new(),
                         attribute_order: Vec::new(),
                         value,
-                        span: Span { start, end },
+                        span: Span {
+                            start: head.start,
+                            end,
+                        },
                     }),
                 )
             }
+        }
+    }
+
+    fn push_value(parser: &mut Parser<'_>, head: BindingHead) -> Step {
+        parser.skip_newlines();
+        if !parser.check(TokenKind::Equals) {
+            return Step::Unsupported;
+        }
+        parser.advance();
+        parser.skip_newlines();
+        Step::Push {
+            parent: Frame::Binding(Self {
+                phase: BindingPhase::Value(head),
+            }),
+            child: Frame::Value,
         }
     }
 }
 
 enum BindingPhase {
     Key,
-    Value {
-        start: crate::Position,
-        key: String,
-        is_header: bool,
-        structural_id: Option<String>,
-        datatype: Option<String>,
-    },
+    Datatype(BindingHead),
+    Value(BindingHead),
+}
+
+struct BindingHead {
+    start: crate::Position,
+    key: String,
+    is_header: bool,
+    structural_id: Option<String>,
+    datatype: Option<String>,
 }
 
 struct AnonymousValueFrame {
@@ -511,37 +553,38 @@ impl AnonymousValueFrame {
                 if parser.check(TokenKind::At) {
                     return Step::Unsupported;
                 }
-                let datatype = if parser.check(TokenKind::Colon) {
+                let head = AnonymousHead {
+                    structural_id,
+                    datatype: None,
+                };
+                if parser.check(TokenKind::Colon) {
                     parser.advance();
                     parser.skip_newlines();
-                    let Some(datatype) = parser.parse_unadorned_datatype() else {
-                        return Step::Unsupported;
+                    parser.begin_datatype();
+                    return Step::Push {
+                        parent: Frame::AnonymousValue(Self {
+                            phase: AnonymousValuePhase::Datatype(head),
+                        }),
+                        child: Frame::Datatype(DatatypeFrame::new(0)),
                     };
-                    Some(datatype)
-                } else {
-                    None
+                }
+                Self::push_value(parser, head)
+            }
+            AnonymousValuePhase::Datatype(mut head) => {
+                let Some(Product::Datatype(datatype)) = product else {
+                    debug_assert!(
+                        false,
+                        "Sofia anonymous-value frame expected a datatype product"
+                    );
+                    return Step::Unsupported;
                 };
-                parser.skip_newlines();
-                if !parser.check(TokenKind::Equals) {
+                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
                     return Step::Unsupported;
                 }
-                parser.advance();
-                parser.skip_newlines();
-
-                Step::Push {
-                    parent: Frame::AnonymousValue(Self {
-                        phase: AnonymousValuePhase::Value {
-                            structural_id,
-                            datatype,
-                        },
-                    }),
-                    child: Frame::Value,
-                }
+                head.datatype = Some(datatype);
+                Self::push_value(parser, head)
             }
-            AnonymousValuePhase::Value {
-                structural_id,
-                datatype,
-            } => {
+            AnonymousValuePhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
                     debug_assert!(
                         false,
@@ -552,8 +595,8 @@ impl AnonymousValueFrame {
                 complete(
                     output,
                     Product::Value(Value::TypedValue {
-                        structural_id,
-                        datatype,
+                        structural_id: head.structural_id,
+                        datatype: head.datatype,
                         attributes: BTreeMap::new(),
                         attribute_order: Vec::new(),
                         value: Box::new(value),
@@ -562,14 +605,218 @@ impl AnonymousValueFrame {
             }
         }
     }
+
+    fn push_value(parser: &mut Parser<'_>, head: AnonymousHead) -> Step {
+        parser.skip_newlines();
+        if !parser.check(TokenKind::Equals) {
+            return Step::Unsupported;
+        }
+        parser.advance();
+        parser.skip_newlines();
+        Step::Push {
+            parent: Frame::AnonymousValue(Self {
+                phase: AnonymousValuePhase::Value(head),
+            }),
+            child: Frame::Value,
+        }
+    }
 }
 
 enum AnonymousValuePhase {
     Head,
-    Value {
-        structural_id: Option<String>,
-        datatype: Option<String>,
-    },
+    Datatype(AnonymousHead),
+    Value(AnonymousHead),
+}
+
+struct AnonymousHead {
+    structural_id: Option<String>,
+    datatype: Option<String>,
+}
+
+struct DatatypeFrame {
+    start: usize,
+    name: String,
+    generic_depth: usize,
+    phase: DatatypePhase,
+}
+
+impl DatatypeFrame {
+    fn new(generic_depth: usize) -> Self {
+        Self {
+            start: 0,
+            name: String::new(),
+            generic_depth,
+            phase: DatatypePhase::Name,
+        }
+    }
+
+    fn step(
+        mut self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            DatatypePhase::Name => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia datatype frame received an early product");
+                    return Step::Unsupported;
+                }
+                if !parser.count_datatype_component() || !is_bare_key_kind(parser.peek().kind) {
+                    return Step::Unsupported;
+                }
+                self.start = parser.current;
+                self.name = parser.advance().text.clone();
+                parser.skip_newlines();
+
+                if parser.check(TokenKind::LeftAngle) {
+                    if self.generic_depth > parser.max_generic_depth || self.name == "radix" {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    parser.skip_newlines();
+                    self.phase = DatatypePhase::GenericArgument { count: 0 };
+                } else {
+                    self.phase = DatatypePhase::Suffix;
+                }
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::GenericArgument { count } => match parser.peek().kind {
+                kind if is_bare_key_kind(kind) => {
+                    let child_depth = self.generic_depth + 1;
+                    self.phase = DatatypePhase::GenericChild { count };
+                    Step::Push {
+                        parent: Frame::Datatype(self),
+                        child: Frame::Datatype(Self::new(child_depth)),
+                    }
+                }
+                TokenKind::Number => {
+                    if !parser.count_datatype_component() {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    let count = count + 1;
+                    if count > parser.max_generic_arguments {
+                        return Step::Unsupported;
+                    }
+                    self.phase = DatatypePhase::GenericDelimiter { count };
+                    Step::Continue(Frame::Datatype(self))
+                }
+                _ => Step::Unsupported,
+            },
+            DatatypePhase::GenericChild { count } => {
+                let Some(Product::Datatype(_)) = product else {
+                    debug_assert!(false, "Sofia datatype frame expected a datatype product");
+                    return Step::Unsupported;
+                };
+                let count = count + 1;
+                if count > parser.max_generic_arguments {
+                    return Step::Unsupported;
+                }
+                self.phase = DatatypePhase::GenericDelimiter { count };
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::GenericDelimiter { count } => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia datatype delimiter received a product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightAngle) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    self.phase = DatatypePhase::Suffix;
+                } else if parser.check(TokenKind::Comma) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    self.phase = DatatypePhase::GenericArgument { count };
+                } else {
+                    return Step::Unsupported;
+                }
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::Suffix => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia datatype suffix received a product");
+                    return Step::Unsupported;
+                }
+                if parser.check(TokenKind::LeftBracket) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    self.phase = DatatypePhase::ClarifierValue { count: 0 };
+                } else {
+                    self.phase = DatatypePhase::Finish;
+                }
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::ClarifierValue { count } => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia clarifier frame received a product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                match parser.peek().kind {
+                    TokenKind::Number if is_valid_number_literal(&parser.peek().text) => {}
+                    TokenKind::String => {}
+                    _ => return Step::Unsupported,
+                }
+                if !parser.count_datatype_component() {
+                    return Step::Unsupported;
+                }
+                parser.advance();
+                let count = count + 1;
+                if count > parser.max_clarifier_values {
+                    return Step::Unsupported;
+                }
+                self.phase = DatatypePhase::ClarifierDelimiter { count };
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::ClarifierDelimiter { count } => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia clarifier delimiter received a product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightBracket) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    if parser.check(TokenKind::LeftBracket) {
+                        return Step::Unsupported;
+                    }
+                    self.phase = DatatypePhase::Finish;
+                } else if parser.check(TokenKind::Comma) {
+                    parser.advance();
+                    self.phase = DatatypePhase::ClarifierValue { count };
+                } else {
+                    return Step::Unsupported;
+                }
+                Step::Continue(Frame::Datatype(self))
+            }
+            DatatypePhase::Finish => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia completed datatype received a product");
+                    return Step::Unsupported;
+                }
+                let datatype = parser.normalized_datatype(self.start, parser.current);
+                if validate_reserved_datatype_adornments(&datatype, parser.previous().span).is_err()
+                {
+                    return Step::Unsupported;
+                }
+                complete(output, Product::Datatype(datatype))
+            }
+        }
+    }
+}
+
+enum DatatypePhase {
+    Name,
+    GenericArgument { count: usize },
+    GenericChild { count: usize },
+    GenericDelimiter { count: usize },
+    Suffix,
+    ClarifierValue { count: usize },
+    ClarifierDelimiter { count: usize },
+    Finish,
 }
 
 #[derive(Clone, Copy)]
@@ -810,7 +1057,7 @@ mod tests {
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
         assert!(matches!(
-            parse("typed:list<string> = [1, 2]"),
+            parse("typed@{source = \"test\"}:list<string> = [1, 2]"),
             ParseOutcome::Unsupported
         ));
     }
@@ -863,6 +1110,57 @@ mod tests {
             parse("first\\same\\ = 1\nsecond\\same\\ = 2"),
             ParseOutcome::Unsupported
         ));
+    }
+
+    #[test]
+    fn iterative_datatype_frames_parse_generics_and_clarifiers() {
+        let source = r#"payload:custom<
+  tuple<string, number>,
+  3
+>["x", 1_0] = 1"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("generic datatype should use the Sofia frame path");
+        };
+        assert_eq!(
+            bindings[0].datatype.as_deref(),
+            Some(r#"custom<tuple<string,number>,3>["x",10]"#)
+        );
+    }
+
+    #[test]
+    fn iterative_datatype_frames_are_stack_safe_and_limit_aware() {
+        let depth = 512;
+        let datatype = format!("{}string{}", "custom<".repeat(depth), ">".repeat(depth));
+        let source = format!("value:{datatype} = 1");
+        assert!(matches!(
+            parse_with_limits(&source, ParserLimits::new(256, 8, 8, depth, 32, 1024)),
+            ParseOutcome::Parsed(_)
+        ));
+
+        let limited = [
+            (
+                "value:outer<inner<value>> = 1",
+                ParserLimits::new(256, 8, 8, 0, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1",
+                ParserLimits::new(256, 8, 8, 8, 1, 64),
+            ),
+            (
+                "value:custom[\"first\", \"second\"] = 1",
+                ParserLimits::new(256, 8, 1, 8, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1",
+                ParserLimits::new(256, 8, 8, 8, 32, 2),
+            ),
+        ];
+        for (source, limits) in limited {
+            assert!(matches!(
+                parse_with_limits(source, limits),
+                ParseOutcome::Unsupported
+            ));
+        }
     }
 
     #[test]
