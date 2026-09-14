@@ -2017,6 +2017,10 @@ mod tests {
         let corpus = [
             "",
             "name = \"Pat\"\nage = 49",
+            "empty_list = []\nempty_tuple = ()\nempty_object = {}",
+            "lines = [1\n2\n3,]\npair = (true, false,)",
+            "record = { first = 1\nsecond = [2, 3], }",
+            "nested = [1, (true, { name = \"Pat\" })]",
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
             "tree:node = <root(child, :string = \"typed\")>",

@@ -12,19 +12,26 @@ pub(super) enum ParseOutcome {
     Unsupported,
 }
 
-pub(super) fn parse_document(tokens: &[Token], _limits: ParserLimits) -> ParseOutcome {
-    Parser::new(tokens).run()
+pub(super) fn parse_document(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
+    Parser::new(tokens, limits).run()
 }
 
 struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
+    max_value_nesting_depth: usize,
+    current_value_nesting_depth: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token]) -> Self {
+    fn new(tokens: &'a [Token], limits: ParserLimits) -> Self {
         debug_assert_eq!(tokens.last().map(|token| token.kind), Some(TokenKind::Eof));
-        Self { tokens, current: 0 }
+        Self {
+            tokens,
+            current: 0,
+            max_value_nesting_depth: limits.max_value_nesting_depth,
+            current_value_nesting_depth: 0,
+        }
     }
 
     fn run(mut self) -> ParseOutcome {
@@ -49,7 +56,10 @@ impl<'a> Parser<'a> {
                 }
                 Step::Complete if frames.is_empty() => {
                     return match product.take() {
-                        Some(Product::Document(bindings)) => ParseOutcome::Parsed(bindings),
+                        Some(Product::Document(bindings)) => {
+                            debug_assert_eq!(self.current_value_nesting_depth, 0);
+                            ParseOutcome::Parsed(bindings)
+                        }
                         Some(Product::Binding(_) | Product::Value(_)) | None => {
                             debug_assert!(false, "Sofia root frame returned the wrong product");
                             ParseOutcome::Unsupported
@@ -122,6 +132,31 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn enter_value_container(&mut self) -> bool {
+        if self.current_value_nesting_depth >= self.max_value_nesting_depth {
+            return false;
+        }
+        self.current_value_nesting_depth += 1;
+        true
+    }
+
+    fn leave_value_container(&mut self) {
+        debug_assert!(self.current_value_nesting_depth > 0);
+        self.current_value_nesting_depth -= 1;
+    }
+
+    fn has_separator_collision(&self) -> bool {
+        let comma = self.peek();
+        let previous_value = self
+            .current
+            .checked_sub(1)
+            .and_then(|index| self.tokens.get(index));
+        let next_token = self.tokens.get(self.current + 1);
+        previous_value.is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
+            && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset)
+            && next_token.is_some_and(|token| token.span.start.offset == comma.span.end.offset)
+    }
+
     fn skip_newlines(&mut self) {
         while self.check(TokenKind::Newline) {
             self.advance();
@@ -155,6 +190,8 @@ impl<'a> Parser<'a> {
 enum Frame {
     Document(DocumentFrame),
     Binding(BindingFrame),
+    Sequence(ValueSequenceFrame),
+    Object(ObjectFrame),
     Value,
 }
 
@@ -168,10 +205,31 @@ impl Frame {
         match self {
             Self::Document(frame) => frame.step(parser, product, output),
             Self::Binding(frame) => frame.step(parser, product, output),
+            Self::Sequence(frame) => frame.step(parser, product, output),
+            Self::Object(frame) => frame.step(parser, product, output),
             Self::Value => {
                 if product.is_some() {
                     debug_assert!(false, "Sofia value frame received a product");
                     return Step::Unsupported;
+                }
+                let container = match parser.peek().kind {
+                    TokenKind::LeftBracket => Some(ContainerKind::List),
+                    TokenKind::LeftParen => Some(ContainerKind::Tuple),
+                    TokenKind::LeftBrace => {
+                        if !parser.enter_value_container() {
+                            return Step::Unsupported;
+                        }
+                        parser.advance();
+                        return Step::Continue(Frame::Object(ObjectFrame::new()));
+                    }
+                    _ => None,
+                };
+                if let Some(kind) = container {
+                    if !parser.enter_value_container() {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    return Step::Continue(Frame::Sequence(ValueSequenceFrame::new(kind)));
                 }
                 parser.parse_scalar().map_or(Step::Unsupported, |value| {
                     complete(output, Product::Value(value))
@@ -337,6 +395,204 @@ enum BindingPhase {
     Value { start: crate::Position, key: String },
 }
 
+#[derive(Clone, Copy)]
+enum ContainerKind {
+    List,
+    Tuple,
+}
+
+impl ContainerKind {
+    const fn terminator(self) -> TokenKind {
+        match self {
+            Self::List => TokenKind::RightBracket,
+            Self::Tuple => TokenKind::RightParen,
+        }
+    }
+}
+
+struct ValueSequenceFrame {
+    kind: ContainerKind,
+    items: Vec<Value>,
+    phase: SequencePhase,
+}
+
+impl ValueSequenceFrame {
+    fn new(kind: ContainerKind) -> Self {
+        Self {
+            kind,
+            items: Vec::new(),
+            phase: SequencePhase::Item,
+        }
+    }
+
+    fn step(
+        mut self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            SequencePhase::Item => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia sequence frame received an early product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(self.kind.terminator()) {
+                    return self.finish(parser, output);
+                }
+                self.phase = SequencePhase::Delimiter;
+                Step::Push {
+                    parent: Frame::Sequence(self),
+                    child: Frame::Value,
+                }
+            }
+            SequencePhase::Delimiter => {
+                let Some(Product::Value(value)) = product else {
+                    debug_assert!(false, "Sofia sequence frame expected a value product");
+                    return Step::Unsupported;
+                };
+                self.items.push(value);
+
+                match self.kind {
+                    ContainerKind::List => {
+                        let mut saw_newline = false;
+                        while parser.check(TokenKind::Newline) {
+                            saw_newline = true;
+                            parser.advance();
+                        }
+                        if parser.check(TokenKind::Comma) {
+                            if parser.has_separator_collision() {
+                                return Step::Unsupported;
+                            }
+                            parser.advance();
+                            parser.skip_newlines();
+                        } else if parser.check(TokenKind::RightBracket) {
+                            return self.finish(parser, output);
+                        } else if !saw_newline {
+                            return Step::Unsupported;
+                        }
+                    }
+                    ContainerKind::Tuple => {
+                        if parser.check(TokenKind::Comma) {
+                            parser.advance();
+                            parser.skip_newlines();
+                        } else if parser.check(TokenKind::RightParen) {
+                            return self.finish(parser, output);
+                        } else if parser.check(TokenKind::Newline) {
+                            parser.skip_newlines();
+                        } else {
+                            return Step::Unsupported;
+                        }
+                    }
+                }
+
+                self.phase = SequencePhase::Item;
+                Step::Continue(Frame::Sequence(self))
+            }
+        }
+    }
+
+    fn finish(self, parser: &mut Parser<'_>, output: &mut Option<Product>) -> Step {
+        debug_assert!(parser.check(self.kind.terminator()));
+        parser.advance();
+        parser.leave_value_container();
+        let value = match self.kind {
+            ContainerKind::List => Value::ListNode { items: self.items },
+            ContainerKind::Tuple => Value::TupleLiteral { items: self.items },
+        };
+        complete(output, Product::Value(value))
+    }
+}
+
+enum SequencePhase {
+    Item,
+    Delimiter,
+}
+
+struct ObjectFrame {
+    bindings: Vec<Binding>,
+    phase: ObjectPhase,
+}
+
+impl ObjectFrame {
+    fn new() -> Self {
+        Self {
+            bindings: Vec::new(),
+            phase: ObjectPhase::Binding,
+        }
+    }
+
+    fn step(
+        mut self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            ObjectPhase::Binding => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia object frame received an early product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightBrace) {
+                    return self.finish(parser, output);
+                }
+                self.phase = ObjectPhase::Delimiter;
+                Step::Push {
+                    parent: Frame::Object(self),
+                    child: Frame::Binding(BindingFrame::new()),
+                }
+            }
+            ObjectPhase::Delimiter => {
+                let Some(Product::Binding(binding)) = product else {
+                    debug_assert!(false, "Sofia object frame expected a binding product");
+                    return Step::Unsupported;
+                };
+                self.bindings.push(binding);
+
+                let mut saw_newline = false;
+                while parser.check(TokenKind::Newline) {
+                    saw_newline = true;
+                    parser.advance();
+                }
+                if parser.check(TokenKind::Comma) {
+                    if parser.has_separator_collision() {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    parser.skip_newlines();
+                } else if parser.check(TokenKind::RightBrace) {
+                    return self.finish(parser, output);
+                } else if !saw_newline {
+                    return Step::Unsupported;
+                }
+
+                self.phase = ObjectPhase::Binding;
+                Step::Continue(Frame::Object(self))
+            }
+        }
+    }
+
+    fn finish(self, parser: &mut Parser<'_>, output: &mut Option<Product>) -> Step {
+        debug_assert!(parser.check(TokenKind::RightBrace));
+        parser.advance();
+        parser.leave_value_container();
+        complete(
+            output,
+            Product::Value(Value::ObjectNode {
+                bindings: self.bindings,
+            }),
+        )
+    }
+}
+
+enum ObjectPhase {
+    Binding,
+    Delimiter,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{LexerOptions, Value, tokenize};
@@ -346,6 +602,10 @@ mod tests {
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
     fn parse(input: &str) -> ParseOutcome {
+        parse_with_limits(input, TEST_LIMITS)
+    }
+
+    fn parse_with_limits(input: &str, limits: ParserLimits) -> ParseOutcome {
         let lexed = tokenize(
             input,
             LexerOptions {
@@ -354,7 +614,7 @@ mod tests {
             },
         );
         assert!(lexed.errors.is_empty());
-        parse_document(&lexed.tokens, TEST_LIMITS)
+        parse_document(&lexed.tokens, limits)
     }
 
     #[test]
@@ -372,6 +632,37 @@ mod tests {
 
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
-        assert!(matches!(parse("items = [1, 2]"), ParseOutcome::Unsupported));
+        assert!(matches!(
+            parse("typed:list = [1, 2]"),
+            ParseOutcome::Unsupported
+        ));
+    }
+
+    #[test]
+    fn iterative_frames_parse_nested_containers() {
+        let ParseOutcome::Parsed(bindings) = parse("nested = [1, (true, { name = \"Pat\" })]")
+        else {
+            panic!("nested containers should use the Sofia frame path");
+        };
+
+        let Value::ListNode { items } = &bindings[0].value else {
+            panic!("expected list value");
+        };
+        assert_eq!(items.len(), 2);
+        assert!(matches!(items[1], Value::TupleLiteral { .. }));
+    }
+
+    #[test]
+    fn iterative_container_depth_is_explicit_and_limit_aware() {
+        let depth = 512;
+        let source = format!("nested = {}1{}", "[".repeat(depth), "]".repeat(depth));
+        assert!(matches!(
+            parse_with_limits(&source, ParserLimits::new(depth, 8, 8, 8, 32, 64)),
+            ParseOutcome::Parsed(_)
+        ));
+        assert!(matches!(
+            parse_with_limits("nested = [[1]]", ParserLimits::new(1, 8, 8, 8, 32, 64)),
+            ParseOutcome::Unsupported
+        ));
     }
 }
