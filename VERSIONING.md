@@ -79,6 +79,36 @@ Examples:
 - Use implementation-specific release tags and release branches when cutting
   public artifacts; see [`docs/release-strategy.md`](./docs/release-strategy.md).
 
+## Version Automation
+
+Run the repository version tool from the repository root. It preserves the
+independent implementation tracks:
+
+```sh
+npm run version:set -- typescript X.Y.Z
+npm run version:set -- rust X.Y.Z
+npm run version:set -- python X.Y.Z
+npm run version:set -- all X.Y.Z
+npm run version:check
+```
+
+The setter updates the selected manifests, runtime version constants, local
+dependency and lock metadata, generated WASM package metadata, current-version
+README pointers, CTS claim implementation versions, and release/tag examples as
+one recoverable transaction. It does not add human-authored changelog notes,
+commit, tag, build, or publish.
+
+Exact reruns are harmless. Downgrades and equal-precedence build-metadata
+changes fail closed. If an interrupted operation leaves
+`.aeon-version-transaction/`, confirm no version command is active and run:
+
+```sh
+npm run version:recover
+```
+
+Recovery restores the complete pre-update file set or keeps a fully committed
+set. Unknown or malformed recovery artifacts are preserved for manual review.
+
 ## Release Tags
 
 Use signed annotated implementation-specific tags for implementation/package
@@ -96,8 +126,9 @@ git push origin typescript/v0.13.0
 
 The npm publish workflow listens for `typescript/v*.*.*` tag pushes, requires a
 signed annotated tag object, and checks that the tagged commit is on `main`.
-Push the tag only after the intended release commit is present on `main` and
-the local tag signature verifies.
+It also rejects a tag whose version differs from the checked TypeScript package
+line. Push the tag only after the intended release commit is present on `main`
+and the local tag signature verifies.
 
 ## Current Public Baseline
 

@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 .npm-cache/
+.aeon-version-transaction/
 dist/
 target/
 __pycache__/

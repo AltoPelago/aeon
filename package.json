@@ -2,7 +2,7 @@
   "name": "aeon-main",
   "private": true,
   "scripts": {
-    "ci": "npm --prefix implementations/typescript run ci",
+    "ci": "npm run test:version && npm run version:check && npm --prefix implementations/typescript run ci",
     "ci:typescript": "npm --prefix implementations/typescript run ci:typescript",
     "ci:canonical": "npm --prefix implementations/typescript run ci:canonical",
     "ci:rust": "cargo fmt --all --check --manifest-path implementations/rust/Cargo.toml && cargo check --workspace --all-targets --manifest-path implementations/rust/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path implementations/rust/Cargo.toml && cargo test --workspace --all-targets --all-features --manifest-path implementations/rust/Cargo.toml",
@@ -12,6 +12,11 @@
     "test:canonical:corpus": "python3 ./scripts/stress-canonical-corpus.py",
     "test:canonical:corpus:php": "python3 ./scripts/stress-canonical-corpus.py --php",
     "validate:cts-claims": "node ./scripts/validate-cts-claims.mjs",
+    "version:check": "node ./scripts/version.mjs check",
+    "version:check-tag": "node ./scripts/version.mjs check-tag",
+    "version:set": "node ./scripts/version.mjs set",
+    "version:recover": "node ./scripts/version.mjs recover",
+    "test:version": "node --test ./test/version-tool.test.mjs",
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
     "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run"
   }

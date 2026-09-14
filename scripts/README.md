@@ -12,6 +12,14 @@ This page is the operational index for:
 For deeper runbooks (contracts, lane semantics, and troubleshooting), see
 [`docs/scripts/README.md`](../docs/scripts/README.md).
 
+## Implementation versioning
+
+`version.mjs` atomically checks, updates, and recovers the independent
+TypeScript, Rust, and Python implementation version tracks. Run it through the
+root package scripts documented in [`VERSIONING.md`](../VERSIONING.md). It does
+keep each track's CTS claim implementation version aligned. It does not edit
+changelog prose or create Git commits and tags.
+
 ## Shared prerequisites
 
 - Run commands from repo root unless noted.
