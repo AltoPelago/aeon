@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import process from 'node:process';
 
 import initWasm, {
+    benchmark_process_aeon as processAeonRust,
     process_aeon as processAeonRaw,
 } from '../implementations/typescript/packages/wasm/pkg/aeon_wasm.js';
 import { loadAeonWasm } from '../implementations/typescript/packages/wasm/dist/index.js';
@@ -23,6 +24,14 @@ const coldInitializationNs = millisecondsToNanoseconds(performance.now() - coldS
 const memoryAfterInitialization = exports.memory.buffer.byteLength;
 
 const optionsJson = '{}';
+const rustPreflight = processAeonRust(source, optionsJson);
+assert.equal(rustPreflight > 0, true);
+for (let index = 0; index < args.warmup; index += 1) {
+    processAeonRust(source, optionsJson);
+}
+const rustSamples = measure(args.iterations, () => processAeonRust(source, optionsJson));
+const memoryAfterRustProcessing = exports.memory.buffer.byteLength;
+
 const rawPreflight = JSON.parse(processAeonRaw(source, optionsJson));
 assert.equal(Array.isArray(rawPreflight.errors), true);
 for (let index = 0; index < args.warmup; index += 1) {
@@ -40,8 +49,10 @@ for (let index = 0; index < args.warmup; index += 1) {
 const adaptedSamples = measure(args.iterations, () => runtime.processAeon(source));
 const memoryAfterAdaptation = exports.memory.buffer.byteLength;
 
+const rustSummary = summarize(rustSamples);
 const rawSummary = summarize(rawSamples);
 const adaptedSummary = summarize(adaptedSamples);
+const rustMedian = rustSummary.median_ns;
 const rawMedian = rawSummary.median_ns;
 const adaptedMedian = adaptedSummary.median_ns;
 
@@ -59,9 +70,18 @@ process.stdout.write(`${JSON.stringify({
         errors: rawPreflight.errors.map((error) => error.code),
         raw_json_bytes: Buffer.byteLength(processAeonRaw(source, optionsJson), 'utf8'),
     },
+    rust_wasm_processing: {
+        ...rustSummary,
+        throughput_mib_per_second: throughput(source, rustMedian),
+    },
     raw_wasm_json_envelope: {
         ...rawSummary,
         throughput_mib_per_second: throughput(source, rawMedian),
+    },
+    serialization_and_return_estimate: {
+        method: 'raw envelope median minus Rust processing median; independent warm samples',
+        median_ns: Math.max(0, rawMedian - rustMedian),
+        share_of_raw_median: Math.max(0, rawMedian - rustMedian) / rawMedian,
     },
     javascript_wrapper: {
         ...adaptedSummary,
@@ -70,6 +90,7 @@ process.stdout.write(`${JSON.stringify({
     },
     linear_memory_bytes: {
         after_initialization: memoryAfterInitialization,
+        after_rust_processing: memoryAfterRustProcessing,
         after_raw_measurements: memoryAfterRaw,
         after_wrapper_measurements: memoryAfterAdaptation,
     },

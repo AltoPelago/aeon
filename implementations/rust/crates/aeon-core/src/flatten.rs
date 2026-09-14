@@ -895,12 +895,27 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         },
         Value::ToggleLiteral { .. } => Value::ToggleLiteral { raw: String::new() },
         Value::BooleanLiteral { .. } => Value::BooleanLiteral { raw: String::new() },
-        Value::HexLiteral { .. } => Value::HexLiteral { raw: String::new() },
+        // Parsing has already validated these literal payloads. Keep only the
+        // smallest valid representative needed by datatype validation rather
+        // than cloning an arbitrarily large raw value into the check profile.
+        Value::HexLiteral { .. } => Value::HexLiteral {
+            raw: String::from("#0"),
+        },
         Value::SeparatorLiteral { .. } => Value::SeparatorLiteral { raw: String::new() },
-        Value::EncodingLiteral { .. } => Value::EncodingLiteral { raw: String::new() },
-        Value::RadixLiteral { .. } => Value::RadixLiteral { raw: String::new() },
+        Value::EncodingLiteral { .. } => Value::EncodingLiteral {
+            raw: String::from("&A"),
+        },
+        Value::RadixLiteral { .. } => Value::RadixLiteral {
+            raw: String::from("%0"),
+        },
         Value::DateLiteral { .. } => Value::DateLiteral { raw: String::new() },
-        Value::DateTimeLiteral { .. } => Value::DateTimeLiteral { raw: String::new() },
+        Value::DateTimeLiteral { raw } => Value::DateTimeLiteral {
+            raw: if raw.contains('&') {
+                String::from("&")
+            } else {
+                String::new()
+            },
+        },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
         Value::SansaAddressLiteral { .. } => unwrap_typed_value(value).clone(),
         Value::NodeLiteral { head_span, .. } => Value::NodeLiteral {

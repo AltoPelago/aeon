@@ -3542,6 +3542,31 @@ mod tests {
     }
 
     #[test]
+    fn validation_only_profile_accepts_raw_sensitive_literal_datatypes() {
+        let source = "aeon:mode = \"strict\"\n\
+                      h:hex = #ff_ff\n\
+                      r:radix = %10_10\n\
+                      e:encoding = &QmFzZTY0IQ==\n\
+                      dt:datetime = 2025-01-01T09:30:00Z\n\
+                      z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n";
+        let result = compile(
+            source,
+            CompileOptions {
+                shallow_event_values: true,
+                emit_binding_projections: false,
+                include_header: false,
+                include_event_annotations: false,
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.events.is_empty());
+        assert!(result.bindings.is_empty());
+        assert!(result.header.is_none());
+    }
+
+    #[test]
     fn separator_literals_accept_quoted_sections_in_payload() {
         let result = compile(
             "a:sep[\"|\"] = ^\"hello world\"|\"this, [is] fine\"\n",

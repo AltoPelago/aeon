@@ -222,6 +222,69 @@ def timing_summary(samples: list[int]) -> dict[str, Any]:
     }
 
 
+def measure_python_operation(operation: Any, iterations: int, warmup: int) -> dict[str, Any]:
+    for _ in range(warmup):
+        result = operation()
+        del result
+    samples = []
+    for _ in range(iterations):
+        started = time.perf_counter_ns()
+        result = operation()
+        samples.append(time.perf_counter_ns() - started)
+        # Object teardown is deliberately outside the construction interval.
+        del result
+    return timing_summary(samples)
+
+
+def python_phase_measurements(source: str, iterations: int, warmup: int) -> dict[str, Any]:
+    from aeon.core import (  # pylint: disable=import-outside-toplevel
+        CompileOptions,
+        resolve_paths,
+        resolved_binding_to_event,
+    )
+    from aeon.lexer import tokenize  # pylint: disable=import-outside-toplevel
+    from aeon.parser import parse_tokens  # pylint: disable=import-outside-toplevel
+
+    options = CompileOptions()
+
+    def lex_and_parse() -> Any:
+        lex_result = tokenize(source)
+        return parse_tokens(
+            source,
+            lex_result.tokens,
+            max_clarifier_values=options.effective_max_clarifier_values(),
+            max_generic_depth=options.max_generic_depth,
+            max_generic_arguments=options.max_generic_arguments,
+            max_datatype_components=options.max_datatype_components,
+            max_attribute_depth=options.max_attribute_depth,
+            max_value_nesting_depth=options.effective_max_value_nesting_depth(),
+        )
+
+    parsed = lex_and_parse()
+    if parsed.errors or parsed.document is None:
+        raise RuntimeError("phase preflight failed for a valid Python corpus case")
+    resolved, path_errors = resolve_paths(parsed.document)
+    if path_errors:
+        raise RuntimeError("path-resolution preflight failed for a valid Python corpus case")
+
+    return {
+        "method": "Isolated in-memory phases; object teardown occurs outside each timed interval.",
+        "resolved_bindings": len(resolved),
+        "lex_and_parse": measure_python_operation(lex_and_parse, iterations, warmup),
+        "path_resolution": measure_python_operation(
+            lambda: resolve_paths(parsed.document), iterations, warmup
+        ),
+        "event_construction": measure_python_operation(
+            lambda: [
+                resolved_binding_to_event(binding, include_annotations=True)
+                for binding in resolved
+            ],
+            iterations,
+            warmup,
+        ),
+    }
+
+
 def python_measurements(cases: list[dict[str, Any]], iterations: int, warmup: int) -> list[dict[str, Any]]:
     python_source = REPO_ROOT / "implementations" / "python" / "src"
     sys.path.insert(0, str(python_source))
@@ -264,6 +327,9 @@ def python_measurements(cases: list[dict[str, Any]], iterations: int, warmup: in
                     "warnings": len(last.warnings),
                 },
                 "compile": summary,
+                "phases": (
+                    python_phase_measurements(source, iterations, warmup) if valid else None
+                ),
                 "throughput_mib_per_second": (
                     (case["bytes"] / (1024 * 1024)) / (median_ns / 1_000_000_000)
                     if median_ns

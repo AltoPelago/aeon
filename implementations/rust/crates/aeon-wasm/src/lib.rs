@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::hint::black_box;
 
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
@@ -105,8 +106,28 @@ pub fn process_aeon(source: &str, options_json: &str) -> Result<String, JsValue>
 }
 
 pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, String> {
-    let options: ProcessOptions = if options_json.trim().is_empty() {
-        ProcessOptions {
+    let options = parse_process_options(options_json)?;
+    let result = process(source, &options);
+    serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+}
+
+#[wasm_bindgen(js_name = benchmark_process_aeon)]
+pub fn benchmark_process_aeon_wasm(source: &str, options_json: &str) -> Result<u32, JsValue> {
+    benchmark_process_aeon(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+pub fn benchmark_process_aeon(source: &str, options_json: &str) -> Result<u32, String> {
+    let options = parse_process_options(options_json)?;
+    let result = process(source, &options);
+    let top_level_fields = u32::try_from(result.as_object().map_or(0, serde_json::Map::len))
+        .map_err(|_| String::from("response field count exceeds u32"))?;
+    black_box(&result);
+    Ok(top_level_fields)
+}
+
+fn parse_process_options(options_json: &str) -> Result<ProcessOptions, String> {
+    if options_json.trim().is_empty() {
+        Ok(ProcessOptions {
             validation_mode: default_validation_mode(),
             max_input_bytes: default_max_input_bytes(),
             max_separator_depth: default_depth(),
@@ -118,14 +139,10 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
             materialization_mode: String::from("all"),
             finalize_scope: default_finalize_scope(),
             include_paths: Vec::new(),
-        }
+        })
     } else {
-        serde_json::from_str(options_json)
-            .map_err(|error| format!("invalid options JSON: {error}"))?
-    };
-
-    let result = process(source, &options);
-    serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+        serde_json::from_str(options_json).map_err(|error| format!("invalid options JSON: {error}"))
+    }
 }
 
 #[wasm_bindgen(js_name = validate_telex)]
@@ -825,8 +842,8 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_telex_text, check_telex_completeness_json, materialize_telex_json,
-        process_aeon_json, validate_telex_json,
+        benchmark_process_aeon, canonicalize_telex_text, check_telex_completeness_json,
+        materialize_telex_json, process_aeon_json, validate_telex_json,
     };
     use serde_json::Value as JsonValue;
 
@@ -842,6 +859,14 @@ mod tests {
         assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
         assert_eq!(parsed["finalized"]["a"], "ok");
         assert_eq!(parsed["events"][0]["path"], "$.a");
+    }
+
+    #[test]
+    fn benchmark_process_retains_the_response_without_serializing_it() {
+        let fields =
+            benchmark_process_aeon("a:string = \"ok\"\n", "{}").expect("benchmark process aeon");
+
+        assert_eq!(fields, 6);
     }
 
     #[test]

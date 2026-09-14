@@ -1,6 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export function benchmark_process_aeon(source: string, options_json: string): number;
+
 export function canonicalize_telex(source: string, options_json: string): string;
 
 export function check_telex_completeness(source: string, options_json: string): string;
@@ -15,6 +17,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly benchmark_process_aeon: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly canonicalize_telex: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly check_telex_completeness: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly materialize_telex: (a: number, b: number, c: number, d: number) => [number, number, number, number];

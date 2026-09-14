@@ -3,6 +3,23 @@
 /**
  * @param {string} source
  * @param {string} options_json
+ * @returns {number}
+ */
+export function benchmark_process_aeon(source, options_json) {
+    const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(options_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.benchmark_process_aeon(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] >>> 0;
+}
+
+/**
+ * @param {string} source
+ * @param {string} options_json
  * @returns {string}
  */
 export function canonicalize_telex(source, options_json) {

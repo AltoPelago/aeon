@@ -33,8 +33,13 @@ def flat_bindings(count: int) -> str:
     return HEADER + "".join(f"v{index:05d}:int32 = {index}\n" for index in range(count))
 
 
+def nested_list(depth: int) -> str:
+    return HEADER + "value = " + "[" * depth + "0" + "]" * depth + "\n"
+
+
 def fixtures() -> dict[str, str]:
-    return {
+    generated = {
+        "empty.aeon": "",
         "tiny-typed.aeon": HEADER + 'message:string = "hello, Sofia"\n',
         "large-flat-50000.aeon": flat_bindings(50_000),
         "wide-object-20000.aeon": HEADER
@@ -83,6 +88,9 @@ def fixtures() -> dict[str, str]:
         ),
         "invalid-late-20000.aeon": flat_bindings(20_000) + "trailing garbage ???\n",
     }
+    for depth in (1, 8, 16, 32, 64, 128, 192, 256, 257):
+        generated[f"depth-list-{depth}.aeon"] = nested_list(depth)
+    return generated
 
 
 def main() -> int:
