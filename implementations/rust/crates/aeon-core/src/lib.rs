@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+mod engine;
 mod flatten;
 mod header;
 mod lexer;
@@ -16,6 +17,10 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 
+pub use engine::{
+    Compiler, CompilerConfig, CompilerError, CompilerOperation, CompilerProgress, CompilerState,
+    EventBatch, EventBatches, SourceRetention,
+};
 use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
@@ -620,13 +625,23 @@ pub struct PhaseTiming {
 
 #[must_use]
 pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
+    let mut compiler = Compiler::new(options);
+    compiler
+        .push_str(input)
+        .expect("a new compiler must accept its initial UTF-8 input");
+    compiler
+        .finish()
+        .expect("a compiler containing only validated UTF-8 must finish")
+}
+
+fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
     trace_compile("compile:start");
     let warnings = compile_portability_warnings(&options);
     if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = input.len();
+        let actual_bytes = source.len();
         if actual_bytes > max_bytes {
             return CompileResult {
-                source: input.to_owned(),
+                source,
                 events: Vec::new(),
                 errors: vec![Diagnostic {
                     code: String::from("INPUT_SIZE_EXCEEDED"),
@@ -644,7 +659,6 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         }
     }
 
-    let source = input.to_owned();
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
     let parsed = parse_document_from_tokens_recovery(
@@ -666,7 +680,7 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
             header: None,
         };
     }
-    if let Some(error) = validate_source_resource_limits(input, &parsed.bindings, &options) {
+    if let Some(error) = validate_source_resource_limits(&source, &parsed.bindings, &options) {
         return CompileResult {
             source,
             events: Vec::new(),
