@@ -1,5 +1,7 @@
 #![allow(clippy::result_large_err)]
 
+mod sofia;
+
 use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
@@ -175,12 +177,12 @@ fn parse_tokenized_document(
     limits: ParserLimits,
     implementation: ParserImplementation,
 ) -> Result<Vec<Binding>, Diagnostic> {
-    let mut parser = TokenParser::new(tokens, limits);
     match implementation {
-        ParserImplementation::Baseline => parser.parse_document(),
-        // Bootstrap only: Stage 2 replaces this arm with the iterative frame
-        // driver before production is allowed to select Sofia.
-        ParserImplementation::Sofia => parser.parse_document(),
+        ParserImplementation::Baseline => TokenParser::new(tokens, limits).parse_document(),
+        ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
+            sofia::ParseOutcome::Parsed(bindings) => Ok(bindings),
+            sofia::ParseOutcome::Unsupported => TokenParser::new(tokens, limits).parse_document(),
+        },
     }
 }
 
@@ -189,12 +191,19 @@ fn parse_tokenized_document_recovery(
     limits: ParserLimits,
     implementation: ParserImplementation,
 ) -> ParseRecoveryResult {
-    let mut parser = TokenParser::new(tokens, limits);
     match implementation {
-        ParserImplementation::Baseline => parser.parse_document_recovery(),
-        // See the strict entry point above. Keeping recovery at the same seam
-        // makes later-binding behavior part of every differential run.
-        ParserImplementation::Sofia => parser.parse_document_recovery(),
+        ParserImplementation::Baseline => {
+            TokenParser::new(tokens, limits).parse_document_recovery()
+        }
+        ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
+            sofia::ParseOutcome::Parsed(bindings) => ParseRecoveryResult {
+                bindings,
+                errors: Vec::new(),
+            },
+            sofia::ParseOutcome::Unsupported => {
+                TokenParser::new(tokens, limits).parse_document_recovery()
+            }
+        },
     }
 }
 
@@ -2004,7 +2013,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_parser_selector_preserves_strict_and_recovery_results() {
+    fn parser_selector_preserves_strict_and_recovery_results() {
         let corpus = [
             "",
             "name = \"Pat\"\nage = 49",
