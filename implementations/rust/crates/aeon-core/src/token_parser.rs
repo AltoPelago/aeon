@@ -2021,6 +2021,11 @@ mod tests {
             "lines = [1\n2\n3,]\npair = (true, false,)",
             "record = { first = 1\nsecond = [2, 3], }",
             "nested = [1, (true, { name = \"Pat\" })]",
+            r#"root\root\:list = [
+  \child\:string = "value"
+  :number = 1
+  { "nested key"\nested\:object = {} }
+]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
             "tree:node = <root(child, :string = \"typed\")>",

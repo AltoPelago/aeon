@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{Binding, Span, Token, TokenKind, Value};
 
@@ -20,7 +20,9 @@ struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
     max_value_nesting_depth: usize,
+    max_datatype_components: usize,
     current_value_nesting_depth: usize,
+    structural_identities: HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -30,7 +32,9 @@ impl<'a> Parser<'a> {
             tokens,
             current: 0,
             max_value_nesting_depth: limits.max_value_nesting_depth,
+            max_datatype_components: limits.max_datatype_components,
             current_value_nesting_depth: 0,
+            structural_identities: HashSet::new(),
         }
     }
 
@@ -140,6 +144,43 @@ impl<'a> Parser<'a> {
         true
     }
 
+    fn parse_key(&mut self) -> Option<(String, bool, crate::Position)> {
+        let token = self.peek();
+        let start = token.span.start;
+        match token.kind {
+            kind if is_bare_key_kind(kind) && token.text != "aeon" => {
+                Some((self.advance().text.clone(), false, start))
+            }
+            TokenKind::String if token.quote != Some('`') => {
+                let key = decode_quoted_token(self.advance()).ok()?;
+                (!key.is_empty()).then_some((key, false, start))
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Option<Option<String>> {
+        if !self.check(TokenKind::StructuralIdentity) {
+            return Some(None);
+        }
+        let identity = self.advance().text.clone();
+        self.structural_identities
+            .insert(identity.clone())
+            .then_some(Some(identity))
+    }
+
+    fn parse_unadorned_datatype(&mut self) -> Option<String> {
+        if self.max_datatype_components == 0 || !is_bare_key_kind(self.peek().kind) {
+            return None;
+        }
+        let datatype = self.advance().text.clone();
+        self.skip_newlines();
+        if self.check(TokenKind::LeftAngle) || self.check(TokenKind::LeftBracket) {
+            return None;
+        }
+        Some(datatype)
+    }
+
     fn leave_value_container(&mut self) {
         debug_assert!(self.current_value_nesting_depth > 0);
         self.current_value_nesting_depth -= 1;
@@ -188,6 +229,7 @@ impl<'a> Parser<'a> {
 }
 
 enum Frame {
+    AnonymousValue(AnonymousValueFrame),
     Document(DocumentFrame),
     Binding(BindingFrame),
     Sequence(ValueSequenceFrame),
@@ -203,6 +245,7 @@ impl Frame {
         output: &mut Option<Product>,
     ) -> Step {
         match self {
+            Self::AnonymousValue(frame) => frame.step(parser, product, output),
             Self::Document(frame) => frame.step(parser, product, output),
             Self::Binding(frame) => frame.step(parser, product, output),
             Self::Sequence(frame) => frame.step(parser, product, output),
@@ -346,12 +389,27 @@ impl BindingFrame {
                     debug_assert!(false, "Sofia binding frame received an early product");
                     return Step::Unsupported;
                 }
-                let token = parser.peek();
-                if !is_bare_key_kind(token.kind) || token.text == "aeon" {
+                let Some((key, is_header, start)) = parser.parse_key() else {
+                    return Step::Unsupported;
+                };
+                parser.skip_newlines();
+                let Some(structural_id) = parser.parse_optional_structural_identity() else {
+                    return Step::Unsupported;
+                };
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
                     return Step::Unsupported;
                 }
-                let start = token.span.start;
-                let key = parser.advance().text.clone();
+                let datatype = if parser.check(TokenKind::Colon) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    let Some(datatype) = parser.parse_unadorned_datatype() else {
+                        return Step::Unsupported;
+                    };
+                    Some(datatype)
+                } else {
+                    None
+                };
                 parser.skip_newlines();
                 if !parser.check(TokenKind::Equals) {
                     return Step::Unsupported;
@@ -361,12 +419,24 @@ impl BindingFrame {
 
                 Step::Push {
                     parent: Frame::Binding(Self {
-                        phase: BindingPhase::Value { start, key },
+                        phase: BindingPhase::Value {
+                            start,
+                            key,
+                            is_header,
+                            structural_id,
+                            datatype,
+                        },
                     }),
                     child: Frame::Value,
                 }
             }
-            BindingPhase::Value { start, key } => {
+            BindingPhase::Value {
+                start,
+                key,
+                is_header,
+                structural_id,
+                datatype,
+            } => {
                 let Some(Product::Value(value)) = product else {
                     debug_assert!(false, "Sofia binding frame expected a value product");
                     return Step::Unsupported;
@@ -376,9 +446,9 @@ impl BindingFrame {
                     output,
                     Product::Binding(Binding {
                         key,
-                        is_header: false,
-                        structural_id: None,
-                        datatype: None,
+                        is_header,
+                        structural_id,
+                        datatype,
                         attributes: BTreeMap::new(),
                         attribute_order: Vec::new(),
                         value,
@@ -392,7 +462,114 @@ impl BindingFrame {
 
 enum BindingPhase {
     Key,
-    Value { start: crate::Position, key: String },
+    Value {
+        start: crate::Position,
+        key: String,
+        is_header: bool,
+        structural_id: Option<String>,
+        datatype: Option<String>,
+    },
+}
+
+struct AnonymousValueFrame {
+    phase: AnonymousValuePhase,
+}
+
+impl AnonymousValueFrame {
+    fn new() -> Self {
+        Self {
+            phase: AnonymousValuePhase::Head,
+        }
+    }
+
+    fn step(
+        self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            AnonymousValuePhase::Head => {
+                if product.is_some() {
+                    debug_assert!(
+                        false,
+                        "Sofia anonymous-value frame received an early product"
+                    );
+                    return Step::Unsupported;
+                }
+                if !matches!(
+                    parser.peek().kind,
+                    TokenKind::StructuralIdentity | TokenKind::Colon | TokenKind::At
+                ) {
+                    return Step::Continue(Frame::Value);
+                }
+
+                let Some(structural_id) = parser.parse_optional_structural_identity() else {
+                    return Step::Unsupported;
+                };
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    return Step::Unsupported;
+                }
+                let datatype = if parser.check(TokenKind::Colon) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    let Some(datatype) = parser.parse_unadorned_datatype() else {
+                        return Step::Unsupported;
+                    };
+                    Some(datatype)
+                } else {
+                    None
+                };
+                parser.skip_newlines();
+                if !parser.check(TokenKind::Equals) {
+                    return Step::Unsupported;
+                }
+                parser.advance();
+                parser.skip_newlines();
+
+                Step::Push {
+                    parent: Frame::AnonymousValue(Self {
+                        phase: AnonymousValuePhase::Value {
+                            structural_id,
+                            datatype,
+                        },
+                    }),
+                    child: Frame::Value,
+                }
+            }
+            AnonymousValuePhase::Value {
+                structural_id,
+                datatype,
+            } => {
+                let Some(Product::Value(value)) = product else {
+                    debug_assert!(
+                        false,
+                        "Sofia anonymous-value frame expected a value product"
+                    );
+                    return Step::Unsupported;
+                };
+                complete(
+                    output,
+                    Product::Value(Value::TypedValue {
+                        structural_id,
+                        datatype,
+                        attributes: BTreeMap::new(),
+                        attribute_order: Vec::new(),
+                        value: Box::new(value),
+                    }),
+                )
+            }
+        }
+    }
+}
+
+enum AnonymousValuePhase {
+    Head,
+    Value {
+        structural_id: Option<String>,
+        datatype: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -444,7 +621,7 @@ impl ValueSequenceFrame {
                 self.phase = SequencePhase::Delimiter;
                 Step::Push {
                     parent: Frame::Sequence(self),
-                    child: Frame::Value,
+                    child: Frame::AnonymousValue(AnonymousValueFrame::new()),
                 }
             }
             SequencePhase::Delimiter => {
@@ -633,7 +810,7 @@ mod tests {
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
         assert!(matches!(
-            parse("typed:list = [1, 2]"),
+            parse("typed:list<string> = [1, 2]"),
             ParseOutcome::Unsupported
         ));
     }
@@ -650,6 +827,42 @@ mod tests {
         };
         assert_eq!(items.len(), 2);
         assert!(matches!(items[1], Value::TupleLiteral { .. }));
+    }
+
+    #[test]
+    fn iterative_frames_parse_typed_and_identified_heads() {
+        let source = r#"root\root\:list = [
+  \child\:string = "value"
+  :number = 1
+  { "nested key"\nested\:object = {} }
+]"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("typed and identified heads should use the Sofia frame path");
+        };
+
+        assert_eq!(bindings[0].structural_id.as_deref(), Some("root"));
+        assert_eq!(bindings[0].datatype.as_deref(), Some("list"));
+        let Value::ListNode { items } = &bindings[0].value else {
+            panic!("expected list value");
+        };
+        let Value::TypedValue {
+            structural_id,
+            datatype,
+            ..
+        } = &items[0]
+        else {
+            panic!("expected typed anonymous value");
+        };
+        assert_eq!(structural_id.as_deref(), Some("child"));
+        assert_eq!(datatype.as_deref(), Some("string"));
+    }
+
+    #[test]
+    fn duplicate_identity_restarts_through_the_baseline() {
+        assert!(matches!(
+            parse("first\\same\\ = 1\nsecond\\same\\ = 2"),
+            ParseOutcome::Unsupported
+        ));
     }
 
     #[test]
