@@ -13,6 +13,43 @@ use crate::{
 
 const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParserImplementation {
+    Baseline,
+    #[allow(dead_code)]
+    Sofia,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParserLimits {
+    max_value_nesting_depth: usize,
+    max_attribute_depth: usize,
+    max_clarifier_values: usize,
+    max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
+}
+
+impl ParserLimits {
+    const fn new(
+        max_value_nesting_depth: usize,
+        max_attribute_depth: usize,
+        max_clarifier_values: usize,
+        max_generic_depth: usize,
+        max_generic_arguments: usize,
+        max_datatype_components: usize,
+    ) -> Self {
+        Self {
+            max_value_nesting_depth,
+            max_attribute_depth,
+            max_clarifier_values,
+            max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+        }
+    }
+}
+
 fn is_bare_key_kind(kind: TokenKind) -> bool {
     matches!(
         kind,
@@ -35,6 +72,25 @@ pub(crate) fn parse_document_from_tokens(
     max_generic_arguments: usize,
     max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
+    parse_document_from_tokens_with_implementation(
+        input,
+        ParserLimits::new(
+            max_value_nesting_depth,
+            max_attribute_depth,
+            max_clarifier_values,
+            max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+        ),
+        ParserImplementation::Baseline,
+    )
+}
+
+pub(crate) fn parse_document_from_tokens_with_implementation(
+    input: &str,
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> Result<Vec<Binding>, Diagnostic> {
     let lexed = tokenize(
         input,
         LexerOptions {
@@ -51,18 +107,10 @@ pub(crate) fn parse_document_from_tokens(
             message: error.message.clone(),
         });
     }
-    TokenParser::new(
-        &lexed.tokens,
-        max_value_nesting_depth,
-        max_attribute_depth,
-        max_clarifier_values,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
-    .parse_document()
+    parse_tokenized_document(&lexed.tokens, limits, implementation)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParseRecoveryResult {
     pub bindings: Vec<Binding>,
     pub errors: Vec<Diagnostic>,
@@ -76,6 +124,25 @@ pub(crate) fn parse_document_from_tokens_recovery(
     max_generic_depth: usize,
     max_generic_arguments: usize,
     max_datatype_components: usize,
+) -> ParseRecoveryResult {
+    parse_document_from_tokens_recovery_with_implementation(
+        input,
+        ParserLimits::new(
+            max_value_nesting_depth,
+            max_attribute_depth,
+            max_clarifier_values,
+            max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+        ),
+        ParserImplementation::Baseline,
+    )
+}
+
+pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
+    input: &str,
+    limits: ParserLimits,
+    implementation: ParserImplementation,
 ) -> ParseRecoveryResult {
     let lexed = tokenize(
         input,
@@ -100,16 +167,35 @@ pub(crate) fn parse_document_from_tokens_recovery(
                 .collect(),
         };
     }
-    TokenParser::new(
-        &lexed.tokens,
-        max_value_nesting_depth,
-        max_attribute_depth,
-        max_clarifier_values,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
-    .parse_document_recovery()
+    parse_tokenized_document_recovery(&lexed.tokens, limits, implementation)
+}
+
+fn parse_tokenized_document(
+    tokens: &[Token],
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> Result<Vec<Binding>, Diagnostic> {
+    let mut parser = TokenParser::new(tokens, limits);
+    match implementation {
+        ParserImplementation::Baseline => parser.parse_document(),
+        // Bootstrap only: Stage 2 replaces this arm with the iterative frame
+        // driver before production is allowed to select Sofia.
+        ParserImplementation::Sofia => parser.parse_document(),
+    }
+}
+
+fn parse_tokenized_document_recovery(
+    tokens: &[Token],
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> ParseRecoveryResult {
+    let mut parser = TokenParser::new(tokens, limits);
+    match implementation {
+        ParserImplementation::Baseline => parser.parse_document_recovery(),
+        // See the strict entry point above. Keeping recovery at the same seam
+        // makes later-binding behavior part of every differential run.
+        ParserImplementation::Sofia => parser.parse_document_recovery(),
+    }
 }
 
 struct TokenParser<'a> {
@@ -126,25 +212,17 @@ struct TokenParser<'a> {
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(
-        tokens: &'a [Token],
-        max_value_nesting_depth: usize,
-        max_attribute_depth: usize,
-        max_clarifier_values: usize,
-        max_generic_depth: usize,
-        max_generic_arguments: usize,
-        max_datatype_components: usize,
-    ) -> Self {
+    fn new(tokens: &'a [Token], limits: ParserLimits) -> Self {
         Self {
             tokens,
             current: 0,
-            max_value_nesting_depth,
+            max_value_nesting_depth: limits.max_value_nesting_depth,
             current_nesting_depth: 0,
-            max_attribute_depth,
-            max_clarifier_values,
-            max_generic_depth,
-            max_generic_arguments,
-            max_datatype_components,
+            max_attribute_depth: limits.max_attribute_depth,
+            max_clarifier_values: limits.max_clarifier_values,
+            max_generic_depth: limits.max_generic_depth,
+            max_generic_arguments: limits.max_generic_arguments,
+            max_datatype_components: limits.max_datatype_components,
             structural_identities: HashSet::new(),
         }
     }
@@ -1885,11 +1963,61 @@ fn is_valid_exponent_digits(raw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_document_from_tokens;
+    use super::{
+        ParserImplementation, ParserLimits, parse_document_from_tokens,
+        parse_document_from_tokens_recovery_with_implementation,
+        parse_document_from_tokens_with_implementation,
+    };
     use crate::{TrimtickMetadata, Value};
+
+    const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
         parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
+    }
+
+    fn parse_with(
+        input: &str,
+        implementation: ParserImplementation,
+    ) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        parse_document_from_tokens_with_implementation(input, TEST_LIMITS, implementation)
+    }
+
+    fn recover_with(
+        input: &str,
+        implementation: ParserImplementation,
+    ) -> super::ParseRecoveryResult {
+        parse_document_from_tokens_recovery_with_implementation(input, TEST_LIMITS, implementation)
+    }
+
+    fn assert_parser_parity(input: &str) {
+        assert_eq!(
+            parse_with(input, ParserImplementation::Sofia),
+            parse_with(input, ParserImplementation::Baseline),
+            "strict parser drift for input:\n{input}",
+        );
+        assert_eq!(
+            recover_with(input, ParserImplementation::Sofia),
+            recover_with(input, ParserImplementation::Baseline),
+            "recovery parser drift for input:\n{input}",
+        );
+    }
+
+    #[test]
+    fn bootstrap_parser_selector_preserves_strict_and_recovery_results() {
+        let corpus = [
+            "",
+            "name = \"Pat\"\nage = 49",
+            "items:list<string> = [\"one\", \"two\"]",
+            "record:object = { nested@{flag = true}:string = \"value\" }",
+            "tree:node = <root(child, :string = \"typed\")>",
+            "broken = [1,,2]\nlater = true",
+            "quoted = \"unterminated",
+        ];
+
+        for input in corpus {
+            assert_parser_parity(input);
+        }
     }
 
     #[test]
