@@ -4713,6 +4713,28 @@ fn has_aeos_schema_root(events: &[AssignmentEvent]) -> bool {
     })
 }
 
+fn stringify_aeon_schema_numeric_bounds(document: &mut JsonValue) {
+    let Some(datatype_rules) = document
+        .as_object_mut()
+        .and_then(|object| object.get_mut("datatype_rules"))
+        .and_then(JsonValue::as_object_mut)
+    else {
+        return;
+    };
+
+    for constraints in datatype_rules
+        .values_mut()
+        .filter_map(JsonValue::as_object_mut)
+    {
+        for key in ["min_value", "max_value"] {
+            let Some(number) = constraints.get(key).and_then(JsonValue::as_number) else {
+                continue;
+            };
+            constraints.insert(key.to_string(), JsonValue::String(number.to_string()));
+        }
+    }
+}
+
 fn read_schema_contract_aeon_file(
     file: &str,
     expected_schema_id: Option<&str>,
@@ -4730,22 +4752,35 @@ fn read_schema_contract_aeon_file(
         return Err(format!("Schema contract AEON file failed to parse: {file}"));
     }
 
-    let finalized = finalize_json(&compiled.events, FinalizeOptions::default());
+    // Schema bounds are exact decimal claims and may intentionally exceed the
+    // JSON safe-integer range. Loose finalization preserves those lexemes as
+    // strings for AEOS validation instead of rejecting the contract document.
+    let finalized = finalize_json(
+        &compiled.events,
+        FinalizeOptions {
+            mode: FinalizeMode::Loose,
+            ..FinalizeOptions::default()
+        },
+    );
     if !finalized.meta.errors.is_empty() {
         return Err(format!(
             "Schema contract AEON file failed to finalize: {file}"
         ));
     }
 
-    let document = finalized.document;
+    let mut document = finalized.document;
     if has_aeos_schema_root(&compiled.events) {
         let aeos_root = document
-            .as_object()
-            .and_then(|object| object.get("aeos"))
-            .cloned()
+            .as_object_mut()
+            .and_then(|object| object.get_mut("aeos"))
+            .map(|root| {
+                stringify_aeon_schema_numeric_bounds(root);
+                root.clone()
+            })
             .ok_or_else(|| format!("Schema document missing required '$.aeos' object: {file}"))?;
         return normalize_aeos_schema_contract_value(aeos_root, file, expected_schema_id);
     }
+    stringify_aeon_schema_numeric_bounds(&mut document);
     let object = document
         .as_object()
         .cloned()
