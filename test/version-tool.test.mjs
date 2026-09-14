@@ -227,6 +227,27 @@ test('version set permits an exact idempotent rerun', (t) => {
   assert.deepEqual(readSources(root, sources.keys()), sources);
 });
 
+test('version set permits an exact rerun before the new changelog heading exists', (t) => {
+  const { root, sources } = createFixture(t);
+  const first = runVersion(root, ['set', 'typescript', '1.3.0']);
+  assert.equal(first.status, 0, first.stderr);
+  const updated = readSources(root, sources.keys());
+
+  const check = runVersion(root, ['check']);
+  assert.equal(check.status, 1);
+  assert.match(check.stderr, /CHANGELOG\.md must have exactly one dated release heading for 1\.3\.0/);
+
+  const rerun = runVersion(root, ['set', 'typescript', '1.3.0']);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.match(rerun.stdout, /already 1\.3\.0/);
+  assert.deepEqual(readSources(root, sources.keys()), updated);
+
+  const nextBump = runVersion(root, ['set', 'typescript', '1.4.0']);
+  assert.equal(nextBump.status, 1);
+  assert.match(nextBump.stderr, /CHANGELOG\.md must have exactly one dated release heading for 1\.3\.0/);
+  assert.deepEqual(readSources(root, sources.keys()), updated);
+});
+
 test('version set rejects invalid input, downgrades, and equal-precedence build changes', (t) => {
   const { root, sources } = createFixture(t);
   for (const version of ['v1.3.0', '1.2.2', '1.2.3+replacement']) {

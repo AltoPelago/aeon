@@ -478,7 +478,14 @@ function releaseHeadingProblem(changelog, version) {
     : `CHANGELOG.md must have exactly one dated release heading for ${version}`;
 }
 
-function consistencyProblems(sources, versions) {
+function releaseHeadingProblems(sources, versions) {
+  const changelog = sources.get('CHANGELOG.md');
+  return [...new Set(Object.values(versions))]
+    .map((version) => releaseHeadingProblem(changelog, version))
+    .filter((problem) => problem !== null);
+}
+
+function consistencyProblems(sources, versions, { requireReleaseHeadings = true } = {}) {
   const problems = [];
   try {
     const claimedVersions = ctsClaimVersions(sources.get('conformance/cts-claims.json'));
@@ -565,11 +572,7 @@ function consistencyProblems(sources, versions) {
   }
   expectLiteral(problems, strategy, `hotfix/typescript/${versions.typescript}`, 'release-strategy TypeScript hotfix branch');
 
-  const changelog = sources.get('CHANGELOG.md');
-  for (const version of new Set(Object.values(versions))) {
-    const problem = releaseHeadingProblem(changelog, version);
-    if (problem) problems.push(problem);
-  }
+  if (requireReleaseHeadings) problems.push(...releaseHeadingProblems(sources, versions));
   return problems;
 }
 
@@ -658,10 +661,10 @@ function updatePython(updates, current, next) {
   });
 }
 
-async function validatedMetadata() {
+async function validatedMetadata(options) {
   const sources = await loadSources();
   const versions = currentVersions(sources);
-  const problems = consistencyProblems(sources, versions);
+  const problems = consistencyProblems(sources, versions, options);
   if (problems.length > 0) throw new Error(problems.join('; '));
   return { sources, versions };
 }
@@ -733,13 +736,15 @@ async function setVersion(track, version) {
     throw new Error(`Expected a SemVer version without a leading "v", received ${JSON.stringify(version)}`);
   }
   await assertNoPendingTransaction();
-  const { sources, versions } = await validatedMetadata();
+  const { sources, versions } = await validatedMetadata({ requireReleaseHeadings: false });
   const selected = track === 'all' ? concreteTracks : [track];
   const changing = selected.filter((name) => versions[name] !== version);
   if (changing.length === 0) {
     console.log(`${track} release metadata is already ${version}.`);
     return;
   }
+  const headingProblems = releaseHeadingProblems(sources, versions);
+  if (headingProblems.length > 0) throw new Error(headingProblems.join('; '));
   for (const name of changing) {
     if (compareSemver(version, versions[name]) <= 0) {
       throw new Error(
