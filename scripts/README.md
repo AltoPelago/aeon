@@ -75,6 +75,9 @@ changelog prose or create Git commits and tags.
 | Script | Purpose | Typical invocation |
 | --- | --- | --- |
 | `bench-cli.py` | Repeatable local benchmark wrapper for CLI commands. | `python3 ./scripts/bench-cli.py --cwd implementations/rust -- ./target/release/aeon-rust check /tmp/file.aeon` |
+| `generate-sofia-corpus.py` | Generates the deterministic large and adversarial fixtures named by the Sofia corpus manifest. | `python3 ./scripts/generate-sofia-corpus.py /tmp/aeon-sofia-corpus --json` |
+| `bench-sofia-baseline.py` | Captures native Rust and pure-Python in-process Sofia baselines with repository, environment, corpus-hash, percentile, throughput, and Rust phase-timing metadata. | `python3 ./scripts/bench-sofia-baseline.py --implementation native --profile full --output /tmp/sofia-baseline.json` |
+| `bench-sofia-wasm.mjs` | Separately captures WASM initialization, raw JSON-envelope calls, JavaScript wrapper adaptation, and linear-memory growth for one Sofia corpus fixture. | `node ./scripts/bench-sofia-wasm.mjs --iterations 10 --warmup 2 /tmp/aeon-sofia-corpus/large-flat-50000.aeon` |
 | `bench-telex-vs-json.mjs` | Compares raw and structurally validated compact JSON, limits-aware TypeScript Telex, and end-to-end Rust/WASM bulk-operation throughput over 100 to 100,000 portable events. The limit-scale case selects an explicit workload-sized list limit rather than weakening runtime defaults. | `cd implementations/typescript && pnpm bench:telex` |
 
 ## Notes on authority boundaries

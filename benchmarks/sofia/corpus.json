@@ -1,0 +1,109 @@
+{
+  "schema": "aeon.sofia.corpus.v1",
+  "generator_version": 1,
+  "description": "Stable correctness and performance corpus for the Sofia migration.",
+  "cases": [
+    {
+      "id": "tiny-typed",
+      "source": { "kind": "generated", "fixture": "tiny-typed.aeon" },
+      "expected": "valid",
+      "categories": ["tiny", "startup", "editor-latency"]
+    },
+    {
+      "id": "ecosystem-spec",
+      "source": { "kind": "repository", "path": "stress-tests/canonical-corpus/specs/aeon-core-v1.aeon" },
+      "expected": "valid",
+      "categories": ["ecosystem", "specification", "mixed"]
+    },
+    {
+      "id": "ecosystem-site",
+      "source": { "kind": "repository", "path": "stress-tests/canonical-corpus/altopelago-website/ai.aeon" },
+      "expected": "valid",
+      "categories": ["ecosystem", "website", "mixed"]
+    },
+    {
+      "id": "full-feature",
+      "source": { "kind": "repository", "path": "stress-tests/full/full-feature-stress.aeon" },
+      "expected": "valid",
+      "categories": ["mixed", "literals", "references", "annotations"]
+    },
+    {
+      "id": "large-flat-50000",
+      "source": { "kind": "generated", "fixture": "large-flat-50000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "flat", "throughput", "memory"]
+    },
+    {
+      "id": "wide-object-20000",
+      "source": { "kind": "generated", "fixture": "wide-object-20000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "wide", "object", "memory"]
+    },
+    {
+      "id": "wide-list-50000",
+      "source": { "kind": "generated", "fixture": "wide-list-50000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "wide", "list", "memory"]
+    },
+    {
+      "id": "wide-tuple-20000",
+      "source": { "kind": "generated", "fixture": "wide-tuple-20000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "wide", "tuple", "memory"]
+    },
+    {
+      "id": "wide-node-20000",
+      "source": { "kind": "generated", "fixture": "wide-node-20000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "wide", "node", "memory"]
+    },
+    {
+      "id": "deep-container-64",
+      "source": { "kind": "repository", "path": "stress-tests/edge/limits/nesting-depth-floor-64.aeon" },
+      "expected": "valid",
+      "categories": ["deep", "list", "stack", "limit-boundary"]
+    },
+    {
+      "id": "unicode-10000",
+      "source": { "kind": "generated", "fixture": "unicode-10000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "unicode", "strings", "keys"]
+    },
+    {
+      "id": "references-10000",
+      "source": { "kind": "generated", "fixture": "references-10000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "references", "structural-identity"]
+    },
+    {
+      "id": "datatypes-10000",
+      "source": { "kind": "generated", "fixture": "datatypes-10000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "datatypes", "generics", "clarifiers"]
+    },
+    {
+      "id": "attributes-10000",
+      "source": { "kind": "generated", "fixture": "attributes-10000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "attributes", "structural-identity"]
+    },
+    {
+      "id": "comments-10000",
+      "source": { "kind": "generated", "fixture": "comments-10000.aeon" },
+      "expected": "valid",
+      "categories": ["large", "comments", "annotations"]
+    },
+    {
+      "id": "invalid-early",
+      "source": { "kind": "repository", "path": "stress-tests/edge/unicode-invalid-escape.aeon" },
+      "expected": "invalid",
+      "categories": ["invalid", "early-failure", "unicode"]
+    },
+    {
+      "id": "invalid-late-20000",
+      "source": { "kind": "generated", "fixture": "invalid-late-20000.aeon" },
+      "expected": "invalid",
+      "categories": ["invalid", "late-failure", "large", "hostile"]
+    }
+  ]
+}

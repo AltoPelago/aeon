@@ -51,6 +51,7 @@ name = "aeon-core"
 version = "0.13.0"
 dependencies = [
  "aes-telex",
+ "serde_json",
  "sha2",
 ]
 
