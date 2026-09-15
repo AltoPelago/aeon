@@ -181,7 +181,11 @@ fn parse_tokenized_document(
         ParserImplementation::Baseline => TokenParser::new(tokens, limits).parse_document(),
         ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
             sofia::ParseOutcome::Parsed(bindings) => Ok(bindings),
+            sofia::ParseOutcome::Failed(error) => Err(error),
             sofia::ParseOutcome::Unsupported => TokenParser::new(tokens, limits).parse_document(),
+            sofia::ParseOutcome::Recovered { .. } => {
+                unreachable!("strict Sofia parsing returned a recovery product")
+            }
         },
     }
 }
@@ -195,13 +199,19 @@ fn parse_tokenized_document_recovery(
         ParserImplementation::Baseline => {
             TokenParser::new(tokens, limits).parse_document_recovery()
         }
-        ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
-            sofia::ParseOutcome::Parsed(bindings) => ParseRecoveryResult {
-                bindings,
-                errors: Vec::new(),
+        ParserImplementation::Sofia => match sofia::parse_document_recovery(tokens, limits) {
+            sofia::ParseOutcome::Recovered { bindings, errors } => {
+                ParseRecoveryResult { bindings, errors }
+            }
+            sofia::ParseOutcome::Failed(error) => ParseRecoveryResult {
+                bindings: Vec::new(),
+                errors: vec![error],
             },
             sofia::ParseOutcome::Unsupported => {
                 TokenParser::new(tokens, limits).parse_document_recovery()
+            }
+            sofia::ParseOutcome::Parsed(_) => {
+                unreachable!("recovery Sofia parsing returned a strict product")
             }
         },
     }
@@ -2048,6 +2058,9 @@ aeon:profile = "core"
 aeon = "ordinary""#,
             "aeon:header = { mode = \"strict\" }\naeon:mode = \"strict\"\nvalue = 1",
             "aeon:true = 1\nlater = true",
+            "@ nonsense\nlater = true",
+            "broken hello\nlater = true",
+            "first = 1 garbage\nlater = true",
             r#"positive = Infinity
 negative = -Infinity
 not_a_number = -NaN

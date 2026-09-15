@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::header::apply_trimticks;
 use crate::sansa::parse_address as parse_sansa_address;
 use crate::{
-    AttributeValue, Binding, NullLiteralMode, ReferenceSegment, Span, Token, TokenKind,
+    AttributeValue, Binding, Diagnostic, NullLiteralMode, ReferenceSegment, Span, Token, TokenKind,
     TrimtickMetadata, Value,
 };
 
@@ -16,11 +16,20 @@ use super::{
 
 pub(super) enum ParseOutcome {
     Parsed(Vec<Binding>),
+    Recovered {
+        bindings: Vec<Binding>,
+        errors: Vec<Diagnostic>,
+    },
+    Failed(Diagnostic),
     Unsupported,
 }
 
 pub(super) fn parse_document(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
-    Parser::new(tokens, limits).run()
+    Parser::new(tokens, limits, false).run()
+}
+
+pub(super) fn parse_document_recovery(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
+    Parser::new(tokens, limits, true).run()
 }
 
 struct Parser<'a> {
@@ -35,10 +44,11 @@ struct Parser<'a> {
     current_value_nesting_depth: usize,
     current_datatype_components: usize,
     structural_identities: HashSet<String>,
+    recovery: bool,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token], limits: ParserLimits) -> Self {
+    fn new(tokens: &'a [Token], limits: ParserLimits, recovery: bool) -> Self {
         debug_assert_eq!(tokens.last().map(|token| token.kind), Some(TokenKind::Eof));
         Self {
             tokens,
@@ -52,6 +62,7 @@ impl<'a> Parser<'a> {
             current_value_nesting_depth: 0,
             current_datatype_components: 0,
             structural_identities: HashSet::new(),
+            recovery,
         }
     }
 
@@ -77,9 +88,17 @@ impl<'a> Parser<'a> {
                 }
                 Step::Complete if frames.is_empty() => {
                     return match product.take() {
-                        Some(Product::Document(bindings)) => {
+                        Some(Product::Document(document)) => {
                             debug_assert_eq!(self.current_value_nesting_depth, 0);
-                            ParseOutcome::Parsed(bindings)
+                            if self.recovery {
+                                ParseOutcome::Recovered {
+                                    bindings: document.bindings,
+                                    errors: document.errors,
+                                }
+                            } else {
+                                debug_assert!(document.errors.is_empty());
+                                ParseOutcome::Parsed(document.bindings)
+                            }
                         }
                         Some(
                             Product::AttributeEntry(_)
@@ -97,6 +116,22 @@ impl<'a> Parser<'a> {
                 }
                 Step::Complete => {
                     debug_assert!(product.is_some(), "Sofia frame completed without a product");
+                }
+                Step::Failed(error) => {
+                    let mut document = None;
+                    while let Some(parent) = frames.pop() {
+                        if let Frame::Document(frame) = parent {
+                            document = Some(frame);
+                            break;
+                        }
+                    }
+                    let Some(frame) = document else {
+                        return ParseOutcome::Failed(error);
+                    };
+                    match frame.recover_child_failure(&mut self, error) {
+                        Ok(frame) => frames.push(Frame::Document(frame)),
+                        Err(error) => return ParseOutcome::Failed(error),
+                    }
                 }
                 Step::Unsupported => return ParseOutcome::Unsupported,
             }
@@ -268,7 +303,7 @@ impl<'a> Parser<'a> {
         true
     }
 
-    fn parse_key(&mut self) -> Option<(String, bool, crate::Position)> {
+    fn parse_key(&mut self) -> Result<(String, bool, crate::Position), Diagnostic> {
         let token = self.peek();
         let start = token.span.start;
         match token.kind {
@@ -281,20 +316,31 @@ impl<'a> Parser<'a> {
                         self.advance();
                         self.skip_newlines();
                         if !self.check(TokenKind::Identifier) {
-                            return None;
+                            return Err(
+                                self.error_at_current("Expected header field after `aeon:`")
+                            );
                         }
                         let field = self.advance().text.clone();
-                        return Some((format!("aeon:{field}"), true, start));
+                        return Ok((format!("aeon:{field}"), true, start));
                     }
                     self.current = saved;
                 }
-                Some((self.advance().text.clone(), false, start))
+                Ok((self.advance().text.clone(), false, start))
             }
-            TokenKind::String if token.quote != Some('`') => {
-                let key = decode_quoted_token(self.advance()).ok()?;
-                (!key.is_empty()).then_some((key, false, start))
+            TokenKind::String => {
+                if token.quote == Some('`') {
+                    return Err(self.error_at_current("Backtick strings are not valid keys"));
+                }
+                let token = self.advance();
+                let key = decode_quoted_token(token)?;
+                if key.is_empty() {
+                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty")
+                        .at_path("$")
+                        .with_span(token.span));
+                }
+                Ok((key, false, start))
             }
-            _ => None,
+            _ => Err(self.error_at_current("Expected key")),
         }
     }
 
@@ -500,6 +546,34 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn synchronize_to_next_binding(&mut self) -> bool {
+        while !self.is_at_end() {
+            let token = self.peek();
+            let is_binding_key = is_bare_key_kind(token.kind)
+                || (token.kind == TokenKind::String && token.quote != Some('`'));
+            if is_binding_key
+                && matches!(
+                    self.peek_next().kind,
+                    TokenKind::Equals | TokenKind::Colon | TokenKind::At
+                )
+            {
+                return true;
+            }
+            self.advance();
+        }
+        false
+    }
+
+    fn error_at_current(&self, message: impl Into<String>) -> Diagnostic {
+        Diagnostic {
+            code: String::from("SYNTAX_ERROR"),
+            path: Some(String::from("$")),
+            span: Some(self.peek().span),
+            phase: None,
+            message: message.into(),
+        }
+    }
+
     fn check(&self, kind: TokenKind) -> bool {
         self.peek().kind == kind
     }
@@ -626,7 +700,7 @@ enum Product {
     AttributeEntry(ParsedAttributeEntry),
     Attributes(ParsedAttributes),
     Datatype(String),
-    Document(Vec<Binding>),
+    Document(ParsedDocument),
     Binding(Binding),
     Values(Vec<Value>),
     Value(Value),
@@ -636,6 +710,7 @@ enum Step {
     Continue(Frame),
     Push { parent: Frame, child: Frame },
     Complete,
+    Failed(Diagnostic),
     Unsupported,
 }
 
@@ -645,8 +720,14 @@ fn complete(output: &mut Option<Product>, product: Product) -> Step {
     Step::Complete
 }
 
+struct ParsedDocument {
+    bindings: Vec<Binding>,
+    errors: Vec<Diagnostic>,
+}
+
 struct DocumentFrame {
     bindings: Vec<Binding>,
+    errors: Vec<Diagnostic>,
     phase: DocumentPhase,
 }
 
@@ -654,8 +735,42 @@ impl DocumentFrame {
     fn new() -> Self {
         Self {
             bindings: Vec::new(),
+            errors: Vec::new(),
             phase: DocumentPhase::Binding,
         }
+    }
+
+    fn recover_child_failure(
+        mut self,
+        parser: &mut Parser<'_>,
+        error: Diagnostic,
+    ) -> Result<Self, Diagnostic> {
+        parser.current_value_nesting_depth = 0;
+        if parser.recovery {
+            self.errors.push(error);
+            parser.synchronize_to_next_binding();
+        } else if error.code == "SYNTAX_ERROR" && error.message == "Expected key" {
+            if !parser.synchronize_to_next_binding() {
+                return Err(error);
+            }
+        } else {
+            return Err(error);
+        }
+        parser.skip_newlines();
+        self.phase = DocumentPhase::Binding;
+        Ok(self)
+    }
+
+    fn recover_own_failure(mut self, parser: &mut Parser<'_>, error: Diagnostic) -> Step {
+        if !parser.recovery {
+            return Step::Failed(error);
+        }
+        parser.current_value_nesting_depth = 0;
+        self.errors.push(error);
+        parser.synchronize_to_next_binding();
+        parser.skip_newlines();
+        self.phase = DocumentPhase::Binding;
+        Step::Continue(Frame::Document(self))
     }
 
     fn step(
@@ -672,7 +787,17 @@ impl DocumentFrame {
                 }
                 parser.skip_newlines();
                 if parser.is_at_end() {
-                    return complete(output, Product::Document(self.bindings));
+                    return complete(
+                        output,
+                        Product::Document(ParsedDocument {
+                            bindings: self.bindings,
+                            errors: self.errors,
+                        }),
+                    );
+                }
+                if parser.check(TokenKind::Colon) {
+                    let error = parser.error_at_current("Expected key");
+                    return self.recover_own_failure(parser, error);
                 }
                 self.phase = DocumentPhase::Delimiter;
                 Step::Push {
@@ -688,14 +813,21 @@ impl DocumentFrame {
                 self.bindings.push(binding);
 
                 if parser.is_at_end() {
-                    return complete(output, Product::Document(self.bindings));
+                    return complete(
+                        output,
+                        Product::Document(ParsedDocument {
+                            bindings: self.bindings,
+                            errors: self.errors,
+                        }),
+                    );
                 }
                 if parser.check(TokenKind::Comma) {
                     parser.advance();
                 } else if parser.check(TokenKind::Newline) {
                     parser.skip_newlines();
                 } else {
-                    return Step::Unsupported;
+                    let error = parser.error_at_current("Expected binding delimiter");
+                    return self.recover_own_failure(parser, error);
                 }
 
                 self.phase = DocumentPhase::Binding;
@@ -733,8 +865,9 @@ impl BindingFrame {
                     debug_assert!(false, "Sofia binding frame received an early product");
                     return Step::Unsupported;
                 }
-                let Some((key, is_header, start)) = parser.parse_key() else {
-                    return Step::Unsupported;
+                let (key, is_header, start) = match parser.parse_key() {
+                    Ok(key) => key,
+                    Err(error) => return Step::Failed(error),
                 };
                 parser.skip_newlines();
                 let Some(structural_id) = parser.parse_optional_structural_identity() else {
@@ -833,7 +966,9 @@ impl BindingFrame {
     fn push_value(parser: &mut Parser<'_>, head: BindingHead) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
-            return Step::Unsupported;
+            return Step::Failed(
+                parser.error_at_current(format!("Expected '=' after key '{}'", head.key)),
+            );
         }
         parser.advance();
         parser.skip_newlines();
@@ -1152,8 +1287,9 @@ impl AttributeEntryFrame {
                     debug_assert!(false, "Sofia attribute entry received an early product");
                     return Step::Unsupported;
                 }
-                let Some((key, _, start)) = parser.parse_key() else {
-                    return Step::Unsupported;
+                let (key, _, start) = match parser.parse_key() {
+                    Ok(key) => key,
+                    Err(error) => return Step::Failed(error),
                 };
                 if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                     return Step::Unsupported;
@@ -1981,7 +2117,7 @@ enum ObjectPhase {
 mod tests {
     use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, Value, tokenize};
 
-    use super::{ParseOutcome, ParserLimits, parse_document};
+    use super::{ParseOutcome, ParserLimits, parse_document, parse_document_recovery};
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
@@ -1999,6 +2135,18 @@ mod tests {
         );
         assert!(lexed.errors.is_empty());
         parse_document(&lexed.tokens, limits)
+    }
+
+    fn parse_recovery(input: &str) -> ParseOutcome {
+        let lexed = tokenize(
+            input,
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(lexed.errors.is_empty());
+        parse_document_recovery(&lexed.tokens, TEST_LIMITS)
     }
 
     #[test]
@@ -2020,6 +2168,57 @@ mod tests {
             parse("broken = [1,,2]"),
             ParseOutcome::Unsupported
         ));
+    }
+
+    #[test]
+    fn native_document_recovery_preserves_baseline_synchronization() {
+        let source = "@ nonsense\nlater = true";
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("strict Expected-key recovery should stay on Sofia");
+        };
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "later");
+
+        let ParseOutcome::Recovered { bindings, errors } = parse_recovery(source) else {
+            panic!("recovery parsing should stay on Sofia");
+        };
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "later");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(errors[0].message, "Expected key");
+        let span = errors[0].span.expect("error span");
+        assert_eq!(span.start.offset, 0);
+        assert_eq!(span.end.offset, 1);
+        assert_eq!((span.start.line, span.start.column), (1, 1));
+        assert_eq!((span.end.line, span.end.column), (1, 2));
+    }
+
+    #[test]
+    fn native_binding_and_document_delimiter_errors_recover_later_bindings() {
+        let missing_equals = "broken hello\nlater = true";
+        let ParseOutcome::Failed(error) = parse(missing_equals) else {
+            panic!("strict missing-equals failure should stay on Sofia");
+        };
+        assert_eq!(error.code, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Expected '=' after key 'broken'");
+
+        let ParseOutcome::Recovered { bindings, errors } = parse_recovery(missing_equals) else {
+            panic!("missing-equals recovery should stay on Sofia");
+        };
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "later");
+        assert_eq!(errors, [error]);
+
+        let delimiter = "first = 1 garbage\nlater = true";
+        let ParseOutcome::Recovered { bindings, errors } = parse_recovery(delimiter) else {
+            panic!("delimiter recovery should stay on Sofia");
+        };
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].key, "first");
+        assert_eq!(bindings[1].key, "later");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "Expected binding delimiter");
     }
 
     #[test]
