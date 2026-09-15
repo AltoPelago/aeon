@@ -2200,6 +2200,97 @@ literal = ~true.off"#,
     }
 
     #[test]
+    fn parser_selector_preserves_utf8_offsets_scalar_columns_and_crlf() {
+        let source = "\u{feff}\"café😀\" = \"nai\u{308}ve\"\r\n\"次\" = <\"タグ\"(\"🙂\")>";
+        assert_parser_parity(source);
+
+        let bindings = parse_with(source, ParserImplementation::Sofia).expect("Sofia parse");
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].key, "café😀");
+        assert_eq!(bindings[0].span.start.offset, '\u{feff}'.len_utf8());
+        assert_eq!(bindings[0].span.start.line, 1);
+        assert_eq!(bindings[0].span.start.column, 2);
+        assert_eq!(
+            bindings[0].span.end.offset,
+            source.find("\r\n").expect("CRLF")
+        );
+        assert_eq!(bindings[0].span.end.line, 1);
+        assert_eq!(bindings[0].span.end.column, 20);
+
+        let second_offset = source.find("\"次\"").expect("second binding");
+        assert_eq!(bindings[1].key, "次");
+        assert_eq!(bindings[1].span.start.offset, second_offset);
+        assert_eq!(bindings[1].span.start.line, 2);
+        assert_eq!(bindings[1].span.start.column, 1);
+
+        let preamble = concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "//! format:aeon.test.v1\r\n",
+            "\"café😀\" = true",
+        );
+        assert_parser_parity(preamble);
+        let preamble_bindings =
+            parse_with(preamble, ParserImplementation::Sofia).expect("Sofia preamble parse");
+        assert_eq!(preamble_bindings.len(), 1);
+        assert_eq!(
+            preamble_bindings[0].span.start.offset,
+            preamble.find("\"café😀\"").expect("binding after preamble"),
+        );
+        assert_eq!(preamble_bindings[0].span.start.line, 3);
+        assert_eq!(preamble_bindings[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn parser_selector_preserves_unicode_diagnostic_spans_and_recovery_order() {
+        let source = concat!(
+            "\u{feff}\"café\u{301}😀\" = [1 2]\r\n",
+            "\"次\" = true\r\n",
+            "\"broken\" = <\"タグ\"(1 2)>\r\n",
+            "\"終\" = false",
+        );
+        assert_parser_parity(source);
+
+        let strict_error =
+            parse_with(source, ParserImplementation::Sofia).expect_err("strict Sofia failure");
+        assert_eq!(strict_error.message, "Expected list delimiter");
+        let strict_span = strict_error.span.expect("strict diagnostic span");
+        assert_eq!(
+            strict_span.start.offset,
+            source.find("2]").expect("list error")
+        );
+        assert_eq!(strict_span.start.line, 1);
+        assert_eq!(strict_span.start.column, 16);
+        assert_eq!(strict_span.end.offset, strict_span.start.offset + 1);
+        assert_eq!(strict_span.end.line, 1);
+        assert_eq!(strict_span.end.column, 17);
+
+        let recovered = recover_with(source, ParserImplementation::Sofia);
+        assert_eq!(
+            recovered
+                .bindings
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["次", "終"],
+        );
+        assert_eq!(recovered.errors.len(), 2);
+        assert_eq!(recovered.errors[0], strict_error);
+        assert_eq!(recovered.errors[1].message, "Expected node child delimiter");
+        let node_span = recovered.errors[1]
+            .span
+            .expect("recovered node diagnostic span");
+        assert_eq!(
+            node_span.start.offset,
+            source.rfind("2)>").expect("node child error"),
+        );
+        assert_eq!(node_span.start.line, 3);
+        assert_eq!(node_span.start.column, 20);
+        assert_eq!(node_span.end.offset, node_span.start.offset + 1);
+        assert_eq!(node_span.end.line, 3);
+        assert_eq!(node_span.end.column, 21);
+    }
+
+    #[test]
     fn parses_simple_top_level_bindings_from_tokens() {
         let bindings = parse("name = \"Pat\"\nage = 49").expect("token parse");
         assert_eq!(bindings.len(), 2);
