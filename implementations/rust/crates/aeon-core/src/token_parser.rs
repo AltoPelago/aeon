@@ -2040,7 +2040,18 @@ mod tests {
 items = [@{note:string = "first"}:number = 1]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
+            r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+  "text"
+  \child\:string = "typed"
+  <leaf>
+)>"#,
+            "empty:node = <glyph:node>\nexplicit:node = <br()>",
+            "words:node = <on(off, <true>)>",
+            "multiline:node = <span\n@\n{class = \"line-4\"}\n(\"world\")\n>",
             "tree:node = <root(child, :string = \"typed\")>",
+            "broken:node = <span(\"hello\")\nnext = true",
+            "bad:node = <tag:pair<int32,string>(\"x\")>",
+            "bad:node = <tag@{first=1}@{second=2}>",
             "broken = [1,,2]\nlater = true",
             "quoted = \"unterminated",
         ];

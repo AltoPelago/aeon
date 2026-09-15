@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, HashSet};
 use crate::{AttributeValue, Binding, Span, Token, TokenKind, Value};
 
 use super::{
-    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, decode_quoted_token,
-    invalid_temporal_literal, is_bare_key_kind, is_valid_number_literal,
-    validate_binding_node_datatype, validate_reserved_datatype_adornments,
+    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, datatype_base,
+    datatype_bracket_specs, decode_quoted_token, invalid_temporal_literal, is_bare_key_kind,
+    is_valid_number_literal, validate_binding_node_datatype, validate_reserved_datatype_adornments,
 };
 
 pub(super) enum ParseOutcome {
@@ -80,6 +80,7 @@ impl<'a> Parser<'a> {
                             | Product::Attributes(_)
                             | Product::Binding(_)
                             | Product::Datatype(_)
+                            | Product::Values(_)
                             | Product::Value(_),
                         )
                         | None => {
@@ -177,6 +178,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_node_tag(&mut self) -> Option<String> {
+        match self.peek().kind {
+            kind if is_bare_key_kind(kind) => Some(self.advance().text.clone()),
+            TokenKind::String if self.peek().quote != Some('`') => {
+                let tag = decode_quoted_token(self.advance()).ok()?;
+                (!tag.is_empty()).then_some(tag)
+            }
+            _ => None,
+        }
+    }
+
     fn parse_optional_structural_identity(&mut self) -> Option<Option<String>> {
         if !self.check(TokenKind::StructuralIdentity) {
             return Some(None);
@@ -267,6 +279,21 @@ impl<'a> Parser<'a> {
         &self.tokens[self.current.saturating_sub(1)]
     }
 
+    fn previous_non_newline(&self) -> &'a Token {
+        self.tokens[..self.current]
+            .iter()
+            .rev()
+            .find(|token| token.kind != TokenKind::Newline)
+            .unwrap_or_else(|| self.previous())
+    }
+
+    fn tokens_text(&self, start: usize, end: usize) -> String {
+        self.tokens[start..end]
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect()
+    }
+
     fn peek(&self) -> &'a Token {
         &self.tokens[self.current]
     }
@@ -279,6 +306,8 @@ enum Frame {
     Datatype(DatatypeFrame),
     Document(DocumentFrame),
     Binding(BindingFrame),
+    Node(NodeFrame),
+    NodeChildren(NodeChildrenFrame),
     Sequence(ValueSequenceFrame),
     Object(ObjectFrame),
     Value,
@@ -298,6 +327,8 @@ impl Frame {
             Self::Datatype(frame) => frame.step(parser, product, output),
             Self::Document(frame) => frame.step(parser, product, output),
             Self::Binding(frame) => frame.step(parser, product, output),
+            Self::Node(frame) => frame.step(parser, product, output),
+            Self::NodeChildren(frame) => frame.step(parser, product, output),
             Self::Sequence(frame) => frame.step(parser, product, output),
             Self::Object(frame) => frame.step(parser, product, output),
             Self::Value => {
@@ -314,6 +345,14 @@ impl Frame {
                         }
                         parser.advance();
                         return Step::Continue(Frame::Object(ObjectFrame::new()));
+                    }
+                    TokenKind::LeftAngle => {
+                        if !parser.enter_value_container() {
+                            return Step::Unsupported;
+                        }
+                        let start_index = parser.current;
+                        parser.advance();
+                        return Step::Continue(Frame::Node(NodeFrame::new(start_index)));
                     }
                     _ => None,
                 };
@@ -338,6 +377,7 @@ enum Product {
     Datatype(String),
     Document(Vec<Binding>),
     Binding(Binding),
+    Values(Vec<Value>),
     Value(Value),
 }
 
@@ -1223,6 +1263,271 @@ enum DatatypePhase {
     Finish,
 }
 
+struct NodeFrame {
+    phase: NodePhase,
+}
+
+impl NodeFrame {
+    fn new(start_index: usize) -> Self {
+        Self {
+            phase: NodePhase::Tag { start_index },
+        }
+    }
+
+    fn step(
+        self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            NodePhase::Tag { start_index } => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia node frame received an early product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                let head_start = parser.peek().span.start;
+                let Some(tag) = parser.parse_node_tag() else {
+                    return Step::Unsupported;
+                };
+                let mut head = NodeHead {
+                    start_index,
+                    head_start,
+                    head_end: parser.previous().span.end,
+                    tag,
+                    structural_id: None,
+                    attributes: Vec::new(),
+                    attribute_order: Vec::new(),
+                    datatype: None,
+                };
+                parser.skip_newlines();
+                let Some(structural_id) = parser.parse_optional_structural_identity() else {
+                    return Step::Unsupported;
+                };
+                if structural_id.is_some() {
+                    head.head_end = parser.previous().span.end;
+                }
+                head.structural_id = structural_id;
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    if !parser.open_attribute_block(1) {
+                        return Step::Unsupported;
+                    }
+                    Step::Push {
+                        parent: Frame::Node(Self {
+                            phase: NodePhase::Attributes(head),
+                        }),
+                        child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
+                    }
+                } else {
+                    Self::push_datatype_or_closure(parser, head)
+                }
+            }
+            NodePhase::Attributes(mut head) => {
+                let Some(Product::Attributes(attributes)) = product else {
+                    debug_assert!(false, "Sofia node frame expected attributes");
+                    return Step::Unsupported;
+                };
+                head.head_end = parser.previous().span.end;
+                head.attribute_order = attributes.order;
+                head.attributes.push(attributes.members);
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    return Step::Unsupported;
+                }
+                Self::push_datatype_or_closure(parser, head)
+            }
+            NodePhase::Datatype(mut head) => {
+                let Some(Product::Datatype(datatype)) = product else {
+                    debug_assert!(false, "Sofia node frame expected a datatype");
+                    return Step::Unsupported;
+                };
+                let base = datatype_base(&datatype);
+                if (datatype.contains('<') && base != "node")
+                    || !datatype_bracket_specs(&datatype).is_empty()
+                {
+                    return Step::Unsupported;
+                }
+                head.head_end = parser.previous_non_newline().span.end;
+                head.datatype = Some(datatype);
+                Step::Continue(Frame::Node(Self {
+                    phase: NodePhase::Closure(head),
+                }))
+            }
+            NodePhase::Closure(head) => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia node closure received a product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightAngle) {
+                    parser.advance();
+                    return Self::finish(parser, head, Vec::new(), output);
+                }
+                if !parser.check(TokenKind::LeftParen) {
+                    return Step::Unsupported;
+                }
+                parser.advance();
+                Step::Push {
+                    parent: Frame::Node(Self {
+                        phase: NodePhase::Children(head),
+                    }),
+                    child: Frame::NodeChildren(NodeChildrenFrame::new()),
+                }
+            }
+            NodePhase::Children(head) => {
+                let Some(Product::Values(children)) = product else {
+                    debug_assert!(false, "Sofia node frame expected children");
+                    return Step::Unsupported;
+                };
+                if !parser.check(TokenKind::RightParen) {
+                    return Step::Unsupported;
+                }
+                parser.advance();
+                parser.skip_newlines();
+                if !parser.check(TokenKind::RightAngle) {
+                    return Step::Unsupported;
+                }
+                parser.advance();
+                Self::finish(parser, head, children, output)
+            }
+        }
+    }
+
+    fn push_datatype_or_closure(parser: &mut Parser<'_>, head: NodeHead) -> Step {
+        if parser.check(TokenKind::Colon) {
+            parser.advance();
+            parser.begin_datatype();
+            Step::Push {
+                parent: Frame::Node(Self {
+                    phase: NodePhase::Datatype(head),
+                }),
+                child: Frame::Datatype(DatatypeFrame::new(0)),
+            }
+        } else {
+            Step::Continue(Frame::Node(Self {
+                phase: NodePhase::Closure(head),
+            }))
+        }
+    }
+
+    fn finish(
+        parser: &mut Parser<'_>,
+        head: NodeHead,
+        children: Vec<Value>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        parser.leave_value_container();
+        complete(
+            output,
+            Product::Value(Value::NodeLiteral {
+                raw: parser.tokens_text(head.start_index, parser.current),
+                tag: head.tag,
+                structural_id: head.structural_id,
+                attributes: head.attributes,
+                attribute_order: head.attribute_order,
+                datatype: head.datatype,
+                children,
+                head_span: Span {
+                    start: head.head_start,
+                    end: head.head_end,
+                },
+            }),
+        )
+    }
+}
+
+enum NodePhase {
+    Tag { start_index: usize },
+    Attributes(NodeHead),
+    Datatype(NodeHead),
+    Closure(NodeHead),
+    Children(NodeHead),
+}
+
+struct NodeHead {
+    start_index: usize,
+    head_start: crate::Position,
+    head_end: crate::Position,
+    tag: String,
+    structural_id: Option<String>,
+    attributes: Vec<BTreeMap<String, AttributeValue>>,
+    attribute_order: Vec<String>,
+    datatype: Option<String>,
+}
+
+struct NodeChildrenFrame {
+    children: Vec<Value>,
+    phase: NodeChildrenPhase,
+}
+
+impl NodeChildrenFrame {
+    fn new() -> Self {
+        Self {
+            children: Vec::new(),
+            phase: NodeChildrenPhase::Child,
+        }
+    }
+
+    fn step(
+        mut self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            NodeChildrenPhase::Child => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia node children received an early product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightParen) {
+                    return complete(output, Product::Values(self.children));
+                }
+                self.phase = NodeChildrenPhase::Delimiter;
+                Step::Push {
+                    parent: Frame::NodeChildren(self),
+                    child: Frame::AnonymousValue(AnonymousValueFrame::new()),
+                }
+            }
+            NodeChildrenPhase::Delimiter => {
+                let Some(Product::Value(child)) = product else {
+                    debug_assert!(false, "Sofia node children expected a value");
+                    return Step::Unsupported;
+                };
+                self.children.push(child);
+
+                let mut saw_newline = false;
+                while parser.check(TokenKind::Newline) {
+                    saw_newline = true;
+                    parser.advance();
+                }
+                if parser.check(TokenKind::Comma) {
+                    if parser.has_separator_collision() {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    parser.skip_newlines();
+                } else if parser.check(TokenKind::RightParen) {
+                    return complete(output, Product::Values(self.children));
+                } else if !saw_newline {
+                    return Step::Unsupported;
+                }
+
+                self.phase = NodeChildrenPhase::Child;
+                Step::Continue(Frame::NodeChildren(self))
+            }
+        }
+    }
+}
+
+enum NodeChildrenPhase {
+    Child,
+    Delimiter,
+}
+
 #[derive(Clone, Copy)]
 enum ContainerKind {
     List,
@@ -1460,7 +1765,73 @@ mod tests {
 
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
-        assert!(matches!(parse("node = <tag>"), ParseOutcome::Unsupported));
+        assert!(matches!(parse("copy = ~source"), ParseOutcome::Unsupported));
+    }
+
+    #[test]
+    fn iterative_node_frames_preserve_heads_children_and_raw_text() {
+        let source = r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+  "text"
+  \child\:string = "typed"
+  <leaf>
+)>"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("nodes should use the Sofia frame path");
+        };
+
+        let Value::NodeLiteral {
+            raw,
+            tag,
+            structural_id,
+            attributes,
+            attribute_order,
+            datatype,
+            children,
+            head_span,
+        } = &bindings[0].value
+        else {
+            panic!("expected node value");
+        };
+        assert_eq!(tag, "root tag");
+        assert_eq!(structural_id.as_deref(), Some("root"));
+        assert_eq!(attribute_order, &["class"]);
+        assert_eq!(attributes.len(), 1);
+        assert!(attributes[0].contains_key("class"));
+        assert_eq!(datatype.as_deref(), Some("node<custom>"));
+        assert_eq!(children.len(), 3);
+        assert!(matches!(children[1], Value::TypedValue { .. }));
+        assert!(matches!(children[2], Value::NodeLiteral { .. }));
+        assert!(
+            raw.starts_with("<\"root tag\"root@{"),
+            "unexpected raw node text: {raw:?}"
+        );
+        assert!(raw.ends_with(")>"));
+        assert!(head_span.start.offset < head_span.end.offset);
+    }
+
+    #[test]
+    fn iterative_node_frames_are_stack_safe_and_limit_aware() {
+        let depth = 512;
+        let mut node = String::from("<leaf>");
+        for _ in 1..depth {
+            node = format!("<branch({node})>");
+        }
+        let source = format!("tree = {node}");
+        assert!(matches!(
+            parse_with_limits(&source, ParserLimits::new(depth, 8, 8, 8, 32, 64)),
+            ParseOutcome::Parsed(_)
+        ));
+        assert!(matches!(
+            parse_with_limits(
+                "tree = <root(<leaf>)>",
+                ParserLimits::new(1, 8, 8, 8, 32, 64)
+            ),
+            ParseOutcome::Unsupported
+        ));
+        assert!(matches!(
+            parse_with_limits("tree = <root(1, 2)>", ParserLimits::new(1, 8, 8, 8, 32, 64)),
+            ParseOutcome::Parsed(_)
+        ));
     }
 
     #[test]
