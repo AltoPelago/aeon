@@ -1,11 +1,17 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::{AttributeValue, Binding, ReferenceSegment, Span, Token, TokenKind, Value};
+use crate::header::apply_trimticks;
+use crate::sansa::parse_address as parse_sansa_address;
+use crate::{
+    AttributeValue, Binding, NullLiteralMode, ReferenceSegment, Span, Token, TokenKind,
+    TrimtickMetadata, Value,
+};
 
 use super::{
     ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, datatype_base,
-    datatype_bracket_specs, decode_quoted_token, invalid_temporal_literal, is_bare_key_kind,
-    is_valid_number_literal, validate_binding_node_datatype, validate_reserved_datatype_adornments,
+    datatype_bracket_specs, decode_quoted_token, invalid_temporal_literal,
+    is_ascii_whitespace_only, is_bare_key_kind, is_reserved_null_sentinel, is_valid_number_literal,
+    render_quoted_string, validate_binding_node_datatype, validate_reserved_datatype_adornments,
 };
 
 pub(super) enum ParseOutcome {
@@ -131,6 +137,31 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
+            TokenKind::Symbol
+                if token.text == "-"
+                    && self.peek_next().kind == TokenKind::Identifier
+                    && self.peek_next().text == "Infinity" =>
+            {
+                let start = self.advance().span.start;
+                let end = self.advance().span.end;
+                Some(Value::InfinityLiteral {
+                    raw: String::from("-Infinity"),
+                    span: Span { start, end },
+                })
+            }
+            TokenKind::Symbol
+                if token.text == "-"
+                    && self.peek_next().kind == TokenKind::Identifier
+                    && self.peek_next().text == "NaN" =>
+            {
+                let start = self.advance().span.start;
+                let end = self.advance().span.end;
+                Some(Value::NaNLiteral {
+                    raw: String::from("-NaN"),
+                    span: Span { start, end },
+                })
+            }
+            TokenKind::Symbol if token.text == "!" => self.parse_null_literal(),
             TokenKind::True | TokenKind::False => Some(Value::BooleanLiteral {
                 raw: self.advance().text.clone(),
             }),
@@ -151,8 +182,82 @@ impl<'a> Parser<'a> {
             TokenKind::SeparatorLiteral => Some(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::SansaAddressLiteral => {
+                let token = self.advance();
+                let raw = token.text.clone();
+                let address = parse_sansa_address(&raw).ok()?;
+                let canonical = address.canonical.clone();
+                Some(Value::SansaAddressLiteral {
+                    address,
+                    raw,
+                    canonical,
+                })
+            }
+            TokenKind::RightAngle => self.parse_trimtick(),
             _ => None,
         }
+    }
+
+    fn parse_null_literal(&mut self) -> Option<Value> {
+        if !self.check(TokenKind::Symbol) || self.peek().text != "!" {
+            return None;
+        }
+        self.advance();
+        match self.peek().kind {
+            TokenKind::Identifier if is_reserved_null_sentinel(&self.peek().text) => {
+                let value = self.advance().text.clone();
+                Some(Value::NullLiteral {
+                    mode: NullLiteralMode::Reserved,
+                    raw: format!("!{value}"),
+                    value,
+                })
+            }
+            TokenKind::String => {
+                let value = decode_quoted_token(self.advance()).ok()?;
+                if value.is_empty()
+                    || is_ascii_whitespace_only(&value)
+                    || is_reserved_null_sentinel(&value)
+                {
+                    return None;
+                }
+                Some(Value::NullLiteral {
+                    mode: NullLiteralMode::Reason,
+                    raw: format!("!{}", render_quoted_string(&value)),
+                    value,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_trimtick(&mut self) -> Option<Value> {
+        let mut marker_width = 0usize;
+        let mut previous_end = None;
+        while self.check(TokenKind::RightAngle) {
+            let token = self.peek();
+            if previous_end.is_some_and(|end| end != token.span.start.offset) {
+                return None;
+            }
+            marker_width += 1;
+            if marker_width > 4 {
+                return None;
+            }
+            previous_end = Some(token.span.end.offset);
+            self.advance();
+        }
+        if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
+            return None;
+        }
+        let raw = decode_quoted_token(self.advance()).ok()?;
+        Some(Value::StringLiteral {
+            value: apply_trimticks(&raw, marker_width),
+            raw: raw.clone(),
+            delimiter: '`',
+            trimticks: Some(TrimtickMetadata {
+                marker_width,
+                raw_value: raw,
+            }),
+        })
     }
 
     fn enter_value_container(&mut self) -> bool {
@@ -416,6 +521,12 @@ impl<'a> Parser<'a> {
 
     fn peek(&self) -> &'a Token {
         &self.tokens[self.current]
+    }
+
+    fn peek_next(&self) -> &'a Token {
+        self.tokens
+            .get(self.current + 1)
+            .unwrap_or_else(|| self.tokens.last().expect("token stream has EOF"))
     }
 }
 
@@ -1853,7 +1964,7 @@ enum ObjectPhase {
 
 #[cfg(test)]
 mod tests {
-    use crate::{LexerOptions, ReferenceSegment, Value, tokenize};
+    use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, Value, tokenize};
 
     use super::{ParseOutcome, ParserLimits, parse_document};
 
@@ -1891,9 +2002,77 @@ mod tests {
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
         assert!(matches!(
-            parse(r#"note = >`hello`"#),
+            parse(r#"aeon:mode = "strict""#),
             ParseOutcome::Unsupported
         ));
+    }
+
+    #[test]
+    fn iterative_scalar_parser_closes_the_remaining_literal_gap() {
+        let source = r#"positive = Infinity
+negative = -Infinity
+not_a_number = -NaN
+reserved = !notSet
+reason = !"postponed"
+absolute = $.inventory:csv[","]
+context = ?.name
+trim = >`
+  one
+  two
+`"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("remaining literals should use the Sofia path");
+        };
+
+        assert!(matches!(bindings[0].value, Value::InfinityLiteral { .. }));
+        let Value::InfinityLiteral { raw, span } = &bindings[1].value else {
+            panic!("expected negative infinity");
+        };
+        assert_eq!(raw, "-Infinity");
+        assert_eq!(&source[span.start.offset..span.end.offset], "-Infinity");
+        let Value::NaNLiteral { raw, .. } = &bindings[2].value else {
+            panic!("expected negative NaN");
+        };
+        assert_eq!(raw, "-NaN");
+
+        let Value::NullLiteral { mode, raw, value } = &bindings[3].value else {
+            panic!("expected reserved null");
+        };
+        assert_eq!(mode, &NullLiteralMode::Reserved);
+        assert_eq!(raw, "!notSet");
+        assert_eq!(value, "notSet");
+        let Value::NullLiteral { mode, raw, value } = &bindings[4].value else {
+            panic!("expected reason null");
+        };
+        assert_eq!(mode, &NullLiteralMode::Reason);
+        assert_eq!(raw, "!\"postponed\"");
+        assert_eq!(value, "postponed");
+
+        let Value::SansaAddressLiteral { raw, canonical, .. } = &bindings[5].value else {
+            panic!("expected absolute SANSA address");
+        };
+        assert_eq!(raw, r#"$.inventory:csv[","]"#);
+        assert_eq!(canonical, raw);
+        assert!(matches!(
+            bindings[6].value,
+            Value::SansaAddressLiteral { .. }
+        ));
+
+        let Value::StringLiteral {
+            value,
+            raw,
+            delimiter,
+            trimticks,
+        } = &bindings[7].value
+        else {
+            panic!("expected trimtick string");
+        };
+        assert_eq!(value, "one\ntwo");
+        assert_eq!(raw, "\n  one\n  two\n");
+        assert_eq!(*delimiter, '`');
+        let metadata = trimticks.as_ref().expect("trimtick metadata");
+        assert_eq!(metadata.marker_width, 1);
+        assert_eq!(metadata.raw_value, *raw);
     }
 
     #[test]

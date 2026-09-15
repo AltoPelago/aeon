@@ -2040,6 +2040,21 @@ mod tests {
 items = [@{note:string = "first"}:number = 1]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
+            r#"positive = Infinity
+negative = -Infinity
+not_a_number = -NaN
+reserved = !notSet
+reason = !"postponed"
+absolute = $.inventory:csv[","]
+context = ?.name
+trim = >>`
+    one
+    two
+  `"#,
+            "bad = !missing\nlater = true",
+            "bad = !\"none\"\nlater = true",
+            "bad = >>>>>`value`\nlater = true",
+            "bad = > >`value`\nlater = true",
             r#"source = { "quoted.key" = [1, 2] }
 clone = ~$.["source"].["quoted.key"][1]
 pointer = ~>source.@.meta.["x.y"][0]
