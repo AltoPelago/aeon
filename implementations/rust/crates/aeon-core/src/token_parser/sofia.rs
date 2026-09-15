@@ -450,14 +450,26 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_node_tag(&mut self) -> Option<String> {
+    fn parse_node_tag(&mut self) -> Result<String, Diagnostic> {
         match self.peek().kind {
-            kind if is_bare_key_kind(kind) => Some(self.advance().text.clone()),
-            TokenKind::String if self.peek().quote != Some('`') => {
-                let tag = decode_quoted_token(self.advance()).ok()?;
-                (!tag.is_empty()).then_some(tag)
+            kind if is_bare_key_kind(kind) => Ok(self.advance().text.clone()),
+            TokenKind::String => {
+                if self.peek().quote == Some('`') {
+                    return Err(self.error_at_current("Backtick strings are not valid node tags"));
+                }
+                let token = self.advance();
+                let tag = decode_quoted_token(token)?;
+                if tag.is_empty() {
+                    return Err(Diagnostic::new(
+                        "SYNTAX_ERROR",
+                        "Empty quoted node tags are not valid",
+                    )
+                    .at_path("$")
+                    .with_span(token.span));
+                }
+                Ok(tag)
             }
-            _ => None,
+            _ => Err(self.error_at_current("Expected node tag")),
         }
     }
 
@@ -676,6 +688,16 @@ impl<'a> Parser<'a> {
         previous_value.is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
             && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset)
             && next_token.is_some_and(|token| token.span.start.offset == comma.span.end.offset)
+    }
+
+    fn separator_collision_error(&self) -> Diagnostic {
+        Diagnostic {
+            code: String::from("INVALID_SEPARATOR_CHAR"),
+            path: Some(String::from("$")),
+            span: Some(self.peek().span),
+            phase: None,
+            message: String::from("Invalid separator character `,`"),
+        }
     }
 
     fn skip_newlines(&mut self) {
@@ -1066,7 +1088,9 @@ impl BindingFrame {
                 head.attribute_order = attributes.order;
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(
+                        "Only one attribute block is allowed before a binding datatype",
+                    ));
                 }
                 Self::push_datatype_or_value(parser, head)
             }
@@ -1227,7 +1251,9 @@ impl AnonymousValueFrame {
                 head.attribute_order = attributes.order;
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(
+                        "Only one attribute block is allowed before an anonymous value datatype",
+                    ));
                 }
                 Self::push_datatype_or_value(parser, head)
             }
@@ -1288,7 +1314,9 @@ impl AnonymousValueFrame {
     fn push_value(parser: &mut Parser<'_>, head: AnonymousHead) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
-            return Step::Unsupported;
+            return Step::Failed(
+                parser.error_at_current("Expected `=` after anonymous value head"),
+            );
         }
         parser.advance();
         parser.skip_newlines();
@@ -1322,10 +1350,12 @@ struct ParsedAttributes {
 
 struct ParsedAttributeEntry {
     key: String,
+    key_span: Span,
     value: AttributeValue,
 }
 
 struct AttributeMembersFrame {
+    kind: AttributeMembersKind,
     depth: usize,
     members: BTreeMap<String, AttributeValue>,
     order: Vec<String>,
@@ -1334,15 +1364,16 @@ struct AttributeMembersFrame {
 
 impl AttributeMembersFrame {
     fn block(depth: usize) -> Self {
-        Self::new(depth)
+        Self::new(AttributeMembersKind::Block, depth)
     }
 
     fn object() -> Self {
-        Self::new(0)
+        Self::new(AttributeMembersKind::Object, 0)
     }
 
-    fn new(depth: usize) -> Self {
+    fn new(kind: AttributeMembersKind, depth: usize) -> Self {
         Self {
+            kind,
             depth,
             members: BTreeMap::new(),
             order: Vec::new(),
@@ -1386,7 +1417,11 @@ impl AttributeMembersFrame {
                     return Step::Unsupported;
                 };
                 if self.members.contains_key(&entry.key) {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", entry.key))
+                            .at_path("$")
+                            .with_span(entry.key_span),
+                    );
                 }
                 self.order.push(entry.key.clone());
                 self.members.insert(entry.key, entry.value);
@@ -1398,7 +1433,7 @@ impl AttributeMembersFrame {
                 }
                 if parser.check(TokenKind::Comma) {
                     if parser.has_separator_collision() {
-                        return Step::Unsupported;
+                        return Step::Failed(parser.separator_collision_error());
                     }
                     parser.advance();
                     parser.skip_newlines();
@@ -1412,12 +1447,27 @@ impl AttributeMembersFrame {
                         }),
                     );
                 } else if !saw_newline {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(self.kind.delimiter_message()));
                 }
 
                 self.phase = AttributeMembersPhase::Entry;
                 Step::Continue(Frame::AttributeMembers(self))
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AttributeMembersKind {
+    Block,
+    Object,
+}
+
+impl AttributeMembersKind {
+    const fn delimiter_message(self) -> &'static str {
+        match self {
+            Self::Block => "Expected attribute delimiter",
+            Self::Object => "Expected object member delimiter",
         }
     }
 }
@@ -1452,12 +1502,15 @@ impl AttributeEntryFrame {
                     debug_assert!(false, "Sofia attribute entry received an early product");
                     return Step::Unsupported;
                 }
-                let (key, _, start) = match parser.parse_key() {
+                let key_span = parser.peek().span;
+                let (key, _, _) = match parser.parse_key() {
                     Ok(key) => key,
                     Err(error) => return Step::Failed(error),
                 };
                 if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current(format!("Reserved attribute key: {key}")),
+                    );
                 }
                 parser.skip_newlines();
                 let structural_id = match parser.parse_optional_structural_identity() {
@@ -1467,7 +1520,7 @@ impl AttributeEntryFrame {
                 parser.skip_newlines();
                 let head = AttributeEntryHead {
                     key,
-                    start,
+                    key_span,
                     structural_id,
                     datatype: None,
                     nested_attrs: BTreeMap::new(),
@@ -1498,7 +1551,9 @@ impl AttributeEntryFrame {
                 head.nested_attr_order = attributes.order;
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(
+                        "Only one attribute block is allowed before an attribute entry datatype",
+                    ));
                 }
                 Self::push_datatype_or_value(parser, self.depth, head)
             }
@@ -1556,7 +1611,12 @@ impl AttributeEntryFrame {
     fn push_value(parser: &mut Parser<'_>, depth: usize, head: AttributeEntryHead) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
-            return Step::Unsupported;
+            let message = if depth == 0 {
+                "Expected `=` after object member key"
+            } else {
+                "Expected `=` after attribute key"
+            };
+            return Step::Failed(parser.error_at_current(message));
         }
         parser.advance();
         parser.skip_newlines();
@@ -1602,13 +1662,14 @@ impl AttributeEntryFrame {
             object_member_order,
         );
         attribute.span = Some(Span {
-            start: head.start,
+            start: head.key_span.start,
             end,
         });
         complete(
             output,
             Product::AttributeEntry(ParsedAttributeEntry {
                 key: head.key,
+                key_span: head.key_span,
                 value: attribute,
             }),
         )
@@ -1625,7 +1686,7 @@ enum AttributeEntryPhase {
 
 struct AttributeEntryHead {
     key: String,
-    start: crate::Position,
+    key_span: Span,
     structural_id: Option<String>,
     datatype: Option<String>,
     nested_attrs: BTreeMap<String, AttributeValue>,
@@ -1933,8 +1994,9 @@ impl NodeFrame {
                 }
                 parser.skip_newlines();
                 let head_start = parser.peek().span.start;
-                let Some(tag) = parser.parse_node_tag() else {
-                    return Step::Unsupported;
+                let tag = match parser.parse_node_tag() {
+                    Ok(tag) => tag,
+                    Err(error) => return Step::Failed(error),
                 };
                 let mut head = NodeHead {
                     start_index,
@@ -1980,7 +2042,9 @@ impl NodeFrame {
                 head.attributes.push(attributes.members);
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(
+                        "Only one attribute block is allowed before a node datatype",
+                    ));
                 }
                 Self::push_datatype_or_closure(parser, head)
             }
@@ -1993,7 +2057,9 @@ impl NodeFrame {
                 if (datatype.contains('<') && base != "node")
                     || !datatype_bracket_specs(&datatype).is_empty()
                 {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current(
+                        "Node head datatypes must be simple labels or node<T> without clarifiers",
+                    ));
                 }
                 head.head_end = parser.previous_non_newline().span.end;
                 head.datatype = Some(datatype);
@@ -2012,7 +2078,9 @@ impl NodeFrame {
                     return Self::finish(parser, head, Vec::new(), output);
                 }
                 if !parser.check(TokenKind::LeftParen) {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected `(` or `>` in node literal"),
+                    );
                 }
                 parser.advance();
                 Step::Push {
@@ -2028,12 +2096,16 @@ impl NodeFrame {
                     return Step::Unsupported;
                 };
                 if !parser.check(TokenKind::RightParen) {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected `)` after node children"),
+                    );
                 }
                 parser.advance();
                 parser.skip_newlines();
                 if !parser.check(TokenKind::RightAngle) {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected `>` after node children"),
+                    );
                 }
                 parser.advance();
                 Self::finish(parser, head, children, output)
@@ -2152,14 +2224,14 @@ impl NodeChildrenFrame {
                 }
                 if parser.check(TokenKind::Comma) {
                     if parser.has_separator_collision() {
-                        return Step::Unsupported;
+                        return Step::Failed(parser.separator_collision_error());
                     }
                     parser.advance();
                     parser.skip_newlines();
                 } else if parser.check(TokenKind::RightParen) {
                     return complete(output, Product::Values(self.children));
                 } else if !saw_newline {
-                    return Step::Unsupported;
+                    return Step::Failed(parser.error_at_current("Expected node child delimiter"));
                 }
 
                 self.phase = NodeChildrenPhase::Child;
@@ -2242,26 +2314,35 @@ impl ValueSequenceFrame {
                         }
                         if parser.check(TokenKind::Comma) {
                             if parser.has_separator_collision() {
-                                return Step::Unsupported;
+                                return Step::Failed(parser.separator_collision_error());
                             }
                             parser.advance();
                             parser.skip_newlines();
                         } else if parser.check(TokenKind::RightBracket) {
                             return self.finish(parser, output);
                         } else if !saw_newline {
-                            return Step::Unsupported;
+                            return Step::Failed(
+                                parser.error_at_current("Expected list delimiter"),
+                            );
                         }
                     }
                     ContainerKind::Tuple => {
                         if parser.check(TokenKind::Comma) {
                             parser.advance();
                             parser.skip_newlines();
+                            if parser.check(TokenKind::Comma) {
+                                return Step::Failed(
+                                    parser.error_at_current("Expected tuple delimiter"),
+                                );
+                            }
                         } else if parser.check(TokenKind::RightParen) {
                             return self.finish(parser, output);
                         } else if parser.check(TokenKind::Newline) {
                             parser.skip_newlines();
                         } else {
-                            return Step::Unsupported;
+                            return Step::Failed(
+                                parser.error_at_current("Expected tuple delimiter"),
+                            );
                         }
                     }
                 }
@@ -2338,14 +2419,16 @@ impl ObjectFrame {
                 }
                 if parser.check(TokenKind::Comma) {
                     if parser.has_separator_collision() {
-                        return Step::Unsupported;
+                        return Step::Failed(parser.separator_collision_error());
                     }
                     parser.advance();
                     parser.skip_newlines();
                 } else if parser.check(TokenKind::RightBrace) {
                     return self.finish(parser, output);
                 } else if !saw_newline {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected object member delimiter"),
+                    );
                 }
 
                 self.phase = ObjectPhase::Binding;
@@ -2667,6 +2750,135 @@ literal = ~true.off"#;
         for (source, code, message) in failures {
             let error = assert_native_failure(source, TEST_LIMITS, code);
             assert_eq!(error.message, message);
+        }
+    }
+
+    #[test]
+    fn container_node_attribute_and_datatype_failures_are_reported_natively() {
+        let failures = [
+            ("bad = [1 2]", "SYNTAX_ERROR", "Expected list delimiter"),
+            ("bad = [1)", "SYNTAX_ERROR", "Expected list delimiter"),
+            ("bad = (1 2)", "SYNTAX_ERROR", "Expected tuple delimiter"),
+            ("bad = (1]", "SYNTAX_ERROR", "Expected tuple delimiter"),
+            (
+                "bad = { first = 1 second = 2 }",
+                "SYNTAX_ERROR",
+                "Expected object member delimiter",
+            ),
+            (
+                "bad = { first = 1 ]",
+                "SYNTAX_ERROR",
+                "Expected object member delimiter",
+            ),
+            (
+                "bad = <root(1 2)>",
+                "SYNTAX_ERROR",
+                "Expected node child delimiter",
+            ),
+            (
+                "bad = <root(1]>",
+                "SYNTAX_ERROR",
+                "Expected node child delimiter",
+            ),
+            (
+                "bad = <root(1)",
+                "SYNTAX_ERROR",
+                "Expected `>` after node children",
+            ),
+            ("bad = <>", "SYNTAX_ERROR", "Expected node tag"),
+            (
+                "bad = <\"\">",
+                "SYNTAX_ERROR",
+                "Empty quoted node tags are not valid",
+            ),
+            (
+                "bad = <`root`>",
+                "SYNTAX_ERROR",
+                "Backtick strings are not valid node tags",
+            ),
+            (
+                "bad = <root garbage>",
+                "SYNTAX_ERROR",
+                "Expected `(` or `>` in node literal",
+            ),
+            (
+                "bad = <root@{first=1}@{second=2}>",
+                "SYNTAX_ERROR",
+                "Only one attribute block is allowed before a node datatype",
+            ),
+            (
+                "bad = <root:pair<string>>",
+                "SYNTAX_ERROR",
+                "Node head datatypes must be simple labels or node<T> without clarifiers",
+            ),
+            (
+                "bad = [@{first=1}@{second=2} = 3]",
+                "SYNTAX_ERROR",
+                "Only one attribute block is allowed before an anonymous value datatype",
+            ),
+            (
+                "bad = [:number 1]",
+                "SYNTAX_ERROR",
+                "Expected `=` after anonymous value head",
+            ),
+            (
+                "bad@{first=1}@{second=2} = 3",
+                "SYNTAX_ERROR",
+                "Only one attribute block is allowed before a binding datatype",
+            ),
+            (
+                "bad@{first=1 first=2} = 3",
+                "SYNTAX_ERROR",
+                "Expected attribute delimiter",
+            ),
+            (
+                "bad@{first=1, first=2} = 3",
+                "DUPLICATE_KEY",
+                "Duplicate key: 'first'",
+            ),
+            (
+                "bad@{__proto__=1} = 3",
+                "SYNTAX_ERROR",
+                "Reserved attribute key: __proto__",
+            ),
+            (
+                "bad@{first = { nested=1 other=2 }} = 3",
+                "SYNTAX_ERROR",
+                "Expected object member delimiter",
+            ),
+            (
+                "bad = [^0,0,0,1]",
+                "INVALID_SEPARATOR_CHAR",
+                "Invalid separator character `,`",
+            ),
+            (
+                "bad:outer<first second> = 1",
+                "SYNTAX_ERROR",
+                "Expected ',' between generic arguments",
+            ),
+            (
+                "bad:custom[] = 1",
+                "SYNTAX_ERROR",
+                "Datatype clarifier must contain at least one string or number",
+            ),
+            (
+                "bad:custom[\"first\"][\"second\"] = 1",
+                "SYNTAX_ERROR",
+                "Datatype clarifiers must use a single bracketed list like `sep[\"/\", \".\"]`",
+            ),
+            (
+                "bad:radix<10> = 1",
+                "SYNTAX_ERROR",
+                "Radix datatype bases must use bracket syntax like `radix[10]`",
+            ),
+        ];
+
+        for (source, code, message) in failures {
+            let error = assert_native_failure(source, TEST_LIMITS, code);
+            assert_eq!(
+                error.message, message,
+                "diagnostic drift for input:\n{source}"
+            );
         }
     }
 
