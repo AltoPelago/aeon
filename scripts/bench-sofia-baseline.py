@@ -46,6 +46,12 @@ def parse_args() -> argparse.Namespace:
         default="full",
         help="Native CompileOptions profile; Python always measures its full result.",
     )
+    parser.add_argument(
+        "--native-parser",
+        choices=("baseline", "sofia"),
+        default="baseline",
+        help="Native parser implementation to measure.",
+    )
     parser.add_argument("--iterations", type=positive_integer, default=30)
     parser.add_argument("--warmup", type=non_negative_integer, default=5)
     parser.add_argument("--generated-dir", type=Path, default=DEFAULT_GENERATED_DIR)
@@ -183,12 +189,15 @@ def load_cases(generated_dir: Path, selected: list[str] | None) -> list[dict[str
 def native_measurement(
     case: dict[str, Any],
     binary: Path,
+    parser_name: str,
     profile_name: str,
     iterations: int,
     warmup: int,
 ) -> dict[str, Any]:
     command = [
         str(binary),
+        "--parser",
+        parser_name,
         "--profile",
         profile_name,
         "--expected",
@@ -365,6 +374,7 @@ def main() -> int:
                     native_measurement(
                         case,
                         args.native_binary,
+                        args.native_parser,
                         profile_name,
                         args.iterations,
                         args.warmup,
@@ -384,6 +394,7 @@ def main() -> int:
         "corpus": [serializable_case(case) for case in cases],
         "settings": {
             "implementations": implementations,
+            "native_parser": args.native_parser,
             "native_profile": args.profile,
             "iterations": args.iterations,
             "warmup": args.warmup,

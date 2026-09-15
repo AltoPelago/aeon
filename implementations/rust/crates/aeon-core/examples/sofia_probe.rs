@@ -5,14 +5,51 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use aeon_core::{CompileOptions, compile};
+#[cfg(feature = "sofia-bench")]
+use aeon_core::benchmark_compile_sofia;
+use aeon_core::{CompileOptions, CompileResult, compile};
 use serde_json::json;
 
 #[derive(Debug)]
 struct Args {
     input: PathBuf,
+    parser: Parser,
     expected_valid: bool,
     max_value_nesting_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Parser {
+    Baseline,
+    Sofia,
+}
+
+impl Parser {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Sofia => "sofia",
+        }
+    }
+
+    fn compile(self, source: &str, options: CompileOptions) -> Result<CompileResult, String> {
+        match self {
+            Self::Baseline => Ok(compile(source, options)),
+            Self::Sofia => compile_sofia(source, options),
+        }
+    }
+}
+
+#[cfg(feature = "sofia-bench")]
+fn compile_sofia(source: &str, options: CompileOptions) -> Result<CompileResult, String> {
+    Ok(benchmark_compile_sofia(source, options))
+}
+
+#[cfg(not(feature = "sofia-bench"))]
+fn compile_sofia(_source: &str, _options: CompileOptions) -> Result<CompileResult, String> {
+    Err(String::from(
+        "the Sofia parser requires rebuilding this example with --features sofia-bench",
+    ))
 }
 
 fn main() -> ExitCode {
@@ -35,7 +72,7 @@ fn run() -> Result<(), String> {
     }
 
     let started = Instant::now();
-    let result = compile(black_box(&source), options);
+    let result = args.parser.compile(black_box(&source), options)?;
     let elapsed_ns = started.elapsed().as_nanos();
     let valid = result.errors.is_empty();
     if valid != args.expected_valid {
@@ -76,6 +113,7 @@ fn run() -> Result<(), String> {
         serde_json::to_string_pretty(&json!({
             "schema": "aeon.sofia.native-probe.v1",
             "input": args.input,
+            "parser": args.parser.label(),
             "bytes": source.len(),
             "expected": if args.expected_valid { "valid" } else { "invalid" },
             "max_value_nesting_depth": args.max_value_nesting_depth,
@@ -96,11 +134,19 @@ fn run() -> Result<(), String> {
 
 fn parse_args() -> Result<Args, String> {
     let mut input = None;
+    let mut parser = Parser::Baseline;
     let mut expected_valid = true;
     let mut max_value_nesting_depth = None;
     let mut raw = env::args().skip(1);
     while let Some(arg) = raw.next() {
         match arg.as_str() {
+            "--parser" => {
+                parser = match required_value(&mut raw, "--parser")?.as_str() {
+                    "baseline" => Parser::Baseline,
+                    "sofia" => Parser::Sofia,
+                    other => return Err(format!("invalid --parser value: {other}")),
+                };
+            }
             "--expected" => {
                 expected_valid = match required_value(&mut raw, "--expected")?.as_str() {
                     "valid" => true,
@@ -125,6 +171,7 @@ fn parse_args() -> Result<Args, String> {
     }
     Ok(Args {
         input: input.ok_or_else(usage)?,
+        parser,
         expected_valid,
         max_value_nesting_depth,
     })
@@ -137,6 +184,6 @@ fn required_value(args: &mut impl Iterator<Item = String>, option: &str) -> Resu
 
 fn usage() -> String {
     String::from(
-        "usage: sofia_probe [--expected valid|invalid] [--max-value-nesting-depth N] <input>",
+        "usage: sofia_probe [--parser baseline|sofia] [--expected valid|invalid] [--max-value-nesting-depth N] <input>",
     )
 }

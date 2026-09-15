@@ -34,6 +34,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generated-dir", type=Path, default=GENERATED_DIR)
     parser.add_argument("--probe", type=Path, default=PROBE)
+    parser.add_argument(
+        "--native-parser",
+        choices=("baseline", "sofia"),
+        default="baseline",
+        help="Native parser implementation to measure.",
+    )
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -75,13 +81,15 @@ def manifest_cases(generated_dir: Path) -> list[dict[str, Any]]:
     return selected
 
 
-def measure(case: dict[str, Any], probe: Path) -> dict[str, Any]:
+def measure(case: dict[str, Any], probe: Path, parser_name: str) -> dict[str, Any]:
     command = [
         sys.executable,
         str(RSS_HELPER),
         "--parse-json",
         "--",
         str(probe),
+        "--parser",
+        parser_name,
         "--expected",
         case["expected"],
         str(case["path"]),
@@ -128,7 +136,7 @@ def main() -> int:
         "expected": "valid",
     }
     cases = [empty_case, *manifest_cases(args.generated_dir), *depth_cases(args.generated_dir)]
-    measurements = [measure(case, args.probe) for case in cases]
+    measurements = [measure(case, args.probe, args.native_parser) for case in cases]
     baseline_rss = measurements[0]["maximum_rss_bytes"]
     for measurement in measurements:
         input_bytes = measurement["child"]["bytes"]
@@ -143,6 +151,7 @@ def main() -> int:
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "measurement_harness_revision": git_revision("HEAD"),
         "semantic_baseline_revision": git_revision("main"),
+        "native_parser": args.native_parser,
         "environment": {
             "os": platform.platform(),
             "machine": platform.machine(),

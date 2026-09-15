@@ -636,6 +636,19 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
         .expect("a compiler containing only validated UTF-8 must finish")
 }
 
+/// Compiles through the iterative Sofia parser for repository benchmarks.
+///
+/// This is not a stable parser-selection API. It is available only through the
+/// `sofia-bench` feature used by the repository's migration benchmark.
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+#[must_use]
+pub fn benchmark_compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
+    let source = String::from_utf8(input.as_bytes().to_vec())
+        .expect("a borrowed Rust string must remain valid UTF-8 after copying");
+    compile_owned_with_implementation(source, options, ParserImplementation::Sofia)
+}
+
 fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
     compile_owned_with_implementation(source, options, ParserImplementation::Baseline)
 }

@@ -659,6 +659,28 @@ impl<'a> Parser<'a> {
         self.current_datatype_components = 0;
     }
 
+    fn try_parse_atomic_datatype(&mut self) -> Result<Option<String>, Diagnostic> {
+        if !is_bare_key_kind(self.peek().kind) {
+            return Ok(None);
+        }
+        let mut next = self.current + 1;
+        while self.tokens[next].kind == TokenKind::Newline {
+            next += 1;
+        }
+        if matches!(
+            self.tokens[next].kind,
+            TokenKind::LeftAngle | TokenKind::LeftBracket
+        ) {
+            return Ok(None);
+        }
+
+        self.count_datatype_component(self.peek().span)?;
+        let datatype = self.advance().text.clone();
+        self.skip_newlines();
+        validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
+        Ok(Some(datatype))
+    }
+
     fn count_datatype_component(&mut self, span: Span) -> Result<(), Diagnostic> {
         self.current_datatype_components += 1;
         if self.current_datatype_components > self.max_datatype_components {
@@ -1099,7 +1121,7 @@ impl BindingFrame {
                         child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
                     }
                 } else {
-                    Self::push_datatype_or_value(parser, head)
+                    Self::push_datatype_or_value(parser, head, output)
                 }
             }
             BindingPhase::Attributes(mut head) => {
@@ -1114,7 +1136,7 @@ impl BindingFrame {
                         "Only one attribute block is allowed before a binding datatype",
                     ));
                 }
-                Self::push_datatype_or_value(parser, head)
+                Self::push_datatype_or_value(parser, head, output)
             }
             BindingPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
@@ -1126,38 +1148,39 @@ impl BindingFrame {
                     return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
-                Self::push_value(parser, head)
+                Self::push_value(parser, head, output)
             }
             BindingPhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
                     unreachable!("Sofia binding frame expected a value product");
                 };
-                let end = parser.previous().span.end;
-                complete(
-                    output,
-                    Product::Binding(Binding {
-                        key: head.key,
-                        is_header: head.is_header,
-                        structural_id: head.structural_id,
-                        datatype: head.datatype,
-                        attributes: head.attributes,
-                        attribute_order: head.attribute_order,
-                        value,
-                        span: Span {
-                            start: head.start,
-                            end,
-                        },
-                    }),
-                )
+                Self::finish(parser, head, value, output)
             }
         }
     }
 
-    fn push_datatype_or_value(parser: &mut Parser<'_>, head: BindingHead) -> Step {
+    fn push_datatype_or_value(
+        parser: &mut Parser<'_>,
+        mut head: BindingHead,
+        output: &mut Option<Product>,
+    ) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
             parser.skip_newlines();
             parser.begin_datatype();
+            match parser.try_parse_atomic_datatype() {
+                Ok(Some(datatype)) => {
+                    if let Err(error) =
+                        validate_binding_node_datatype(&datatype, parser.previous().span)
+                    {
+                        return Step::Failed(error);
+                    }
+                    head.datatype = Some(datatype);
+                    return Self::push_value(parser, head, output);
+                }
+                Ok(None) => {}
+                Err(error) => return Step::Failed(error),
+            }
             Step::Push {
                 parent: Frame::Binding(Self {
                     phase: BindingPhase::Datatype(head),
@@ -1165,11 +1188,15 @@ impl BindingFrame {
                 child: Frame::Datatype(DatatypeFrame::new(0)),
             }
         } else {
-            Self::push_value(parser, head)
+            Self::push_value(parser, head, output)
         }
     }
 
-    fn push_value(parser: &mut Parser<'_>, head: BindingHead) -> Step {
+    fn push_value(
+        parser: &mut Parser<'_>,
+        head: BindingHead,
+        output: &mut Option<Product>,
+    ) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             return Step::Failed(
@@ -1178,12 +1205,42 @@ impl BindingFrame {
         }
         parser.advance();
         parser.skip_newlines();
+        match parser.parse_scalar() {
+            Ok(Some(value)) => return Self::finish(parser, head, value, output),
+            Ok(None) => {}
+            Err(error) => return Step::Failed(error),
+        }
         Step::Push {
             parent: Frame::Binding(Self {
                 phase: BindingPhase::Value(head),
             }),
             child: Frame::Value,
         }
+    }
+
+    fn finish(
+        parser: &Parser<'_>,
+        head: BindingHead,
+        value: Value,
+        output: &mut Option<Product>,
+    ) -> Step {
+        let end = parser.previous().span.end;
+        complete(
+            output,
+            Product::Binding(Binding {
+                key: head.key,
+                is_header: head.is_header,
+                structural_id: head.structural_id,
+                datatype: head.datatype,
+                attributes: head.attributes,
+                attribute_order: head.attribute_order,
+                value,
+                span: Span {
+                    start: head.start,
+                    end,
+                },
+            }),
+        )
     }
 }
 
@@ -1773,10 +1830,15 @@ impl DatatypeFrame {
                     }
                     parser.skip_newlines();
                     self.phase = DatatypePhase::GenericArgument { count: 0 };
+                    Step::Continue(Frame::Datatype(self))
+                } else if parser.check(TokenKind::LeftBracket) {
+                    parser.advance();
+                    parser.skip_newlines();
+                    self.phase = DatatypePhase::ClarifierValue { count: 0 };
+                    Step::Continue(Frame::Datatype(self))
                 } else {
-                    self.phase = DatatypePhase::Suffix;
+                    self.finish(parser, output)
                 }
-                Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::GenericArgument { count } => match parser.peek().kind {
                 kind if is_bare_key_kind(kind) => {
@@ -1860,10 +1922,10 @@ impl DatatypeFrame {
                     parser.advance();
                     parser.skip_newlines();
                     self.phase = DatatypePhase::ClarifierValue { count: 0 };
+                    Step::Continue(Frame::Datatype(self))
                 } else {
-                    self.phase = DatatypePhase::Finish;
+                    self.finish(parser, output)
                 }
-                Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::ClarifierValue { count } => {
                 assert!(
@@ -1950,15 +2012,18 @@ impl DatatypeFrame {
                     product.is_none(),
                     "Sofia completed datatype received a product"
                 );
-                let datatype = parser.normalized_datatype(self.start, parser.current);
-                if let Err(error) =
-                    validate_reserved_datatype_adornments(&datatype, parser.previous().span)
-                {
-                    return Step::Failed(error);
-                }
-                complete(output, Product::Datatype(datatype))
+                self.finish(parser, output)
             }
         }
+    }
+
+    fn finish(self, parser: &Parser<'_>, output: &mut Option<Product>) -> Step {
+        let datatype = parser.normalized_datatype(self.start, parser.current);
+        if let Err(error) = validate_reserved_datatype_adornments(&datatype, parser.previous().span)
+        {
+            return Step::Failed(error);
+        }
+        complete(output, Product::Datatype(datatype))
     }
 }
 

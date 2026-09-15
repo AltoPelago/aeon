@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use aeon_core::{CompileOptions, PhaseTiming, benchmark_validation_phases, compile};
+#[cfg(feature = "sofia-bench")]
+use aeon_core::benchmark_compile_sofia;
+use aeon_core::{CompileOptions, CompileResult, PhaseTiming, benchmark_validation_phases, compile};
 use serde_json::{Value as JsonValue, json};
 
 const SCHEMA: &str = "aeon.sofia.native-baseline.v1";
@@ -13,10 +15,45 @@ const SCHEMA: &str = "aeon.sofia.native-baseline.v1";
 #[derive(Debug)]
 struct Args {
     input: PathBuf,
+    parser: Parser,
     profile: Profile,
     expected: Expected,
     iterations: usize,
     warmup: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Parser {
+    Baseline,
+    Sofia,
+}
+
+impl Parser {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Sofia => "sofia",
+        }
+    }
+
+    fn compile(self, source: &str, options: CompileOptions) -> Result<CompileResult, String> {
+        match self {
+            Self::Baseline => Ok(compile(source, options)),
+            Self::Sofia => compile_sofia(source, options),
+        }
+    }
+}
+
+#[cfg(feature = "sofia-bench")]
+fn compile_sofia(source: &str, options: CompileOptions) -> Result<CompileResult, String> {
+    Ok(benchmark_compile_sofia(source, options))
+}
+
+#[cfg(not(feature = "sofia-bench"))]
+fn compile_sofia(_source: &str, _options: CompileOptions) -> Result<CompileResult, String> {
+    Err(String::from(
+        "the Sofia parser requires rebuilding this example with --features sofia-bench",
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,7 +118,7 @@ fn run() -> Result<(), String> {
     let source = fs::read_to_string(&args.input)
         .map_err(|error| format!("failed to read {}: {error}", args.input.display()))?;
     let options = args.profile.options();
-    let preflight = compile(&source, options.clone());
+    let preflight = args.parser.compile(&source, options.clone())?;
     let valid = preflight.errors.is_empty();
     let expected_valid = matches!(args.expected, Expected::Valid);
     if valid != expected_valid {
@@ -107,38 +144,40 @@ fn run() -> Result<(), String> {
     }
 
     for _ in 0..args.warmup {
-        let result = compile(black_box(&source), options.clone());
+        let result = args.parser.compile(black_box(&source), options.clone())?;
         black_box(result.events.len());
     }
 
     let mut compile_samples = Vec::with_capacity(args.iterations);
     for _ in 0..args.iterations {
         let started = Instant::now();
-        let result = compile(black_box(&source), options.clone());
+        let result = args.parser.compile(black_box(&source), options.clone())?;
         let elapsed = started.elapsed().as_nanos();
         black_box(result.events.len());
         compile_samples.push(elapsed);
     }
 
-    let phase_samples = if valid && args.profile.supports_phase_timing() {
-        for _ in 0..args.warmup {
-            black_box(benchmark_validation_phases(
-                black_box(&source),
-                options.clone(),
-            ))
-            .map_err(|error| format!("phase warmup failed with {}", error.code))?;
-        }
-        let mut samples = Vec::with_capacity(args.iterations);
-        for _ in 0..args.iterations {
-            samples.push(
-                benchmark_validation_phases(black_box(&source), options.clone())
-                    .map_err(|error| format!("phase timing failed with {}", error.code))?,
-            );
-        }
-        Some(samples)
-    } else {
-        None
-    };
+    let phase_samples =
+        if valid && args.profile.supports_phase_timing() && matches!(args.parser, Parser::Baseline)
+        {
+            for _ in 0..args.warmup {
+                black_box(benchmark_validation_phases(
+                    black_box(&source),
+                    options.clone(),
+                ))
+                .map_err(|error| format!("phase warmup failed with {}", error.code))?;
+            }
+            let mut samples = Vec::with_capacity(args.iterations);
+            for _ in 0..args.iterations {
+                samples.push(
+                    benchmark_validation_phases(black_box(&source), options.clone())
+                        .map_err(|error| format!("phase timing failed with {}", error.code))?,
+                );
+            }
+            Some(samples)
+        } else {
+            None
+        };
 
     let error_codes = preflight
         .errors
@@ -157,6 +196,7 @@ fn run() -> Result<(), String> {
         "schema": SCHEMA,
         "input": args.input,
         "bytes": source.len(),
+        "parser": args.parser.label(),
         "profile": args.profile.label(),
         "expected": args.expected.label(),
         "iterations": args.iterations,
@@ -182,6 +222,7 @@ fn run() -> Result<(), String> {
 
 fn parse_args() -> Result<Args, String> {
     let mut input = None;
+    let mut parser = Parser::Baseline;
     let mut profile = Profile::Full;
     let mut expected = Expected::Valid;
     let mut iterations = 30_usize;
@@ -190,6 +231,13 @@ fn parse_args() -> Result<Args, String> {
 
     while let Some(arg) = raw.next() {
         match arg.as_str() {
+            "--parser" => {
+                parser = match required_value(&mut raw, "--parser")?.as_str() {
+                    "baseline" => Parser::Baseline,
+                    "sofia" => Parser::Sofia,
+                    other => return Err(format!("invalid --parser value: {other}")),
+                };
+            }
             "--profile" => {
                 profile = match required_value(&mut raw, "--profile")?.as_str() {
                     "full" => Profile::Full,
@@ -223,6 +271,7 @@ fn parse_args() -> Result<Args, String> {
 
     Ok(Args {
         input: input.ok_or_else(usage)?,
+        parser,
         profile,
         expected,
         iterations,
@@ -247,7 +296,7 @@ fn parse_positive(raw: &str) -> Result<usize, String> {
 
 fn usage() -> String {
     String::from(
-        "usage: sofia_baseline [--profile full|check] [--expected valid|invalid] [--iterations N] [--warmup N] <input>",
+        "usage: sofia_baseline [--parser baseline|sofia] [--profile full|check] [--expected valid|invalid] [--iterations N] [--warmup N] <input>",
     )
 }
 
