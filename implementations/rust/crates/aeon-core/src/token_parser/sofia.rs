@@ -138,39 +138,56 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_scalar(&mut self) -> Option<Value> {
+    fn parse_scalar(&mut self) -> Result<Option<Value>, Diagnostic> {
         let token = self.peek();
         match token.kind {
             TokenKind::String => {
                 let token = self.advance();
-                Some(Value::StringLiteral {
-                    value: decode_quoted_token(token).ok()?,
+                Ok(Some(Value::StringLiteral {
+                    value: decode_quoted_token(token)?,
                     raw: token.text[1..token.text.len() - 1].to_string(),
                     delimiter: token.quote.unwrap_or('"'),
                     trimticks: None,
-                })
+                }))
             }
             TokenKind::Number => {
-                let raw = token.text.clone();
-                if invalid_temporal_literal(&raw).is_some() || !is_valid_number_literal(&raw) {
-                    return None;
+                let raw = self.advance().text.clone();
+                if let Some(value) = classify_temporal_literal(&raw) {
+                    return Ok(Some(value));
                 }
-                self.advance();
-                Some(classify_temporal_literal(&raw).unwrap_or(Value::NumberLiteral { raw }))
+                if let Some((code, message)) = invalid_temporal_literal(&raw) {
+                    return Err(Diagnostic {
+                        code: String::from(code),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message,
+                    });
+                }
+                if !is_valid_number_literal(&raw) {
+                    return Err(Diagnostic {
+                        code: String::from("INVALID_NUMBER"),
+                        path: Some(String::from("$")),
+                        span: Some(self.previous().span),
+                        phase: None,
+                        message: format!("Number literal `{raw}` is not valid"),
+                    });
+                }
+                Ok(Some(Value::NumberLiteral { raw }))
             }
             TokenKind::Identifier if token.text == "Infinity" => {
                 let token = self.advance();
-                Some(Value::InfinityLiteral {
+                Ok(Some(Value::InfinityLiteral {
                     raw: token.text.clone(),
                     span: token.span,
-                })
+                }))
             }
             TokenKind::Identifier if token.text == "NaN" => {
                 let token = self.advance();
-                Some(Value::NaNLiteral {
+                Ok(Some(Value::NaNLiteral {
                     raw: token.text.clone(),
                     span: token.span,
-                })
+                }))
             }
             TokenKind::Symbol
                 if token.text == "-"
@@ -179,10 +196,10 @@ impl<'a> Parser<'a> {
             {
                 let start = self.advance().span.start;
                 let end = self.advance().span.end;
-                Some(Value::InfinityLiteral {
+                Ok(Some(Value::InfinityLiteral {
                     raw: String::from("-Infinity"),
                     span: Span { start, end },
-                })
+                }))
             }
             TokenKind::Symbol
                 if token.text == "-"
@@ -191,100 +208,148 @@ impl<'a> Parser<'a> {
             {
                 let start = self.advance().span.start;
                 let end = self.advance().span.end;
-                Some(Value::NaNLiteral {
+                Ok(Some(Value::NaNLiteral {
                     raw: String::from("-NaN"),
                     span: Span { start, end },
-                })
+                }))
             }
             TokenKind::Symbol if token.text == "!" => self.parse_null_literal(),
-            TokenKind::True | TokenKind::False => Some(Value::BooleanLiteral {
+            TokenKind::True | TokenKind::False => Ok(Some(Value::BooleanLiteral {
                 raw: self.advance().text.clone(),
-            }),
+            })),
             TokenKind::Yes | TokenKind::No | TokenKind::On | TokenKind::Off => {
-                Some(Value::ToggleLiteral {
+                Ok(Some(Value::ToggleLiteral {
                     raw: self.advance().text.clone(),
-                })
+                }))
             }
-            TokenKind::HexLiteral => Some(Value::HexLiteral {
+            TokenKind::HexLiteral => Ok(Some(Value::HexLiteral {
                 raw: self.advance().text.clone(),
-            }),
-            TokenKind::RadixLiteral => Some(Value::RadixLiteral {
+            })),
+            TokenKind::RadixLiteral => Ok(Some(Value::RadixLiteral {
                 raw: self.advance().text.clone(),
-            }),
-            TokenKind::EncodingLiteral => Some(Value::EncodingLiteral {
+            })),
+            TokenKind::EncodingLiteral => Ok(Some(Value::EncodingLiteral {
                 raw: self.advance().text.clone(),
-            }),
-            TokenKind::SeparatorLiteral => Some(Value::SeparatorLiteral {
+            })),
+            TokenKind::SeparatorLiteral => Ok(Some(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
-            }),
+            })),
             TokenKind::SansaAddressLiteral => {
                 let token = self.advance();
                 let raw = token.text.clone();
-                let address = parse_sansa_address(&raw).ok()?;
+                let address = parse_sansa_address(&raw).map_err(|error| Diagnostic {
+                    code: String::from("SYNTAX_ERROR"),
+                    path: Some(String::from("$")),
+                    span: Some(token.span),
+                    phase: None,
+                    message: error.message,
+                })?;
                 let canonical = address.canonical.clone();
-                Some(Value::SansaAddressLiteral {
+                Ok(Some(Value::SansaAddressLiteral {
                     address,
                     raw,
                     canonical,
-                })
+                }))
             }
             TokenKind::RightAngle => self.parse_trimtick(),
-            _ => None,
+            _ => Ok(None),
         }
     }
 
-    fn parse_null_literal(&mut self) -> Option<Value> {
-        if !self.check(TokenKind::Symbol) || self.peek().text != "!" {
-            return None;
-        }
-        self.advance();
+    fn parse_null_literal(&mut self) -> Result<Option<Value>, Diagnostic> {
+        let bang = self.advance().span;
         match self.peek().kind {
-            TokenKind::Identifier if is_reserved_null_sentinel(&self.peek().text) => {
+            TokenKind::Identifier => {
+                let token = self.peek();
+                let span = Span {
+                    start: bang.start,
+                    end: token.span.end,
+                };
+                if !is_reserved_null_sentinel(&token.text) {
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_SENTINEL",
+                        format!("Invalid null sentinel '{}'", token.text),
+                    )
+                    .at_path("$")
+                    .with_span(span));
+                }
                 let value = self.advance().text.clone();
-                Some(Value::NullLiteral {
+                Ok(Some(Value::NullLiteral {
                     mode: NullLiteralMode::Reserved,
                     raw: format!("!{value}"),
                     value,
-                })
+                }))
             }
             TokenKind::String => {
-                let value = decode_quoted_token(self.advance()).ok()?;
-                if value.is_empty()
-                    || is_ascii_whitespace_only(&value)
-                    || is_reserved_null_sentinel(&value)
-                {
-                    return None;
+                let token = self.advance();
+                let value = decode_quoted_token(token)?;
+                let span = Span {
+                    start: bang.start,
+                    end: token.span.end,
+                };
+                if value.is_empty() {
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_EMPTY",
+                        "Null reason must not be empty",
+                    )
+                    .at_path("$")
+                    .with_span(span));
                 }
-                Some(Value::NullLiteral {
+                if is_ascii_whitespace_only(&value) {
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_WHITESPACE",
+                        "Null reason must not be ASCII-whitespace-only",
+                    )
+                    .at_path("$")
+                    .with_span(span));
+                }
+                if is_reserved_null_sentinel(&value) {
+                    return Err(Diagnostic::new(
+                        "INVALID_NULL_REASON_COLLISION",
+                        format!("Null reason collides with reserved sentinel '{value}'"),
+                    )
+                    .at_path("$")
+                    .with_span(span));
+                }
+                Ok(Some(Value::NullLiteral {
                     mode: NullLiteralMode::Reason,
                     raw: format!("!{}", render_quoted_string(&value)),
                     value,
-                })
+                }))
             }
-            _ => None,
+            _ => Err(Diagnostic::new(
+                "INVALID_NULL_LITERAL",
+                "Null literal must be followed by a reserved sentinel or quoted reason",
+            )
+            .at_path("$")
+            .with_span(bang)),
         }
     }
 
-    fn parse_trimtick(&mut self) -> Option<Value> {
+    fn parse_trimtick(&mut self) -> Result<Option<Value>, Diagnostic> {
         let mut marker_width = 0usize;
         let mut previous_end = None;
         while self.check(TokenKind::RightAngle) {
             let token = self.peek();
             if previous_end.is_some_and(|end| end != token.span.start.offset) {
-                return None;
+                return Err(self.error_at_current("Trimtick marker must be contiguous"));
             }
             marker_width += 1;
             if marker_width > 4 {
-                return None;
+                return Err(self.error_at_current(
+                    "Trimtick marker may contain at most four \">\" characters",
+                ));
             }
             previous_end = Some(token.span.end.offset);
             self.advance();
         }
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
-            return None;
+            return Err(
+                self.error_at_current("Trimtick marker must be followed by a backtick string")
+            );
         }
-        let raw = decode_quoted_token(self.advance()).ok()?;
-        Some(Value::StringLiteral {
+        let raw = decode_quoted_token(self.advance())?;
+        Ok(Some(Value::StringLiteral {
             value: apply_trimticks(&raw, marker_width),
             raw: raw.clone(),
             delimiter: '`',
@@ -292,15 +357,56 @@ impl<'a> Parser<'a> {
                 marker_width,
                 raw_value: raw,
             }),
-        })
+        }))
     }
 
-    fn enter_value_container(&mut self) -> bool {
-        if self.current_value_nesting_depth >= self.max_value_nesting_depth {
-            return false;
-        }
+    fn enter_value_container(&mut self) -> Result<(), Diagnostic> {
         self.current_value_nesting_depth += 1;
-        true
+        if let Some(projected_depth) = self.projected_opening_container_depth() {
+            let span = self.peek().span;
+            self.current_value_nesting_depth -= 1;
+            return Err(Diagnostic {
+                code: String::from("NESTING_DEPTH_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                    projected_depth, self.max_value_nesting_depth
+                ),
+            });
+        }
+        if self.current_value_nesting_depth > self.max_value_nesting_depth {
+            let span = self.peek().span;
+            let observed_depth = self.current_value_nesting_depth;
+            self.current_value_nesting_depth -= 1;
+            return Err(Diagnostic {
+                code: String::from("NESTING_DEPTH_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Value nesting depth {} exceeds max_value_nesting_depth {}",
+                    observed_depth, self.max_value_nesting_depth
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    fn projected_opening_container_depth(&self) -> Option<usize> {
+        let mut extra_depth = 0usize;
+        for token in &self.tokens[self.current..] {
+            match token.kind {
+                TokenKind::LeftBracket
+                | TokenKind::LeftParen
+                | TokenKind::LeftBrace
+                | TokenKind::LeftAngle => extra_depth += 1,
+                _ => break,
+            }
+        }
+        let projected_depth = self.current_value_nesting_depth + extra_depth.saturating_sub(1);
+        (projected_depth > self.max_value_nesting_depth).then_some(projected_depth)
     }
 
     fn parse_key(&mut self) -> Result<(String, bool, crate::Position), Diagnostic> {
@@ -355,56 +461,71 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_reference(&mut self) -> Option<Value> {
+    fn parse_reference(&mut self) -> Result<Value, Diagnostic> {
         let start = self.peek().span.start;
-        let is_pointer = match self.peek().kind {
-            TokenKind::TildeArrow => {
-                self.advance();
-                true
-            }
-            TokenKind::Tilde => {
-                self.advance();
-                false
-            }
-            _ => return None,
+        let is_pointer = if self.match_kind(TokenKind::TildeArrow) {
+            true
+        } else {
+            self.consume(TokenKind::Tilde, "Expected `~`")?;
+            false
         };
 
         let mut segments = Vec::new();
-        if self.check(TokenKind::Dollar) {
-            self.advance();
-            if !self.check(TokenKind::Dot) {
-                return None;
-            }
-            self.advance();
-            if self.check(TokenKind::LeftBracket) {
-                segments.push(ReferenceSegment::Key(self.parse_bracketed_reference_key()?));
+        if self.match_kind(TokenKind::Dollar) {
+            self.consume(TokenKind::Dot, "Expected `.` after `$`")?;
+            if self.match_kind(TokenKind::LeftBracket) {
+                let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
+                let key = self.decode_reference_key(key_token)?;
+                self.consume(
+                    TokenKind::RightBracket,
+                    "Expected `]` after quoted member key",
+                )?;
+                segments.push(ReferenceSegment::Key(key));
             } else {
                 segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
             }
-        } else if self.check(TokenKind::LeftBracket) {
-            segments.push(ReferenceSegment::Key(self.parse_bracketed_reference_key()?));
+        } else if self.match_kind(TokenKind::LeftBracket) {
+            let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
+            let key = self.decode_reference_key(key_token)?;
+            self.consume(
+                TokenKind::RightBracket,
+                "Expected `]` after quoted reference key",
+            )?;
+            segments.push(ReferenceSegment::Key(key));
         } else {
             segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
         }
 
         loop {
-            if self.check(TokenKind::Dot) {
-                self.advance();
-                if self.check(TokenKind::At) {
-                    self.advance();
-                    if !self.check(TokenKind::Dot) {
-                        return None;
-                    }
-                    self.advance();
-                    let key = if self.check(TokenKind::LeftBracket) {
-                        self.parse_bracketed_reference_key()?
+            if self.match_kind(TokenKind::Dot) {
+                if self.match_kind(TokenKind::At) {
+                    self.consume(
+                        TokenKind::Dot,
+                        "Expected `.` after attribute address-space marker",
+                    )?;
+                    let key = if self.match_kind(TokenKind::LeftBracket) {
+                        let token =
+                            self.consume(TokenKind::String, "Expected quoted attribute key")?;
+                        let key = self.decode_reference_key(token)?;
+                        self.consume(
+                            TokenKind::RightBracket,
+                            "Expected `]` after quoted attribute key",
+                        )?;
+                        key
                     } else {
                         self.parse_reference_key()?
                     };
                     segments.push(ReferenceSegment::Attr(key));
                 } else {
-                    let key = if self.check(TokenKind::LeftBracket) {
-                        self.parse_bracketed_reference_key()?
+                    let key = if self.match_kind(TokenKind::LeftBracket) {
+                        let token =
+                            self.consume(TokenKind::String, "Expected quoted member key")?;
+                        let key = self.decode_reference_key(token)?;
+                        self.consume(
+                            TokenKind::RightBracket,
+                            "Expected `]` after quoted member key",
+                        )?;
+                        key
                     } else {
                         self.parse_reference_key()?
                     };
@@ -413,24 +534,20 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if self.check(TokenKind::LeftBracket) {
-                self.advance();
+            if self.match_kind(TokenKind::LeftBracket) {
                 if self.check(TokenKind::String) {
-                    let key = self.parse_reference_key()?;
-                    if !self.check(TokenKind::RightBracket) {
-                        return None;
-                    }
-                    self.advance();
+                    let token = self.advance();
+                    let key = self.decode_reference_key(token)?;
+                    self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
-                } else if self.check(TokenKind::Number) {
-                    let index = self.advance().text.parse::<usize>().ok()?;
-                    if !self.check(TokenKind::RightBracket) {
-                        return None;
-                    }
-                    self.advance();
-                    segments.push(ReferenceSegment::Index(index));
                 } else {
-                    return None;
+                    let token = self.consume(TokenKind::Number, "Expected index segment")?;
+                    let index = token
+                        .text
+                        .parse::<usize>()
+                        .map_err(|_| self.error_at_current("Invalid index segment"))?;
+                    self.consume(TokenKind::RightBracket, "Expected `]` after index segment")?;
+                    segments.push(ReferenceSegment::Index(index));
                 }
                 continue;
             }
@@ -441,70 +558,91 @@ impl<'a> Parser<'a> {
             start,
             end: self.previous().span.end,
         };
-        Some(if is_pointer {
+        Ok(if is_pointer {
             Value::PointerReference { segments, span }
         } else {
             Value::CloneReference { segments, span }
         })
     }
 
-    fn parse_bracketed_reference_key(&mut self) -> Option<String> {
-        if !self.check(TokenKind::LeftBracket) {
-            return None;
-        }
-        self.advance();
-        if !self.check(TokenKind::String) {
-            return None;
-        }
-        let key = self.parse_reference_key()?;
-        if !self.check(TokenKind::RightBracket) {
-            return None;
-        }
-        self.advance();
-        Some(key)
-    }
-
-    fn parse_reference_key(&mut self) -> Option<String> {
+    fn parse_reference_key(&mut self) -> Result<String, Diagnostic> {
         match self.peek().kind {
-            kind if is_bare_key_kind(kind) => Some(self.advance().text.clone()),
+            kind if is_bare_key_kind(kind) => Ok(self.advance().text.clone()),
             TokenKind::String => {
-                let key = decode_quoted_token(self.advance()).ok()?;
-                (!key.is_empty()).then_some(key)
+                let token = self.advance();
+                self.decode_reference_key(token)
             }
-            _ => None,
+            _ => Err(self.error_at_current("Expected reference path segment")),
         }
     }
 
-    fn parse_optional_structural_identity(&mut self) -> Option<Option<String>> {
+    fn decode_reference_key(&self, token: &Token) -> Result<String, Diagnostic> {
+        let key = decode_quoted_token(token)?;
+        if key.is_empty() {
+            return Err(Diagnostic::new(
+                "SYNTAX_ERROR",
+                "Empty quoted path segments are not valid",
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(key)
+    }
+
+    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
         if !self.check(TokenKind::StructuralIdentity) {
-            return Some(None);
+            return Ok(None);
         }
-        let identity = self.advance().text.clone();
-        self.structural_identities
-            .insert(identity.clone())
-            .then_some(Some(identity))
+        let token = self.advance();
+        let identity = token.text.clone();
+        if !self.structural_identities.insert(identity.clone()) {
+            return Err(Diagnostic::new(
+                "DUPLICATE_STRUCTURAL_IDENTITY",
+                format!("Duplicate structural identity: '{identity}'"),
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(Some(identity))
     }
 
-    fn open_attribute_block(&mut self, depth: usize) -> bool {
-        if depth > self.max_attribute_depth || !self.check(TokenKind::At) {
-            return false;
+    fn open_attribute_block(&mut self, depth: usize) -> Result<(), Diagnostic> {
+        if depth > self.max_attribute_depth {
+            return Err(Diagnostic::new(
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                format!(
+                    "Attribute depth {depth} exceeds max_attribute_depth {}",
+                    self.max_attribute_depth
+                ),
+            )
+            .at_path("$")
+            .with_span(self.peek().span));
         }
-        self.advance();
+        self.consume(TokenKind::At, "Expected `@` before attribute block")?;
         self.skip_newlines();
-        if !self.check(TokenKind::LeftBrace) {
-            return false;
-        }
-        self.advance();
-        true
+        self.consume(TokenKind::LeftBrace, "Expected `{` after `@`")?;
+        Ok(())
     }
 
     fn begin_datatype(&mut self) {
         self.current_datatype_components = 0;
     }
 
-    fn count_datatype_component(&mut self) -> bool {
+    fn count_datatype_component(&mut self, span: Span) -> Result<(), Diagnostic> {
         self.current_datatype_components += 1;
-        self.current_datatype_components <= self.max_datatype_components
+        if self.current_datatype_components > self.max_datatype_components {
+            return Err(Diagnostic {
+                code: String::from("DATATYPE_COMPONENTS_EXCEEDED"),
+                path: Some(String::from("$")),
+                span: Some(span),
+                phase: None,
+                message: format!(
+                    "Datatype component count {} exceeds max_datatype_components {}",
+                    self.current_datatype_components, self.max_datatype_components
+                ),
+            });
+        }
+        Ok(())
     }
 
     fn normalized_datatype(&self, start: usize, end: usize) -> String {
@@ -576,6 +714,21 @@ impl<'a> Parser<'a> {
 
     fn check(&self, kind: TokenKind) -> bool {
         self.peek().kind == kind
+    }
+
+    fn consume(&mut self, kind: TokenKind, message: &str) -> Result<&'a Token, Diagnostic> {
+        if self.check(kind) {
+            return Ok(self.advance());
+        }
+        Err(self.error_at_current(message))
+    }
+
+    fn match_kind(&mut self, kind: TokenKind) -> bool {
+        if !self.check(kind) {
+            return false;
+        }
+        self.advance();
+        true
     }
 
     fn is_at_end(&self) -> bool {
@@ -660,37 +813,43 @@ impl Frame {
                     TokenKind::LeftBracket => Some(ContainerKind::List),
                     TokenKind::LeftParen => Some(ContainerKind::Tuple),
                     TokenKind::LeftBrace => {
-                        if !parser.enter_value_container() {
-                            return Step::Unsupported;
+                        if let Err(error) = parser.enter_value_container() {
+                            return Step::Failed(error);
                         }
                         parser.advance();
                         return Step::Continue(Frame::Object(ObjectFrame::new()));
                     }
                     TokenKind::LeftAngle => {
-                        if !parser.enter_value_container() {
-                            return Step::Unsupported;
+                        if let Err(error) = parser.enter_value_container() {
+                            return Step::Failed(error);
                         }
                         let start_index = parser.current;
                         parser.advance();
                         return Step::Continue(Frame::Node(NodeFrame::new(start_index)));
                     }
                     TokenKind::Tilde | TokenKind::TildeArrow => {
-                        return parser.parse_reference().map_or(Step::Unsupported, |value| {
-                            complete(output, Product::Value(value))
-                        });
+                        return match parser.parse_reference() {
+                            Ok(value) => complete(output, Product::Value(value)),
+                            Err(error) => Step::Failed(error),
+                        };
                     }
                     _ => None,
                 };
                 if let Some(kind) = container {
-                    if !parser.enter_value_container() {
-                        return Step::Unsupported;
+                    if let Err(error) = parser.enter_value_container() {
+                        return Step::Failed(error);
                     }
                     parser.advance();
                     return Step::Continue(Frame::Sequence(ValueSequenceFrame::new(kind)));
                 }
-                parser.parse_scalar().map_or(Step::Unsupported, |value| {
-                    complete(output, Product::Value(value))
-                })
+                match parser.parse_scalar() {
+                    Ok(Some(value)) => complete(output, Product::Value(value)),
+                    Ok(None) => Step::Failed(
+                        parser
+                            .error_at_current(format!("Unexpected token '{}'", parser.peek().text)),
+                    ),
+                    Err(error) => Step::Failed(error),
+                }
             }
         }
     }
@@ -870,8 +1029,9 @@ impl BindingFrame {
                     Err(error) => return Step::Failed(error),
                 };
                 parser.skip_newlines();
-                let Some(structural_id) = parser.parse_optional_structural_identity() else {
-                    return Step::Unsupported;
+                let structural_id = match parser.parse_optional_structural_identity() {
+                    Ok(structural_id) => structural_id,
+                    Err(error) => return Step::Failed(error),
                 };
                 parser.skip_newlines();
                 let head = BindingHead {
@@ -884,8 +1044,8 @@ impl BindingFrame {
                     attribute_order: Vec::new(),
                 };
                 if parser.check(TokenKind::At) {
-                    if !parser.open_attribute_block(1) {
-                        return Step::Unsupported;
+                    if let Err(error) = parser.open_attribute_block(1) {
+                        return Step::Failed(error);
                     }
                     Step::Push {
                         parent: Frame::Binding(Self {
@@ -915,8 +1075,10 @@ impl BindingFrame {
                     debug_assert!(false, "Sofia binding frame expected a datatype product");
                     return Step::Unsupported;
                 };
-                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
-                    return Step::Unsupported;
+                if let Err(error) =
+                    validate_binding_node_datatype(&datatype, parser.previous().span)
+                {
+                    return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, head)
@@ -1031,8 +1193,9 @@ impl AnonymousValueFrame {
                     return Step::Continue(Frame::Value);
                 }
 
-                let Some(structural_id) = parser.parse_optional_structural_identity() else {
-                    return Step::Unsupported;
+                let structural_id = match parser.parse_optional_structural_identity() {
+                    Ok(structural_id) => structural_id,
+                    Err(error) => return Step::Failed(error),
                 };
                 parser.skip_newlines();
                 let head = AnonymousHead {
@@ -1042,8 +1205,8 @@ impl AnonymousValueFrame {
                     attribute_order: Vec::new(),
                 };
                 if parser.check(TokenKind::At) {
-                    if !parser.open_attribute_block(1) {
-                        return Step::Unsupported;
+                    if let Err(error) = parser.open_attribute_block(1) {
+                        return Step::Failed(error);
                     }
                     Step::Push {
                         parent: Frame::AnonymousValue(Self {
@@ -1076,8 +1239,10 @@ impl AnonymousValueFrame {
                     );
                     return Step::Unsupported;
                 };
-                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
-                    return Step::Unsupported;
+                if let Err(error) =
+                    validate_binding_node_datatype(&datatype, parser.previous().span)
+                {
+                    return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, head)
@@ -1295,8 +1460,9 @@ impl AttributeEntryFrame {
                     return Step::Unsupported;
                 }
                 parser.skip_newlines();
-                let Some(structural_id) = parser.parse_optional_structural_identity() else {
-                    return Step::Unsupported;
+                let structural_id = match parser.parse_optional_structural_identity() {
+                    Ok(structural_id) => structural_id,
+                    Err(error) => return Step::Failed(error),
                 };
                 parser.skip_newlines();
                 let head = AttributeEntryHead {
@@ -1309,8 +1475,8 @@ impl AttributeEntryFrame {
                 };
                 if parser.check(TokenKind::At) {
                     let nested_depth = self.depth + 1;
-                    if !parser.open_attribute_block(nested_depth) {
-                        return Step::Unsupported;
+                    if let Err(error) = parser.open_attribute_block(nested_depth) {
+                        return Step::Failed(error);
                     }
                     Step::Push {
                         parent: Frame::AttributeEntry(Self {
@@ -1341,8 +1507,10 @@ impl AttributeEntryFrame {
                     debug_assert!(false, "Sofia attribute entry expected a datatype");
                     return Step::Unsupported;
                 };
-                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
-                    return Step::Unsupported;
+                if let Err(error) =
+                    validate_binding_node_datatype(&datatype, parser.previous().span)
+                {
+                    return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, self.depth, head)
@@ -1493,18 +1661,50 @@ impl DatatypeFrame {
                     debug_assert!(false, "Sofia datatype frame received an early product");
                     return Step::Unsupported;
                 }
-                if !parser.count_datatype_component() || !is_bare_key_kind(parser.peek().kind) {
-                    return Step::Unsupported;
+                if let Err(error) = parser.count_datatype_component(parser.peek().span) {
+                    return Step::Failed(error);
+                }
+                if parser.peek().kind == TokenKind::String {
+                    return Step::Failed(Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(parser.peek().span),
+                        phase: None,
+                        message: String::from("Quoted type names are not supported"),
+                    });
+                }
+                if !is_bare_key_kind(parser.peek().kind) {
+                    return Step::Failed(parser.error_at_current("Expected datatype annotation"));
                 }
                 self.start = parser.current;
                 self.name = parser.advance().text.clone();
                 parser.skip_newlines();
 
                 if parser.check(TokenKind::LeftAngle) {
-                    if self.generic_depth > parser.max_generic_depth || self.name == "radix" {
-                        return Step::Unsupported;
-                    }
                     parser.advance();
+                    if self.generic_depth > parser.max_generic_depth {
+                        return Step::Failed(Diagnostic {
+                            code: String::from("GENERIC_DEPTH_EXCEEDED"),
+                            path: Some(String::from("$")),
+                            span: Some(parser.previous().span),
+                            phase: None,
+                            message: format!(
+                                "Generic depth {} exceeds max_generic_depth {}",
+                                self.generic_depth, parser.max_generic_depth
+                            ),
+                        });
+                    }
+                    if self.name == "radix" {
+                        return Step::Failed(Diagnostic {
+                            code: String::from("SYNTAX_ERROR"),
+                            path: Some(String::from("$")),
+                            span: Some(parser.previous().span),
+                            phase: None,
+                            message: String::from(
+                                "Radix datatype bases must use bracket syntax like `radix[10]`",
+                            ),
+                        });
+                    }
                     parser.skip_newlines();
                     self.phase = DatatypePhase::GenericArgument { count: 0 };
                 } else {
@@ -1522,18 +1722,27 @@ impl DatatypeFrame {
                     }
                 }
                 TokenKind::Number => {
-                    if !parser.count_datatype_component() {
-                        return Step::Unsupported;
+                    let span = parser.advance().span;
+                    if let Err(error) = parser.count_datatype_component(span) {
+                        return Step::Failed(error);
                     }
-                    parser.advance();
                     let count = count + 1;
                     if count > parser.max_generic_arguments {
-                        return Step::Unsupported;
+                        return Step::Failed(Diagnostic {
+                            code: String::from("GENERIC_ARGUMENTS_EXCEEDED"),
+                            path: Some(String::from("$")),
+                            span: Some(parser.previous().span),
+                            phase: None,
+                            message: format!(
+                                "Generic argument count {count} exceeds max_generic_arguments {}",
+                                parser.max_generic_arguments
+                            ),
+                        });
                     }
                     self.phase = DatatypePhase::GenericDelimiter { count };
                     Step::Continue(Frame::Datatype(self))
                 }
-                _ => Step::Unsupported,
+                _ => Step::Failed(parser.error_at_current("Expected generic argument")),
             },
             DatatypePhase::GenericChild { count } => {
                 let Some(Product::Datatype(_)) = product else {
@@ -1542,7 +1751,16 @@ impl DatatypeFrame {
                 };
                 let count = count + 1;
                 if count > parser.max_generic_arguments {
-                    return Step::Unsupported;
+                    return Step::Failed(Diagnostic {
+                        code: String::from("GENERIC_ARGUMENTS_EXCEEDED"),
+                        path: Some(String::from("$")),
+                        span: Some(parser.previous().span),
+                        phase: None,
+                        message: format!(
+                            "Generic argument count {count} exceeds max_generic_arguments {}",
+                            parser.max_generic_arguments
+                        ),
+                    });
                 }
                 self.phase = DatatypePhase::GenericDelimiter { count };
                 Step::Continue(Frame::Datatype(self))
@@ -1562,7 +1780,9 @@ impl DatatypeFrame {
                     parser.skip_newlines();
                     self.phase = DatatypePhase::GenericArgument { count };
                 } else {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected ',' between generic arguments"),
+                    );
                 }
                 Step::Continue(Frame::Datatype(self))
             }
@@ -1586,18 +1806,45 @@ impl DatatypeFrame {
                     return Step::Unsupported;
                 }
                 parser.skip_newlines();
-                match parser.peek().kind {
-                    TokenKind::Number if is_valid_number_literal(&parser.peek().text) => {}
+                let token = parser.peek().clone();
+                match token.kind {
+                    TokenKind::Number => {
+                        if !is_valid_number_literal(&token.text) {
+                            return Step::Failed(Diagnostic {
+                                code: String::from("INVALID_NUMBER"),
+                                path: Some(String::from("$")),
+                                span: Some(token.span),
+                                phase: None,
+                                message: format!("Number literal `{}` is not valid", token.text),
+                            });
+                        }
+                    }
                     TokenKind::String => {}
-                    _ => return Step::Unsupported,
-                }
-                if !parser.count_datatype_component() {
-                    return Step::Unsupported;
+                    TokenKind::RightBracket if count == 0 => {
+                        return Step::Failed(parser.error_at_current(
+                            "Datatype clarifier must contain at least one string or number",
+                        ));
+                    }
+                    _ => {
+                        return Step::Failed(parser.error_at_current("Expected clarifier value"));
+                    }
                 }
                 parser.advance();
                 let count = count + 1;
                 if count > parser.max_clarifier_values {
-                    return Step::Unsupported;
+                    return Step::Failed(Diagnostic {
+                        code: String::from("CLARIFIER_VALUES_EXCEEDED"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: format!(
+                            "Clarifier value count {count} exceeds max_clarifier_values {}",
+                            parser.max_clarifier_values
+                        ),
+                    });
+                }
+                if let Err(error) = parser.count_datatype_component(token.span) {
+                    return Step::Failed(error);
                 }
                 self.phase = DatatypePhase::ClarifierDelimiter { count };
                 Step::Continue(Frame::Datatype(self))
@@ -1612,14 +1859,24 @@ impl DatatypeFrame {
                     parser.advance();
                     parser.skip_newlines();
                     if parser.check(TokenKind::LeftBracket) {
-                        return Step::Unsupported;
+                        return Step::Failed(Diagnostic {
+                            code: String::from("SYNTAX_ERROR"),
+                            path: Some(String::from("$")),
+                            span: Some(parser.peek().span),
+                            phase: None,
+                            message: String::from(
+                                "Datatype clarifiers must use a single bracketed list like `sep[\"/\", \".\"]`",
+                            ),
+                        });
                     }
                     self.phase = DatatypePhase::Finish;
                 } else if parser.check(TokenKind::Comma) {
                     parser.advance();
                     self.phase = DatatypePhase::ClarifierValue { count };
                 } else {
-                    return Step::Unsupported;
+                    return Step::Failed(
+                        parser.error_at_current("Expected ',' between clarifier values"),
+                    );
                 }
                 Step::Continue(Frame::Datatype(self))
             }
@@ -1629,9 +1886,10 @@ impl DatatypeFrame {
                     return Step::Unsupported;
                 }
                 let datatype = parser.normalized_datatype(self.start, parser.current);
-                if validate_reserved_datatype_adornments(&datatype, parser.previous().span).is_err()
+                if let Err(error) =
+                    validate_reserved_datatype_adornments(&datatype, parser.previous().span)
                 {
-                    return Step::Unsupported;
+                    return Step::Failed(error);
                 }
                 complete(output, Product::Datatype(datatype))
             }
@@ -1689,8 +1947,9 @@ impl NodeFrame {
                     datatype: None,
                 };
                 parser.skip_newlines();
-                let Some(structural_id) = parser.parse_optional_structural_identity() else {
-                    return Step::Unsupported;
+                let structural_id = match parser.parse_optional_structural_identity() {
+                    Ok(structural_id) => structural_id,
+                    Err(error) => return Step::Failed(error),
                 };
                 if structural_id.is_some() {
                     head.head_end = parser.previous().span.end;
@@ -1698,8 +1957,8 @@ impl NodeFrame {
                 head.structural_id = structural_id;
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    if !parser.open_attribute_block(1) {
-                        return Step::Unsupported;
+                    if let Err(error) = parser.open_attribute_block(1) {
+                        return Step::Failed(error);
                     }
                     Step::Push {
                         parent: Frame::Node(Self {
@@ -2149,6 +2408,14 @@ mod tests {
         parse_document_recovery(&lexed.tokens, TEST_LIMITS)
     }
 
+    fn assert_native_failure(input: &str, limits: ParserLimits, code: &str) -> crate::Diagnostic {
+        let ParseOutcome::Failed(error) = parse_with_limits(input, limits) else {
+            panic!("expected Sofia failure for input:\n{input}");
+        };
+        assert_eq!(error.code, code);
+        error
+    }
+
     #[test]
     fn iterative_frames_parse_scalar_documents() {
         let ParseOutcome::Parsed(bindings) = parse("name = \"Pat\"\nage = 49, enabled = true")
@@ -2163,11 +2430,9 @@ mod tests {
     }
 
     #[test]
-    fn malformed_grammar_is_reported_for_baseline_fallback() {
-        assert!(matches!(
-            parse("broken = [1,,2]"),
-            ParseOutcome::Unsupported
-        ));
+    fn malformed_scalar_position_is_reported_natively() {
+        let error = assert_native_failure("broken = [1,,2]", TEST_LIMITS, "SYNTAX_ERROR");
+        assert_eq!(error.message, "Unexpected token ','");
     }
 
     #[test]
@@ -2370,6 +2635,42 @@ literal = ~true.off"#;
     }
 
     #[test]
+    fn scalar_and_reference_failures_are_reported_natively() {
+        let failures = [
+            (
+                "bad = !missing",
+                "INVALID_NULL_SENTINEL",
+                "Invalid null sentinel 'missing'",
+            ),
+            (
+                "bad = 01",
+                "INVALID_NUMBER",
+                "Number literal `01` is not valid",
+            ),
+            (
+                "bad = >>>>>`value`",
+                "SYNTAX_ERROR",
+                "Trimtick marker may contain at most four \">\" characters",
+            ),
+            (
+                "bad = ~$[\"source\"]",
+                "SYNTAX_ERROR",
+                "Expected `.` after `$`",
+            ),
+            (
+                "bad = ~source.@.[\"\"]",
+                "SYNTAX_ERROR",
+                "Empty quoted path segments are not valid",
+            ),
+        ];
+
+        for (source, code, message) in failures {
+            let error = assert_native_failure(source, TEST_LIMITS, code);
+            assert_eq!(error.message, message);
+        }
+    }
+
+    #[test]
     fn iterative_reference_parser_handles_very_deep_paths_without_frames() {
         let segment_count = 4_096;
         let reference = format!("~root{}", ".child".repeat(segment_count - 1));
@@ -2436,13 +2737,15 @@ literal = ~true.off"#;
             parse_with_limits(&source, ParserLimits::new(depth, 8, 8, 8, 32, 64)),
             ParseOutcome::Parsed(_)
         ));
-        assert!(matches!(
-            parse_with_limits(
-                "tree = <root(<leaf>)>",
-                ParserLimits::new(1, 8, 8, 8, 32, 64)
-            ),
-            ParseOutcome::Unsupported
-        ));
+        let error = assert_native_failure(
+            "tree = <root(<leaf>)>",
+            ParserLimits::new(1, 8, 8, 8, 32, 64),
+            "NESTING_DEPTH_EXCEEDED",
+        );
+        assert_eq!(
+            error.message,
+            "Value nesting depth 2 exceeds max_value_nesting_depth 1"
+        );
         assert!(matches!(
             parse_with_limits("tree = <root(1, 2)>", ParserLimits::new(1, 8, 8, 8, 32, 64)),
             ParseOutcome::Parsed(_)
@@ -2492,11 +2795,13 @@ literal = ~true.off"#;
     }
 
     #[test]
-    fn duplicate_identity_restarts_through_the_baseline() {
-        assert!(matches!(
-            parse("first\\same\\ = 1\nsecond\\same\\ = 2"),
-            ParseOutcome::Unsupported
-        ));
+    fn duplicate_identity_is_reported_natively() {
+        let error = assert_native_failure(
+            "first\\same\\ = 1\nsecond\\same\\ = 2",
+            TEST_LIMITS,
+            "DUPLICATE_STRUCTURAL_IDENTITY",
+        );
+        assert_eq!(error.message, "Duplicate structural identity: 'same'");
     }
 
     #[test]
@@ -2547,10 +2852,15 @@ items = [@{note:string = "first"}:number = 1]"#;
     fn attribute_head_depth_and_object_depth_remain_independent() {
         let nested_head = "root@{outer@{inner = 1} = 2} = 3";
         assert!(matches!(parse(nested_head), ParseOutcome::Parsed(_)));
-        assert!(matches!(
-            parse_with_limits(nested_head, ParserLimits::new(256, 1, 8, 8, 32, 64)),
-            ParseOutcome::Unsupported
-        ));
+        let error = assert_native_failure(
+            nested_head,
+            ParserLimits::new(256, 1, 8, 8, 32, 64),
+            "ATTRIBUTE_DEPTH_EXCEEDED",
+        );
+        assert_eq!(
+            error.message,
+            "Attribute depth 2 exceeds max_attribute_depth 1"
+        );
 
         let depth = 256;
         let mut object = String::from("1");
@@ -2593,25 +2903,26 @@ items = [@{note:string = "first"}:number = 1]"#;
             (
                 "value:outer<inner<value>> = 1",
                 ParserLimits::new(256, 8, 8, 0, 32, 64),
+                "GENERIC_DEPTH_EXCEEDED",
             ),
             (
                 "value:outer<first, second> = 1",
                 ParserLimits::new(256, 8, 8, 8, 1, 64),
+                "GENERIC_ARGUMENTS_EXCEEDED",
             ),
             (
                 "value:custom[\"first\", \"second\"] = 1",
                 ParserLimits::new(256, 8, 1, 8, 32, 64),
+                "CLARIFIER_VALUES_EXCEEDED",
             ),
             (
                 "value:outer<first, second> = 1",
                 ParserLimits::new(256, 8, 8, 8, 32, 2),
+                "DATATYPE_COMPONENTS_EXCEEDED",
             ),
         ];
-        for (source, limits) in limited {
-            assert!(matches!(
-                parse_with_limits(source, limits),
-                ParseOutcome::Unsupported
-            ));
+        for (source, limits, code) in limited {
+            assert_native_failure(source, limits, code);
         }
     }
 
@@ -2623,9 +2934,14 @@ items = [@{note:string = "first"}:number = 1]"#;
             parse_with_limits(&source, ParserLimits::new(depth, 8, 8, 8, 32, 64)),
             ParseOutcome::Parsed(_)
         ));
-        assert!(matches!(
-            parse_with_limits("nested = [[1]]", ParserLimits::new(1, 8, 8, 8, 32, 64)),
-            ParseOutcome::Unsupported
-        ));
+        let error = assert_native_failure(
+            "nested = [[1]]",
+            ParserLimits::new(1, 8, 8, 8, 32, 64),
+            "NESTING_DEPTH_EXCEEDED",
+        );
+        assert_eq!(
+            error.message,
+            "Value nesting depth 2 exceeds max_value_nesting_depth 1"
+        );
     }
 }

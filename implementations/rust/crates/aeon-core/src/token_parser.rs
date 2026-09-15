@@ -2022,6 +2022,73 @@ mod tests {
         );
     }
 
+    fn assert_parser_parity_with_limits(input: &str, limits: ParserLimits) {
+        assert_eq!(
+            parse_document_from_tokens_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Sofia,
+            ),
+            parse_document_from_tokens_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Baseline,
+            ),
+            "strict parser drift for input:\n{input}",
+        );
+        assert_eq!(
+            parse_document_from_tokens_recovery_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Sofia,
+            ),
+            parse_document_from_tokens_recovery_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Baseline,
+            ),
+            "recovery parser drift for input:\n{input}",
+        );
+    }
+
+    #[test]
+    fn parser_selector_preserves_native_resource_diagnostics() {
+        let corpus = [
+            (
+                "nested = [[1]]\nlater = true",
+                ParserLimits::new(1, 8, 8, 8, 32, 64),
+            ),
+            (
+                "tree = <root(<leaf>)>\nlater = true",
+                ParserLimits::new(1, 8, 8, 8, 32, 64),
+            ),
+            (
+                "root@{outer@{inner = 1} = 2} = 3\nlater = true",
+                ParserLimits::new(256, 1, 8, 8, 32, 64),
+            ),
+            (
+                "value:outer<inner<value>> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 0, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 8, 1, 64),
+            ),
+            (
+                "value:custom[\"first\", \"second\"] = 1\nlater = true",
+                ParserLimits::new(256, 8, 1, 8, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 8, 32, 2),
+            ),
+        ];
+
+        for (input, limits) in corpus {
+            assert_parser_parity_with_limits(input, limits);
+        }
+    }
+
     #[test]
     fn parser_selector_preserves_strict_and_recovery_results() {
         let corpus = [
