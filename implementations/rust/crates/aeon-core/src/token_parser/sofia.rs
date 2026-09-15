@@ -21,7 +21,6 @@ pub(super) enum ParseOutcome {
         errors: Vec<Diagnostic>,
     },
     Failed(Diagnostic),
-    Unsupported,
 }
 
 pub(super) fn parse_document(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
@@ -71,18 +70,35 @@ impl<'a> Parser<'a> {
         let mut product = None;
 
         loop {
-            let Some(frame) = frames.pop() else {
-                debug_assert!(
-                    false,
-                    "Sofia frame stack exhausted without a document product"
-                );
-                return ParseOutcome::Unsupported;
-            };
+            debug_assert!(self.current < self.tokens.len());
+            let frame = frames
+                .pop()
+                .expect("Sofia frame stack exhausted without a document product");
+
+            debug_assert_eq!(
+                self.current_value_nesting_depth,
+                frames
+                    .iter()
+                    .filter(|frame| frame.counts_as_value_container())
+                    .count()
+                    + usize::from(frame.counts_as_value_container()),
+                "Sofia value depth diverged from active container frames",
+            );
 
             let input = product.take();
             match frame.step(&mut self, input, &mut product) {
-                Step::Continue(frame) => frames.push(frame),
+                Step::Continue(frame) => {
+                    debug_assert!(
+                        product.is_none(),
+                        "Sofia continue transition produced an unconsumed product"
+                    );
+                    frames.push(frame);
+                }
                 Step::Push { parent, child } => {
+                    debug_assert!(
+                        product.is_none(),
+                        "Sofia push transition produced an unconsumed product"
+                    );
                     frames.push(parent);
                     frames.push(child);
                 }
@@ -90,6 +106,9 @@ impl<'a> Parser<'a> {
                     return match product.take() {
                         Some(Product::Document(document)) => {
                             debug_assert_eq!(self.current_value_nesting_depth, 0);
+                            debug_assert!(self.is_at_end());
+                            debug_assert!(frames.is_empty());
+                            debug_assert!(product.is_none());
                             if self.recovery {
                                 ParseOutcome::Recovered {
                                     bindings: document.bindings,
@@ -108,16 +127,17 @@ impl<'a> Parser<'a> {
                             | Product::Values(_)
                             | Product::Value(_),
                         )
-                        | None => {
-                            debug_assert!(false, "Sofia root frame returned the wrong product");
-                            ParseOutcome::Unsupported
-                        }
+                        | None => unreachable!("Sofia root frame returned the wrong product"),
                     };
                 }
                 Step::Complete => {
                     debug_assert!(product.is_some(), "Sofia frame completed without a product");
                 }
                 Step::Failed(error) => {
+                    debug_assert!(
+                        product.is_none(),
+                        "Sofia failure transition produced an unconsumed product"
+                    );
                     let mut document = None;
                     while let Some(parent) = frames.pop() {
                         if let Frame::Document(frame) = parent {
@@ -133,7 +153,6 @@ impl<'a> Parser<'a> {
                         Err(error) => return ParseOutcome::Failed(error),
                     }
                 }
-                Step::Unsupported => return ParseOutcome::Unsupported,
             }
         }
     }
@@ -809,6 +828,10 @@ enum Frame {
 }
 
 impl Frame {
+    const fn counts_as_value_container(&self) -> bool {
+        matches!(self, Self::Node(_) | Self::Sequence(_) | Self::Object(_))
+    }
+
     fn step(
         self,
         parser: &mut Parser<'_>,
@@ -827,10 +850,7 @@ impl Frame {
             Self::Sequence(frame) => frame.step(parser, product, output),
             Self::Object(frame) => frame.step(parser, product, output),
             Self::Value => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia value frame received a product");
-                    return Step::Unsupported;
-                }
+                assert!(product.is_none(), "Sofia value frame received a product");
                 let container = match parser.peek().kind {
                     TokenKind::LeftBracket => Some(ContainerKind::List),
                     TokenKind::LeftParen => Some(ContainerKind::Tuple),
@@ -892,13 +912,17 @@ enum Step {
     Push { parent: Frame, child: Frame },
     Complete,
     Failed(Diagnostic),
-    Unsupported,
 }
 
 fn complete(output: &mut Option<Product>, product: Product) -> Step {
     debug_assert!(output.is_none(), "Sofia product outbox was not empty");
     *output = Some(product);
     Step::Complete
+}
+
+fn debug_assert_map_order<T>(members: &BTreeMap<String, T>, order: &[String]) {
+    debug_assert_eq!(members.len(), order.len());
+    debug_assert!(order.iter().all(|key| members.contains_key(key)));
 }
 
 struct ParsedDocument {
@@ -962,10 +986,10 @@ impl DocumentFrame {
     ) -> Step {
         match self.phase {
             DocumentPhase::Binding => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia document frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia document frame received an early product"
+                );
                 parser.skip_newlines();
                 if parser.is_at_end() {
                     return complete(
@@ -988,8 +1012,7 @@ impl DocumentFrame {
             }
             DocumentPhase::Delimiter => {
                 let Some(Product::Binding(binding)) = product else {
-                    debug_assert!(false, "Sofia document frame expected a binding product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia document frame expected a binding product");
                 };
                 self.bindings.push(binding);
 
@@ -1042,10 +1065,10 @@ impl BindingFrame {
     ) -> Step {
         match self.phase {
             BindingPhase::Key => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia binding frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia binding frame received an early product"
+                );
                 let (key, is_header, start) = match parser.parse_key() {
                     Ok(key) => key,
                     Err(error) => return Step::Failed(error),
@@ -1081,8 +1104,7 @@ impl BindingFrame {
             }
             BindingPhase::Attributes(mut head) => {
                 let Some(Product::Attributes(attributes)) = product else {
-                    debug_assert!(false, "Sofia binding frame expected attributes");
-                    return Step::Unsupported;
+                    unreachable!("Sofia binding frame expected attributes");
                 };
                 head.attributes = attributes.members;
                 head.attribute_order = attributes.order;
@@ -1096,8 +1118,7 @@ impl BindingFrame {
             }
             BindingPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
-                    debug_assert!(false, "Sofia binding frame expected a datatype product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia binding frame expected a datatype product");
                 };
                 if let Err(error) =
                     validate_binding_node_datatype(&datatype, parser.previous().span)
@@ -1109,8 +1130,7 @@ impl BindingFrame {
             }
             BindingPhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
-                    debug_assert!(false, "Sofia binding frame expected a value product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia binding frame expected a value product");
                 };
                 let end = parser.previous().span.end;
                 complete(
@@ -1203,13 +1223,10 @@ impl AnonymousValueFrame {
     ) -> Step {
         match self.phase {
             AnonymousValuePhase::Head => {
-                if product.is_some() {
-                    debug_assert!(
-                        false,
-                        "Sofia anonymous-value frame received an early product"
-                    );
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia anonymous-value frame received an early product"
+                );
                 if !matches!(
                     parser.peek().kind,
                     TokenKind::StructuralIdentity | TokenKind::Colon | TokenKind::At
@@ -1244,8 +1261,7 @@ impl AnonymousValueFrame {
             }
             AnonymousValuePhase::Attributes(mut head) => {
                 let Some(Product::Attributes(attributes)) = product else {
-                    debug_assert!(false, "Sofia anonymous-value frame expected attributes");
-                    return Step::Unsupported;
+                    unreachable!("Sofia anonymous-value frame expected attributes");
                 };
                 head.attributes = attributes.members;
                 head.attribute_order = attributes.order;
@@ -1259,11 +1275,7 @@ impl AnonymousValueFrame {
             }
             AnonymousValuePhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
-                    debug_assert!(
-                        false,
-                        "Sofia anonymous-value frame expected a datatype product"
-                    );
-                    return Step::Unsupported;
+                    unreachable!("Sofia anonymous-value frame expected a datatype product");
                 };
                 if let Err(error) =
                     validate_binding_node_datatype(&datatype, parser.previous().span)
@@ -1275,11 +1287,7 @@ impl AnonymousValueFrame {
             }
             AnonymousValuePhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
-                    debug_assert!(
-                        false,
-                        "Sofia anonymous-value frame expected a value product"
-                    );
-                    return Step::Unsupported;
+                    unreachable!("Sofia anonymous-value frame expected a value product");
                 };
                 complete(
                     output,
@@ -1389,13 +1397,14 @@ impl AttributeMembersFrame {
     ) -> Step {
         match self.phase {
             AttributeMembersPhase::Entry => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia attribute members received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia attribute members received an early product"
+                );
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightBrace) {
                     parser.advance();
+                    debug_assert_map_order(&self.members, &self.order);
                     return complete(
                         output,
                         Product::Attributes(ParsedAttributes {
@@ -1413,8 +1422,7 @@ impl AttributeMembersFrame {
             }
             AttributeMembersPhase::Delimiter => {
                 let Some(Product::AttributeEntry(entry)) = product else {
-                    debug_assert!(false, "Sofia attribute members expected an entry product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia attribute members expected an entry product");
                 };
                 if self.members.contains_key(&entry.key) {
                     return Step::Failed(
@@ -1439,6 +1447,7 @@ impl AttributeMembersFrame {
                     parser.skip_newlines();
                 } else if parser.check(TokenKind::RightBrace) {
                     parser.advance();
+                    debug_assert_map_order(&self.members, &self.order);
                     return complete(
                         output,
                         Product::Attributes(ParsedAttributes {
@@ -1498,10 +1507,10 @@ impl AttributeEntryFrame {
     ) -> Step {
         match self.phase {
             AttributeEntryPhase::Key => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia attribute entry received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia attribute entry received an early product"
+                );
                 let key_span = parser.peek().span;
                 let (key, _, _) = match parser.parse_key() {
                     Ok(key) => key,
@@ -1544,8 +1553,7 @@ impl AttributeEntryFrame {
             }
             AttributeEntryPhase::NestedAttributes(mut head) => {
                 let Some(Product::Attributes(attributes)) = product else {
-                    debug_assert!(false, "Sofia attribute entry expected nested attributes");
-                    return Step::Unsupported;
+                    unreachable!("Sofia attribute entry expected nested attributes");
                 };
                 head.nested_attrs = attributes.members;
                 head.nested_attr_order = attributes.order;
@@ -1559,8 +1567,7 @@ impl AttributeEntryFrame {
             }
             AttributeEntryPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
-                    debug_assert!(false, "Sofia attribute entry expected a datatype");
-                    return Step::Unsupported;
+                    unreachable!("Sofia attribute entry expected a datatype");
                 };
                 if let Err(error) =
                     validate_binding_node_datatype(&datatype, parser.previous().span)
@@ -1572,15 +1579,13 @@ impl AttributeEntryFrame {
             }
             AttributeEntryPhase::Value(head) => {
                 let Some(Product::Value(value)) = product else {
-                    debug_assert!(false, "Sofia attribute entry expected a value");
-                    return Step::Unsupported;
+                    unreachable!("Sofia attribute entry expected a value");
                 };
                 Self::finish(parser, head, Some(value), None, output)
             }
             AttributeEntryPhase::ObjectValue(head) => {
                 let Some(Product::Attributes(object)) = product else {
-                    debug_assert!(false, "Sofia attribute entry expected object members");
-                    return Step::Unsupported;
+                    unreachable!("Sofia attribute entry expected object members");
                 };
                 Self::finish(parser, head, None, Some(object), output)
             }
@@ -1718,10 +1723,10 @@ impl DatatypeFrame {
     ) -> Step {
         match self.phase {
             DatatypePhase::Name => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia datatype frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia datatype frame received an early product"
+                );
                 if let Err(error) = parser.count_datatype_component(parser.peek().span) {
                     return Step::Failed(error);
                 }
@@ -1807,8 +1812,7 @@ impl DatatypeFrame {
             },
             DatatypePhase::GenericChild { count } => {
                 let Some(Product::Datatype(_)) = product else {
-                    debug_assert!(false, "Sofia datatype frame expected a datatype product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia datatype frame expected a datatype product");
                 };
                 let count = count + 1;
                 if count > parser.max_generic_arguments {
@@ -1827,10 +1831,10 @@ impl DatatypeFrame {
                 Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::GenericDelimiter { count } => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia datatype delimiter received a product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia datatype delimiter received a product"
+                );
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightAngle) {
                     parser.advance();
@@ -1848,10 +1852,10 @@ impl DatatypeFrame {
                 Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::Suffix => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia datatype suffix received a product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia datatype suffix received a product"
+                );
                 if parser.check(TokenKind::LeftBracket) {
                     parser.advance();
                     parser.skip_newlines();
@@ -1862,10 +1866,10 @@ impl DatatypeFrame {
                 Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::ClarifierValue { count } => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia clarifier frame received a product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia clarifier frame received a product"
+                );
                 parser.skip_newlines();
                 let token = parser.peek().clone();
                 match token.kind {
@@ -1911,10 +1915,10 @@ impl DatatypeFrame {
                 Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::ClarifierDelimiter { count } => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia clarifier delimiter received a product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia clarifier delimiter received a product"
+                );
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightBracket) {
                     parser.advance();
@@ -1942,10 +1946,10 @@ impl DatatypeFrame {
                 Step::Continue(Frame::Datatype(self))
             }
             DatatypePhase::Finish => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia completed datatype received a product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia completed datatype received a product"
+                );
                 let datatype = parser.normalized_datatype(self.start, parser.current);
                 if let Err(error) =
                     validate_reserved_datatype_adornments(&datatype, parser.previous().span)
@@ -1988,10 +1992,10 @@ impl NodeFrame {
     ) -> Step {
         match self.phase {
             NodePhase::Tag { start_index } => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia node frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia node frame received an early product"
+                );
                 parser.skip_newlines();
                 let head_start = parser.peek().span.start;
                 let tag = match parser.parse_node_tag() {
@@ -2034,8 +2038,7 @@ impl NodeFrame {
             }
             NodePhase::Attributes(mut head) => {
                 let Some(Product::Attributes(attributes)) = product else {
-                    debug_assert!(false, "Sofia node frame expected attributes");
-                    return Step::Unsupported;
+                    unreachable!("Sofia node frame expected attributes");
                 };
                 head.head_end = parser.previous().span.end;
                 head.attribute_order = attributes.order;
@@ -2050,8 +2053,7 @@ impl NodeFrame {
             }
             NodePhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
-                    debug_assert!(false, "Sofia node frame expected a datatype");
-                    return Step::Unsupported;
+                    unreachable!("Sofia node frame expected a datatype");
                 };
                 let base = datatype_base(&datatype);
                 if (datatype.contains('<') && base != "node")
@@ -2068,10 +2070,7 @@ impl NodeFrame {
                 }))
             }
             NodePhase::Closure(head) => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia node closure received a product");
-                    return Step::Unsupported;
-                }
+                assert!(product.is_none(), "Sofia node closure received a product");
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightAngle) {
                     parser.advance();
@@ -2092,8 +2091,7 @@ impl NodeFrame {
             }
             NodePhase::Children(head) => {
                 let Some(Product::Values(children)) = product else {
-                    debug_assert!(false, "Sofia node frame expected children");
-                    return Step::Unsupported;
+                    unreachable!("Sofia node frame expected children");
                 };
                 if !parser.check(TokenKind::RightParen) {
                     return Step::Failed(
@@ -2136,6 +2134,7 @@ impl NodeFrame {
         children: Vec<Value>,
         output: &mut Option<Product>,
     ) -> Step {
+        debug_assert_eq!(parser.previous().kind, TokenKind::RightAngle);
         parser.leave_value_container();
         complete(
             output,
@@ -2196,10 +2195,10 @@ impl NodeChildrenFrame {
     ) -> Step {
         match self.phase {
             NodeChildrenPhase::Child => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia node children received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia node children received an early product"
+                );
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightParen) {
                     return complete(output, Product::Values(self.children));
@@ -2212,8 +2211,7 @@ impl NodeChildrenFrame {
             }
             NodeChildrenPhase::Delimiter => {
                 let Some(Product::Value(child)) = product else {
-                    debug_assert!(false, "Sofia node children expected a value");
-                    return Step::Unsupported;
+                    unreachable!("Sofia node children expected a value");
                 };
                 self.children.push(child);
 
@@ -2284,10 +2282,10 @@ impl ValueSequenceFrame {
     ) -> Step {
         match self.phase {
             SequencePhase::Item => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia sequence frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia sequence frame received an early product"
+                );
                 parser.skip_newlines();
                 if parser.check(self.kind.terminator()) {
                     return self.finish(parser, output);
@@ -2300,8 +2298,7 @@ impl ValueSequenceFrame {
             }
             SequencePhase::Delimiter => {
                 let Some(Product::Value(value)) = product else {
-                    debug_assert!(false, "Sofia sequence frame expected a value product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia sequence frame expected a value product");
                 };
                 self.items.push(value);
 
@@ -2391,10 +2388,10 @@ impl ObjectFrame {
     ) -> Step {
         match self.phase {
             ObjectPhase::Binding => {
-                if product.is_some() {
-                    debug_assert!(false, "Sofia object frame received an early product");
-                    return Step::Unsupported;
-                }
+                assert!(
+                    product.is_none(),
+                    "Sofia object frame received an early product"
+                );
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightBrace) {
                     return self.finish(parser, output);
@@ -2407,8 +2404,7 @@ impl ObjectFrame {
             }
             ObjectPhase::Delimiter => {
                 let Some(Product::Binding(binding)) = product else {
-                    debug_assert!(false, "Sofia object frame expected a binding product");
-                    return Step::Unsupported;
+                    unreachable!("Sofia object frame expected a binding product");
                 };
                 self.bindings.push(binding);
 
@@ -2459,7 +2455,9 @@ enum ObjectPhase {
 mod tests {
     use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, Value, tokenize};
 
-    use super::{ParseOutcome, ParserLimits, parse_document, parse_document_recovery};
+    use super::{
+        Frame, ParseOutcome, Parser, ParserLimits, Product, parse_document, parse_document_recovery,
+    };
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
@@ -2489,6 +2487,21 @@ mod tests {
         );
         assert!(lexed.errors.is_empty());
         parse_document_recovery(&lexed.tokens, TEST_LIMITS)
+    }
+
+    #[test]
+    #[should_panic(expected = "Sofia value frame received a product")]
+    fn frame_product_mismatches_are_invariant_failures() {
+        let lexed = tokenize(
+            "",
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        let mut parser = Parser::new(&lexed.tokens, TEST_LIMITS, false);
+        let mut output = None;
+        let _ = Frame::Value.step(&mut parser, Some(Product::Values(Vec::new())), &mut output);
     }
 
     fn assert_native_failure(input: &str, limits: ParserLimits, code: &str) -> crate::Diagnostic {

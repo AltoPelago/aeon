@@ -182,7 +182,6 @@ fn parse_tokenized_document(
         ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
             sofia::ParseOutcome::Parsed(bindings) => Ok(bindings),
             sofia::ParseOutcome::Failed(error) => Err(error),
-            sofia::ParseOutcome::Unsupported => TokenParser::new(tokens, limits).parse_document(),
             sofia::ParseOutcome::Recovered { .. } => {
                 unreachable!("strict Sofia parsing returned a recovery product")
             }
@@ -207,9 +206,6 @@ fn parse_tokenized_document_recovery(
                 bindings: Vec::new(),
                 errors: vec![error],
             },
-            sofia::ParseOutcome::Unsupported => {
-                TokenParser::new(tokens, limits).parse_document_recovery()
-            }
             sofia::ParseOutcome::Parsed(_) => {
                 unreachable!("recovery Sofia parsing returned a strict product")
             }
