@@ -2040,6 +2040,14 @@ mod tests {
 items = [@{note:string = "first"}:number = 1]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
+            r#"aeon
+:
+header = { mode:string = "strict", encoding = "utf-8" }
+aeon:profile = "core"
+"aeon:mode" = "body"
+aeon = "ordinary""#,
+            "aeon:header = { mode = \"strict\" }\naeon:mode = \"strict\"\nvalue = 1",
+            "aeon:true = 1\nlater = true",
             r#"positive = Infinity
 negative = -Infinity
 not_a_number = -NaN

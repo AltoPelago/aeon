@@ -272,7 +272,22 @@ impl<'a> Parser<'a> {
         let token = self.peek();
         let start = token.span.start;
         match token.kind {
-            kind if is_bare_key_kind(kind) && token.text != "aeon" => {
+            kind if is_bare_key_kind(kind) => {
+                if token.text == "aeon" {
+                    let saved = self.current;
+                    self.advance();
+                    self.skip_newlines();
+                    if self.check(TokenKind::Colon) {
+                        self.advance();
+                        self.skip_newlines();
+                        if !self.check(TokenKind::Identifier) {
+                            return None;
+                        }
+                        let field = self.advance().text.clone();
+                        return Some((format!("aeon:{field}"), true, start));
+                    }
+                    self.current = saved;
+                }
                 Some((self.advance().text.clone(), false, start))
             }
             TokenKind::String if token.quote != Some('`') => {
@@ -2000,11 +2015,40 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_grammar_is_reported_for_baseline_fallback() {
+    fn malformed_grammar_is_reported_for_baseline_fallback() {
         assert!(matches!(
-            parse(r#"aeon:mode = "strict""#),
+            parse("broken = [1,,2]"),
             ParseOutcome::Unsupported
         ));
+    }
+
+    #[test]
+    fn iterative_binding_frames_preserve_header_source_planes() {
+        let source = r#"aeon
+:
+header = { mode:string = "strict" }
+aeon:profile = "core"
+"aeon:mode" = "body"
+aeon = "ordinary""#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("header keys should use the Sofia path");
+        };
+
+        assert_eq!(bindings.len(), 4);
+        assert_eq!(bindings[0].key, "aeon:header");
+        assert!(bindings[0].is_header);
+        assert!(matches!(bindings[0].value, Value::ObjectNode { .. }));
+        assert_eq!(bindings[1].key, "aeon:profile");
+        assert!(bindings[1].is_header);
+        assert_eq!(bindings[2].key, "aeon:mode");
+        assert!(!bindings[2].is_header);
+        assert_eq!(bindings[3].key, "aeon");
+        assert!(!bindings[3].is_header);
+        assert_eq!(bindings[0].span.start.offset, 0);
+        assert_eq!(
+            bindings[0].span.end.offset,
+            source.find("\naeon:profile").expect("first header end")
+        );
     }
 
     #[test]
