@@ -2291,6 +2291,103 @@ literal = ~true.off"#,
     }
 
     #[test]
+    #[ignore = "run with npm run test:sofia:differential"]
+    fn parser_selector_matches_full_baseline_corpus() {
+        use sha2::{Digest, Sha256};
+
+        let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(4)
+            .expect("AEON repository root");
+        let generated_root = std::path::PathBuf::from(
+            std::env::var_os("AEON_SOFIA_GENERATED_CORPUS")
+                .expect("AEON_SOFIA_GENERATED_CORPUS must name generated fixtures"),
+        );
+        let manifest_path = repository_root.join("benchmarks/sofia/corpus.json");
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&manifest_path).expect("read Sofia corpus manifest"),
+        )
+        .expect("parse Sofia corpus manifest");
+        let cases = manifest["cases"].as_array().expect("manifest cases array");
+        let limits = ParserLimits::new(256, 1, 1, 1, 32, 64);
+
+        for case in cases {
+            let id = case["id"].as_str().expect("case id");
+            let expected_valid = match case["expected"].as_str().expect("case expectation") {
+                "valid" => true,
+                "invalid" => false,
+                other => panic!("unsupported expectation for {id}: {other}"),
+            };
+            let source_descriptor = &case["source"];
+            let source_path = match source_descriptor["kind"].as_str().expect("source kind") {
+                "repository" => repository_root.join(
+                    source_descriptor["path"]
+                        .as_str()
+                        .expect("repository source path"),
+                ),
+                "generated" => generated_root.join(
+                    source_descriptor["fixture"]
+                        .as_str()
+                        .expect("generated fixture name"),
+                ),
+                other => panic!("unsupported source kind for {id}: {other}"),
+            };
+            let source =
+                std::fs::read_to_string(&source_path).expect("read Sofia corpus source as UTF-8");
+            let actual_hash = Sha256::digest(source.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(
+                actual_hash,
+                case["sha256"].as_str().expect("case SHA-256"),
+                "frozen corpus bytes drifted for case {id}",
+            );
+
+            let baseline = parse_document_from_tokens_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Baseline,
+            );
+            let sofia = parse_document_from_tokens_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(sofia, baseline, "strict parser drift for corpus case {id}");
+            assert_eq!(
+                baseline.is_ok(),
+                expected_valid,
+                "manifest acceptance drift for corpus case {id}",
+            );
+            drop(sofia);
+            drop(baseline);
+
+            let baseline_recovery = parse_document_from_tokens_recovery_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Baseline,
+            );
+            let sofia_recovery = parse_document_from_tokens_recovery_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(
+                sofia_recovery, baseline_recovery,
+                "recovery parser drift for corpus case {id}",
+            );
+
+            println!("Sofia parser parity: {id} ({} bytes)", source.len());
+        }
+
+        println!(
+            "Sofia full parser differential passed: {} manifest cases",
+            cases.len(),
+        );
+    }
+
+    #[test]
     fn parses_simple_top_level_bindings_from_tokens() {
         let bindings = parse("name = \"Pat\"\nage = 49").expect("token parse");
         assert_eq!(bindings.len(), 2);
