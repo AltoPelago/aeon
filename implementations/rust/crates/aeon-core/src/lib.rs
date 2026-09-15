@@ -791,6 +791,100 @@ pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     .map(|_| ())
 }
 
+#[cfg(any(test, feature = "sofia-fuzz"))]
+fn drop_parser_bindings_iteratively(bindings: Vec<Binding>) {
+    enum WorkItem {
+        Binding(Binding),
+        Value(Value),
+        Attribute(AttributeValue),
+    }
+
+    let mut work = bindings
+        .into_iter()
+        .map(WorkItem::Binding)
+        .collect::<Vec<_>>();
+    while let Some(item) = work.pop() {
+        match item {
+            WorkItem::Binding(Binding {
+                attributes, value, ..
+            }) => {
+                work.extend(attributes.into_values().map(WorkItem::Attribute));
+                work.push(WorkItem::Value(value));
+            }
+            WorkItem::Attribute(AttributeValue {
+                value,
+                nested_attrs,
+                object_members,
+                ..
+            }) => {
+                work.extend(nested_attrs.into_values().map(WorkItem::Attribute));
+                work.extend(object_members.into_values().map(WorkItem::Attribute));
+                if let Some(value) = value {
+                    work.push(WorkItem::Value(value));
+                }
+            }
+            WorkItem::Value(Value::TypedValue {
+                attributes, value, ..
+            }) => {
+                work.extend(attributes.into_values().map(WorkItem::Attribute));
+                work.push(WorkItem::Value(*value));
+            }
+            WorkItem::Value(Value::NodeLiteral {
+                attributes,
+                children,
+                ..
+            }) => {
+                for attributes in attributes {
+                    work.extend(attributes.into_values().map(WorkItem::Attribute));
+                }
+                work.extend(children.into_iter().map(WorkItem::Value));
+            }
+            WorkItem::Value(Value::ListNode { items })
+            | WorkItem::Value(Value::TupleLiteral { items }) => {
+                work.extend(items.into_iter().map(WorkItem::Value));
+            }
+            WorkItem::Value(Value::ObjectNode { bindings }) => {
+                work.extend(bindings.into_iter().map(WorkItem::Binding));
+            }
+            WorkItem::Value(_) => {}
+        }
+    }
+}
+
+/// Exercises the Sofia parser's strict and recovery paths for fuzzing.
+///
+/// This is not a stable parser-selection API. It is available only through the
+/// `sofia-fuzz` feature used by the repository's dedicated fuzz crate.
+#[cfg(feature = "sofia-fuzz")]
+#[doc(hidden)]
+pub fn fuzz_sofia_token_parse(input: &str) {
+    let source = strip_preamble(&strip_leading_bom(input));
+    let defaults = CompileOptions::default();
+    let limits = ParserLimits::new(
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
+    );
+
+    if let Ok(bindings) = token_parser::parse_document_from_tokens_with_implementation(
+        &source,
+        limits,
+        ParserImplementation::Sofia,
+    ) {
+        drop_parser_bindings_iteratively(bindings);
+    }
+
+    let recovery = parse_document_from_tokens_recovery_with_implementation(
+        &source,
+        limits,
+        ParserImplementation::Sofia,
+    );
+    drop_parser_bindings_iteratively(recovery.bindings);
+}
+
 fn parse_document_tokens(
     source: &str,
     max_nesting_depth: usize,

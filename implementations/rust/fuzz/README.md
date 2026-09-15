@@ -6,8 +6,11 @@ Current targets:
 
 - `compile`: exercises `aeon_core::compile(...)` across the full compile pipeline
 - `token_parse`: exercises `aeon_core::benchmark_token_parse(...)` at the token-parser boundary
+- `sofia_token_parse`: exercises Sofia's strict and recovery frame-machine paths
 
-The initial corpora are seeded from the repository `stress-tests/` fixtures so the fuzzer starts from real AEON syntax and known edge cases.
+The compile and baseline token-parser corpora are seeded from repository
+`stress-tests/` fixtures. The Sofia corpus starts with focused frame-family and
+recovery documents so mutations immediately reach its iterative transitions.
 
 ## Prerequisites
 
@@ -40,7 +43,20 @@ cd implementations/rust/fuzz
 cargo +nightly fuzz run token_parse
 ```
 
-You can point a target at its seeded corpus explicitly:
+Run the Sofia-specific parser target:
+
+```bash
+cd implementations/rust/fuzz
+cargo +nightly fuzz run sofia_token_parse corpus/sofia_token_parse
+```
+
+The Sofia harness enables the private-purpose `sofia-fuzz` crate feature. Its
+doc-hidden entry point does not expose the internal parser selector as a stable
+API. Successful strict and recovery results are disposed with an explicit
+worklist so recursive destruction of the existing output model cannot be
+mistaken for parser stack growth.
+
+You can point the other targets at their seeded corpora explicitly:
 
 ```bash
 cd implementations/rust/fuzz
@@ -49,6 +65,7 @@ cargo +nightly fuzz run compile corpus/compile
 
 ## Notes
 
-- Both targets treat fuzz input as lossy UTF-8 because AEON source is text-oriented.
-- The harnesses cap `max_input_bytes` to keep mutations bounded and reduce low-value resource blowups.
+- All targets treat fuzz input as lossy UTF-8 because AEON source is text-oriented.
+- The compile target applies a 1 MiB compile input limit. The Sofia target
+  rejects raw fuzz inputs above 1 MiB before lossy conversion.
 - As AEON grows, it is worth adding structure-aware fuzz targets for specific sub-surfaces such as references, trimticks, or header lowering.

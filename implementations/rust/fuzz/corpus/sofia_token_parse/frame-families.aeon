@@ -1,0 +1,10 @@
+root@{
+  metadata = {
+    nested = {
+      enabled:boolean = true
+    }
+  }
+}:object = {
+  list = [1, (2, { child = <branch(<leaf>)> })]
+  typed:list<string> = [:string = "value"]
+}

@@ -3177,11 +3177,7 @@ items = [@{note:string = "first"}:number = 1]"#;
             panic!("Sofia should parse the deep-stack stress input");
         };
         assert_eq!(bindings.len(), 1);
-
-        // The parser itself is iterative, but the public Value/AttributeValue data
-        // model still has recursive destruction. Keep that separate from this parser
-        // stack test; the dedicated process releases the allocation on exit.
-        std::mem::forget(bindings);
+        crate::drop_parser_bindings_iteratively(bindings);
     }
 
     #[test]

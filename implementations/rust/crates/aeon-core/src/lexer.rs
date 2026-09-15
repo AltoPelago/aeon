@@ -784,10 +784,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn advance(&mut self) -> char {
-        let ch = self.peek();
-        if ch == '\0' {
-            return ch;
+        if self.is_at_end() {
+            return '\0';
         }
+        let ch = self.peek();
         self.offset += ch.len_utf8();
         if ch == '\n' {
             self.line += 1;
@@ -1361,6 +1361,37 @@ mod tests {
         assert_eq!(
             result.errors.last().map(|error| error.code.as_str()),
             Some("LEX_ERROR_LIMIT_EXCEEDED")
+        );
+    }
+
+    #[test]
+    fn nul_scalar_advances_inside_and_outside_strings() {
+        let outside = "before\0after";
+        let outside_result = tokenize(outside, LexerOptions::default());
+        assert_eq!(outside_result.errors.len(), 1);
+        assert_eq!(outside_result.errors[0].code, "UNEXPECTED_CHARACTER");
+        assert_eq!(
+            outside_result
+                .tokens
+                .last()
+                .map(|token| token.span.end.offset),
+            Some(outside.len())
+        );
+
+        let inside = "value = \"before\0after\"";
+        let inside_result = tokenize(inside, LexerOptions::default());
+        assert!(inside_result.errors.is_empty());
+        assert_eq!(
+            inside_result
+                .tokens
+                .last()
+                .map(|token| token.span.end.offset),
+            Some(inside.len())
+        );
+        assert!(
+            inside_result.tokens.iter().any(|token| {
+                token.kind == TokenKind::String && token.text == "\"before\0after\""
+            })
         );
     }
 }
