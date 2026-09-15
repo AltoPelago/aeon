@@ -2030,6 +2030,14 @@ mod tests {
   tuple<string, number>,
   3
 >["x", 1_0] = 1"#,
+            r#"payload\root\@{
+  source\meta\:string = "user"
+  policy@{inherited:boolean = true}:object = {
+    enabled:boolean = true
+    nested = { count:number = 2 }
+  }
+}:object = { value = 1 }
+items = [@{note:string = "first"}:number = 1]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
             "tree:node = <root(child, :string = \"typed\")>",

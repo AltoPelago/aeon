@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::{Binding, Span, Token, TokenKind, Value};
+use crate::{AttributeValue, Binding, Span, Token, TokenKind, Value};
 
 use super::{
-    ParserLimits, classify_temporal_literal, decode_quoted_token, invalid_temporal_literal,
-    is_bare_key_kind, is_valid_number_literal, validate_binding_node_datatype,
-    validate_reserved_datatype_adornments,
+    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, decode_quoted_token,
+    invalid_temporal_literal, is_bare_key_kind, is_valid_number_literal,
+    validate_binding_node_datatype, validate_reserved_datatype_adornments,
 };
 
 pub(super) enum ParseOutcome {
@@ -21,6 +21,7 @@ struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
     max_value_nesting_depth: usize,
+    max_attribute_depth: usize,
     max_clarifier_values: usize,
     max_generic_depth: usize,
     max_generic_arguments: usize,
@@ -37,6 +38,7 @@ impl<'a> Parser<'a> {
             tokens,
             current: 0,
             max_value_nesting_depth: limits.max_value_nesting_depth,
+            max_attribute_depth: limits.max_attribute_depth,
             max_clarifier_values: limits.max_clarifier_values,
             max_generic_depth: limits.max_generic_depth,
             max_generic_arguments: limits.max_generic_arguments,
@@ -73,7 +75,13 @@ impl<'a> Parser<'a> {
                             debug_assert_eq!(self.current_value_nesting_depth, 0);
                             ParseOutcome::Parsed(bindings)
                         }
-                        Some(Product::Binding(_) | Product::Datatype(_) | Product::Value(_))
+                        Some(
+                            Product::AttributeEntry(_)
+                            | Product::Attributes(_)
+                            | Product::Binding(_)
+                            | Product::Datatype(_)
+                            | Product::Value(_),
+                        )
                         | None => {
                             debug_assert!(false, "Sofia root frame returned the wrong product");
                             ParseOutcome::Unsupported
@@ -179,6 +187,19 @@ impl<'a> Parser<'a> {
             .then_some(Some(identity))
     }
 
+    fn open_attribute_block(&mut self, depth: usize) -> bool {
+        if depth > self.max_attribute_depth || !self.check(TokenKind::At) {
+            return false;
+        }
+        self.advance();
+        self.skip_newlines();
+        if !self.check(TokenKind::LeftBrace) {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
     fn begin_datatype(&mut self) {
         self.current_datatype_components = 0;
     }
@@ -252,6 +273,8 @@ impl<'a> Parser<'a> {
 }
 
 enum Frame {
+    AttributeEntry(AttributeEntryFrame),
+    AttributeMembers(AttributeMembersFrame),
     AnonymousValue(AnonymousValueFrame),
     Datatype(DatatypeFrame),
     Document(DocumentFrame),
@@ -269,6 +292,8 @@ impl Frame {
         output: &mut Option<Product>,
     ) -> Step {
         match self {
+            Self::AttributeEntry(frame) => frame.step(parser, product, output),
+            Self::AttributeMembers(frame) => frame.step(parser, product, output),
             Self::AnonymousValue(frame) => frame.step(parser, product, output),
             Self::Datatype(frame) => frame.step(parser, product, output),
             Self::Document(frame) => frame.step(parser, product, output),
@@ -308,6 +333,8 @@ impl Frame {
 }
 
 enum Product {
+    AttributeEntry(ParsedAttributeEntry),
+    Attributes(ParsedAttributes),
     Datatype(String),
     Document(Vec<Binding>),
     Binding(Binding),
@@ -423,28 +450,41 @@ impl BindingFrame {
                     return Step::Unsupported;
                 };
                 parser.skip_newlines();
-                if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
-                }
                 let head = BindingHead {
                     start,
                     key,
                     is_header,
                     structural_id,
                     datatype: None,
+                    attributes: BTreeMap::new(),
+                    attribute_order: Vec::new(),
                 };
-                if parser.check(TokenKind::Colon) {
-                    parser.advance();
-                    parser.skip_newlines();
-                    parser.begin_datatype();
-                    return Step::Push {
+                if parser.check(TokenKind::At) {
+                    if !parser.open_attribute_block(1) {
+                        return Step::Unsupported;
+                    }
+                    Step::Push {
                         parent: Frame::Binding(Self {
-                            phase: BindingPhase::Datatype(head),
+                            phase: BindingPhase::Attributes(head),
                         }),
-                        child: Frame::Datatype(DatatypeFrame::new(0)),
-                    };
+                        child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
+                    }
+                } else {
+                    Self::push_datatype_or_value(parser, head)
                 }
-                Self::push_value(parser, head)
+            }
+            BindingPhase::Attributes(mut head) => {
+                let Some(Product::Attributes(attributes)) = product else {
+                    debug_assert!(false, "Sofia binding frame expected attributes");
+                    return Step::Unsupported;
+                };
+                head.attributes = attributes.members;
+                head.attribute_order = attributes.order;
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    return Step::Unsupported;
+                }
+                Self::push_datatype_or_value(parser, head)
             }
             BindingPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
@@ -470,8 +510,8 @@ impl BindingFrame {
                         is_header: head.is_header,
                         structural_id: head.structural_id,
                         datatype: head.datatype,
-                        attributes: BTreeMap::new(),
-                        attribute_order: Vec::new(),
+                        attributes: head.attributes,
+                        attribute_order: head.attribute_order,
                         value,
                         span: Span {
                             start: head.start,
@@ -480,6 +520,22 @@ impl BindingFrame {
                     }),
                 )
             }
+        }
+    }
+
+    fn push_datatype_or_value(parser: &mut Parser<'_>, head: BindingHead) -> Step {
+        if parser.check(TokenKind::Colon) {
+            parser.advance();
+            parser.skip_newlines();
+            parser.begin_datatype();
+            Step::Push {
+                parent: Frame::Binding(Self {
+                    phase: BindingPhase::Datatype(head),
+                }),
+                child: Frame::Datatype(DatatypeFrame::new(0)),
+            }
+        } else {
+            Self::push_value(parser, head)
         }
     }
 
@@ -501,6 +557,7 @@ impl BindingFrame {
 
 enum BindingPhase {
     Key,
+    Attributes(BindingHead),
     Datatype(BindingHead),
     Value(BindingHead),
 }
@@ -511,6 +568,8 @@ struct BindingHead {
     is_header: bool,
     structural_id: Option<String>,
     datatype: Option<String>,
+    attributes: BTreeMap<String, AttributeValue>,
+    attribute_order: Vec<String>,
 }
 
 struct AnonymousValueFrame {
@@ -550,25 +609,38 @@ impl AnonymousValueFrame {
                     return Step::Unsupported;
                 };
                 parser.skip_newlines();
-                if parser.check(TokenKind::At) {
-                    return Step::Unsupported;
-                }
                 let head = AnonymousHead {
                     structural_id,
                     datatype: None,
+                    attributes: BTreeMap::new(),
+                    attribute_order: Vec::new(),
                 };
-                if parser.check(TokenKind::Colon) {
-                    parser.advance();
-                    parser.skip_newlines();
-                    parser.begin_datatype();
-                    return Step::Push {
+                if parser.check(TokenKind::At) {
+                    if !parser.open_attribute_block(1) {
+                        return Step::Unsupported;
+                    }
+                    Step::Push {
                         parent: Frame::AnonymousValue(Self {
-                            phase: AnonymousValuePhase::Datatype(head),
+                            phase: AnonymousValuePhase::Attributes(head),
                         }),
-                        child: Frame::Datatype(DatatypeFrame::new(0)),
-                    };
+                        child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
+                    }
+                } else {
+                    Self::push_datatype_or_value(parser, head)
                 }
-                Self::push_value(parser, head)
+            }
+            AnonymousValuePhase::Attributes(mut head) => {
+                let Some(Product::Attributes(attributes)) = product else {
+                    debug_assert!(false, "Sofia anonymous-value frame expected attributes");
+                    return Step::Unsupported;
+                };
+                head.attributes = attributes.members;
+                head.attribute_order = attributes.order;
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    return Step::Unsupported;
+                }
+                Self::push_datatype_or_value(parser, head)
             }
             AnonymousValuePhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product else {
@@ -597,12 +669,28 @@ impl AnonymousValueFrame {
                     Product::Value(Value::TypedValue {
                         structural_id: head.structural_id,
                         datatype: head.datatype,
-                        attributes: BTreeMap::new(),
-                        attribute_order: Vec::new(),
+                        attributes: head.attributes,
+                        attribute_order: head.attribute_order,
                         value: Box::new(value),
                     }),
                 )
             }
+        }
+    }
+
+    fn push_datatype_or_value(parser: &mut Parser<'_>, head: AnonymousHead) -> Step {
+        if parser.check(TokenKind::Colon) {
+            parser.advance();
+            parser.skip_newlines();
+            parser.begin_datatype();
+            Step::Push {
+                parent: Frame::AnonymousValue(Self {
+                    phase: AnonymousValuePhase::Datatype(head),
+                }),
+                child: Frame::Datatype(DatatypeFrame::new(0)),
+            }
+        } else {
+            Self::push_value(parser, head)
         }
     }
 
@@ -624,6 +712,7 @@ impl AnonymousValueFrame {
 
 enum AnonymousValuePhase {
     Head,
+    Attributes(AnonymousHead),
     Datatype(AnonymousHead),
     Value(AnonymousHead),
 }
@@ -631,6 +720,321 @@ enum AnonymousValuePhase {
 struct AnonymousHead {
     structural_id: Option<String>,
     datatype: Option<String>,
+    attributes: BTreeMap<String, AttributeValue>,
+    attribute_order: Vec<String>,
+}
+
+struct ParsedAttributes {
+    members: BTreeMap<String, AttributeValue>,
+    order: Vec<String>,
+}
+
+struct ParsedAttributeEntry {
+    key: String,
+    value: AttributeValue,
+}
+
+struct AttributeMembersFrame {
+    depth: usize,
+    members: BTreeMap<String, AttributeValue>,
+    order: Vec<String>,
+    phase: AttributeMembersPhase,
+}
+
+impl AttributeMembersFrame {
+    fn block(depth: usize) -> Self {
+        Self::new(depth)
+    }
+
+    fn object() -> Self {
+        Self::new(0)
+    }
+
+    fn new(depth: usize) -> Self {
+        Self {
+            depth,
+            members: BTreeMap::new(),
+            order: Vec::new(),
+            phase: AttributeMembersPhase::Entry,
+        }
+    }
+
+    fn step(
+        mut self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            AttributeMembersPhase::Entry => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia attribute members received an early product");
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                if parser.check(TokenKind::RightBrace) {
+                    parser.advance();
+                    return complete(
+                        output,
+                        Product::Attributes(ParsedAttributes {
+                            members: self.members,
+                            order: self.order,
+                        }),
+                    );
+                }
+                let depth = self.depth;
+                self.phase = AttributeMembersPhase::Delimiter;
+                Step::Push {
+                    parent: Frame::AttributeMembers(self),
+                    child: Frame::AttributeEntry(AttributeEntryFrame::new(depth)),
+                }
+            }
+            AttributeMembersPhase::Delimiter => {
+                let Some(Product::AttributeEntry(entry)) = product else {
+                    debug_assert!(false, "Sofia attribute members expected an entry product");
+                    return Step::Unsupported;
+                };
+                if self.members.contains_key(&entry.key) {
+                    return Step::Unsupported;
+                }
+                self.order.push(entry.key.clone());
+                self.members.insert(entry.key, entry.value);
+
+                let mut saw_newline = false;
+                while parser.check(TokenKind::Newline) {
+                    saw_newline = true;
+                    parser.advance();
+                }
+                if parser.check(TokenKind::Comma) {
+                    if parser.has_separator_collision() {
+                        return Step::Unsupported;
+                    }
+                    parser.advance();
+                    parser.skip_newlines();
+                } else if parser.check(TokenKind::RightBrace) {
+                    parser.advance();
+                    return complete(
+                        output,
+                        Product::Attributes(ParsedAttributes {
+                            members: self.members,
+                            order: self.order,
+                        }),
+                    );
+                } else if !saw_newline {
+                    return Step::Unsupported;
+                }
+
+                self.phase = AttributeMembersPhase::Entry;
+                Step::Continue(Frame::AttributeMembers(self))
+            }
+        }
+    }
+}
+
+enum AttributeMembersPhase {
+    Entry,
+    Delimiter,
+}
+
+struct AttributeEntryFrame {
+    depth: usize,
+    phase: AttributeEntryPhase,
+}
+
+impl AttributeEntryFrame {
+    fn new(depth: usize) -> Self {
+        Self {
+            depth,
+            phase: AttributeEntryPhase::Key,
+        }
+    }
+
+    fn step(
+        self,
+        parser: &mut Parser<'_>,
+        product: Option<Product>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        match self.phase {
+            AttributeEntryPhase::Key => {
+                if product.is_some() {
+                    debug_assert!(false, "Sofia attribute entry received an early product");
+                    return Step::Unsupported;
+                }
+                let Some((key, _, start)) = parser.parse_key() else {
+                    return Step::Unsupported;
+                };
+                if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                    return Step::Unsupported;
+                }
+                parser.skip_newlines();
+                let Some(structural_id) = parser.parse_optional_structural_identity() else {
+                    return Step::Unsupported;
+                };
+                parser.skip_newlines();
+                let head = AttributeEntryHead {
+                    key,
+                    start,
+                    structural_id,
+                    datatype: None,
+                    nested_attrs: BTreeMap::new(),
+                    nested_attr_order: Vec::new(),
+                };
+                if parser.check(TokenKind::At) {
+                    let nested_depth = self.depth + 1;
+                    if !parser.open_attribute_block(nested_depth) {
+                        return Step::Unsupported;
+                    }
+                    Step::Push {
+                        parent: Frame::AttributeEntry(Self {
+                            depth: self.depth,
+                            phase: AttributeEntryPhase::NestedAttributes(head),
+                        }),
+                        child: Frame::AttributeMembers(AttributeMembersFrame::block(nested_depth)),
+                    }
+                } else {
+                    Self::push_datatype_or_value(parser, self.depth, head)
+                }
+            }
+            AttributeEntryPhase::NestedAttributes(mut head) => {
+                let Some(Product::Attributes(attributes)) = product else {
+                    debug_assert!(false, "Sofia attribute entry expected nested attributes");
+                    return Step::Unsupported;
+                };
+                head.nested_attrs = attributes.members;
+                head.nested_attr_order = attributes.order;
+                parser.skip_newlines();
+                if parser.check(TokenKind::At) {
+                    return Step::Unsupported;
+                }
+                Self::push_datatype_or_value(parser, self.depth, head)
+            }
+            AttributeEntryPhase::Datatype(mut head) => {
+                let Some(Product::Datatype(datatype)) = product else {
+                    debug_assert!(false, "Sofia attribute entry expected a datatype");
+                    return Step::Unsupported;
+                };
+                if validate_binding_node_datatype(&datatype, parser.previous().span).is_err() {
+                    return Step::Unsupported;
+                }
+                head.datatype = Some(datatype);
+                Self::push_value(parser, self.depth, head)
+            }
+            AttributeEntryPhase::Value(head) => {
+                let Some(Product::Value(value)) = product else {
+                    debug_assert!(false, "Sofia attribute entry expected a value");
+                    return Step::Unsupported;
+                };
+                Self::finish(parser, head, Some(value), None, output)
+            }
+            AttributeEntryPhase::ObjectValue(head) => {
+                let Some(Product::Attributes(object)) = product else {
+                    debug_assert!(false, "Sofia attribute entry expected object members");
+                    return Step::Unsupported;
+                };
+                Self::finish(parser, head, None, Some(object), output)
+            }
+        }
+    }
+
+    fn push_datatype_or_value(
+        parser: &mut Parser<'_>,
+        depth: usize,
+        head: AttributeEntryHead,
+    ) -> Step {
+        if parser.check(TokenKind::Colon) {
+            parser.advance();
+            parser.skip_newlines();
+            parser.begin_datatype();
+            Step::Push {
+                parent: Frame::AttributeEntry(Self {
+                    depth,
+                    phase: AttributeEntryPhase::Datatype(head),
+                }),
+                child: Frame::Datatype(DatatypeFrame::new(0)),
+            }
+        } else {
+            Self::push_value(parser, depth, head)
+        }
+    }
+
+    fn push_value(parser: &mut Parser<'_>, depth: usize, head: AttributeEntryHead) -> Step {
+        parser.skip_newlines();
+        if !parser.check(TokenKind::Equals) {
+            return Step::Unsupported;
+        }
+        parser.advance();
+        parser.skip_newlines();
+        if parser.check(TokenKind::LeftBrace) {
+            parser.advance();
+            Step::Push {
+                parent: Frame::AttributeEntry(Self {
+                    depth,
+                    phase: AttributeEntryPhase::ObjectValue(head),
+                }),
+                child: Frame::AttributeMembers(AttributeMembersFrame::object()),
+            }
+        } else {
+            Step::Push {
+                parent: Frame::AttributeEntry(Self {
+                    depth,
+                    phase: AttributeEntryPhase::Value(head),
+                }),
+                child: Frame::Value,
+            }
+        }
+    }
+
+    fn finish(
+        parser: &Parser<'_>,
+        head: AttributeEntryHead,
+        value: Option<Value>,
+        object: Option<ParsedAttributes>,
+        output: &mut Option<Product>,
+    ) -> Step {
+        let end = parser.previous().span.end;
+        let (object_members, object_member_order) = object.map_or_else(
+            || (BTreeMap::new(), Vec::new()),
+            |object| (object.members, object.order),
+        );
+        let mut attribute = AttributeValue::with_parts(
+            head.structural_id,
+            head.datatype,
+            value,
+            head.nested_attrs,
+            head.nested_attr_order,
+            object_members,
+            object_member_order,
+        );
+        attribute.span = Some(Span {
+            start: head.start,
+            end,
+        });
+        complete(
+            output,
+            Product::AttributeEntry(ParsedAttributeEntry {
+                key: head.key,
+                value: attribute,
+            }),
+        )
+    }
+}
+
+enum AttributeEntryPhase {
+    Key,
+    NestedAttributes(AttributeEntryHead),
+    Datatype(AttributeEntryHead),
+    Value(AttributeEntryHead),
+    ObjectValue(AttributeEntryHead),
+}
+
+struct AttributeEntryHead {
+    key: String,
+    start: crate::Position,
+    structural_id: Option<String>,
+    datatype: Option<String>,
+    nested_attrs: BTreeMap<String, AttributeValue>,
+    nested_attr_order: Vec<String>,
 }
 
 struct DatatypeFrame {
@@ -1056,10 +1460,7 @@ mod tests {
 
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
-        assert!(matches!(
-            parse("typed@{source = \"test\"}:list<string> = [1, 2]"),
-            ParseOutcome::Unsupported
-        ));
+        assert!(matches!(parse("node = <tag>"), ParseOutcome::Unsupported));
     }
 
     #[test]
@@ -1109,6 +1510,71 @@ mod tests {
         assert!(matches!(
             parse("first\\same\\ = 1\nsecond\\same\\ = 2"),
             ParseOutcome::Unsupported
+        ));
+    }
+
+    #[test]
+    fn iterative_attribute_frames_preserve_all_attribute_shapes() {
+        let source = r#"payload\root\@{
+  source\meta\:string = "user"
+  policy@{
+    inherited:boolean = true
+  }:object = {
+    enabled:boolean = true
+    nested = { count:number = 2 }
+  }
+}:object = { value = 1 }
+items = [@{note:string = "first"}:number = 1]"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("attributes should use the Sofia frame path");
+        };
+
+        assert_eq!(bindings[0].attribute_order, ["source", "policy"]);
+        assert_eq!(
+            bindings[0].attributes["source"].structural_id.as_deref(),
+            Some("meta")
+        );
+        let policy = &bindings[0].attributes["policy"];
+        assert_eq!(policy.nested_attr_order, ["inherited"]);
+        assert_eq!(policy.object_member_order, ["enabled", "nested"]);
+        assert_eq!(
+            policy.object_members["nested"].object_member_order,
+            ["count"]
+        );
+
+        let Value::ListNode { items } = &bindings[1].value else {
+            panic!("expected list value");
+        };
+        let Value::TypedValue {
+            attributes,
+            attribute_order,
+            ..
+        } = &items[0]
+        else {
+            panic!("expected attributed anonymous value");
+        };
+        assert_eq!(attribute_order, &["note"]);
+        assert!(attributes.contains_key("note"));
+    }
+
+    #[test]
+    fn attribute_head_depth_and_object_depth_remain_independent() {
+        let nested_head = "root@{outer@{inner = 1} = 2} = 3";
+        assert!(matches!(parse(nested_head), ParseOutcome::Parsed(_)));
+        assert!(matches!(
+            parse_with_limits(nested_head, ParserLimits::new(256, 1, 8, 8, 32, 64)),
+            ParseOutcome::Unsupported
+        ));
+
+        let depth = 256;
+        let mut object = String::from("1");
+        for _ in 0..depth {
+            object = format!("{{ child = {object} }}");
+        }
+        let source = format!("root@{{tree = {object}}} = 1");
+        assert!(matches!(
+            parse_with_limits(&source, ParserLimits::new(256, 1, 8, 8, 32, 64)),
+            ParseOutcome::Parsed(_)
         ));
     }
 
