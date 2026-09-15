@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::{AttributeValue, Binding, Span, Token, TokenKind, Value};
+use crate::{AttributeValue, Binding, ReferenceSegment, Span, Token, TokenKind, Value};
 
 use super::{
     ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, datatype_base,
@@ -189,6 +189,126 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_reference(&mut self) -> Option<Value> {
+        let start = self.peek().span.start;
+        let is_pointer = match self.peek().kind {
+            TokenKind::TildeArrow => {
+                self.advance();
+                true
+            }
+            TokenKind::Tilde => {
+                self.advance();
+                false
+            }
+            _ => return None,
+        };
+
+        let mut segments = Vec::new();
+        if self.check(TokenKind::Dollar) {
+            self.advance();
+            if !self.check(TokenKind::Dot) {
+                return None;
+            }
+            self.advance();
+            if self.check(TokenKind::LeftBracket) {
+                segments.push(ReferenceSegment::Key(self.parse_bracketed_reference_key()?));
+            } else {
+                segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+            }
+        } else if self.check(TokenKind::LeftBracket) {
+            segments.push(ReferenceSegment::Key(self.parse_bracketed_reference_key()?));
+        } else {
+            segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+        }
+
+        loop {
+            if self.check(TokenKind::Dot) {
+                self.advance();
+                if self.check(TokenKind::At) {
+                    self.advance();
+                    if !self.check(TokenKind::Dot) {
+                        return None;
+                    }
+                    self.advance();
+                    let key = if self.check(TokenKind::LeftBracket) {
+                        self.parse_bracketed_reference_key()?
+                    } else {
+                        self.parse_reference_key()?
+                    };
+                    segments.push(ReferenceSegment::Attr(key));
+                } else {
+                    let key = if self.check(TokenKind::LeftBracket) {
+                        self.parse_bracketed_reference_key()?
+                    } else {
+                        self.parse_reference_key()?
+                    };
+                    segments.push(ReferenceSegment::Key(key));
+                }
+                continue;
+            }
+
+            if self.check(TokenKind::LeftBracket) {
+                self.advance();
+                if self.check(TokenKind::String) {
+                    let key = self.parse_reference_key()?;
+                    if !self.check(TokenKind::RightBracket) {
+                        return None;
+                    }
+                    self.advance();
+                    segments.push(ReferenceSegment::Key(key));
+                } else if self.check(TokenKind::Number) {
+                    let index = self.advance().text.parse::<usize>().ok()?;
+                    if !self.check(TokenKind::RightBracket) {
+                        return None;
+                    }
+                    self.advance();
+                    segments.push(ReferenceSegment::Index(index));
+                } else {
+                    return None;
+                }
+                continue;
+            }
+            break;
+        }
+
+        let span = Span {
+            start,
+            end: self.previous().span.end,
+        };
+        Some(if is_pointer {
+            Value::PointerReference { segments, span }
+        } else {
+            Value::CloneReference { segments, span }
+        })
+    }
+
+    fn parse_bracketed_reference_key(&mut self) -> Option<String> {
+        if !self.check(TokenKind::LeftBracket) {
+            return None;
+        }
+        self.advance();
+        if !self.check(TokenKind::String) {
+            return None;
+        }
+        let key = self.parse_reference_key()?;
+        if !self.check(TokenKind::RightBracket) {
+            return None;
+        }
+        self.advance();
+        Some(key)
+    }
+
+    fn parse_reference_key(&mut self) -> Option<String> {
+        match self.peek().kind {
+            kind if is_bare_key_kind(kind) => Some(self.advance().text.clone()),
+            TokenKind::String => {
+                let key = decode_quoted_token(self.advance()).ok()?;
+                (!key.is_empty()).then_some(key)
+            }
+            _ => None,
+        }
+    }
+
     fn parse_optional_structural_identity(&mut self) -> Option<Option<String>> {
         if !self.check(TokenKind::StructuralIdentity) {
             return Some(None);
@@ -353,6 +473,11 @@ impl Frame {
                         let start_index = parser.current;
                         parser.advance();
                         return Step::Continue(Frame::Node(NodeFrame::new(start_index)));
+                    }
+                    TokenKind::Tilde | TokenKind::TildeArrow => {
+                        return parser.parse_reference().map_or(Step::Unsupported, |value| {
+                            complete(output, Product::Value(value))
+                        });
                     }
                     _ => None,
                 };
@@ -1728,7 +1853,7 @@ enum ObjectPhase {
 
 #[cfg(test)]
 mod tests {
-    use crate::{LexerOptions, Value, tokenize};
+    use crate::{LexerOptions, ReferenceSegment, Value, tokenize};
 
     use super::{ParseOutcome, ParserLimits, parse_document};
 
@@ -1765,7 +1890,75 @@ mod tests {
 
     #[test]
     fn unsupported_grammar_is_reported_for_baseline_fallback() {
-        assert!(matches!(parse("copy = ~source"), ParseOutcome::Unsupported));
+        assert!(matches!(
+            parse(r#"note = >`hello`"#),
+            ParseOutcome::Unsupported
+        ));
+    }
+
+    #[test]
+    fn iterative_reference_parser_preserves_kinds_segments_and_spans() {
+        let source = r#"clone = ~$.["root.key"][1].member
+pointer = ~>root.@.meta.["x.y"][0]
+literal = ~true.off"#;
+        let ParseOutcome::Parsed(bindings) = parse(source) else {
+            panic!("references should use the Sofia path");
+        };
+
+        let Value::CloneReference { segments, span } = &bindings[0].value else {
+            panic!("expected clone reference");
+        };
+        assert_eq!(
+            segments,
+            &[
+                ReferenceSegment::Key(String::from("root.key")),
+                ReferenceSegment::Index(1),
+                ReferenceSegment::Key(String::from("member")),
+            ]
+        );
+        let clone_start = source.find("~$.").expect("clone reference start");
+        assert_eq!(span.start.offset, clone_start);
+        assert_eq!(
+            span.end.offset,
+            clone_start + r#"~$.["root.key"][1].member"#.len()
+        );
+
+        let Value::PointerReference { segments, .. } = &bindings[1].value else {
+            panic!("expected pointer reference");
+        };
+        assert_eq!(
+            segments,
+            &[
+                ReferenceSegment::Key(String::from("root")),
+                ReferenceSegment::Attr(String::from("meta")),
+                ReferenceSegment::Key(String::from("x.y")),
+                ReferenceSegment::Index(0),
+            ]
+        );
+        let Value::CloneReference { segments, .. } = &bindings[2].value else {
+            panic!("expected literal-word clone reference");
+        };
+        assert_eq!(
+            segments,
+            &[
+                ReferenceSegment::Key(String::from("true")),
+                ReferenceSegment::Key(String::from("off")),
+            ]
+        );
+    }
+
+    #[test]
+    fn iterative_reference_parser_handles_very_deep_paths_without_frames() {
+        let segment_count = 4_096;
+        let reference = format!("~root{}", ".child".repeat(segment_count - 1));
+        let source = format!("value = {reference}");
+        let ParseOutcome::Parsed(bindings) = parse(&source) else {
+            panic!("deep references should use the Sofia path");
+        };
+        let Value::CloneReference { segments, .. } = &bindings[0].value else {
+            panic!("expected clone reference");
+        };
+        assert_eq!(segments.len(), segment_count);
     }
 
     #[test]

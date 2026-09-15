@@ -2040,6 +2040,12 @@ mod tests {
 items = [@{note:string = "first"}:number = 1]"#,
             "items:list<string> = [\"one\", \"two\"]",
             "record:object = { nested@{flag = true}:string = \"value\" }",
+            r#"source = { "quoted.key" = [1, 2] }
+clone = ~$.["source"].["quoted.key"][1]
+pointer = ~>source.@.meta.["x.y"][0]
+literal = ~true.off"#,
+            "bad = ~$[\"source\"]\nlater = true",
+            "bad = ~source.@.[\"\"]\nlater = true",
             r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
   "text"
   \child\:string = "typed"
