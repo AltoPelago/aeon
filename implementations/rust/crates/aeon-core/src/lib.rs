@@ -1550,6 +1550,262 @@ mod tests {
         baseline
     }
 
+    fn configured_options(configure: impl FnOnce(&mut CompileOptions)) -> CompileOptions {
+        let mut options = CompileOptions::default();
+        configure(&mut options);
+        options
+    }
+
+    fn assert_compile_resource_boundary(
+        name: &str,
+        source: &str,
+        at_boundary: CompileOptions,
+        beyond_boundary: CompileOptions,
+        expected_code: &str,
+        expected_phase: Option<u8>,
+    ) {
+        let baseline_at = compile_owned_with_implementation(
+            source.to_owned(),
+            at_boundary.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia_at = compile_owned_with_implementation(
+            source.to_owned(),
+            at_boundary,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(
+            sofia_at, baseline_at,
+            "at-boundary compile drift for {name}",
+        );
+        assert!(
+            baseline_at.errors.is_empty(),
+            "{name} must accept its boundary: {:?}",
+            baseline_at.errors,
+        );
+
+        let baseline_beyond = compile_owned_with_implementation(
+            source.to_owned(),
+            beyond_boundary.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia_beyond = compile_owned_with_implementation(
+            source.to_owned(),
+            beyond_boundary,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(
+            sofia_beyond, baseline_beyond,
+            "beyond-boundary compile drift for {name}",
+        );
+        let diagnostic = baseline_beyond
+            .errors
+            .first()
+            .unwrap_or_else(|| panic!("{name} must reject one unit beyond its boundary"));
+        assert_eq!(diagnostic.code, expected_code, "code drift for {name}");
+        assert_eq!(
+            diagnostic.path.as_deref(),
+            Some("$"),
+            "path drift for {name}"
+        );
+        assert_eq!(diagnostic.phase, expected_phase, "phase drift for {name}");
+        assert!(diagnostic.span.is_some(), "missing span for {name}");
+    }
+
+    #[test]
+    fn parser_selector_preserves_every_compile_resource_boundary() {
+        let input_source = "a = \"😀\"";
+        let cases = [
+            (
+                "max_input_bytes",
+                input_source,
+                configured_options(|options| {
+                    options.max_input_bytes = Some(input_source.len());
+                }),
+                configured_options(|options| {
+                    options.max_input_bytes = Some(input_source.len() - 1);
+                }),
+                "INPUT_SIZE_EXCEEDED",
+                Some(0),
+            ),
+            (
+                "max_events",
+                "a = [1]",
+                configured_options(|options| options.max_events = Some(2)),
+                configured_options(|options| options.max_events = Some(1)),
+                "EVENT_COUNT_EXCEEDED",
+                Some(4),
+            ),
+            (
+                "max_attribute_depth",
+                "a@{b@{c = 3} = 2} = 1",
+                configured_options(|options| options.max_attribute_depth = 2),
+                configured_options(|options| options.max_attribute_depth = 1),
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_clarifier_values canonical precedence",
+                "value:custom[\"first\", \"second\"] = 1",
+                configured_options(|options| {
+                    options.max_clarifier_values = Some(2);
+                    options.max_separator_depth = 1;
+                }),
+                configured_options(|options| {
+                    options.max_clarifier_values = Some(1);
+                    options.max_separator_depth = 2;
+                }),
+                "CLARIFIER_VALUES_EXCEEDED",
+                None,
+            ),
+            (
+                "max_separator_depth compatibility alias",
+                "value:custom[\"first\", \"second\"] = 1",
+                configured_options(|options| options.max_separator_depth = 2),
+                configured_options(|options| options.max_separator_depth = 1),
+                "CLARIFIER_VALUES_EXCEEDED",
+                None,
+            ),
+            (
+                "max_generic_depth",
+                "value:list<list<int32>> = [[1]]",
+                configured_options(|options| options.max_generic_depth = 1),
+                configured_options(|options| options.max_generic_depth = 0),
+                "GENERIC_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_generic_arguments",
+                "value:tuple<int32,string> = (1, \"x\")",
+                configured_options(|options| options.max_generic_arguments = 2),
+                configured_options(|options| options.max_generic_arguments = 1),
+                "GENERIC_ARGUMENTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_datatype_components",
+                "value:tuple<int32,string> = (1, \"x\")",
+                configured_options(|options| options.max_datatype_components = 3),
+                configured_options(|options| options.max_datatype_components = 2),
+                "DATATYPE_COMPONENTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_value_nesting_depth canonical precedence",
+                "a = [[1]]",
+                configured_options(|options| {
+                    options.max_value_nesting_depth = Some(2);
+                    options.max_nesting_depth = 1;
+                }),
+                configured_options(|options| {
+                    options.max_value_nesting_depth = Some(1);
+                    options.max_nesting_depth = 2;
+                }),
+                "NESTING_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_nesting_depth compatibility alias",
+                "a = [[1]]",
+                configured_options(|options| options.max_nesting_depth = 2),
+                configured_options(|options| options.max_nesting_depth = 1),
+                "NESTING_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_depth reference",
+                "source = 1\ncopy = ~$.source",
+                configured_options(|options| options.max_path_depth = 1),
+                configured_options(|options| options.max_path_depth = 0),
+                "MAX_PATH_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_depth event",
+                "a = { b = 1 }",
+                configured_options(|options| options.max_path_depth = 2),
+                configured_options(|options| options.max_path_depth = 1),
+                "MAX_PATH_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_string_codepoints",
+                "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_key_segment_codepoints",
+                "ab = 1",
+                configured_options(|options| options.max_key_segment_codepoints = 2),
+                configured_options(|options| options.max_key_segment_codepoints = 1),
+                "MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_list_items",
+                "a = [1, 2]",
+                configured_options(|options| options.max_list_items = 2),
+                configured_options(|options| options.max_list_items = 1),
+                "MAX_LIST_ITEMS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_tuple_items",
+                "a = (1, 2)",
+                configured_options(|options| options.max_tuple_items = 2),
+                configured_options(|options| options.max_tuple_items = 1),
+                "MAX_TUPLE_ITEMS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_characters reference",
+                "a = 1\nb = ~$.a",
+                configured_options(|options| options.max_path_characters = 3),
+                configured_options(|options| options.max_path_characters = 2),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_characters event",
+                "ab = 1",
+                configured_options(|options| options.max_path_characters = 4),
+                configured_options(|options| options.max_path_characters = 3),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_numeric_literal_characters",
+                "a = 1234",
+                configured_options(|options| options.max_numeric_literal_characters = 4),
+                configured_options(|options| options.max_numeric_literal_characters = 3),
+                "MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_structured_comment_characters",
+                "//@abc\na = 1",
+                configured_options(|options| options.max_structured_comment_characters = 3),
+                configured_options(|options| options.max_structured_comment_characters = 2),
+                "MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED",
+                None,
+            ),
+        ];
+
+        for (name, source, at_boundary, beyond_boundary, expected_code, expected_phase) in cases {
+            assert_compile_resource_boundary(
+                name,
+                source,
+                at_boundary,
+                beyond_boundary,
+                expected_code,
+                expected_phase,
+            );
+        }
+    }
+
     #[test]
     fn parser_selector_preserves_complete_diagnostic_pipeline() {
         let at_root = Some("$");
