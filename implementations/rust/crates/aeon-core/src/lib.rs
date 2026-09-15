@@ -58,7 +58,9 @@ pub use limits::{
     load_aeonic_limits, telex_limits,
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
-use token_parser::parse_document_from_tokens_recovery;
+use token_parser::{
+    ParserImplementation, ParserLimits, parse_document_from_tokens_recovery_with_implementation,
+};
 #[cfg(test)]
 use validation::datatype_has_generic_args;
 
@@ -635,6 +637,14 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
 }
 
 fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
+    compile_owned_with_implementation(source, options, ParserImplementation::Baseline)
+}
+
+fn compile_owned_with_implementation(
+    source: String,
+    options: CompileOptions,
+    implementation: ParserImplementation,
+) -> CompileResult {
     trace_compile("compile:start");
     let warnings = compile_portability_warnings(&options);
     if let Some(max_bytes) = options.max_input_bytes {
@@ -661,14 +671,17 @@ fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
 
     trace_compile(format!("compile:normalized bytes={}", source.len()));
 
-    let parsed = parse_document_from_tokens_recovery(
+    let parsed = parse_document_from_tokens_recovery_with_implementation(
         &source,
-        options.effective_max_value_nesting_depth(),
-        options.max_attribute_depth,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        options.max_generic_arguments,
-        options.max_datatype_components,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        implementation,
     );
     if !parsed.errors.is_empty() {
         return CompileResult {

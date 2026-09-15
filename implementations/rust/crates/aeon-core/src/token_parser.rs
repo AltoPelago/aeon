@@ -33,7 +33,7 @@ pub(crate) struct ParserLimits {
 }
 
 impl ParserLimits {
-    const fn new(
+    pub(crate) const fn new(
         max_value_nesting_depth: usize,
         max_attribute_depth: usize,
         max_clarifier_values: usize,
@@ -116,29 +116,6 @@ pub(crate) fn parse_document_from_tokens_with_implementation(
 pub(crate) struct ParseRecoveryResult {
     pub bindings: Vec<Binding>,
     pub errors: Vec<Diagnostic>,
-}
-
-pub(crate) fn parse_document_from_tokens_recovery(
-    input: &str,
-    max_value_nesting_depth: usize,
-    max_attribute_depth: usize,
-    max_clarifier_values: usize,
-    max_generic_depth: usize,
-    max_generic_arguments: usize,
-    max_datatype_components: usize,
-) -> ParseRecoveryResult {
-    parse_document_from_tokens_recovery_with_implementation(
-        input,
-        ParserLimits::new(
-            max_value_nesting_depth,
-            max_attribute_depth,
-            max_clarifier_values,
-            max_generic_depth,
-            max_generic_arguments,
-            max_datatype_components,
-        ),
-        ParserImplementation::Baseline,
-    )
 }
 
 pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
@@ -2377,12 +2354,35 @@ literal = ~true.off"#,
                 sofia_recovery, baseline_recovery,
                 "recovery parser drift for corpus case {id}",
             );
+            drop(sofia_recovery);
+            drop(baseline_recovery);
 
-            println!("Sofia parser parity: {id} ({} bytes)", source.len());
+            let options = crate::CompileOptions::default();
+            let baseline_compile = crate::compile_owned_with_implementation(
+                source.clone(),
+                options.clone(),
+                ParserImplementation::Baseline,
+            );
+            let sofia_compile = crate::compile_owned_with_implementation(
+                source.clone(),
+                options,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(
+                sofia_compile, baseline_compile,
+                "complete compile drift for corpus case {id}",
+            );
+            assert_eq!(
+                baseline_compile.errors.is_empty(),
+                expected_valid,
+                "manifest compile acceptance drift for corpus case {id}",
+            );
+
+            println!("Sofia differential parity: {id} ({} bytes)", source.len());
         }
 
         println!(
-            "Sofia full parser differential passed: {} manifest cases",
+            "Sofia full parser and compile differential passed: {} manifest cases",
             cases.len(),
         );
     }
