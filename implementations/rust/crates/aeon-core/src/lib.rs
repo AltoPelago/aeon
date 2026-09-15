@@ -1495,6 +1495,256 @@ fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagno
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy)]
+    struct DiagnosticExpectation<'a> {
+        code: &'a str,
+        path: Option<&'a str>,
+        phase: Option<u8>,
+        has_span: bool,
+    }
+
+    fn assert_compile_diagnostic_parity(
+        name: &str,
+        source: &str,
+        options: CompileOptions,
+        expected: &[DiagnosticExpectation<'_>],
+    ) -> CompileResult {
+        let baseline = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia = compile_owned_with_implementation(
+            source.to_owned(),
+            options,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(sofia, baseline, "complete diagnostic drift for {name}");
+        assert_eq!(
+            baseline.errors.len(),
+            expected.len(),
+            "unexpected diagnostic count for {name}: {:?}",
+            baseline.errors,
+        );
+        for (diagnostic, expectation) in baseline.errors.iter().zip(expected) {
+            assert_eq!(diagnostic.code, expectation.code, "code drift for {name}");
+            assert_eq!(
+                diagnostic.path.as_deref(),
+                expectation.path,
+                "path drift for {name}",
+            );
+            assert_eq!(
+                diagnostic.phase, expectation.phase,
+                "phase drift for {name}",
+            );
+            assert_eq!(
+                diagnostic.span.is_some(),
+                expectation.has_span,
+                "span-presence drift for {name}",
+            );
+            assert!(
+                !diagnostic.message.is_empty(),
+                "diagnostic message must not be empty for {name}",
+            );
+        }
+        baseline
+    }
+
+    #[test]
+    fn parser_selector_preserves_complete_diagnostic_pipeline() {
+        let at_root = Some("$");
+        let no_phase = None;
+
+        assert_compile_diagnostic_parity(
+            "input byte limit",
+            "hello",
+            CompileOptions {
+                max_input_bytes: Some(4),
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "INPUT_SIZE_EXCEEDED",
+                path: at_root,
+                phase: Some(0),
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "lexer failure",
+            "\"unterminated",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "UNTERMINATED_STRING",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "ordered parser recovery",
+            "bad = [1 2]\nlater = true\ntree = <root(1 2)>\nend = false",
+            CompileOptions::default(),
+            &[
+                DiagnosticExpectation {
+                    code: "SYNTAX_ERROR",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "SYNTAX_ERROR",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+            ],
+        );
+        assert_compile_diagnostic_parity(
+            "header lowering",
+            "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "HEADER_CONFLICT",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "source resource limit",
+            "a = \"xy\"",
+            CompileOptions {
+                max_string_codepoints: 1,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "MAX_STRING_CODEPOINTS_EXCEEDED",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "event path limit",
+            "a = { b = 1 }",
+            CompileOptions {
+                max_path_depth: 1,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "MAX_PATH_DEPTH_EXCEEDED",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "event count limit",
+            "a = 1\nb = 2",
+            CompileOptions {
+                max_events: Some(1),
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "EVENT_COUNT_EXCEEDED",
+                path: at_root,
+                phase: Some(4),
+                has_span: true,
+            }],
+        );
+        let recovered_duplicate = assert_compile_diagnostic_parity(
+            "duplicate path recovery",
+            "a = 1\na = 2",
+            CompileOptions {
+                recovery: true,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "DUPLICATE_KEY",
+                path: Some("$.a"),
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_eq!(recovered_duplicate.events.len(), 1);
+        assert_eq!(format_path(&recovered_duplicate.events[0].path), "$.a");
+
+        assert_compile_diagnostic_parity(
+            "datatype validation",
+            "aeon:mode = \"strict\"\nstroke:myColor = #ff00ff",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "CUSTOM_DATATYPE_NOT_ALLOWED",
+                path: Some("$.stroke"),
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "ordered reference and mode validation",
+            "aeon:mode = \"custom\"\nfirst = 1\nforward = ~later\nlater:int32 = 1",
+            CompileOptions::default(),
+            &[
+                DiagnosticExpectation {
+                    code: "FORWARD_REFERENCE",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "UNTYPED_VALUE_IN_STRICT_MODE",
+                    path: Some("$.first"),
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "UNTYPED_VALUE_IN_STRICT_MODE",
+                    path: Some("$.forward"),
+                    phase: no_phase,
+                    has_span: true,
+                },
+            ],
+        );
+
+        let warnings = assert_compile_diagnostic_parity(
+            "portability warnings",
+            "a = 1",
+            CompileOptions {
+                max_attribute_depth: 9,
+                max_separator_depth: 9,
+                max_generic_depth: 9,
+                max_nesting_depth: 65,
+                max_events: Some(100_001),
+                ..CompileOptions::default()
+            },
+            &[],
+        )
+        .warnings;
+        assert_eq!(
+            warnings
+                .iter()
+                .map(|warning| (
+                    warning.code.as_str(),
+                    warning.path.as_deref(),
+                    warning.span,
+                    warning.phase,
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                (
+                    "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                    at_root,
+                    None,
+                    no_phase,
+                ),
+                ("AEON_NON_PORTABLE_EVENT_BUDGET", at_root, None, no_phase),
+            ],
+        );
+    }
+
     #[test]
     fn retains_leading_bom_in_exact_source_coordinates() {
         let result = compile("\u{feff}hello = 1", CompileOptions::default());
