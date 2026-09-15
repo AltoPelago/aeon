@@ -3169,4 +3169,81 @@ items = [@{note:string = "first"}:number = 1]"#;
             "Value nesting depth 2 exceeds max_value_nesting_depth 1"
         );
     }
+
+    const DEEP_STACK_STRESS_DEPTH: usize = 16_384;
+
+    fn retain_deep_parse_result(source: &str, limits: ParserLimits) {
+        let ParseOutcome::Parsed(bindings) = parse_with_limits(source, limits) else {
+            panic!("Sofia should parse the deep-stack stress input");
+        };
+        assert_eq!(bindings.len(), 1);
+
+        // The parser itself is iterative, but the public Value/AttributeValue data
+        // model still has recursive destruction. Keep that separate from this parser
+        // stack test; the dedicated process releases the allocation on exit.
+        std::mem::forget(bindings);
+    }
+
+    #[test]
+    #[ignore = "run with `npm run test:sofia:deep-stack`"]
+    fn sofia_deep_stack_stress_covers_every_recursive_frame_family() {
+        let depth = DEEP_STACK_STRESS_DEPTH;
+        let value_limits = ParserLimits::new(depth, 8, 8, 8, 32, 64);
+
+        // Newlines prevent the consecutive-opener projection from turning this
+        // successful descent into a quadratic pre-scan.
+        let nested_list = format!("nested = {}1{}", "[\n".repeat(depth), "\n]".repeat(depth));
+        retain_deep_parse_result(&nested_list, value_limits);
+
+        let nested_attribute_object = format!(
+            "root@{{tree = {}1{}}} = 1",
+            "{ child = ".repeat(depth),
+            " }".repeat(depth)
+        );
+        retain_deep_parse_result(
+            &nested_attribute_object,
+            ParserLimits::new(1, 1, 8, 8, 32, 64),
+        );
+
+        // Node values retain the raw text of every completed subtree, and datatype
+        // normalization rebuilds every completed generic subtree. Descend beyond a
+        // normal native stack margin, then fail at the configured boundary before
+        // those intentionally recursive-shaped results are materialized.
+        let nested_node = format!(
+            "tree = {}<leaf>{}",
+            "<branch(".repeat(depth - 1),
+            ")>".repeat(depth - 1)
+        );
+        let node_error = assert_native_failure(
+            &nested_node,
+            ParserLimits::new(depth - 1, 8, 8, 8, 32, 64),
+            "NESTING_DEPTH_EXCEEDED",
+        );
+        assert_eq!(
+            node_error.message,
+            format!(
+                "Value nesting depth {depth} exceeds max_value_nesting_depth {}",
+                depth - 1
+            )
+        );
+
+        let nested_datatype = format!(
+            "value:{}string{} = 1",
+            "custom<".repeat(depth),
+            ">".repeat(depth)
+        );
+        let datatype_error = assert_native_failure(
+            &nested_datatype,
+            ParserLimits::new(1, 1, 8, depth - 2, 32, depth + 1),
+            "GENERIC_DEPTH_EXCEEDED",
+        );
+        assert_eq!(
+            datatype_error.message,
+            format!(
+                "Generic depth {} exceeds max_generic_depth {}",
+                depth - 1,
+                depth - 2
+            )
+        );
+    }
 }

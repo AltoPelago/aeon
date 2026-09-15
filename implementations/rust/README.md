@@ -180,6 +180,18 @@ For parser hardening work, a local `cargo-fuzz` workspace now lives under:
 
 See [`fuzz/README.md`](./fuzz/README.md) for the current fuzz targets and run instructions.
 
+Run Sofia's opt-in native-stack independence stress gate from the repository
+root with:
+
+```bash
+npm run test:sofia:deep-stack
+```
+
+The gate drives Sofia alone through 16,384 nested value-container,
+attribute-object, node, and datatype frames. It is intentionally excluded from
+the ordinary debug test suite and runs in an optimized, single-threaded test
+process.
+
 For direct CLI benchmarking, prefer the built release binary over `cargo run`.
 The repository benchmark helper is:
 

@@ -11,6 +11,7 @@
     "tests:all": "npm run ci:full && python3 ./scripts/stress-combinations.py --run both --brief --failures-only",
     "test:canonical:corpus": "python3 ./scripts/stress-canonical-corpus.py",
     "test:canonical:corpus:php": "python3 ./scripts/stress-canonical-corpus.py --php",
+    "test:sofia:deep-stack": "cargo test --release --manifest-path implementations/rust/Cargo.toml -p aeon-core sofia_deep_stack_stress -- --ignored --test-threads=1 --nocapture",
     "test:sofia:differential": "python3 ./scripts/check-sofia-parser-differential.py",
     "validate:cts-claims": "node ./scripts/validate-cts-claims.mjs",
     "version:check": "node ./scripts/version.mjs check",
