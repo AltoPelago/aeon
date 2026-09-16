@@ -5,13 +5,16 @@ use std::mem;
 use std::num::NonZeroUsize;
 
 use crate::flatten::flatten_document;
+use crate::header::IncrementalHeaderState;
 use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
+use crate::validation::{validate_duplicate_object_member_keys, validate_typed_mode_rules};
 use crate::{
-    Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch, EventBatches,
-    SourcePlane, compile_owned_with_implementation, event_count_exceeded_error, format_path,
+    BehaviorMode, Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch,
+    EventBatches, SourcePlane, compile_owned_with_implementation, event_count_exceeded_error,
+    format_path,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,15 +45,23 @@ impl ProvisionalEventBatch {
 #[derive(Debug)]
 struct ProgressiveValidationState {
     options: CompileOptions,
+    header: IncrementalHeaderState,
     event_count: usize,
     seen_event_paths: HashSet<(SourcePlane, String)>,
     source_resource_error: Option<Diagnostic>,
+    duplicate_object_errors: Vec<Diagnostic>,
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
+    strict_mode_errors: Vec<Diagnostic>,
+    custom_mode_errors: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct ProgressiveValidationRetention {
+    effective_mode: Option<BehaviorMode>,
+    has_declared_profile: bool,
+    header_field_count: usize,
+    header_string_bytes: usize,
     event_count: usize,
     seen_path_count: usize,
     seen_path_string_bytes: usize,
@@ -61,17 +72,55 @@ impl ProgressiveValidationState {
     fn new(options: &CompileOptions) -> Self {
         Self {
             options: options.clone(),
+            header: IncrementalHeaderState::default(),
             event_count: 0,
             seen_event_paths: HashSet::new(),
             source_resource_error: None,
+            duplicate_object_errors: Vec::new(),
             event_path_error: None,
             duplicate_errors: Vec::new(),
+            strict_mode_errors: Vec::new(),
+            custom_mode_errors: Vec::new(),
         }
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
+        }
+        for binding in bindings {
+            self.header.observe(binding);
+        }
+        for binding in bindings.iter().filter(|binding| !binding.is_header) {
+            validate_duplicate_object_member_keys(
+                std::slice::from_ref(binding),
+                &mut self.duplicate_object_errors,
+            );
+        }
+        match self.options.mode.or(self.header.declared_mode()) {
+            Some(BehaviorMode::Strict) => validate_typed_mode_rules(
+                bindings,
+                Some(BehaviorMode::Strict),
+                &mut self.strict_mode_errors,
+            ),
+            Some(BehaviorMode::Custom) => validate_typed_mode_rules(
+                bindings,
+                Some(BehaviorMode::Custom),
+                &mut self.custom_mode_errors,
+            ),
+            Some(BehaviorMode::Transport) => {}
+            None => {
+                validate_typed_mode_rules(
+                    bindings,
+                    Some(BehaviorMode::Strict),
+                    &mut self.strict_mode_errors,
+                );
+                validate_typed_mode_rules(
+                    bindings,
+                    Some(BehaviorMode::Custom),
+                    &mut self.custom_mode_errors,
+                );
+            }
         }
     }
 
@@ -99,20 +148,37 @@ impl ProgressiveValidationState {
         if let Some(error) = &self.source_resource_error {
             return vec![error.clone()];
         }
+        if let Some(error) = self.header.error() {
+            return vec![error];
+        }
         if let Some(max_events) = self.options.max_events
             && self.event_count > max_events
         {
             return vec![event_count_exceeded_error(self.event_count, max_events)];
         }
-        self.event_path_error
+        self.duplicate_object_errors
             .iter()
             .cloned()
+            .chain(self.event_path_error.iter().cloned())
             .chain(self.duplicate_errors.iter().cloned())
+            .chain(self.effective_typed_mode_errors().iter().cloned())
             .collect()
+    }
+
+    fn effective_typed_mode_errors(&self) -> &[Diagnostic] {
+        match self.header.effective_mode(self.options.mode) {
+            BehaviorMode::Strict => &self.strict_mode_errors,
+            BehaviorMode::Custom => &self.custom_mode_errors,
+            BehaviorMode::Transport => &[],
+        }
     }
 
     fn retention(&self) -> ProgressiveValidationRetention {
         ProgressiveValidationRetention {
+            effective_mode: Some(self.header.effective_mode(self.options.mode)),
+            has_declared_profile: self.header.declared_profile().is_some(),
+            header_field_count: self.header.observed_field_count(),
+            header_string_bytes: self.header.retained_string_bytes(),
             event_count: self.event_count,
             seen_path_count: self.seen_event_paths.len(),
             seen_path_string_bytes: self
@@ -121,8 +187,11 @@ impl ProgressiveValidationState {
                 .map(|(_, path)| path.capacity())
                 .sum(),
             error_count: usize::from(self.source_resource_error.is_some())
+                + usize::from(self.header.error().is_some())
+                + self.duplicate_object_errors.len()
                 + usize::from(self.event_path_error.is_some())
-                + self.duplicate_errors.len(),
+                + self.duplicate_errors.len()
+                + self.effective_typed_mode_errors().len(),
         }
     }
 }
@@ -216,6 +285,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) parse_errors: Vec<Diagnostic>,
     pub(crate) prevalidation_errors: Vec<Diagnostic>,
     pub(crate) prevalidated_event_count: usize,
+    pub(crate) prevalidated_effective_mode: BehaviorMode,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -254,6 +324,9 @@ impl ProgressiveSofiaFrontend {
             parse_errors: incremental.parsed.errors,
             prevalidation_errors: events.validation_errors(),
             prevalidated_event_count: validation.event_count,
+            prevalidated_effective_mode: validation
+                .effective_mode
+                .expect("active validation state must retain an effective mode"),
         }
     }
 }
@@ -316,6 +389,10 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub completed_binding_count: usize,
     pub completed_binding_storage_bytes: usize,
     pub released_completed_binding_count: usize,
+    pub validation_effective_mode: Option<BehaviorMode>,
+    pub validation_has_declared_profile: bool,
+    pub validation_header_field_count: usize,
+    pub validation_header_string_bytes: usize,
     pub validation_event_count: usize,
     pub validation_seen_path_count: usize,
     pub validation_seen_path_string_bytes: usize,
@@ -337,6 +414,7 @@ impl ProgressiveRetentionSnapshot {
             .saturating_add(self.parser_token_storage_bytes)
             .saturating_add(self.structural_identity_storage_bytes)
             .saturating_add(self.completed_binding_storage_bytes)
+            .saturating_add(self.validation_header_string_bytes)
             .saturating_add(self.validation_seen_path_string_bytes)
             .saturating_add(self.ready_event_slot_bytes)
             .saturating_add(self.staged_event_slot_bytes)
@@ -418,6 +496,10 @@ impl ProgressiveCompiler {
             completed_binding_count: incremental.completed_binding_count,
             completed_binding_storage_bytes: incremental.completed_binding_storage_bytes,
             released_completed_binding_count: incremental.released_completed_binding_count,
+            validation_effective_mode: validation.effective_mode,
+            validation_has_declared_profile: validation.has_declared_profile,
+            validation_header_field_count: validation.header_field_count,
+            validation_header_string_bytes: validation.header_string_bytes,
             validation_event_count: validation.event_count,
             validation_seen_path_count: validation.seen_path_count,
             validation_seen_path_string_bytes: validation.seen_path_string_bytes,
@@ -1178,6 +1260,130 @@ mod tests {
             assert!(finished.parse_valid, "{name}");
             assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
         }
+    }
+
+    #[test]
+    fn compact_prevalidation_matches_authoritative_header_errors() {
+        let cases = [
+            (
+                "mixed header forms",
+                concat!(
+                    "aeon:header = { profile = \"core\" }\n",
+                    "aeon:mode = \"strict\"\n",
+                    "value:int32 = 1",
+                ),
+            ),
+            (
+                "late structured header",
+                "value = 1\naeon:header = { mode = \"transport\" }",
+            ),
+            (
+                "non-object structured header",
+                "aeon:header = \"transport\"\nvalue = 1",
+            ),
+        ];
+
+        for (name, source) in cases {
+            let options = CompileOptions::default();
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            assert!(!expected.errors.is_empty(), "{name}");
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+        }
+    }
+
+    #[test]
+    fn compact_prevalidation_matches_object_and_typed_mode_errors() {
+        let transport_override = CompileOptions {
+            mode: Some(BehaviorMode::Transport),
+            ..CompileOptions::default()
+        };
+        let cases = [
+            (
+                "nested duplicate object member",
+                "root = { same = 1, same = 2 }",
+                CompileOptions::default(),
+            ),
+            (
+                "shorthand strict mode",
+                "aeon:mode = \"strict\"\nvalue = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "structured custom mode",
+                "aeon:header = { mode = \"custom\" }\nvalue = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "late shorthand strict mode",
+                "value = 1\naeon:mode = \"strict\"",
+                CompileOptions::default(),
+            ),
+            (
+                "transport option overrides strict header",
+                "aeon:mode = \"strict\"\nvalue = 1",
+                transport_override,
+            ),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+            assert_eq!(
+                finished.prevalidated_effective_mode,
+                options.mode.unwrap_or_else(|| {
+                    if source.contains("strict") {
+                        BehaviorMode::Strict
+                    } else if source.contains("custom") {
+                        BehaviorMode::Custom
+                    } else {
+                        BehaviorMode::Transport
+                    }
+                }),
+                "{name}",
+            );
+        }
+    }
+
+    #[test]
+    fn retention_snapshot_counts_compact_header_mode_state() {
+        let source = concat!(
+            "aeon:header = { mode = \"strict\", profile = \"core\" }\n",
+            "value:string = \"kept\"\n",
+            "pending =",
+        );
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable { .. })
+        ));
+
+        let retained = compiler.retention();
+        assert_eq!(
+            retained.validation_effective_mode,
+            Some(BehaviorMode::Strict)
+        );
+        assert!(retained.validation_has_declared_profile);
+        assert_eq!(retained.validation_header_field_count, 2);
+        assert!(retained.validation_header_string_bytes >= "core".len());
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.released_completed_binding_count, 2);
+        assert_eq!(retained.prevalidation_error_count, 0);
     }
 
     #[test]
