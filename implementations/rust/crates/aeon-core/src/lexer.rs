@@ -181,6 +181,20 @@ struct IdentifierState {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct StructuralIdentityState {
+    start: Position,
+    search_offset: usize,
+}
+
+#[derive(Debug, Clone)]
+struct SansaAddressState {
+    start: Position,
+    stack: Vec<char>,
+    in_quote: bool,
+    escaped: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct LexerCheckpoint {
     offset: usize,
     line: usize,
@@ -208,6 +222,8 @@ pub(crate) struct LexerSession<'a> {
     prefixed_literal: Option<PrefixedLiteralState>,
     separator_literal: Option<SeparatorLiteralState>,
     identifier: Option<IdentifierState>,
+    structural_identity: Option<StructuralIdentityState>,
+    sansa_address: Option<SansaAddressState>,
     finished: bool,
 }
 
@@ -230,6 +246,8 @@ impl<'a> LexerSession<'a> {
             prefixed_literal: None,
             separator_literal: None,
             identifier: None,
+            structural_identity: None,
+            sansa_address: None,
             finished: false,
         }
     }
@@ -326,6 +344,18 @@ impl<'a> LexerSession<'a> {
                 }
                 continue;
             }
+            if self.structural_identity.is_some() {
+                if !self.scan_structural_identity(final_input) {
+                    return;
+                }
+                continue;
+            }
+            if self.sansa_address.is_some() {
+                if !self.scan_sansa_address(final_input) {
+                    return;
+                }
+                continue;
+            }
 
             if self.is_at_end() {
                 return;
@@ -368,6 +398,18 @@ impl<'a> LexerSession<'a> {
             }
             if self.identifier.is_some() {
                 if final_input && self.scan_identifier(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.structural_identity.is_some() {
+                if final_input && self.scan_structural_identity(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.sansa_address.is_some() {
+                if final_input && self.scan_sansa_address(true) {
                     continue;
                 }
                 return;
@@ -927,13 +969,7 @@ impl<'a> LexerSession<'a> {
             }
             '@' => self.push_token(TokenKind::At, "@", start, None, None),
             ';' => self.push_token(TokenKind::Semicolon, ";", start, None, None),
-            '\\' => {
-                if self.input[self.offset..].contains('\\') {
-                    self.scan_structural_identity(start);
-                } else {
-                    self.push_token(TokenKind::Symbol, "\\", start, None, None);
-                }
-            }
+            '\\' => return self.begin_structural_identity(start),
             '~' => {
                 if self.match_char('>') {
                     self.push_token(TokenKind::TildeArrow, "~>", start, None, None);
@@ -952,7 +988,7 @@ impl<'a> LexerSession<'a> {
             '$' if self.previous_token_is_reference_marker() => {
                 self.push_token(TokenKind::Dollar, "$", start, None, None);
             }
-            '$' | '?' => self.scan_sansa_address_literal(start),
+            '$' | '?' => return self.begin_sansa_address(start),
             '&' => {
                 if is_encoding_start_char(self.peek()) {
                     return self.begin_prefixed_literal(start, PrefixedLiteralKind::Encoding);
@@ -1002,81 +1038,110 @@ impl<'a> LexerSession<'a> {
         false
     }
 
-    fn scan_structural_identity(&mut self, start: Position) {
+    fn begin_structural_identity(&mut self, start: Position) -> bool {
+        self.structural_identity = Some(StructuralIdentityState {
+            start,
+            search_offset: self.offset,
+        });
+        self.scan_structural_identity(false)
+    }
+
+    fn scan_structural_identity(&mut self, final_input: bool) -> bool {
+        let mut state = self
+            .structural_identity
+            .expect("structural identity scanner requires active state");
+        let Some(relative_closer) = self.input[state.search_offset..].find('\\') else {
+            if final_input {
+                self.structural_identity = None;
+                self.push_token(TokenKind::Symbol, "\\", state.start, None, None);
+                return true;
+            }
+            state.search_offset = self.input.len();
+            self.structural_identity = Some(state);
+            return false;
+        };
+        let closer_offset = state.search_offset + relative_closer;
         let mut value = String::new();
-        while !self.is_at_end() && self.peek() != '\\' {
+        while self.offset < closer_offset {
             let ch = self.peek();
             if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
                 value.push(self.advance());
-                while !self.is_at_end() && self.peek() != '\\' {
+                while self.offset < closer_offset {
                     value.push(self.advance());
                 }
-                if !self.is_at_end() {
-                    value.push(self.advance());
-                }
+                value.push(self.advance());
+                self.structural_identity = None;
                 self.push_error(LexError {
                     code: String::from("INVALID_STRUCTURAL_IDENTITY"),
                     message: format!("Invalid structural identity: '\\{value}'"),
                     span: Span {
-                        start,
+                        start: state.start,
                         end: self.current_position(),
                     },
                 });
-                return;
+                return true;
             }
             value.push(self.advance());
         }
 
         if value.is_empty() {
             self.advance();
+            self.structural_identity = None;
             self.push_error(LexError {
                 code: String::from("INVALID_STRUCTURAL_IDENTITY"),
                 message: String::from("Invalid structural identity: '\\\\'"),
                 span: Span {
-                    start,
+                    start: state.start,
                     end: self.current_position(),
                 },
             });
-            return;
-        }
-
-        if self.is_at_end() {
-            self.push_error(LexError {
-                code: String::from("INVALID_STRUCTURAL_IDENTITY"),
-                message: format!("Invalid structural identity: '\\{value}'"),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
-            return;
+            return true;
         }
 
         self.advance();
-        self.push_token(TokenKind::StructuralIdentity, &value, start, None, None);
+        self.structural_identity = None;
+        self.push_token(
+            TokenKind::StructuralIdentity,
+            &value,
+            state.start,
+            None,
+            None,
+        );
+        true
     }
 
-    fn scan_sansa_address_literal(&mut self, start: Position) {
-        let mut stack = Vec::new();
-        let mut in_quote = false;
-        let mut escaped = false;
+    fn begin_sansa_address(&mut self, start: Position) -> bool {
+        self.sansa_address = Some(SansaAddressState {
+            start,
+            stack: Vec::new(),
+            in_quote: false,
+            escaped: false,
+        });
+        self.scan_sansa_address(false)
+    }
+
+    fn scan_sansa_address(&mut self, final_input: bool) -> bool {
+        let mut state = self
+            .sansa_address
+            .take()
+            .expect("SANSA address scanner requires active state");
 
         while !self.is_at_end() {
             let ch = self.peek();
 
-            if in_quote {
-                if escaped {
-                    escaped = false;
+            if state.in_quote {
+                if state.escaped {
+                    state.escaped = false;
                     self.advance();
                     continue;
                 }
                 match ch {
                     '\\' => {
-                        escaped = true;
+                        state.escaped = true;
                         self.advance();
                     }
                     '"' => {
-                        in_quote = false;
+                        state.in_quote = false;
                         self.advance();
                     }
                     _ => {
@@ -1086,7 +1151,7 @@ impl<'a> LexerSession<'a> {
                 continue;
             }
 
-            if stack.is_empty()
+            if state.stack.is_empty()
                 && matches!(ch, ' ' | '\t' | '\n' | '\r' | ',' | '/' | '}' | ']' | ')')
             {
                 break;
@@ -1094,23 +1159,23 @@ impl<'a> LexerSession<'a> {
 
             match ch {
                 '"' => {
-                    in_quote = true;
+                    state.in_quote = true;
                     self.advance();
                 }
                 '[' => {
-                    stack.push(']');
+                    state.stack.push(']');
                     self.advance();
                 }
                 '(' => {
-                    stack.push(')');
+                    state.stack.push(')');
                     self.advance();
                 }
                 '<' => {
-                    stack.push('>');
+                    state.stack.push('>');
                     self.advance();
                 }
-                ']' | ')' | '>' if stack.last().copied() == Some(ch) => {
-                    stack.pop();
+                ']' | ')' | '>' if state.stack.last().copied() == Some(ch) => {
+                    state.stack.pop();
                     self.advance();
                 }
                 _ => {
@@ -1119,8 +1184,20 @@ impl<'a> LexerSession<'a> {
             }
         }
 
-        let text = self.slice_from(start.offset);
-        self.push_token(TokenKind::SansaAddressLiteral, &text, start, None, None);
+        if self.is_at_end() && !final_input {
+            self.sansa_address = Some(state);
+            return false;
+        }
+
+        let text = self.slice_from(state.start.offset);
+        self.push_token(
+            TokenKind::SansaAddressLiteral,
+            &text,
+            state.start,
+            None,
+            None,
+        );
+        true
     }
 
     fn scan_slash_channel_or_symbol(&mut self, start: Position) -> bool {
@@ -1965,6 +2042,100 @@ mod tests {
         let actual = tokenize_chunks(["~ ", "$"]);
         assert_eq!(actual, expected);
         assert_eq!(actual.tokens[1].kind, TokenKind::Dollar);
+
+        for chunks in [
+            vec!["~", "$", ".root "],
+            vec!["~", ">", "$", ".root "],
+            vec!["~>", "$", ".root "],
+        ] {
+            let source = chunks.concat();
+            let actual = tokenize_chunks(chunks);
+            let expected = tokenize(&source, LexerOptions::default());
+            assert_eq!(actual, expected, "reference chunks for {source:?}");
+            assert_eq!(actual.tokens[1].kind, TokenKind::Dollar);
+        }
+    }
+
+    #[test]
+    fn references_sansa_and_structural_identities_match_at_every_scalar_split() {
+        let source = r#"root\root-id\:object = {}
+clone = ~$.["root.key"][1].member
+pointer = ~>root.@.meta.["x.y"][0]
+absolute = $.inventory:string["a\"b","."]
+context = ?.name next"#;
+        let expected = tokenize(source, LexerOptions::default());
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual = tokenize_chunks([&source[..split], &source[split..]]);
+            assert_eq!(actual, expected, "reference/SANSA split at byte {split}");
+        }
+
+        assert!(expected.errors.is_empty());
+        assert!(expected.tokens.iter().any(|token| {
+            token.kind == TokenKind::StructuralIdentity && token.text == "root-id"
+        }));
+        assert!(expected.tokens.iter().any(|token| {
+            token.kind == TokenKind::SansaAddressLiteral
+                && token.text == r#"$.inventory:string["a\"b","."]"#
+        }));
+    }
+
+    #[test]
+    fn structural_identity_diagnostics_and_unclosed_fallback_match_at_every_split() {
+        for source in [r#"\\ tail"#, r#"\bad value\ tail"#, r#"\open tail"#] {
+            let expected = tokenize(source, LexerOptions::default());
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for split in splits {
+                let actual = tokenize_chunks([&source[..split], &source[split..]]);
+                assert_eq!(
+                    actual, expected,
+                    "structural identity split at byte {split} for {source:?}"
+                );
+            }
+        }
+
+        let unclosed = tokenize(r#"\open tail"#, LexerOptions::default());
+        assert!(unclosed.errors.is_empty());
+        assert_eq!(unclosed.tokens[0].kind, TokenKind::Symbol);
+        assert_eq!(unclosed.tokens[0].text, "\\");
+        assert_eq!(unclosed.tokens[0].span.end.offset, 1);
+    }
+
+    #[test]
+    fn structural_identity_and_sansa_state_emit_when_later_chunks_complete_them() {
+        let mut identity = LexerSession::new(LexerOptions::default());
+        let pending_identity = identity.push(Cow::Owned(r#"\alpha"#.to_owned()));
+        assert!(pending_identity.tokens.is_empty());
+        assert!(pending_identity.errors.is_empty());
+        let completed_identity = identity.push(Cow::Owned("-1\\ ".to_owned()));
+        assert!(completed_identity.errors.is_empty());
+        assert_eq!(
+            completed_identity.tokens[0].kind,
+            TokenKind::StructuralIdentity
+        );
+        assert_eq!(completed_identity.tokens[0].text, "alpha-1");
+
+        let mut sansa = LexerSession::new(LexerOptions::default());
+        let pending_sansa = sansa.push(Cow::Owned(r#"$.root["left\"#.to_owned()));
+        assert!(pending_sansa.tokens.is_empty());
+        assert!(pending_sansa.errors.is_empty());
+        let completed_sansa = sansa.push(Cow::Owned(r#""right"] tail"#.to_owned()));
+        assert!(completed_sansa.errors.is_empty());
+        assert_eq!(
+            completed_sansa.tokens[0].kind,
+            TokenKind::SansaAddressLiteral
+        );
+        assert_eq!(completed_sansa.tokens[0].text, r#"$.root["left\"right"]"#);
     }
 
     #[test]

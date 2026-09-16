@@ -2803,6 +2803,73 @@ items:list<string> = ["one", "two"]"#;
     }
 
     #[test]
+    fn incremental_references_sansa_and_structural_identities_match_both_parsers() {
+        let source = r#"root\root-id\:object = { "root.key" = [1, 2] }
+clone = ~$.["root.key"][1].member
+pointer = ~>root.@.meta.["x.y"][0]
+literal = ~true.off
+absolute = $.inventory:string[",","."]
+context = ?.name"#;
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected =
+                parse_with(source, implementation).expect("one-shot reference and SANSA parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "reference/SANSA split at byte {split}");
+            }
+
+            assert_eq!(expected[0].structural_id.as_deref(), Some("root-id"));
+            assert!(matches!(expected[1].value, Value::CloneReference { .. }));
+            assert!(matches!(expected[2].value, Value::PointerReference { .. }));
+            assert!(matches!(expected[3].value, Value::CloneReference { .. }));
+            let Value::SansaAddressLiteral { raw, canonical, .. } = &expected[4].value else {
+                panic!("expected absolute SANSA address");
+            };
+            assert_eq!(raw, r#"$.inventory:string[",","."]"#);
+            assert_eq!(canonical, raw);
+            assert!(matches!(
+                expected[5].value,
+                Value::SansaAddressLiteral { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_references_and_sansa_match_one_shot_errors() {
+        for source in [
+            "bad = $.inventory:csv[,]\nlater = true",
+            "bad = ~$[\"source\"]\nlater = true",
+            "bad = ~source.@.[\"\"]\nlater = true",
+        ] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("source must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental source must remain malformed");
+                    assert_eq!(
+                        actual, expected,
+                        "malformed reference/SANSA split at byte {split}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings = parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
