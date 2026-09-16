@@ -225,6 +225,178 @@ pub(crate) fn validate_reference_steps(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CompactReferenceStep {
+    Claim {
+        current_path: String,
+        owner_path: String,
+        target: String,
+        base: String,
+        attribute_depth: usize,
+        span: Span,
+    },
+    VisibleTarget(String),
+}
+
+impl CompactReferenceStep {
+    pub(crate) fn is_claim(&self) -> bool {
+        matches!(self, Self::Claim { .. })
+    }
+
+    pub(crate) fn retained_string_bytes(&self) -> usize {
+        match self {
+            Self::Claim {
+                current_path,
+                owner_path,
+                target,
+                base,
+                ..
+            } => {
+                current_path.capacity()
+                    + owner_path.capacity()
+                    + target.capacity()
+                    + base.capacity()
+            }
+            Self::VisibleTarget(path) => path.capacity(),
+        }
+    }
+}
+
+pub(crate) fn compact_reference_steps(
+    steps: &[ValidationReferenceStep],
+) -> Vec<CompactReferenceStep> {
+    let mut compact = Vec::new();
+    for step in steps {
+        match step {
+            ValidationReferenceStep::ValidateValue {
+                path,
+                owner_path,
+                value,
+            } => collect_compact_value_references(value, path, owner_path, &mut compact),
+            ValidationReferenceStep::VisibleTarget(path) => {
+                compact.push(CompactReferenceStep::VisibleTarget(path.clone()));
+            }
+        }
+    }
+    compact
+}
+
+pub(crate) fn validate_compact_reference_steps(
+    steps: &[CompactReferenceStep],
+    all_targets: &HashSet<String>,
+    max_attribute_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let mut seen_base = HashSet::new();
+    for step in steps {
+        match step {
+            CompactReferenceStep::Claim {
+                current_path,
+                owner_path,
+                target,
+                base,
+                attribute_depth,
+                span,
+            } => validate_reference_claim(
+                current_path,
+                owner_path,
+                target,
+                base,
+                *attribute_depth,
+                *span,
+                all_targets,
+                &seen_base,
+                max_attribute_depth,
+                errors,
+            ),
+            CompactReferenceStep::VisibleTarget(path) => {
+                let _ = seen_base.insert(path.clone());
+            }
+        }
+    }
+}
+
+fn collect_compact_value_references(
+    value: &Value,
+    current_path: &str,
+    owner_path: &str,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    match value {
+        Value::CloneReference { segments, span } | Value::PointerReference { segments, span } => {
+            compact.push(CompactReferenceStep::Claim {
+                current_path: current_path.to_owned(),
+                owner_path: owner_path.to_owned(),
+                target: format_reference_target(segments),
+                base: format_reference_base(segments),
+                attribute_depth: segments
+                    .iter()
+                    .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+                    .count(),
+                span: *span,
+            });
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                collect_compact_attribute_references(
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    current_path,
+                    compact,
+                );
+            }
+        }
+        Value::ListNode { .. } | Value::TupleLiteral { .. } => {}
+        Value::NodeLiteral {
+            attributes,
+            children,
+            ..
+        } => {
+            for attribute in attributes {
+                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
+                collect_compact_attribute_references(
+                    attribute,
+                    &attribute_order,
+                    current_path,
+                    compact,
+                );
+            }
+            for child in children {
+                collect_compact_value_references(child, current_path, owner_path, compact);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_compact_attribute_references(
+    attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
+    current_path: &str,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
+        collect_compact_attribute_references(
+            &entry.object_members,
+            &entry.object_member_order,
+            current_path,
+            compact,
+        );
+        collect_compact_attribute_references(
+            &entry.nested_attrs,
+            &entry.nested_attr_order,
+            current_path,
+            compact,
+        );
+        if let Some(value) = &entry.value {
+            collect_compact_value_references(value, current_path, current_path, compact);
+        }
+    }
+}
+
 fn validate_value_reference(
     value: &Value,
     current_path: &str,
@@ -236,67 +408,24 @@ fn validate_value_reference(
 ) {
     match value {
         Value::CloneReference { segments, span } | Value::PointerReference { segments, span } => {
-            let reference_span = *span;
             let attr_depth = segments
                 .iter()
                 .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
                 .count();
-            if attr_depth > max_attribute_depth {
-                errors.push(
-                    Diagnostic::new(
-                        "ATTRIBUTE_DEPTH_EXCEEDED",
-                        format!("Reference at {current_path} exceeds max attribute depth"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
             let target = format_reference_target(segments);
-            if target == current_path
-                || target == owner_path
-                || is_attribute_to_own_payload_reference(current_path, &target)
-            {
-                errors.push(
-                    Diagnostic::new(
-                        "SELF_REFERENCE",
-                        format!("Self reference: '{current_path}' references itself"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
-            if !all_targets.contains(&target) {
-                errors.push(
-                    Diagnostic::new(
-                        "MISSING_REFERENCE_TARGET",
-                        format!("Missing reference target: '{target}'"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
-            let requires_exact_attr_visibility = target.contains(".@")
-                && !(current_path == format_reference_base(segments)
-                    && target.starts_with(&format!("{current_path}.@")));
-            let is_visible = if requires_exact_attr_visibility {
-                seen_base.contains(&target)
-            } else {
-                let base = format_reference_base(segments);
-                seen_base.contains(&base)
-            };
-            if !is_visible {
-                errors.push(
-                    Diagnostic::new(
-                        "FORWARD_REFERENCE",
-                        format!("Forward reference: '{current_path}' references '{target}' defined later"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-            }
+            let base = format_reference_base(segments);
+            validate_reference_claim(
+                current_path,
+                owner_path,
+                &target,
+                &base,
+                attr_depth,
+                *span,
+                all_targets,
+                seen_base,
+                max_attribute_depth,
+                errors,
+            );
         }
         Value::ObjectNode { bindings } => {
             for binding in bindings {
@@ -342,6 +471,74 @@ fn validate_value_reference(
             }
         }
         _ => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_reference_claim(
+    current_path: &str,
+    owner_path: &str,
+    target: &str,
+    base: &str,
+    attribute_depth: usize,
+    reference_span: Span,
+    all_targets: &HashSet<String>,
+    seen_base: &HashSet<String>,
+    max_attribute_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    if attribute_depth > max_attribute_depth {
+        errors.push(
+            Diagnostic::new(
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                format!("Reference at {current_path} exceeds max attribute depth"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    if target == current_path
+        || target == owner_path
+        || is_attribute_to_own_payload_reference(current_path, target)
+    {
+        errors.push(
+            Diagnostic::new(
+                "SELF_REFERENCE",
+                format!("Self reference: '{current_path}' references itself"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    if !all_targets.contains(target) {
+        errors.push(
+            Diagnostic::new(
+                "MISSING_REFERENCE_TARGET",
+                format!("Missing reference target: '{target}'"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    let requires_exact_attr_visibility = target.contains(".@")
+        && !(current_path == base && target.starts_with(&format!("{current_path}.@")));
+    let is_visible = if requires_exact_attr_visibility {
+        seen_base.contains(target)
+    } else {
+        seen_base.contains(base)
+    };
+    if !is_visible {
+        errors.push(
+            Diagnostic::new(
+                "FORWARD_REFERENCE",
+                format!("Forward reference: '{current_path}' references '{target}' defined later"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
     }
 }
 

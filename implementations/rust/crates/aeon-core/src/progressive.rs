@@ -4,14 +4,15 @@ use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::num::NonZeroUsize;
 
-use crate::flatten::flatten_document;
+use crate::flatten::{ValidationReferenceStep, flatten_document};
 use crate::header::IncrementalHeaderState;
 use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
 use crate::validation::{
-    validate_attribute_datatypes, validate_direct_event_datatypes,
+    CompactReferenceStep, compact_reference_steps, validate_attribute_datatypes,
+    validate_compact_reference_steps, validate_direct_event_datatypes,
     validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 use crate::{
@@ -88,6 +89,8 @@ struct ProgressiveValidationState {
     datatype_attribute_errors: ModeDiagnosticLedger,
     gp_profile_errors: Vec<Diagnostic>,
     deferred_reference_datatype_count: usize,
+    reference_targets: HashSet<String>,
+    reference_steps: Vec<CompactReferenceStep>,
     typed_mode_errors: ModeDiagnosticLedger,
 }
 
@@ -99,6 +102,11 @@ struct ProgressiveValidationRetention {
     header_field_count: usize,
     header_string_bytes: usize,
     deferred_reference_datatype_count: usize,
+    reference_target_count: usize,
+    reference_target_string_bytes: usize,
+    reference_step_count: usize,
+    reference_claim_count: usize,
+    reference_step_string_bytes: usize,
     retained_candidate_error_count: usize,
     event_count: usize,
     seen_path_count: usize,
@@ -121,6 +129,8 @@ impl ProgressiveValidationState {
             datatype_attribute_errors: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
             deferred_reference_datatype_count: 0,
+            reference_targets: HashSet::new(),
+            reference_steps: Vec::new(),
             typed_mode_errors: ModeDiagnosticLedger::default(),
         }
     }
@@ -207,6 +217,11 @@ impl ProgressiveValidationState {
         validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
     }
 
+    fn observe_references(&mut self, targets: &HashSet<String>, steps: &[ValidationReferenceStep]) {
+        self.reference_targets.extend(targets.iter().cloned());
+        self.reference_steps.extend(compact_reference_steps(steps));
+    }
+
     fn candidate_modes(&self) -> &'static [BehaviorMode] {
         match self.options.mode.or(self.header.declared_mode()) {
             Some(BehaviorMode::Transport) => &[BehaviorMode::Transport],
@@ -246,6 +261,7 @@ impl ProgressiveValidationState {
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
         }
+        errors.extend(self.reference_errors());
         errors.extend(self.effective_typed_mode_errors().iter().cloned());
         errors
     }
@@ -282,6 +298,17 @@ impl ProgressiveValidationState {
         self.typed_mode_errors.errors(self.effective_mode())
     }
 
+    fn reference_errors(&self) -> Vec<Diagnostic> {
+        let mut errors = Vec::new();
+        validate_compact_reference_steps(
+            &self.reference_steps,
+            &self.reference_targets,
+            self.options.max_attribute_depth,
+            &mut errors,
+        );
+        errors
+    }
+
     fn retention(&self) -> ProgressiveValidationRetention {
         ProgressiveValidationRetention {
             effective_mode: Some(self.effective_mode()),
@@ -290,6 +317,23 @@ impl ProgressiveValidationState {
             header_field_count: self.header.observed_field_count(),
             header_string_bytes: self.header.retained_string_bytes(),
             deferred_reference_datatype_count: self.deferred_reference_datatype_count,
+            reference_target_count: self.reference_targets.len(),
+            reference_target_string_bytes: self
+                .reference_targets
+                .iter()
+                .map(String::capacity)
+                .sum(),
+            reference_step_count: self.reference_steps.len(),
+            reference_claim_count: self
+                .reference_steps
+                .iter()
+                .filter(|step| step.is_claim())
+                .count(),
+            reference_step_string_bytes: self
+                .reference_steps
+                .iter()
+                .map(CompactReferenceStep::retained_string_bytes)
+                .sum(),
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
                 + self.datatype_attribute_errors.retained_error_count()
                 + self.gp_profile_errors.len()
@@ -317,6 +361,7 @@ impl ProgressiveValidationState {
                 } else {
                     0
                 }
+                + self.reference_errors().len()
                 + self.effective_typed_mode_errors().len(),
         }
     }
@@ -370,6 +415,8 @@ impl ProgressiveEventAssembler {
                 false,
                 self.include_event_annotations,
             );
+            self.validation
+                .observe_references(&flattened.reference_targets, &flattened.reference_steps);
             self.validation.observe_events(&flattened.events);
             events.extend(flattened.events);
         }
@@ -414,6 +461,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidated_effective_mode: BehaviorMode,
     pub(crate) prevalidated_gp_profile_active: bool,
     pub(crate) deferred_reference_datatype_count: usize,
+    pub(crate) prevalidated_reference_claim_count: usize,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -457,6 +505,7 @@ impl ProgressiveSofiaFrontend {
                 .expect("active validation state must retain an effective mode"),
             prevalidated_gp_profile_active: validation.gp_profile_active,
             deferred_reference_datatype_count: validation.deferred_reference_datatype_count,
+            prevalidated_reference_claim_count: validation.reference_claim_count,
         }
     }
 }
@@ -525,6 +574,11 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub validation_header_field_count: usize,
     pub validation_header_string_bytes: usize,
     pub validation_deferred_reference_datatype_count: usize,
+    pub validation_reference_target_count: usize,
+    pub validation_reference_target_string_bytes: usize,
+    pub validation_reference_step_count: usize,
+    pub validation_reference_claim_count: usize,
+    pub validation_reference_step_string_bytes: usize,
     pub validation_retained_candidate_error_count: usize,
     pub validation_event_count: usize,
     pub validation_seen_path_count: usize,
@@ -549,6 +603,8 @@ impl ProgressiveRetentionSnapshot {
             .saturating_add(self.completed_binding_storage_bytes)
             .saturating_add(self.validation_header_string_bytes)
             .saturating_add(self.validation_seen_path_string_bytes)
+            .saturating_add(self.validation_reference_target_string_bytes)
+            .saturating_add(self.validation_reference_step_string_bytes)
             .saturating_add(self.ready_event_slot_bytes)
             .saturating_add(self.staged_event_slot_bytes)
             .saturating_add(self.terminal_source_capacity_bytes)
@@ -636,6 +692,11 @@ impl ProgressiveCompiler {
             validation_header_string_bytes: validation.header_string_bytes,
             validation_deferred_reference_datatype_count: validation
                 .deferred_reference_datatype_count,
+            validation_reference_target_count: validation.reference_target_count,
+            validation_reference_target_string_bytes: validation.reference_target_string_bytes,
+            validation_reference_step_count: validation.reference_step_count,
+            validation_reference_claim_count: validation.reference_claim_count,
+            validation_reference_step_string_bytes: validation.reference_step_string_bytes,
             validation_retained_candidate_error_count: validation.retained_candidate_error_count,
             validation_event_count: validation.event_count,
             validation_seen_path_count: validation.seen_path_count,
@@ -1580,6 +1641,109 @@ mod tests {
             panic!("authoritative replay must invalidate the deferred mismatch");
         };
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn compact_prevalidation_matches_authoritative_reference_errors() {
+        let cases = [
+            (
+                "backward top-level reference",
+                "target = 1\ncopy = ~target",
+                CompileOptions::default(),
+            ),
+            (
+                "forward top-level reference",
+                "copy = ~target\ntarget = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "missing top-level reference",
+                "copy = ~missing",
+                CompileOptions::default(),
+            ),
+            (
+                "self top-level reference",
+                "copy = ~copy",
+                CompileOptions::default(),
+            ),
+            (
+                "forward sequence reference",
+                "items = [~items[1], 1]",
+                CompileOptions::default(),
+            ),
+            (
+                "attribute sibling ordering",
+                "value@{first = ~value.@.later, later = 1} = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "payload references own attribute",
+                "value@{note = 1} = ~value.@.note",
+                CompileOptions::default(),
+            ),
+            (
+                "node attribute self reference",
+                "widget:node = <card@{lookup = ~widget}:node>",
+                CompileOptions::default(),
+            ),
+            (
+                "reference attribute depth",
+                "target = 1\ncopy = ~target.@.note.@.deep",
+                CompileOptions::default(),
+            ),
+            (
+                "profile reference and typed-mode phase order",
+                concat!(
+                    "aeon:mode = \"custom\"\n",
+                    "aeon:profile = \"aeon.gp.profile.v1\"\n",
+                    "profiled:n[3] = 3\n",
+                    "copy = ~missing\n",
+                    "untyped = 1",
+                ),
+                CompileOptions::default(),
+            ),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+        }
+    }
+
+    #[test]
+    fn retention_snapshot_counts_compact_reference_state() {
+        let source = concat!(
+            "target = 1\n",
+            "backward = ~target\n",
+            "forward = ~later\n",
+            "later = 2\n",
+            "pending =",
+        );
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable { .. })
+        ));
+
+        let retained = compiler.retention();
+        assert_eq!(retained.validation_reference_target_count, 4);
+        assert!(retained.validation_reference_target_string_bytes > 0);
+        assert_eq!(retained.validation_reference_step_count, 6);
+        assert_eq!(retained.validation_reference_claim_count, 2);
+        assert!(retained.validation_reference_step_string_bytes > 0);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.released_completed_binding_count, 4);
+        assert_eq!(retained.prevalidation_error_count, 1);
     }
 
     #[test]
