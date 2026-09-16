@@ -712,8 +712,14 @@ fn compile_owned_incremental_sofia(
 }
 
 fn input_size_diagnostic(source: &str, options: &CompileOptions) -> Option<Diagnostic> {
+    input_size_diagnostic_for_len(source.len(), options)
+}
+
+pub(crate) fn input_size_diagnostic_for_len(
+    actual_bytes: usize,
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
     let max_bytes = options.max_input_bytes?;
-    let actual_bytes = source.len();
     (actual_bytes > max_bytes).then(|| Diagnostic {
         code: String::from("INPUT_SIZE_EXCEEDED"),
         path: Some(String::from("$")),
@@ -1580,7 +1586,7 @@ fn skip_gp_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
-fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
+pub(crate) fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     let defaults = CompileOptions::default();
     let mut warnings = Vec::new();
     warn_if_above(

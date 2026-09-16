@@ -295,8 +295,32 @@ impl IncrementalSofiaFrontend {
             .saturating_add(released);
     }
 
-    pub(crate) fn finish(mut self, source: &str) -> IncrementalSofiaResult {
+    pub(crate) fn finish(self, source: &str) -> IncrementalSofiaResult {
+        self.finish_inner(Some(source))
+    }
+
+    pub(crate) fn finish_without_replay(self) -> IncrementalSofiaResult {
+        self.finish_inner(None)
+    }
+
+    fn finish_inner(mut self, source: Option<&str>) -> IncrementalSofiaResult {
         if self.fallback_to_one_shot {
+            let Some(source) = source else {
+                return IncrementalSofiaResult {
+                    parsed: ParseRecoveryResult {
+                        bindings: Vec::new(),
+                        errors: vec![Diagnostic::new(
+                            "SOFIA_INCREMENTAL_REPLAY_REQUIRED",
+                            "Incremental Sofia requires retained source to recover from an internal fallback",
+                        )
+                        .at_path("$")],
+                    },
+                    retention_fallback: true,
+                    peak_retained_token_bytes: self.peak_retained_token_bytes,
+                    structured_comment_count: self.structured_comment_count,
+                    structured_comment_error: self.structured_comment_error,
+                };
+            };
             return IncrementalSofiaResult {
                 parsed: parse_document_from_tokens_recovery_with_implementation(
                     source,

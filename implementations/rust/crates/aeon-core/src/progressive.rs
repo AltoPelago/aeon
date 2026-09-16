@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::mem;
 use std::num::NonZeroUsize;
 
 use crate::flatten::{ValidationReferenceStep, flatten_document};
@@ -18,8 +17,9 @@ use crate::validation::{
 };
 use crate::{
     BehaviorMode, Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch,
-    EventBatches, SourcePlane, Value, compile_owned_with_implementation,
-    event_count_exceeded_error, format_path, validate_gp_datatype_clarifiers,
+    EventBatches, SourcePlane, SourceRetention, Value, compile_owned_with_implementation,
+    compile_portability_warnings, event_count_exceeded_error, format_path,
+    input_size_diagnostic_for_len, validate_gp_datatype_clarifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -607,8 +607,19 @@ impl ProgressiveSofiaFrontend {
     }
 
     pub(crate) fn finish(self, source: &str) -> ProgressiveSofiaFinish {
+        self.finish_inner(Some(source))
+    }
+
+    pub(crate) fn finish_without_replay(self) -> ProgressiveSofiaFinish {
+        self.finish_inner(None)
+    }
+
+    fn finish_inner(self, source: Option<&str>) -> ProgressiveSofiaFinish {
         let Self { parser, mut events } = self;
-        let incremental = parser.finish(source);
+        let incremental = match source {
+            Some(source) => parser.finish(source),
+            None => parser.finish_without_replay(),
+        };
         events.observe_structured_comments(
             incremental.structured_comment_count,
             incremental.structured_comment_error.clone(),
@@ -683,8 +694,17 @@ pub(crate) enum ProgressiveDisposition {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgressiveOutputMode {
+    Compact,
+    Rich(SourceRetention),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ProgressiveRetentionSnapshot {
+    pub accepted_input_bytes: usize,
+    pub compact_output: bool,
+    pub source_retained: bool,
     pub source_bytes: usize,
     pub source_capacity_bytes: usize,
     pub lexer_active_bytes: usize,
@@ -749,7 +769,9 @@ impl ProgressiveRetentionSnapshot {
 pub(crate) struct ProgressiveCompiler {
     frontend: Option<ProgressiveSofiaFrontend>,
     options: Option<CompileOptions>,
-    source: String,
+    output_mode: ProgressiveOutputMode,
+    source: Option<String>,
+    accepted_input_bytes: usize,
     max_pending_batches: NonZeroUsize,
     pending: VecDeque<ProvisionalEventBatch>,
     deferred: VecDeque<ProvisionalEventBatch>,
@@ -764,10 +786,61 @@ impl ProgressiveCompiler {
         max_batch_events: NonZeroUsize,
         max_pending_batches: NonZeroUsize,
     ) -> Self {
+        Self::with_output_mode(
+            options,
+            max_batch_events,
+            max_pending_batches,
+            ProgressiveOutputMode::Rich(SourceRetention::Retain),
+        )
+    }
+
+    pub(crate) fn new_compact(
+        mut options: CompileOptions,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+    ) -> Self {
+        assert!(
+            !options.recovery,
+            "compact progressive mode forbids recovery"
+        );
+        options.shallow_event_values = true;
+        options.emit_binding_projections = false;
+        options.include_header = false;
+        options.include_event_annotations = false;
+        Self::with_output_mode(
+            options,
+            max_batch_events,
+            max_pending_batches,
+            ProgressiveOutputMode::Compact,
+        )
+    }
+
+    pub(crate) fn new_rich(
+        options: CompileOptions,
+        source_retention: SourceRetention,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+    ) -> Self {
+        Self::with_output_mode(
+            options,
+            max_batch_events,
+            max_pending_batches,
+            ProgressiveOutputMode::Rich(source_retention),
+        )
+    }
+
+    fn with_output_mode(
+        options: CompileOptions,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+        output_mode: ProgressiveOutputMode,
+    ) -> Self {
         Self {
             frontend: Some(ProgressiveSofiaFrontend::new(&options, max_batch_events)),
             options: Some(options),
-            source: String::new(),
+            output_mode,
+            source: matches!(output_mode, ProgressiveOutputMode::Rich(_)).then(String::new),
+            accepted_input_bytes: 0,
             max_pending_batches,
             pending: VecDeque::new(),
             deferred: VecDeque::new(),
@@ -782,7 +855,11 @@ impl ProgressiveCompiler {
     }
 
     pub(crate) fn buffered_bytes(&self) -> usize {
-        self.source.len()
+        self.source.as_ref().map_or(0, String::len)
+    }
+
+    pub(crate) const fn accepted_input_bytes(&self) -> usize {
+        self.accepted_input_bytes
     }
 
     pub(crate) fn pending_batches(&self) -> usize {
@@ -809,8 +886,11 @@ impl ProgressiveCompiler {
                     }
                 });
         ProgressiveRetentionSnapshot {
-            source_bytes: self.source.len(),
-            source_capacity_bytes: self.source.capacity(),
+            accepted_input_bytes: self.accepted_input_bytes,
+            compact_output: matches!(self.output_mode, ProgressiveOutputMode::Compact),
+            source_retained: self.source.is_some(),
+            source_bytes: self.source.as_ref().map_or(0, String::len),
+            source_capacity_bytes: self.source.as_ref().map_or(0, String::capacity),
             lexer_active_bytes: incremental.lexer_active_bytes,
             parser_token_count: incremental.parser_token_count,
             parser_token_storage_bytes: incremental.parser_token_storage_bytes,
@@ -874,7 +954,10 @@ impl ProgressiveCompiler {
             return Ok(self.backpressured_progress());
         }
 
-        self.source.push_str(chunk);
+        self.accepted_input_bytes = self.accepted_input_bytes.saturating_add(chunk.len());
+        if let Some(source) = &mut self.source {
+            source.push_str(chunk);
+        }
         let batches = self
             .frontend
             .as_mut()
@@ -896,27 +979,71 @@ impl ProgressiveCompiler {
             .frontend
             .take()
             .expect("accepting progressive compiler must retain its front end");
-        let finished = frontend.finish(&self.source);
+        let finished = match self.output_mode {
+            ProgressiveOutputMode::Compact => frontend.finish_without_replay(),
+            ProgressiveOutputMode::Rich(_) => frontend.finish(
+                self.source
+                    .as_deref()
+                    .expect("rich progressive mode must retain replay source"),
+            ),
+        };
         let options = self
             .options
             .take()
             .expect("accepting progressive compiler must retain options");
         let recovery = options.recovery;
-        let source = mem::take(&mut self.source);
-        // Completed streaming ASTs have already been released. Replay the
-        // retained source through the authoritative Sofia pipeline so final
-        // validation and rich result construction remain exactly compatible.
-        let result =
-            compile_owned_with_implementation(source, options, ParserImplementation::Sofia);
+        let result = match self.output_mode {
+            ProgressiveOutputMode::Compact => {
+                let errors = if let Some(error) =
+                    input_size_diagnostic_for_len(self.accepted_input_bytes, &options)
+                {
+                    vec![error]
+                } else if !finished.parse_errors.is_empty() {
+                    finished.parse_errors.clone()
+                } else {
+                    finished.prevalidation_errors.clone()
+                };
+                CompileResult {
+                    source: String::new(),
+                    events: Vec::new(),
+                    errors,
+                    warnings: compile_portability_warnings(&options),
+                    bindings: Vec::new(),
+                    header: None,
+                }
+            }
+            ProgressiveOutputMode::Rich(source_retention) => {
+                let source = self
+                    .source
+                    .take()
+                    .expect("rich progressive mode must retain replay source");
+                // Completed streaming ASTs have already been released. Replay
+                // the retained source through the authoritative Sofia pipeline
+                // so rich result construction remains exactly compatible.
+                let mut result =
+                    compile_owned_with_implementation(source, options, ParserImplementation::Sofia);
+                if source_retention == SourceRetention::Discard {
+                    result.source = String::new();
+                }
+                result
+            }
+        };
 
-        if result.errors.is_empty() && finished.parse_valid && !recovery {
+        if matches!(self.output_mode, ProgressiveOutputMode::Rich(_))
+            && result.errors.is_empty()
+            && finished.parse_valid
+            && !recovery
+        {
             debug_assert_eq!(finished.prevalidated_event_count, result.events.len());
         }
         if result.errors.is_empty()
             && finished.parse_valid
             && finished.prevalidation_errors.is_empty()
         {
-            let event_count = result.events.len();
+            let event_count = match self.output_mode {
+                ProgressiveOutputMode::Compact => finished.prevalidated_event_count,
+                ProgressiveOutputMode::Rich(_) => result.events.len(),
+            };
             self.enqueue(finished.final_batches);
             self.state = if self.pending.is_empty() && self.deferred.is_empty() {
                 ProgressiveLifecycleState::TerminalReady
@@ -1100,6 +1227,30 @@ mod tests {
             .take_terminal()
             .expect("drained compiler must expose its terminal disposition");
         (events, terminal)
+    }
+
+    fn finish_progressive_compiler(compiler: &mut ProgressiveCompiler) -> ProgressiveDisposition {
+        while compiler.is_backpressured() {
+            compiler
+                .pull_batch()
+                .expect("backpressure must expose a pending batch");
+        }
+        loop {
+            match compiler.finish().expect("finish state should be valid") {
+                ProgressiveLifecycleProgress::Backpressured { .. } => {
+                    compiler
+                        .pull_batch()
+                        .expect("finish backpressure must expose a pending batch");
+                }
+                ProgressiveLifecycleProgress::Draining { .. }
+                | ProgressiveLifecycleProgress::TerminalReady => break,
+                progress => panic!("unexpected finish progress: {progress:?}"),
+            }
+        }
+        while compiler.pull_batch().is_some() {}
+        compiler
+            .take_terminal()
+            .expect("drained compiler must expose its terminal disposition")
     }
 
     #[test]
@@ -1466,6 +1617,170 @@ mod tests {
         };
         assert_eq!(exposed_event_count, 0);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn compact_mode_discards_source_while_matching_validation_only_results() {
+        let cases = [
+            ("valid", "first = 1\nsecond:string = \"two\""),
+            ("semantic invalidation", "first = 1\ncopy = ~missing"),
+            ("syntax invalidation", "first = 1\nbroken = [2,,3]"),
+        ];
+
+        for (name, source) in cases {
+            let validation_options = CompileOptions {
+                shallow_event_values: true,
+                emit_binding_projections: false,
+                include_header: false,
+                include_event_annotations: false,
+                ..CompileOptions::default()
+            };
+            let mut expected = compile_owned_with_implementation(
+                source.to_owned(),
+                validation_options,
+                ParserImplementation::Sofia,
+            );
+            expected.source.clear();
+
+            let mut compiler = ProgressiveCompiler::new_compact(
+                CompileOptions::default(),
+                NonZeroUsize::new(2).expect("two is non-zero"),
+                NonZeroUsize::new(8).expect("eight is non-zero"),
+            );
+            let mut accepted_bytes = 0;
+            for scalar in source.chars() {
+                let mut encoded = [0; 4];
+                let chunk = scalar.encode_utf8(&mut encoded);
+                assert!(!compiler.is_backpressured(), "{name}");
+                compiler.push_str(chunk).expect("push should succeed");
+                accepted_bytes += chunk.len();
+                assert_eq!(compiler.buffered_bytes(), 0, "{name}");
+                assert_eq!(compiler.accepted_input_bytes(), accepted_bytes, "{name}");
+                let retained = compiler.retention();
+                assert!(retained.compact_output, "{name}");
+                assert!(!retained.source_retained, "{name}");
+                assert_eq!(retained.source_bytes, 0, "{name}");
+                assert_eq!(retained.source_capacity_bytes, 0, "{name}");
+            }
+
+            match finish_progressive_compiler(&mut compiler) {
+                ProgressiveDisposition::Accepted {
+                    result,
+                    event_count,
+                } => {
+                    assert_eq!(name, "valid");
+                    assert_eq!(event_count, 2);
+                    assert_eq!(result, expected);
+                }
+                ProgressiveDisposition::Invalidated { result, .. } => {
+                    assert_ne!(name, "valid");
+                    assert_eq!(result, expected);
+                }
+            }
+            let retained = compiler.retention();
+            assert_eq!(retained.accepted_input_bytes, source.len(), "{name}");
+            assert_eq!(retained.terminal_source_capacity_bytes, 0, "{name}");
+            assert_eq!(retained.terminal_event_count, 0, "{name}");
+        }
+    }
+
+    #[test]
+    fn rich_mode_applies_terminal_source_retention_policy() {
+        let source = "first = 1\nsecond = 2";
+        let options = CompileOptions::default();
+        let expected = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Sofia,
+        );
+
+        for source_retention in [SourceRetention::Retain, SourceRetention::Discard] {
+            let mut compiler = ProgressiveCompiler::new_rich(
+                options.clone(),
+                source_retention,
+                NonZeroUsize::new(2).expect("two is non-zero"),
+                NonZeroUsize::new(8).expect("eight is non-zero"),
+            );
+            compiler.push_str(source).expect("push should succeed");
+            assert_eq!(compiler.buffered_bytes(), source.len());
+            assert_eq!(compiler.accepted_input_bytes(), source.len());
+            let retained = compiler.retention();
+            assert!(!retained.compact_output);
+            assert!(retained.source_retained);
+
+            let ProgressiveDisposition::Accepted { result, .. } =
+                finish_progressive_compiler(&mut compiler)
+            else {
+                panic!("valid rich stream should be accepted");
+            };
+            let mut expected_for_policy = expected.clone();
+            if source_retention == SourceRetention::Discard {
+                expected_for_policy.source.clear();
+                assert_eq!(result.source.capacity(), 0);
+            }
+            assert_eq!(result, expected_for_policy);
+        }
+    }
+
+    #[test]
+    fn compact_mode_preserves_input_limit_precedence_without_source_replay() {
+        let source = "broken = [";
+        let options = CompileOptions {
+            max_input_bytes: Some(5),
+            ..CompileOptions::default()
+        };
+        let mut expected_options = options.clone();
+        expected_options.shallow_event_values = true;
+        expected_options.emit_binding_projections = false;
+        expected_options.include_header = false;
+        expected_options.include_event_annotations = false;
+        let mut expected = compile_owned_with_implementation(
+            source.to_owned(),
+            expected_options,
+            ParserImplementation::Sofia,
+        );
+        expected.source.clear();
+
+        let mut compiler = ProgressiveCompiler::new_compact(
+            options,
+            NonZeroUsize::new(2).expect("two is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+        compiler.push_str(source).expect("push should succeed");
+        let ProgressiveDisposition::Invalidated { result, .. } =
+            finish_progressive_compiler(&mut compiler)
+        else {
+            panic!("oversized stream should be invalidated");
+        };
+        assert_eq!(result, expected);
+        assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
+        assert_eq!(compiler.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn compact_mode_reports_when_internal_fallback_would_require_replay() {
+        let mut compiler = ProgressiveCompiler::new_compact(
+            CompileOptions {
+                max_numeric_literal_characters: 1,
+                ..CompileOptions::default()
+            },
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+        compiler.push_str("first = 1").expect("push should succeed");
+        let ProgressiveDisposition::Invalidated {
+            result,
+            exposed_event_count,
+        } = finish_progressive_compiler(&mut compiler)
+        else {
+            panic!("fallback without retained source must invalidate");
+        };
+        assert_eq!(exposed_event_count, 0);
+        assert_eq!(result.source, "");
+        assert_eq!(result.events, Vec::new());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "SOFIA_INCREMENTAL_REPLAY_REQUIRED");
+        assert_eq!(compiler.buffered_bytes(), 0);
     }
 
     #[test]
