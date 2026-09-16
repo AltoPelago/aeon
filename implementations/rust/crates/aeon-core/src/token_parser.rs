@@ -166,9 +166,9 @@ impl IncrementalSofiaFrontend {
         }
     }
 
-    pub(crate) fn push_str(&mut self, chunk: &str) {
+    pub(crate) fn push_str(&mut self, chunk: &str) -> Vec<Binding> {
         if self.fallback_to_one_shot {
-            return;
+            return Vec::new();
         }
         let batch = self
             .lexer
@@ -189,22 +189,27 @@ impl IncrementalSofiaFrontend {
             self.fallback_to_one_shot = true;
             self.lexer = None;
             self.parser = None;
-            return;
+            return Vec::new();
         }
 
-        if matches!(
-            self.parser
-                .as_mut()
-                .expect("active incremental front end must retain its parser")
-                .push_tokens(Cow::Owned(batch.tokens)),
-            Ok(sofia::ParserSessionProgress::Complete(_)) | Err(_)
-        ) {
-            // A terminal non-final parse is deterministic, but replaying the
-            // complete source keeps this migration surface fail-closed until
-            // the public compiler selects the incremental result directly.
-            self.fallback_to_one_shot = true;
-            self.lexer = None;
-            self.parser = None;
+        let parser = self
+            .parser
+            .as_mut()
+            .expect("active incremental front end must retain its parser");
+        match parser.push_tokens(Cow::Owned(batch.tokens)) {
+            Ok(sofia::ParserSessionProgress::NeedMoreInput) => {
+                parser.clone_newly_completed_bindings()
+            }
+            Ok(sofia::ParserSessionProgress::Complete(_)) | Err(_) => {
+                // A terminal non-final parse is deterministic, but replaying
+                // the complete source keeps this migration surface fail-closed
+                // until the public compiler selects the incremental result
+                // directly.
+                self.fallback_to_one_shot = true;
+                self.lexer = None;
+                self.parser = None;
+                Vec::new()
+            }
         }
     }
 
@@ -2106,17 +2111,58 @@ mod tests {
     use std::borrow::Cow;
 
     use super::{
-        ParserImplementation, ParserLimits, parse_document_from_tokens,
+        IncrementalSofiaFrontend, ParserImplementation, ParserLimits, parse_document_from_tokens,
         parse_document_from_tokens_recovery_with_implementation,
         parse_document_from_tokens_with_implementation, parse_tokenized_document,
     };
     use crate::lexer::LexerSession;
-    use crate::{LexerOptions, TrimtickMetadata, Value};
+    use crate::{CompileOptions, LexerOptions, TrimtickMetadata, Value};
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
         parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
+    }
+
+    #[test]
+    fn incremental_frontend_surfaces_completed_binding_prefixes() {
+        let source = concat!(
+            "aeon:mode = \"strict\"\n",
+            "first = 1\n",
+            "nested = { child = true }\n",
+            "pending = \"final\"",
+        );
+        let mut frontend = IncrementalSofiaFrontend::new(&CompileOptions::default());
+        let mut completed = Vec::new();
+        for chunk in [
+            "aeon:mode = \"strict\"\n",
+            "first = 1\n",
+            "nested = { child = true }\n",
+            "pending = \"final\"",
+        ] {
+            completed.extend(frontend.push_str(chunk));
+        }
+
+        assert_eq!(
+            completed
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            ["aeon:mode", "first", "nested"]
+        );
+
+        let finished = frontend.finish(source);
+        assert!(!finished.retention_fallback);
+        assert!(finished.parsed.errors.is_empty());
+        assert_eq!(
+            finished
+                .parsed
+                .bindings
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            ["aeon:mode", "first", "nested", "pending"]
+        );
     }
 
     fn parse_chunks(

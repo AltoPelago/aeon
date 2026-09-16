@@ -57,6 +57,7 @@ pub(super) enum ParserSessionProgress {
 pub(super) struct ParserSession<'a> {
     tokens: Cow<'a, [Token]>,
     token_start_index: usize,
+    completed_binding_cursor: usize,
     state: ParserState,
     frames: Vec<Frame>,
     product: Option<Product>,
@@ -68,6 +69,7 @@ impl<'a> ParserSession<'a> {
         Self {
             tokens: Cow::Owned(Vec::new()),
             token_start_index: 0,
+            completed_binding_cursor: 0,
             state: ParserState::new(limits, recovery),
             frames: vec![Frame::Document(DocumentFrame::new())],
             product: None,
@@ -146,6 +148,22 @@ impl<'a> ParserSession<'a> {
         }
         self.tokens.to_mut().drain(..drain);
         self.token_start_index = retain_from;
+    }
+
+    /// Clones top-level bindings whose terminating delimiter has been parsed
+    /// since the previous call. The parser retains the originals until the
+    /// whole-document validation pipeline can consume them.
+    pub(super) fn clone_newly_completed_bindings(&mut self) -> Vec<Binding> {
+        let Some(bindings) = self.frames.iter().find_map(|frame| match frame {
+            Frame::Document(document) => Some(&document.bindings),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        debug_assert!(self.completed_binding_cursor <= bindings.len());
+        let completed = bindings[self.completed_binding_cursor..].to_vec();
+        self.completed_binding_cursor = bindings.len();
+        completed
     }
 
     fn run_available(&mut self, final_input: bool) -> Option<ParseOutcome> {
@@ -3230,6 +3248,53 @@ literal = ~true.off"#,
             .finish_tokens(Cow::Owned(final_batch.tokens))
             .expect("final lexer batch should finish the parser session");
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parser_session_reports_each_delimited_top_level_binding_once() {
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+
+        for (chunk, expected_key) in [
+            ("aeon:mode = \"strict\"\n", None),
+            ("first = 1\n", Some("aeon:mode")),
+            ("nested = { child = true }\n", Some("first")),
+            ("pending = \"not delimited\"", Some("nested")),
+        ] {
+            let batch = lexer.push(Cow::Owned(chunk.to_owned()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("completed binding chunk should be accepted"),
+                ParserSessionProgress::NeedMoreInput
+            );
+            let completed = parser.clone_newly_completed_bindings();
+            assert_eq!(completed.len(), usize::from(expected_key.is_some()));
+            if let Some(expected_key) = expected_key {
+                assert_eq!(completed[0].key, expected_key);
+            }
+            assert!(parser.clone_newly_completed_bindings().is_empty());
+        }
+
+        let final_batch = lexer.finish();
+        let outcome = parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("final input should complete the document");
+        let ParseOutcome::Parsed(bindings) = outcome else {
+            panic!("valid input should produce parsed bindings");
+        };
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            ["aeon:mode", "first", "nested", "pending"]
+        );
     }
 
     #[test]

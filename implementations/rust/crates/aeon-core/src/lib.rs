@@ -700,7 +700,7 @@ fn compile_owned_incremental_sofia(
 
     let mut frontend = IncrementalSofiaFrontend::new(&options);
     for scalar in source.chars() {
-        frontend.push_str(scalar.encode_utf8(&mut [0; 4]));
+        let _ = frontend.push_str(scalar.encode_utf8(&mut [0; 4]));
     }
     let incremental = frontend.finish(&source);
     (
