@@ -9,11 +9,28 @@ pub(crate) fn validate_source_resource_limits(
     bindings: &[Binding],
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
+    if let Some(error) = validate_binding_resource_limits(bindings, options) {
+        return Some(error);
+    }
+    validate_structured_comment_limits(source, options)
+}
+
+pub(crate) fn validate_binding_resource_limits(
+    bindings: &[Binding],
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
     for binding in bindings {
         if let Some(error) = validate_binding(binding, options) {
             return Some(error);
         }
     }
+    None
+}
+
+fn validate_structured_comment_limits(
+    source: &str,
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
     let lexed = tokenize(
         source,
         LexerOptions {

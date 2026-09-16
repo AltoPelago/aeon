@@ -209,6 +209,24 @@ impl<'a> ParserSession<'a> {
         self.frames.len()
     }
 
+    pub(super) fn structural_identity_count(&self) -> usize {
+        self.state.structural_identities.len()
+    }
+
+    pub(super) fn structural_identity_storage_bytes(&self) -> usize {
+        self.state
+            .structural_identities
+            .capacity()
+            .saturating_mul(std::mem::size_of::<String>())
+            .saturating_add(
+                self.state
+                    .structural_identities
+                    .iter()
+                    .map(String::capacity)
+                    .sum::<usize>(),
+            )
+    }
+
     pub(super) fn completed_binding_count(&self) -> usize {
         self.frames
             .iter()

@@ -147,6 +147,8 @@ pub(crate) struct IncrementalSofiaRetention {
     pub parser_token_count: usize,
     pub parser_token_storage_bytes: usize,
     pub parser_frame_count: usize,
+    pub structural_identity_count: usize,
+    pub structural_identity_storage_bytes: usize,
     pub completed_binding_count: usize,
     pub completed_binding_storage_bytes: usize,
     pub released_completed_binding_count: usize,
@@ -240,6 +242,10 @@ impl IncrementalSofiaFrontend {
             parser_token_storage_bytes: parser
                 .map_or(0, sofia::ParserSession::retained_token_storage_bytes),
             parser_frame_count: parser.map_or(0, sofia::ParserSession::active_frame_count),
+            structural_identity_count: parser
+                .map_or(0, sofia::ParserSession::structural_identity_count),
+            structural_identity_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::structural_identity_storage_bytes),
             completed_binding_count: parser
                 .map_or(0, sofia::ParserSession::completed_binding_count),
             completed_binding_storage_bytes: parser

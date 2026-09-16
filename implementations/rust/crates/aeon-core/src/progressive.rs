@@ -1,16 +1,17 @@
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::num::NonZeroUsize;
 
 use crate::flatten::flatten_document;
+use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
 use crate::{
     Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch, EventBatches,
-    compile_owned_with_implementation,
+    SourcePlane, compile_owned_with_implementation, event_count_exceeded_error, format_path,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,11 +40,100 @@ impl ProvisionalEventBatch {
 }
 
 #[derive(Debug)]
+struct ProgressiveValidationState {
+    options: CompileOptions,
+    event_count: usize,
+    seen_event_paths: HashSet<(SourcePlane, String)>,
+    source_resource_error: Option<Diagnostic>,
+    event_path_error: Option<Diagnostic>,
+    duplicate_errors: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ProgressiveValidationRetention {
+    event_count: usize,
+    seen_path_count: usize,
+    seen_path_string_bytes: usize,
+    error_count: usize,
+}
+
+impl ProgressiveValidationState {
+    fn new(options: &CompileOptions) -> Self {
+        Self {
+            options: options.clone(),
+            event_count: 0,
+            seen_event_paths: HashSet::new(),
+            source_resource_error: None,
+            event_path_error: None,
+            duplicate_errors: Vec::new(),
+        }
+    }
+
+    fn observe_bindings(&mut self, bindings: &[Binding]) {
+        if self.source_resource_error.is_none() {
+            self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
+        }
+    }
+
+    fn observe_events(&mut self, events: &[crate::AssignmentEvent]) {
+        if self.event_path_error.is_none() {
+            self.event_path_error = validate_event_path_limits(events, &self.options);
+        }
+        self.event_count = self.event_count.saturating_add(events.len());
+        for event in events {
+            let path = format_path(&event.path);
+            if !self
+                .seen_event_paths
+                .insert((event.source_plane, path.clone()))
+            {
+                self.duplicate_errors.push(
+                    Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", event.key))
+                        .at_path(path)
+                        .with_span(event.span),
+                );
+            }
+        }
+    }
+
+    fn errors(&self) -> Vec<Diagnostic> {
+        if let Some(error) = &self.source_resource_error {
+            return vec![error.clone()];
+        }
+        if let Some(max_events) = self.options.max_events
+            && self.event_count > max_events
+        {
+            return vec![event_count_exceeded_error(self.event_count, max_events)];
+        }
+        self.event_path_error
+            .iter()
+            .cloned()
+            .chain(self.duplicate_errors.iter().cloned())
+            .collect()
+    }
+
+    fn retention(&self) -> ProgressiveValidationRetention {
+        ProgressiveValidationRetention {
+            event_count: self.event_count,
+            seen_path_count: self.seen_event_paths.len(),
+            seen_path_string_bytes: self
+                .seen_event_paths
+                .iter()
+                .map(|(_, path)| path.capacity())
+                .sum(),
+            error_count: usize::from(self.source_resource_error.is_some())
+                + usize::from(self.event_path_error.is_some())
+                + self.duplicate_errors.len(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ProgressiveEventAssembler {
     max_batch_events: NonZeroUsize,
     shallow_event_values: bool,
     include_event_annotations: bool,
     enabled: bool,
+    validation: ProgressiveValidationState,
     next_sequence: usize,
     next_event_index: usize,
 }
@@ -55,6 +145,7 @@ impl ProgressiveEventAssembler {
             shallow_event_values: options.shallow_event_values,
             include_event_annotations: options.include_event_annotations,
             enabled: !options.recovery,
+            validation: ProgressiveValidationState::new(options),
             next_sequence: 0,
             next_event_index: 0,
         }
@@ -73,6 +164,7 @@ impl ProgressiveEventAssembler {
             return Vec::new();
         }
 
+        self.validation.observe_bindings(bindings);
         let root = CanonicalPath::root();
         let mut events = Vec::new();
         for binding in bindings.iter().filter(|binding| !binding.is_header) {
@@ -83,6 +175,7 @@ impl ProgressiveEventAssembler {
                 false,
                 self.include_event_annotations,
             );
+            self.validation.observe_events(&flattened.events);
             events.extend(flattened.events);
         }
 
@@ -99,6 +192,14 @@ impl ProgressiveEventAssembler {
             })
             .collect()
     }
+
+    fn validation_errors(&self) -> Vec<Diagnostic> {
+        self.validation.errors()
+    }
+
+    fn validation_retention(&self) -> ProgressiveValidationRetention {
+        self.validation.retention()
+    }
 }
 
 pub(crate) struct ProgressiveSofiaFrontend {
@@ -113,6 +214,8 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) parse_valid: bool,
     pub(crate) retention_fallback: bool,
     pub(crate) parse_errors: Vec<Diagnostic>,
+    pub(crate) prevalidation_errors: Vec<Diagnostic>,
+    pub(crate) prevalidated_event_count: usize,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -130,8 +233,8 @@ impl ProgressiveSofiaFrontend {
         batches
     }
 
-    pub(crate) fn retention(&self) -> IncrementalSofiaRetention {
-        self.parser.retention()
+    fn retention(&self) -> (IncrementalSofiaRetention, ProgressiveValidationRetention) {
+        (self.parser.retention(), self.events.validation_retention())
     }
 
     pub(crate) fn finish(self, source: &str) -> ProgressiveSofiaFinish {
@@ -143,11 +246,14 @@ impl ProgressiveSofiaFrontend {
         } else {
             Vec::new()
         };
+        let validation = events.validation_retention();
         ProgressiveSofiaFinish {
             final_batches,
             parse_valid,
             retention_fallback: incremental.retention_fallback,
             parse_errors: incremental.parsed.errors,
+            prevalidation_errors: events.validation_errors(),
+            prevalidated_event_count: validation.event_count,
         }
     }
 }
@@ -205,9 +311,15 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub parser_token_count: usize,
     pub parser_token_storage_bytes: usize,
     pub parser_frame_count: usize,
+    pub structural_identity_count: usize,
+    pub structural_identity_storage_bytes: usize,
     pub completed_binding_count: usize,
     pub completed_binding_storage_bytes: usize,
     pub released_completed_binding_count: usize,
+    pub validation_event_count: usize,
+    pub validation_seen_path_count: usize,
+    pub validation_seen_path_string_bytes: usize,
+    pub prevalidation_error_count: usize,
     pub ready_batch_count: usize,
     pub ready_event_count: usize,
     pub ready_event_slot_bytes: usize,
@@ -223,7 +335,9 @@ impl ProgressiveRetentionSnapshot {
         self.source_capacity_bytes
             .saturating_add(self.lexer_active_bytes)
             .saturating_add(self.parser_token_storage_bytes)
+            .saturating_add(self.structural_identity_storage_bytes)
             .saturating_add(self.completed_binding_storage_bytes)
+            .saturating_add(self.validation_seen_path_string_bytes)
             .saturating_add(self.ready_event_slot_bytes)
             .saturating_add(self.staged_event_slot_bytes)
             .saturating_add(self.terminal_source_capacity_bytes)
@@ -274,12 +388,15 @@ impl ProgressiveCompiler {
     }
 
     pub(crate) fn retention(&self) -> ProgressiveRetentionSnapshot {
-        let incremental = self
-            .frontend
-            .as_ref()
-            .map_or_else(IncrementalSofiaRetention::default, |frontend| {
-                frontend.retention()
-            });
+        let (incremental, validation) = self.frontend.as_ref().map_or_else(
+            || {
+                (
+                    IncrementalSofiaRetention::default(),
+                    ProgressiveValidationRetention::default(),
+                )
+            },
+            ProgressiveSofiaFrontend::retention,
+        );
         let (terminal_source_capacity_bytes, terminal_event_count) =
             self.terminal
                 .as_ref()
@@ -296,9 +413,15 @@ impl ProgressiveCompiler {
             parser_token_count: incremental.parser_token_count,
             parser_token_storage_bytes: incremental.parser_token_storage_bytes,
             parser_frame_count: incremental.parser_frame_count,
+            structural_identity_count: incremental.structural_identity_count,
+            structural_identity_storage_bytes: incremental.structural_identity_storage_bytes,
             completed_binding_count: incremental.completed_binding_count,
             completed_binding_storage_bytes: incremental.completed_binding_storage_bytes,
             released_completed_binding_count: incremental.released_completed_binding_count,
+            validation_event_count: validation.event_count,
+            validation_seen_path_count: validation.seen_path_count,
+            validation_seen_path_string_bytes: validation.seen_path_string_bytes,
+            prevalidation_error_count: validation.error_count,
             ready_batch_count: self.pending.len(),
             ready_event_count: self.pending.iter().map(|batch| batch.events().len()).sum(),
             ready_event_slot_bytes: self
@@ -358,6 +481,7 @@ impl ProgressiveCompiler {
             .options
             .take()
             .expect("accepting progressive compiler must retain options");
+        let recovery = options.recovery;
         let source = mem::take(&mut self.source);
         // Completed streaming ASTs have already been released. Replay the
         // retained source through the authoritative Sofia pipeline so final
@@ -365,7 +489,13 @@ impl ProgressiveCompiler {
         let result =
             compile_owned_with_implementation(source, options, ParserImplementation::Sofia);
 
-        if result.errors.is_empty() && finished.parse_valid {
+        if result.errors.is_empty() && finished.parse_valid && !recovery {
+            debug_assert_eq!(finished.prevalidated_event_count, result.events.len());
+        }
+        if result.errors.is_empty()
+            && finished.parse_valid
+            && finished.prevalidation_errors.is_empty()
+        {
             let event_count = result.events.len();
             self.enqueue(finished.final_batches);
             self.state = if self.pending.is_empty() && self.deferred.is_empty() {
@@ -940,6 +1070,10 @@ mod tests {
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.completed_binding_storage_bytes, 0);
         assert_eq!(retained.released_completed_binding_count, 1);
+        assert_eq!(retained.validation_event_count, 6);
+        assert_eq!(retained.validation_seen_path_count, 6);
+        assert!(retained.validation_seen_path_string_bytes > 0);
+        assert_eq!(retained.prevalidation_error_count, 0);
         assert!(retained.parser_token_count <= 4);
         assert_eq!(retained.ready_batch_count, 2);
         assert_eq!(retained.ready_event_count, 2);
@@ -995,6 +1129,9 @@ mod tests {
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.completed_binding_storage_bytes, 0);
         assert_eq!(retained.released_completed_binding_count, 128);
+        assert_eq!(retained.validation_event_count, 128);
+        assert_eq!(retained.validation_seen_path_count, 128);
+        assert!(retained.validation_seen_path_string_bytes > 0);
         assert!(
             retained.parser_token_count <= 4,
             "flat parser retained {} tokens",
@@ -1003,5 +1140,63 @@ mod tests {
         assert!(retained.parser_token_storage_bytes > 0);
         assert!(retained.parser_frame_count > 0);
         assert!(retained.ready_batch_count <= 1);
+    }
+
+    #[test]
+    fn compact_prevalidation_matches_authoritative_resource_and_uniqueness_errors() {
+        let string_limited = CompileOptions {
+            max_string_codepoints: 3,
+            ..CompileOptions::default()
+        };
+        let event_limited = CompileOptions {
+            max_events: Some(1),
+            ..CompileOptions::default()
+        };
+        let depth_limited = CompileOptions {
+            max_path_depth: 1,
+            ..CompileOptions::default()
+        };
+        let cases = [
+            (
+                "duplicate path",
+                "same = 1\nsame = 2",
+                CompileOptions::default(),
+            ),
+            ("string resource", "name = \"long\"", string_limited),
+            ("event count", "first = 1\nsecond = 2", event_limited),
+            ("path depth", "root = { child = 1 }", depth_limited),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            assert!(!expected.errors.is_empty(), "{name}");
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+        }
+    }
+
+    #[test]
+    fn retention_snapshot_counts_required_structural_identity_state() {
+        let source = "first\\one\\ = 1\nsecond\\two\\ = 2\npending =";
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable { .. })
+        ));
+
+        let retained = compiler.retention();
+        assert_eq!(retained.structural_identity_count, 2);
+        assert!(retained.structural_identity_storage_bytes > 0);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.released_completed_binding_count, 2);
     }
 }
