@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
@@ -14,6 +15,7 @@ use super::{
     render_quoted_string, validate_binding_node_datatype, validate_reserved_datatype_adornments,
 };
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum ParseOutcome {
     Parsed(Vec<Binding>),
     Recovered {
@@ -24,11 +26,87 @@ pub(super) enum ParseOutcome {
 }
 
 pub(super) fn parse_document(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
-    Parser::new(tokens, limits, false).run()
+    let mut session = ParserSession::new(limits, false);
+    session
+        .finish_tokens(Cow::Borrowed(tokens))
+        .expect("one-shot Sofia tokens contain exactly one final EOF")
 }
 
 pub(super) fn parse_document_recovery(tokens: &[Token], limits: ParserLimits) -> ParseOutcome {
-    Parser::new(tokens, limits, true).run()
+    let mut session = ParserSession::new(limits, true);
+    session
+        .finish_tokens(Cow::Borrowed(tokens))
+        .expect("one-shot Sofia tokens contain exactly one final EOF")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParserSessionError {
+    Finished,
+    EofBeforeFinish,
+    MissingFinalEof,
+}
+
+pub(super) struct ParserSession<'a> {
+    tokens: Cow<'a, [Token]>,
+    limits: ParserLimits,
+    recovery: bool,
+    finished: bool,
+}
+
+impl<'a> ParserSession<'a> {
+    pub(super) fn new(limits: ParserLimits, recovery: bool) -> Self {
+        Self {
+            tokens: Cow::Owned(Vec::new()),
+            limits,
+            recovery,
+            finished: false,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn push_tokens(
+        &mut self,
+        tokens: Cow<'a, [Token]>,
+    ) -> Result<usize, ParserSessionError> {
+        if self.finished {
+            return Err(ParserSessionError::Finished);
+        }
+        if tokens.iter().any(|token| token.kind == TokenKind::Eof) {
+            return Err(ParserSessionError::EofBeforeFinish);
+        }
+        self.append_tokens(tokens);
+        Ok(self.tokens.len())
+    }
+
+    pub(super) fn finish_tokens(
+        &mut self,
+        tokens: Cow<'a, [Token]>,
+    ) -> Result<ParseOutcome, ParserSessionError> {
+        if self.finished {
+            return Err(ParserSessionError::Finished);
+        }
+        let Some((last, prefix)) = tokens.split_last() else {
+            return Err(ParserSessionError::MissingFinalEof);
+        };
+        if last.kind != TokenKind::Eof {
+            return Err(ParserSessionError::MissingFinalEof);
+        }
+        if prefix.iter().any(|token| token.kind == TokenKind::Eof) {
+            return Err(ParserSessionError::EofBeforeFinish);
+        }
+
+        self.append_tokens(tokens);
+        self.finished = true;
+        Ok(Parser::new(&self.tokens, self.limits, self.recovery).run())
+    }
+
+    fn append_tokens(&mut self, tokens: Cow<'a, [Token]>) {
+        if self.tokens.is_empty() {
+            self.tokens = tokens;
+        } else {
+            self.tokens.to_mut().extend_from_slice(&tokens);
+        }
+    }
 }
 
 struct Parser<'a> {
@@ -2518,10 +2596,14 @@ enum ObjectPhase {
 
 #[cfg(test)]
 mod tests {
-    use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, Value, tokenize};
+    use std::borrow::Cow;
+
+    use crate::lexer::LexerSession;
+    use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, TokenKind, Value, tokenize};
 
     use super::{
-        Frame, ParseOutcome, Parser, ParserLimits, Product, parse_document, parse_document_recovery,
+        Frame, ParseOutcome, Parser, ParserLimits, ParserSession, ParserSessionError, Product,
+        parse_document, parse_document_recovery,
     };
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
@@ -2552,6 +2634,131 @@ mod tests {
         );
         assert!(lexed.errors.is_empty());
         parse_document_recovery(&lexed.tokens, TEST_LIMITS)
+    }
+
+    #[test]
+    fn parser_session_keeps_one_shot_tokens_borrowed() {
+        let lexed = tokenize(
+            "name = \"Sofía\"",
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(lexed.errors.is_empty());
+
+        let mut session = ParserSession::new(TEST_LIMITS, false);
+        let outcome = session
+            .finish_tokens(Cow::Borrowed(&lexed.tokens))
+            .expect("one-shot token slice should finish");
+
+        assert!(matches!(outcome, ParseOutcome::Parsed(_)));
+        assert!(matches!(session.tokens, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn parser_session_accepts_incremental_lexer_batches_without_early_eof() {
+        let input = "name = \"Sofía\"\nitems = [1, true, { nested = \"yes\" }]\nref = @name";
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let expected = parse(input);
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+        let mut queued = 0;
+
+        for character in input.chars() {
+            let mut encoded = [0; 4];
+            let batch = lexer.push(Cow::Owned(character.encode_utf8(&mut encoded).to_owned()));
+            assert!(batch.errors.is_empty());
+            assert!(
+                batch
+                    .tokens
+                    .iter()
+                    .all(|token| token.kind != TokenKind::Eof)
+            );
+            queued += batch.tokens.len();
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("non-final lexer batch should queue"),
+                queued
+            );
+        }
+
+        let final_batch = lexer.finish();
+        assert!(final_batch.errors.is_empty());
+        assert_eq!(
+            final_batch
+                .tokens
+                .iter()
+                .filter(|token| token.kind == TokenKind::Eof)
+                .count(),
+            1
+        );
+        assert_eq!(
+            final_batch.tokens.last().map(|token| token.kind),
+            Some(TokenKind::Eof)
+        );
+
+        let actual = parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("final lexer batch should finish the parser session");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parser_session_enforces_final_eof_and_single_finish() {
+        let lexed = tokenize(
+            "name = true",
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        assert!(lexed.errors.is_empty());
+        let eof = lexed.tokens.last().expect("lexer should emit EOF").clone();
+        let body = lexed.tokens[..lexed.tokens.len() - 1].to_vec();
+
+        let mut early_eof = ParserSession::new(TEST_LIMITS, false);
+        assert_eq!(
+            early_eof.push_tokens(Cow::Owned(vec![eof.clone()])),
+            Err(ParserSessionError::EofBeforeFinish)
+        );
+
+        let mut missing_eof = ParserSession::new(TEST_LIMITS, false);
+        assert!(matches!(
+            missing_eof.finish_tokens(Cow::Owned(body.clone())),
+            Err(ParserSessionError::MissingFinalEof)
+        ));
+        assert!(matches!(
+            missing_eof.finish_tokens(Cow::Owned(Vec::new())),
+            Err(ParserSessionError::MissingFinalEof)
+        ));
+
+        let mut duplicate_eof = ParserSession::new(TEST_LIMITS, false);
+        assert!(matches!(
+            duplicate_eof.finish_tokens(Cow::Owned(vec![eof.clone(), eof.clone()])),
+            Err(ParserSessionError::EofBeforeFinish)
+        ));
+
+        let mut finished = ParserSession::new(TEST_LIMITS, false);
+        finished
+            .push_tokens(Cow::Owned(body))
+            .expect("body tokens should queue");
+        assert!(matches!(
+            finished.finish_tokens(Cow::Owned(vec![eof.clone()])),
+            Ok(ParseOutcome::Parsed(_))
+        ));
+        assert_eq!(
+            finished.push_tokens(Cow::Owned(Vec::new())),
+            Err(ParserSessionError::Finished)
+        );
+        assert!(matches!(
+            finished.finish_tokens(Cow::Owned(vec![eof])),
+            Err(ParserSessionError::Finished)
+        ));
     }
 
     #[test]
