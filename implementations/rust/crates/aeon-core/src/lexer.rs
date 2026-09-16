@@ -176,6 +176,11 @@ struct SeparatorLiteralState {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct IdentifierState {
+    start: Position,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct LexerCheckpoint {
     offset: usize,
     line: usize,
@@ -202,6 +207,7 @@ pub(crate) struct LexerSession<'a> {
     number: Option<NumberState>,
     prefixed_literal: Option<PrefixedLiteralState>,
     separator_literal: Option<SeparatorLiteralState>,
+    identifier: Option<IdentifierState>,
     finished: bool,
 }
 
@@ -223,6 +229,7 @@ impl<'a> LexerSession<'a> {
             number: None,
             prefixed_literal: None,
             separator_literal: None,
+            identifier: None,
             finished: false,
         }
     }
@@ -313,6 +320,12 @@ impl<'a> LexerSession<'a> {
                 }
                 continue;
             }
+            if self.identifier.is_some() {
+                if !self.scan_identifier(final_input) {
+                    return;
+                }
+                continue;
+            }
 
             if self.is_at_end() {
                 return;
@@ -349,6 +362,12 @@ impl<'a> LexerSession<'a> {
             }
             if self.separator_literal.is_some() {
                 if final_input && self.scan_separator_literal(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.identifier.is_some() {
+                if final_input && self.scan_identifier(true) {
                     continue;
                 }
                 return;
@@ -822,6 +841,37 @@ impl<'a> LexerSession<'a> {
         true
     }
 
+    fn begin_identifier(&mut self, start: Position) -> bool {
+        self.identifier = Some(IdentifierState { start });
+        self.scan_identifier(false)
+    }
+
+    fn scan_identifier(&mut self, final_input: bool) -> bool {
+        let state = self
+            .identifier
+            .expect("identifier scanner requires active state");
+        while is_identifier_continue(self.peek()) {
+            self.advance();
+        }
+        if self.is_at_end() && !final_input {
+            return false;
+        }
+
+        let text = self.slice_from(state.start.offset);
+        self.identifier = None;
+        let kind = match text.as_str() {
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
+            "yes" => TokenKind::Yes,
+            "no" => TokenKind::No,
+            "on" => TokenKind::On,
+            "off" => TokenKind::Off,
+            _ => TokenKind::Identifier,
+        };
+        self.push_token(kind, &text, state.start, None, None);
+        true
+    }
+
     fn scan_token(&mut self) -> bool {
         let start = self.current_position();
         let ch = self.advance();
@@ -935,7 +985,7 @@ impl<'a> LexerSession<'a> {
                 }
             }
             _ if ch.is_ascii_digit() => return self.begin_number(start, ch),
-            _ if is_identifier_start(ch) => self.scan_identifier(start),
+            _ if is_identifier_start(ch) => return self.begin_identifier(start),
             _ if is_printable_ascii(ch) => {
                 let text = self.slice_from(start.offset);
                 self.push_token(TokenKind::Symbol, &text, start, None, None);
@@ -1004,23 +1054,6 @@ impl<'a> LexerSession<'a> {
 
         self.advance();
         self.push_token(TokenKind::StructuralIdentity, &value, start, None, None);
-    }
-
-    fn scan_identifier(&mut self, start: Position) {
-        while is_identifier_continue(self.peek()) {
-            self.advance();
-        }
-        let text = self.slice_from(start.offset);
-        let kind = match text.as_str() {
-            "true" => TokenKind::True,
-            "false" => TokenKind::False,
-            "yes" => TokenKind::Yes,
-            "no" => TokenKind::No,
-            "on" => TokenKind::On,
-            "off" => TokenKind::Off,
-            _ => TokenKind::Identifier,
-        };
-        self.push_token(kind, &text, start, None, None);
     }
 
     fn scan_sansa_address_literal(&mut self, start: Position) {
@@ -1740,6 +1773,56 @@ mod tests {
             let actual = tokenize_chunks([&source[..split], &source[split..]]);
             assert_eq!(actual, expected, "literal split at byte {split}");
         }
+    }
+
+    #[test]
+    fn identifiers_and_reserved_words_match_at_every_scalar_split() {
+        let source = concat!(
+            "payload:custom<tuple<string,number>,three>[\"x\",10] = ",
+            "true false yes no on off trailing_identifier",
+        );
+        let expected = tokenize(source, LexerOptions::default());
+        assert!(expected.errors.is_empty());
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual = tokenize_chunks([&source[..split], &source[split..]]);
+            assert_eq!(actual, expected, "identifier split at byte {split}");
+        }
+
+        let kinds = expected
+            .tokens
+            .iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+        for kind in [
+            TokenKind::True,
+            TokenKind::False,
+            TokenKind::Yes,
+            TokenKind::No,
+            TokenKind::On,
+            TokenKind::Off,
+        ] {
+            assert!(kinds.contains(&kind), "missing reserved token {kind:?}");
+        }
+    }
+
+    #[test]
+    fn identifier_waits_for_a_deterministic_boundary() {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let pending = lexer.push(Cow::Owned("tru".to_owned()));
+        assert!(pending.tokens.is_empty());
+        assert!(pending.errors.is_empty());
+
+        let completed = lexer.push(Cow::Owned("e ".to_owned()));
+        assert!(completed.errors.is_empty());
+        assert_eq!(completed.tokens.len(), 1);
+        assert_eq!(completed.tokens[0].kind, TokenKind::True);
+        assert_eq!(completed.tokens[0].text, "true");
     }
 
     #[test]

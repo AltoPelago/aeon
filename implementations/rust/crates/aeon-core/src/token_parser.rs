@@ -2754,6 +2754,55 @@ group:object = {
     }
 
     #[test]
+    fn incremental_datatypes_match_both_parsers_at_every_scalar_split() {
+        let source = r#"payload:custom<
+  tuple<string, number>,
+  3
+>["x", 1_0] = 1
+items:list<string> = ["one", "two"]"#;
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect("one-shot datatype parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "datatype split at byte {split}");
+            }
+            assert_eq!(
+                expected[0].datatype.as_deref(),
+                Some(r#"custom<tuple<string,number>,3>["x",10]"#)
+            );
+            assert_eq!(expected[1].datatype.as_deref(), Some("list<string>"));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_datatypes_match_one_shot_errors() {
+        for source in ["value:custom[] = 1", "value:outer<inner = 1"] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("datatype must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental datatype must remain malformed");
+                    assert_eq!(actual, expected, "datatype split at byte {split}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings = parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
