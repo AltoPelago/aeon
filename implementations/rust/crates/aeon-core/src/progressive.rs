@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use std::num::NonZeroUsize;
 
@@ -11,8 +11,9 @@ use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
 use crate::validation::{
-    CompactReferenceStep, compact_reference_steps, validate_attribute_datatypes,
-    validate_compact_reference_steps, validate_direct_event_datatypes,
+    CompactDatatypeValue, CompactReferenceStep, compact_reference_steps,
+    validate_attribute_datatypes, validate_compact_reference_datatype,
+    validate_compact_reference_steps, validate_direct_event_datatype,
     validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 use crate::{
@@ -53,6 +54,50 @@ struct ModeDiagnosticLedger {
     custom: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Default)]
+struct ModeOrderedDiagnosticLedger {
+    transport: Vec<(usize, Diagnostic)>,
+    strict: Vec<(usize, Diagnostic)>,
+    custom: Vec<(usize, Diagnostic)>,
+}
+
+impl ModeOrderedDiagnosticLedger {
+    fn errors(&self, mode: BehaviorMode) -> &[(usize, Diagnostic)] {
+        match mode {
+            BehaviorMode::Transport => &self.transport,
+            BehaviorMode::Strict => &self.strict,
+            BehaviorMode::Custom => &self.custom,
+        }
+    }
+
+    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<(usize, Diagnostic)> {
+        match mode {
+            BehaviorMode::Transport => &mut self.transport,
+            BehaviorMode::Strict => &mut self.strict,
+            BehaviorMode::Custom => &mut self.custom,
+        }
+    }
+
+    fn retained_error_count(&self) -> usize {
+        self.transport.len() + self.strict.len() + self.custom.len()
+    }
+}
+
+#[derive(Debug)]
+struct CompactReferenceDatatypeClaim {
+    event_ordinal: usize,
+    path: String,
+    datatype: String,
+    reference: CompactDatatypeValue,
+    span: crate::Span,
+}
+
+impl CompactReferenceDatatypeClaim {
+    fn retained_string_bytes(&self) -> usize {
+        self.path.capacity() + self.datatype.capacity() + self.reference.retained_string_bytes()
+    }
+}
+
 impl ModeDiagnosticLedger {
     fn errors(&self, mode: BehaviorMode) -> &[Diagnostic] {
         match mode {
@@ -85,10 +130,11 @@ struct ProgressiveValidationState {
     duplicate_object_errors: Vec<Diagnostic>,
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
-    datatype_event_errors: ModeDiagnosticLedger,
+    datatype_event_errors: ModeOrderedDiagnosticLedger,
     datatype_attribute_errors: ModeDiagnosticLedger,
     gp_profile_errors: Vec<Diagnostic>,
-    deferred_reference_datatype_count: usize,
+    reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
+    datatype_targets: HashMap<String, CompactDatatypeValue>,
     reference_targets: HashSet<String>,
     reference_steps: Vec<CompactReferenceStep>,
     typed_mode_errors: ModeDiagnosticLedger,
@@ -101,7 +147,10 @@ struct ProgressiveValidationRetention {
     gp_profile_active: bool,
     header_field_count: usize,
     header_string_bytes: usize,
-    deferred_reference_datatype_count: usize,
+    reference_datatype_claim_count: usize,
+    datatype_target_count: usize,
+    datatype_target_string_bytes: usize,
+    reference_datatype_claim_string_bytes: usize,
     reference_target_count: usize,
     reference_target_string_bytes: usize,
     reference_step_count: usize,
@@ -125,10 +174,11 @@ impl ProgressiveValidationState {
             duplicate_object_errors: Vec::new(),
             event_path_error: None,
             duplicate_errors: Vec::new(),
-            datatype_event_errors: ModeDiagnosticLedger::default(),
+            datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
             datatype_attribute_errors: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
-            deferred_reference_datatype_count: 0,
+            reference_datatype_claims: Vec::new(),
+            datatype_targets: HashMap::new(),
             reference_targets: HashSet::new(),
             reference_steps: Vec::new(),
             typed_mode_errors: ModeDiagnosticLedger::default(),
@@ -173,25 +223,13 @@ impl ProgressiveValidationState {
         if self.event_path_error.is_none() {
             self.event_path_error = validate_event_path_limits(events, &self.options);
         }
+        let first_event_ordinal = self.event_count;
         self.event_count = self.event_count.saturating_add(events.len());
-        self.deferred_reference_datatype_count =
-            self.deferred_reference_datatype_count.saturating_add(
-                events
-                    .iter()
-                    .filter(|event| {
-                        event.datatype.is_some()
-                            && matches!(
-                                event.value,
-                                Value::CloneReference { .. } | Value::PointerReference { .. }
-                            )
-                    })
-                    .count(),
-            );
         let rendered_paths = events
             .iter()
             .map(|event| format_path(&event.path))
             .collect::<Vec<_>>();
-        for (event, path) in events.iter().zip(&rendered_paths) {
+        for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
             if !self
                 .seen_event_paths
                 .insert((event.source_plane, path.clone()))
@@ -202,23 +240,50 @@ impl ProgressiveValidationState {
                         .with_span(event.span),
                 );
             }
+            if let Some(datatype) = &event.datatype
+                && matches!(
+                    event.value,
+                    Value::CloneReference { .. } | Value::PointerReference { .. }
+                )
+            {
+                self.reference_datatype_claims
+                    .push(CompactReferenceDatatypeClaim {
+                        event_ordinal: first_event_ordinal + offset,
+                        path: path.clone(),
+                        datatype: datatype.clone(),
+                        reference: CompactDatatypeValue::from_value(&event.value),
+                        span: event.span,
+                    });
+            }
         }
         for &mode in self.candidate_modes() {
-            validate_direct_event_datatypes(
-                events,
-                &rendered_paths,
-                mode,
-                self.options.datatype_policy,
-                self.options.effective_max_clarifier_values(),
-                self.options.max_generic_depth,
-                self.datatype_event_errors.errors_mut(mode),
-            );
+            for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
+                if let Some(error) = validate_direct_event_datatype(
+                    event,
+                    path,
+                    mode,
+                    self.options.datatype_policy,
+                    self.options.effective_max_clarifier_values(),
+                    self.options.max_generic_depth,
+                ) {
+                    self.datatype_event_errors
+                        .errors_mut(mode)
+                        .push((first_event_ordinal + offset, error));
+                }
+            }
         }
         validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
     }
 
     fn observe_references(&mut self, targets: &HashSet<String>, steps: &[ValidationReferenceStep]) {
         self.reference_targets.extend(targets.iter().cloned());
+        for step in steps {
+            if let ValidationReferenceStep::ValidateValue { path, value, .. } = step {
+                let _ = self
+                    .datatype_targets
+                    .insert(path.clone(), CompactDatatypeValue::from_value(value));
+            }
+        }
         self.reference_steps.extend(compact_reference_steps(steps));
     }
 
@@ -255,7 +320,7 @@ impl ProgressiveValidationState {
             .chain(self.duplicate_errors.iter().cloned())
             .collect::<Vec<_>>();
         if !self.fail_closed_duplicate_suppresses_events() {
-            errors.extend(self.effective_datatype_event_errors().iter().cloned());
+            errors.extend(self.effective_datatype_event_errors());
         }
         errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
@@ -286,8 +351,47 @@ impl ProgressiveValidationState {
             && !self.options.recovery
     }
 
-    fn effective_datatype_event_errors(&self) -> &[Diagnostic] {
-        self.datatype_event_errors.errors(self.effective_mode())
+    fn effective_datatype_event_errors(&self) -> Vec<Diagnostic> {
+        let mode = self.effective_mode();
+        let mut ordered = self.datatype_event_errors.errors(mode).to_vec();
+        for claim in &self.reference_datatype_claims {
+            let resolved = self.resolve_compact_datatype_reference(&claim.reference);
+            if let Some(error) = validate_compact_reference_datatype(
+                &claim.datatype,
+                &resolved,
+                &claim.path,
+                claim.span,
+                mode,
+                self.options.datatype_policy,
+                self.options.effective_max_clarifier_values(),
+                self.options.max_generic_depth,
+            ) {
+                ordered.push((claim.event_ordinal, error));
+            }
+        }
+        ordered.sort_by_key(|(ordinal, _)| *ordinal);
+        ordered.into_iter().map(|(_, error)| error).collect()
+    }
+
+    fn resolve_compact_datatype_reference(
+        &self,
+        reference: &CompactDatatypeValue,
+    ) -> CompactDatatypeValue {
+        let original = reference.clone();
+        let mut current = reference.clone();
+        let mut seen = HashSet::new();
+        loop {
+            let Some(target) = current.reference_target() else {
+                return current;
+            };
+            if !seen.insert(target.to_owned()) {
+                return current;
+            }
+            let Some(next) = self.datatype_targets.get(target) else {
+                return original;
+            };
+            current = next.clone();
+        }
     }
 
     fn effective_datatype_attribute_errors(&self) -> &[Diagnostic] {
@@ -316,7 +420,18 @@ impl ProgressiveValidationState {
             gp_profile_active: self.gp_profile_active(),
             header_field_count: self.header.observed_field_count(),
             header_string_bytes: self.header.retained_string_bytes(),
-            deferred_reference_datatype_count: self.deferred_reference_datatype_count,
+            reference_datatype_claim_count: self.reference_datatype_claims.len(),
+            datatype_target_count: self.datatype_targets.len(),
+            datatype_target_string_bytes: self
+                .datatype_targets
+                .iter()
+                .map(|(path, value)| path.capacity() + value.retained_string_bytes())
+                .sum(),
+            reference_datatype_claim_string_bytes: self
+                .reference_datatype_claims
+                .iter()
+                .map(CompactReferenceDatatypeClaim::retained_string_bytes)
+                .sum(),
             reference_target_count: self.reference_targets.len(),
             reference_target_string_bytes: self
                 .reference_targets
@@ -460,7 +575,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidated_event_count: usize,
     pub(crate) prevalidated_effective_mode: BehaviorMode,
     pub(crate) prevalidated_gp_profile_active: bool,
-    pub(crate) deferred_reference_datatype_count: usize,
+    pub(crate) prevalidated_reference_datatype_claim_count: usize,
     pub(crate) prevalidated_reference_claim_count: usize,
 }
 
@@ -504,7 +619,7 @@ impl ProgressiveSofiaFrontend {
                 .effective_mode
                 .expect("active validation state must retain an effective mode"),
             prevalidated_gp_profile_active: validation.gp_profile_active,
-            deferred_reference_datatype_count: validation.deferred_reference_datatype_count,
+            prevalidated_reference_datatype_claim_count: validation.reference_datatype_claim_count,
             prevalidated_reference_claim_count: validation.reference_claim_count,
         }
     }
@@ -573,7 +688,10 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub validation_gp_profile_active: bool,
     pub validation_header_field_count: usize,
     pub validation_header_string_bytes: usize,
-    pub validation_deferred_reference_datatype_count: usize,
+    pub validation_reference_datatype_claim_count: usize,
+    pub validation_datatype_target_count: usize,
+    pub validation_datatype_target_string_bytes: usize,
+    pub validation_reference_datatype_claim_string_bytes: usize,
     pub validation_reference_target_count: usize,
     pub validation_reference_target_string_bytes: usize,
     pub validation_reference_step_count: usize,
@@ -603,6 +721,8 @@ impl ProgressiveRetentionSnapshot {
             .saturating_add(self.completed_binding_storage_bytes)
             .saturating_add(self.validation_header_string_bytes)
             .saturating_add(self.validation_seen_path_string_bytes)
+            .saturating_add(self.validation_datatype_target_string_bytes)
+            .saturating_add(self.validation_reference_datatype_claim_string_bytes)
             .saturating_add(self.validation_reference_target_string_bytes)
             .saturating_add(self.validation_reference_step_string_bytes)
             .saturating_add(self.ready_event_slot_bytes)
@@ -690,8 +810,11 @@ impl ProgressiveCompiler {
             validation_gp_profile_active: validation.gp_profile_active,
             validation_header_field_count: validation.header_field_count,
             validation_header_string_bytes: validation.header_string_bytes,
-            validation_deferred_reference_datatype_count: validation
-                .deferred_reference_datatype_count,
+            validation_reference_datatype_claim_count: validation.reference_datatype_claim_count,
+            validation_datatype_target_count: validation.datatype_target_count,
+            validation_datatype_target_string_bytes: validation.datatype_target_string_bytes,
+            validation_reference_datatype_claim_string_bytes: validation
+                .reference_datatype_claim_string_bytes,
             validation_reference_target_count: validation.reference_target_count,
             validation_reference_target_string_bytes: validation.reference_target_string_bytes,
             validation_reference_step_count: validation.reference_step_count,
@@ -1620,27 +1743,100 @@ mod tests {
     }
 
     #[test]
-    fn reference_dependent_datatype_claims_are_explicitly_deferred() {
-        let source = "target:number = 1\ncopy:string = ~target";
-        let options = CompileOptions::default();
-        let expected = compile_owned_with_implementation(
-            source.to_owned(),
-            options.clone(),
-            ParserImplementation::Sofia,
-        );
-        assert_eq!(expected.errors.len(), 1);
-        assert_eq!(expected.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
-
-        let (_, finished) = collect_progressive(source, &options, 8);
-        assert!(finished.parse_valid);
-        assert!(finished.prevalidation_errors.is_empty());
-        assert_eq!(finished.deferred_reference_datatype_count, 1);
-
-        let (_, disposition) = compile_through_progressive_lifecycle(source, options);
-        let ProgressiveDisposition::Invalidated { result, .. } = disposition else {
-            panic!("authoritative replay must invalidate the deferred mismatch");
+    fn compact_prevalidation_resolves_reference_dependent_datatypes() {
+        let strict_allow_custom = CompileOptions {
+            datatype_policy: Some(crate::DatatypePolicy::AllowCustom),
+            ..CompileOptions::default()
         };
-        assert_eq!(result, expected);
+        let validation_only = CompileOptions {
+            shallow_event_values: true,
+            emit_binding_projections: false,
+            include_header: false,
+            include_event_annotations: false,
+            ..CompileOptions::default()
+        };
+        let cases = [
+            (
+                "valid backward reference",
+                "target:string = \"x\"\ncopy:string = ~target",
+                CompileOptions::default(),
+            ),
+            (
+                "backward mismatch",
+                "target:number = 1\ncopy:string = ~target",
+                CompileOptions::default(),
+            ),
+            (
+                "chained backward mismatch",
+                "a:number = 1\nb:number = ~a\nc:string = ~b",
+                CompileOptions::default(),
+            ),
+            (
+                "forward mismatch precedes reference error",
+                "copy:string = ~target\ntarget:number = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "missing target retains reference kind",
+                "copy:string = ~missing",
+                CompileOptions::default(),
+            ),
+            (
+                "self target retains reference kind",
+                "copy:string = ~copy",
+                CompileOptions::default(),
+            ),
+            (
+                "pointer reference resolves target",
+                "target:number = 1\ncopy:string = ~>target",
+                CompileOptions::default(),
+            ),
+            (
+                "attribute target mismatch",
+                "target@{note = \"x\"}:number = 1\ncopy:number = ~target.@.note",
+                CompileOptions::default(),
+            ),
+            (
+                "container target matches generic custom datatype",
+                "target:list = [1]\ncopy:items<number> = ~target",
+                CompileOptions::default(),
+            ),
+            (
+                "resolved and direct event errors retain source order",
+                "target:number = 1\nfirst:string = ~target\nsecond:string = 2",
+                CompileOptions::default(),
+            ),
+            (
+                "late strict toggle alias",
+                "target:toggle = on\ncopy:myToggle = ~target\naeon:mode = \"strict\"",
+                strict_allow_custom,
+            ),
+            (
+                "validation-only duplicate resolves last target",
+                "same:number = 1\nsame:string = \"x\"\ncopy:number = ~same",
+                validation_only,
+            ),
+            (
+                "normal duplicate suppresses resolved event diagnostics",
+                "same:number = 1\nsame:string = \"x\"\ncopy:number = ~same",
+                CompileOptions::default(),
+            ),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            let (_, finished) = collect_progressive(source, &options, 1);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+            assert!(
+                finished.prevalidated_reference_datatype_claim_count > 0,
+                "{name}",
+            );
+        }
     }
 
     #[test]
@@ -1767,11 +1963,14 @@ mod tests {
 
         let retained = compiler.retention();
         assert!(retained.validation_gp_profile_active);
-        assert_eq!(retained.validation_deferred_reference_datatype_count, 1);
+        assert_eq!(retained.validation_reference_datatype_claim_count, 1);
+        assert_eq!(retained.validation_datatype_target_count, 3);
+        assert!(retained.validation_datatype_target_string_bytes > 0);
+        assert!(retained.validation_reference_datatype_claim_string_bytes > 0);
         assert!(retained.validation_retained_candidate_error_count >= 4);
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.released_completed_binding_count, 4);
-        assert_eq!(retained.prevalidation_error_count, 2);
+        assert_eq!(retained.prevalidation_error_count, 3);
     }
 
     #[test]
