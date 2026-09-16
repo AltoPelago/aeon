@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(feature = "sofia-bench")]
+use std::io::Read;
 use std::num::NonZeroUsize;
 
 use crate::flatten::{ValidationReferenceStep, flatten_document};
@@ -9,6 +11,8 @@ use crate::resource_limits::{validate_binding_resource_limits, validate_event_pa
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
+#[cfg(feature = "sofia-bench")]
+use crate::utf8_decoder::Utf8Decoder;
 use crate::validation::{
     CompactDatatypeValue, CompactReferenceStep, compact_reference_steps,
     validate_attribute_datatypes, validate_compact_reference_datatype,
@@ -583,6 +587,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidated_structured_comment_count: usize,
     pub(crate) prevalidated_reference_datatype_claim_count: usize,
     pub(crate) prevalidated_reference_claim_count: usize,
+    validation_retention: ProgressiveValidationRetention,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -645,6 +650,7 @@ impl ProgressiveSofiaFrontend {
             prevalidated_structured_comment_count: validation.structured_comment_count,
             prevalidated_reference_datatype_claim_count: validation.reference_datatype_claim_count,
             prevalidated_reference_claim_count: validation.reference_claim_count,
+            validation_retention: validation,
         }
     }
 }
@@ -701,7 +707,7 @@ pub(crate) enum ProgressiveOutputMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct ProgressiveRetentionSnapshot {
+pub struct ProgressiveRetentionSnapshot {
     pub accepted_input_bytes: usize,
     pub compact_output: bool,
     pub source_retained: bool,
@@ -764,6 +770,75 @@ impl ProgressiveRetentionSnapshot {
             .saturating_add(self.staged_event_slot_bytes)
             .saturating_add(self.terminal_source_capacity_bytes)
     }
+
+    #[cfg(feature = "sofia-bench")]
+    fn observe_peak(&mut self, current: Self) {
+        macro_rules! observe_max {
+            ($($field:ident),+ $(,)?) => {
+                $(self.$field = self.$field.max(current.$field);)+
+            };
+        }
+        observe_max!(
+            accepted_input_bytes,
+            source_bytes,
+            source_capacity_bytes,
+            lexer_active_bytes,
+            parser_token_count,
+            parser_token_storage_bytes,
+            parser_frame_count,
+            structural_identity_count,
+            structural_identity_storage_bytes,
+            completed_binding_count,
+            completed_binding_storage_bytes,
+            released_completed_binding_count,
+            validation_header_field_count,
+            validation_header_string_bytes,
+            validation_structured_comment_count,
+            validation_reference_datatype_claim_count,
+            validation_datatype_target_count,
+            validation_datatype_target_string_bytes,
+            validation_reference_datatype_claim_string_bytes,
+            validation_reference_target_count,
+            validation_reference_target_string_bytes,
+            validation_reference_step_count,
+            validation_reference_claim_count,
+            validation_reference_step_string_bytes,
+            validation_retained_candidate_error_count,
+            validation_event_count,
+            validation_seen_path_count,
+            validation_seen_path_string_bytes,
+            prevalidation_error_count,
+            ready_batch_count,
+            ready_event_count,
+            ready_event_slot_bytes,
+            staged_batch_count,
+            staged_event_count,
+            staged_event_slot_bytes,
+            terminal_source_capacity_bytes,
+            terminal_event_count,
+        );
+        self.compact_output |= current.compact_output;
+        self.source_retained |= current.source_retained;
+        self.validation_has_declared_profile |= current.validation_has_declared_profile;
+        self.validation_gp_profile_active |= current.validation_gp_profile_active;
+        self.validation_has_structured_comment_error |=
+            current.validation_has_structured_comment_error;
+        if current.validation_effective_mode.is_some() {
+            self.validation_effective_mode = current.validation_effective_mode;
+        }
+    }
+}
+
+#[cfg(feature = "sofia-bench")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressiveBenchmarkReport {
+    pub result: CompileResult,
+    pub accepted: bool,
+    pub accepted_event_count: Option<usize>,
+    pub delivered_event_count: usize,
+    pub exposed_event_count: usize,
+    pub peak_accounted_shallow_bytes: usize,
+    pub retention_peaks: ProgressiveRetentionSnapshot,
 }
 
 pub(crate) struct ProgressiveCompiler {
@@ -772,6 +847,7 @@ pub(crate) struct ProgressiveCompiler {
     output_mode: ProgressiveOutputMode,
     source: Option<String>,
     accepted_input_bytes: usize,
+    terminal_validation_retention: Option<ProgressiveValidationRetention>,
     max_pending_batches: NonZeroUsize,
     pending: VecDeque<ProvisionalEventBatch>,
     deferred: VecDeque<ProvisionalEventBatch>,
@@ -841,6 +917,7 @@ impl ProgressiveCompiler {
             output_mode,
             source: matches!(output_mode, ProgressiveOutputMode::Rich(_)).then(String::new),
             accepted_input_bytes: 0,
+            terminal_validation_retention: None,
             max_pending_batches,
             pending: VecDeque::new(),
             deferred: VecDeque::new(),
@@ -871,7 +948,7 @@ impl ProgressiveCompiler {
             || {
                 (
                     IncrementalSofiaRetention::default(),
-                    ProgressiveValidationRetention::default(),
+                    self.terminal_validation_retention.unwrap_or_default(),
                 )
             },
             ProgressiveSofiaFrontend::retention,
@@ -987,6 +1064,7 @@ impl ProgressiveCompiler {
                     .expect("rich progressive mode must retain replay source"),
             ),
         };
+        self.terminal_validation_retention = Some(finished.validation_retention);
         let options = self
             .options
             .take()
@@ -1150,6 +1228,148 @@ impl ProgressiveCompiler {
             })
         }
     }
+}
+
+#[cfg(feature = "sofia-bench")]
+fn observe_benchmark_retention(
+    compiler: &ProgressiveCompiler,
+    peaks: &mut ProgressiveRetentionSnapshot,
+    peak_accounted_shallow_bytes: &mut usize,
+) {
+    let current = compiler.retention();
+    *peak_accounted_shallow_bytes =
+        (*peak_accounted_shallow_bytes).max(current.accounted_shallow_bytes());
+    peaks.observe_peak(current);
+}
+
+#[cfg(feature = "sofia-bench")]
+fn drain_benchmark_backpressure(
+    compiler: &mut ProgressiveCompiler,
+    delivered_event_count: &mut usize,
+) -> Result<(), String> {
+    while compiler.is_backpressured() {
+        let batch = compiler
+            .pull_batch()
+            .ok_or_else(|| String::from("progressive backpressure had no pending batch"))?;
+        *delivered_event_count = delivered_event_count.saturating_add(batch.events().len());
+    }
+    Ok(())
+}
+
+/// Drives the crate-private compact progressive path from a fixed-size byte
+/// stream for repository memory measurements.
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+pub fn benchmark_compact_progressive_sofia(
+    mut reader: impl Read,
+    options: CompileOptions,
+    chunk_bytes: NonZeroUsize,
+    max_batch_events: NonZeroUsize,
+    max_pending_batches: NonZeroUsize,
+) -> Result<ProgressiveBenchmarkReport, String> {
+    if options.recovery {
+        return Err(String::from(
+            "compact progressive benchmark mode forbids recovery",
+        ));
+    }
+
+    let mut compiler =
+        ProgressiveCompiler::new_compact(options, max_batch_events, max_pending_batches);
+    let mut decoder = Utf8Decoder::default();
+    let mut input = vec![0; chunk_bytes.get()];
+    let mut delivered_event_count = 0usize;
+    let mut peaks = ProgressiveRetentionSnapshot::default();
+    let mut peak_accounted_shallow_bytes = 0usize;
+    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+
+    loop {
+        let read = reader
+            .read(&mut input)
+            .map_err(|error| format!("failed to read progressive input: {error}"))?;
+        if read == 0 {
+            break;
+        }
+
+        let mut lifecycle_error = None;
+        decoder
+            .push(&input[..read], |_, text| {
+                if lifecycle_error.is_some() {
+                    return;
+                }
+                if let Err(error) =
+                    drain_benchmark_backpressure(&mut compiler, &mut delivered_event_count)
+                {
+                    lifecycle_error = Some(error);
+                    return;
+                }
+                if let Err(error) = compiler.push_str(text) {
+                    lifecycle_error = Some(format!("progressive push failed: {error:?}"));
+                    return;
+                }
+                observe_benchmark_retention(
+                    &compiler,
+                    &mut peaks,
+                    &mut peak_accounted_shallow_bytes,
+                );
+            })
+            .map_err(|error| {
+                format!(
+                    "invalid UTF-8 at byte {} (error length {:?})",
+                    error.valid_up_to, error.error_len
+                )
+            })?;
+        if let Some(error) = lifecycle_error {
+            return Err(error);
+        }
+        drain_benchmark_backpressure(&mut compiler, &mut delivered_event_count)?;
+    }
+    decoder.finish().map_err(|error| {
+        format!(
+            "incomplete UTF-8 at byte {} (error length {:?})",
+            error.valid_up_to, error.error_len
+        )
+    })?;
+
+    loop {
+        drain_benchmark_backpressure(&mut compiler, &mut delivered_event_count)?;
+        let progress = compiler
+            .finish()
+            .map_err(|error| format!("progressive finish failed: {error:?}"))?;
+        observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+        match progress {
+            ProgressiveLifecycleProgress::Backpressured { .. } => {}
+            ProgressiveLifecycleProgress::Draining { .. }
+            | ProgressiveLifecycleProgress::TerminalReady => break,
+            progress => return Err(format!("unexpected finish progress: {progress:?}")),
+        }
+    }
+    while let Some(batch) = compiler.pull_batch() {
+        delivered_event_count = delivered_event_count.saturating_add(batch.events().len());
+    }
+    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+
+    let terminal = compiler
+        .take_terminal()
+        .map_err(|error| format!("progressive terminal result failed: {error:?}"))?;
+    let (result, accepted, accepted_event_count, exposed_event_count) = match terminal {
+        ProgressiveDisposition::Accepted {
+            result,
+            event_count,
+        } => (result, true, Some(event_count), delivered_event_count),
+        ProgressiveDisposition::Invalidated {
+            result,
+            exposed_event_count,
+        } => (result, false, None, exposed_event_count),
+    };
+    Ok(ProgressiveBenchmarkReport {
+        result,
+        accepted,
+        accepted_event_count,
+        delivered_event_count,
+        exposed_event_count,
+        peak_accounted_shallow_bytes,
+        retention_peaks: peaks,
+    })
 }
 
 #[cfg(test)]
@@ -1781,6 +2001,33 @@ mod tests {
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].code, "SOFIA_INCREMENTAL_REPLAY_REQUIRED");
         assert_eq!(compiler.buffered_bytes(), 0);
+    }
+
+    #[cfg(feature = "sofia-bench")]
+    #[test]
+    fn compact_benchmark_driver_streams_split_utf8_without_source_retention() {
+        let source = "first = \"🌊\"\nsecond = ~first";
+        let report = benchmark_compact_progressive_sofia(
+            std::io::Cursor::new(source.as_bytes()),
+            CompileOptions::default(),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        )
+        .expect("valid UTF-8 stream should compile");
+
+        assert!(report.accepted);
+        assert!(report.result.errors.is_empty());
+        assert_eq!(report.accepted_event_count, Some(2));
+        assert_eq!(report.delivered_event_count, 2);
+        assert_eq!(report.exposed_event_count, 2);
+        assert_eq!(report.retention_peaks.accepted_input_bytes, source.len());
+        assert!(report.retention_peaks.compact_output);
+        assert!(!report.retention_peaks.source_retained);
+        assert_eq!(report.retention_peaks.source_bytes, 0);
+        assert_eq!(report.retention_peaks.source_capacity_bytes, 0);
+        assert_eq!(report.retention_peaks.terminal_source_capacity_bytes, 0);
+        assert_eq!(report.retention_peaks.terminal_event_count, 0);
     }
 
     #[test]

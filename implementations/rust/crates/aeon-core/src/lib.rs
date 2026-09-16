@@ -59,6 +59,11 @@ pub use limits::{
     TransportLimits, aeon_compile_limits, effective_telex_configuration, finalization_limits,
     load_aeonic_limits, telex_limits,
 };
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+pub use progressive::{
+    ProgressiveBenchmarkReport, ProgressiveRetentionSnapshot, benchmark_compact_progressive_sofia,
+};
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::{
     IncrementalSofiaFrontend, ParserImplementation, ParserLimits,
