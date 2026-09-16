@@ -1233,6 +1233,67 @@ mod tests {
     }
 
     #[test]
+    fn raw_backticks_match_one_shot_at_every_scalar_split() {
+        for source in [
+            "value = `first line\nwave 🌊\nlast line` next",
+            r#"value = `escaped \` backtick and \\ slash` next"#,
+        ] {
+            let expected = tokenize(source, LexerOptions::default());
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for split in splits {
+                let actual = tokenize_chunks([&source[..split], &source[split..]]);
+                assert_eq!(actual, expected, "source {source:?}, split at byte {split}");
+            }
+
+            let raw = expected
+                .tokens
+                .iter()
+                .find(|token| token.kind == TokenKind::String)
+                .expect("backtick source contains a string token");
+            assert_eq!(raw.quote, Some('`'));
+            assert!(raw.text.starts_with('`') && raw.text.ends_with('`'));
+        }
+    }
+
+    #[test]
+    fn trimtick_markers_and_raw_body_match_at_every_scalar_split() {
+        let source = "note:trimtick = >>>>`\n    first\n\twave 🌊\n` next";
+        let expected = tokenize(source, LexerOptions::default());
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual = tokenize_chunks([&source[..split], &source[split..]]);
+            assert_eq!(actual, expected, "trimtick split at byte {split}");
+        }
+
+        let marker = expected
+            .tokens
+            .windows(5)
+            .find(|window| {
+                window[..4]
+                    .iter()
+                    .all(|token| token.kind == TokenKind::RightAngle)
+                    && window[4].kind == TokenKind::String
+            })
+            .expect("four contiguous marker tokens precede the raw body");
+        for pair in marker[..4].windows(2) {
+            assert_eq!(pair[0].span.end.offset, pair[1].span.start.offset);
+        }
+        assert_eq!(marker[3].span.end.offset, marker[4].span.start.offset);
+        assert_eq!(marker[4].quote, Some('`'));
+        assert_eq!(marker[4].text, "`\n    first\n\twave 🌊\n`");
+    }
+
+    #[test]
     fn escape_at_chunk_end_suspends_and_completed_string_emits_before_finish() {
         let mut lexer = LexerSession::new(LexerOptions::default());
         let first = lexer.push(Cow::Owned(r#"value = "left\"#.to_owned()));
@@ -1275,6 +1336,25 @@ mod tests {
         assert_eq!(
             finished.errors[0].span.end.offset,
             r#""unterminated\"#.len()
+        );
+        assert_eq!(finished.tokens.len(), 1);
+        assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn unterminated_raw_backtick_reports_only_when_finished() {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let pushed = lexer.push(Cow::Owned("`first\nwave 🌊\\".to_owned()));
+        assert!(pushed.tokens.is_empty());
+        assert!(pushed.errors.is_empty());
+
+        let finished = lexer.finish();
+        assert_eq!(finished.errors.len(), 1);
+        assert_eq!(finished.errors[0].code, "UNTERMINATED_STRING");
+        assert_eq!(finished.errors[0].span.start.offset, 0);
+        assert_eq!(
+            finished.errors[0].span.end.offset,
+            "`first\nwave 🌊\\".len()
         );
         assert_eq!(finished.tokens.len(), 1);
         assert_eq!(finished.tokens[0].kind, TokenKind::Eof);

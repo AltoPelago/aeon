@@ -1955,17 +1955,43 @@ fn is_valid_exponent_digits(raw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::{
         ParserImplementation, ParserLimits, parse_document_from_tokens,
         parse_document_from_tokens_recovery_with_implementation,
-        parse_document_from_tokens_with_implementation,
+        parse_document_from_tokens_with_implementation, parse_tokenized_document,
     };
-    use crate::{TrimtickMetadata, Value};
+    use crate::lexer::LexerSession;
+    use crate::{LexerOptions, TrimtickMetadata, Value};
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
         parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
+    }
+
+    fn parse_chunks(
+        input: &str,
+        split: usize,
+        implementation: ParserImplementation,
+    ) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        });
+        let mut tokens = Vec::new();
+        let mut errors = Vec::new();
+        for chunk in [&input[..split], &input[split..]] {
+            let result = lexer.push(Cow::Owned(chunk.to_owned()));
+            tokens.extend(result.tokens);
+            errors.extend(result.errors);
+        }
+        let result = lexer.finish();
+        tokens.extend(result.tokens);
+        errors.extend(result.errors);
+        assert!(errors.is_empty(), "incremental lexer errors: {errors:#?}");
+        parse_tokenized_document(&tokens, TEST_LIMITS, implementation)
     }
 
     fn parse_with(
@@ -2818,6 +2844,58 @@ group:object = {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn incremental_trimticks_preserve_metadata_at_every_scalar_split() {
+        let source = "note1:trimtick = >`\n  one\n  two\n`\nnote4:trimtick = >>>>`\n\talpha\n    beta 🌊\n`\n";
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect("one-shot trimticks parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "trimtick split at byte {split}");
+            }
+
+            let Value::StringLiteral {
+                raw,
+                delimiter,
+                trimticks: Some(metadata),
+                ..
+            } = &expected[1].value
+            else {
+                panic!("expected width-four trimtick metadata");
+            };
+            assert_eq!(*delimiter, '`');
+            assert_eq!(metadata.marker_width, 4);
+            assert_eq!(metadata.raw_value, *raw);
+            assert!(raw.contains("beta 🌊"));
+        }
+    }
+
+    #[test]
+    fn oversized_incremental_trimtick_marker_matches_one_shot_error() {
+        let source = "bad:trimtick = >>>>>`value`\n";
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect_err("marker is too wide");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .expect_err("incremental marker must remain too wide");
+                assert_eq!(actual, expected, "trimtick split at byte {split}");
+            }
+        }
     }
 
     #[test]
