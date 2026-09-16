@@ -1,0 +1,2 @@
+200name = "Sofía 🌊"
+items = [1, true, { nested = "yes" }]

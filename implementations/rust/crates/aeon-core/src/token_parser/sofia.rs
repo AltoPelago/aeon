@@ -264,6 +264,132 @@ impl<'a> ParserSession<'a> {
     }
 }
 
+#[cfg(feature = "sofia-fuzz")]
+pub(super) fn fuzz_incremental_session(data: &[u8], limits: ParserLimits) {
+    use crate::lexer::LexerSession;
+    use crate::utf8_decoder::Utf8Decoder;
+    use crate::{LexerOptions, tokenize};
+
+    let Some((&header, remainder)) = data.split_first() else {
+        return;
+    };
+    let plan_len = usize::from(header & 0x0f).min(remainder.len());
+    let (plan, source) = remainder.split_at(plan_len);
+    let recovery = header & 0x10 != 0;
+    let options = LexerOptions {
+        include_newlines: true,
+        ..LexerOptions::default()
+    };
+
+    let mut decoder = Utf8Decoder::default();
+    let mut lexer = LexerSession::new(options);
+    let mut parser = ParserSession::new(limits, recovery);
+    let mut incremental_tokens = Vec::new();
+    let mut incremental_errors = Vec::new();
+    let mut terminal = None;
+    let mut consumed = 0usize;
+    let mut operation = 0usize;
+
+    while consumed < source.len() {
+        let opcode = plan
+            .get(operation % plan.len().max(1))
+            .copied()
+            .unwrap_or(0);
+        operation += 1;
+        let action = opcode & 0x03;
+        let chunk_size = 1 + usize::from(opcode >> 2);
+
+        if action == 1 && terminal.is_none() {
+            match parser
+                .push_tokens(Cow::Owned(Vec::new()))
+                .expect("empty non-final fuzz push should be accepted")
+            {
+                ParserSessionProgress::NeedMoreInput => {}
+                ParserSessionProgress::Complete(outcome) => terminal = Some(outcome),
+            }
+        }
+
+        let end = (consumed + chunk_size).min(source.len());
+        let mut decoded = Vec::new();
+        if decoder
+            .push(&source[consumed..end], |_, text| {
+                decoded.push(text.to_owned());
+            })
+            .is_err()
+        {
+            return;
+        }
+        consumed = end;
+
+        for text in decoded {
+            let batch = lexer.push(Cow::Owned(text));
+            incremental_tokens.extend(batch.tokens.iter().cloned());
+            incremental_errors.extend(batch.errors.iter().cloned());
+            if terminal.is_none() {
+                match parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("non-final fuzz token batch should be accepted")
+                {
+                    ParserSessionProgress::NeedMoreInput => {}
+                    ParserSessionProgress::Complete(outcome) => terminal = Some(outcome),
+                }
+            }
+        }
+
+        if action == 2 && terminal.is_none() {
+            match parser
+                .push_tokens(Cow::Owned(Vec::new()))
+                .expect("empty non-final fuzz push should be accepted")
+            {
+                ParserSessionProgress::NeedMoreInput => {}
+                ParserSessionProgress::Complete(outcome) => terminal = Some(outcome),
+            }
+        }
+        if action == 3 {
+            break;
+        }
+    }
+
+    if decoder.finish().is_err() {
+        return;
+    }
+
+    let final_batch = lexer.finish();
+    incremental_tokens.extend(final_batch.tokens.iter().cloned());
+    incremental_errors.extend(final_batch.errors.iter().cloned());
+    if terminal.is_none() {
+        terminal = Some(
+            parser
+                .finish_tokens(Cow::Owned(final_batch.tokens))
+                .expect("final fuzz token batch should finish the parser"),
+        );
+    }
+
+    let source = std::str::from_utf8(&source[..consumed])
+        .expect("a successfully finished decoder must contain valid UTF-8");
+    let one_shot = tokenize(source, options);
+    assert_eq!(incremental_tokens, one_shot.tokens);
+    assert_eq!(incremental_errors, one_shot.errors);
+
+    if one_shot.errors.is_empty() {
+        let expected = if recovery {
+            parse_document_recovery(&one_shot.tokens, limits)
+        } else {
+            parse_document(&one_shot.tokens, limits)
+        };
+        assert_eq!(terminal, Some(expected));
+    }
+
+    assert_eq!(
+        parser.push_tokens(Cow::Owned(Vec::new())),
+        Err(ParserSessionError::Finished)
+    );
+    assert!(matches!(
+        parser.finish_tokens(Cow::Owned(Vec::new())),
+        Err(ParserSessionError::Finished)
+    ));
+}
+
 #[derive(Clone)]
 struct ParserState {
     current: usize,
@@ -3118,6 +3244,19 @@ literal = ~true.off"#,
                 }
             }
         }
+    }
+
+    #[cfg(feature = "sofia-fuzz")]
+    #[test]
+    fn incremental_fuzz_harness_covers_seed_and_utf8_lifecycle_paths() {
+        super::fuzz_incremental_session(
+            "200name = \"Sofía 🌊\"\nitems = [1, true]".as_bytes(),
+            TEST_LIMITS,
+        );
+        super::fuzz_incremental_session(b"230name = \"Sofia\"\nlater = [1, 2, 3]", TEST_LIMITS);
+        super::fuzz_incremental_session(b"Q1broken = [1,,2]\nlater = true", TEST_LIMITS);
+        super::fuzz_incremental_session(&[0, 0xf0, b'('], TEST_LIMITS);
+        super::fuzz_incremental_session(&[0, 0xf0, 0x9f], TEST_LIMITS);
     }
 
     #[test]

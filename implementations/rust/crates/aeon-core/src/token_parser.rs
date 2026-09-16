@@ -52,6 +52,11 @@ impl ParserLimits {
     }
 }
 
+#[cfg(feature = "sofia-fuzz")]
+pub(crate) fn fuzz_sofia_incremental_session(data: &[u8], limits: ParserLimits) {
+    sofia::fuzz_incremental_session(data, limits);
+}
+
 fn is_bare_key_kind(kind: TokenKind) -> bool {
     matches!(
         kind,

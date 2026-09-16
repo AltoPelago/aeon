@@ -899,6 +899,30 @@ pub fn fuzz_sofia_token_parse(input: &str) {
     drop_parser_bindings_iteratively(recovery.bindings);
 }
 
+/// Exercises incremental UTF-8, lexer, parser, and lifecycle schedules for fuzzing.
+///
+/// This is not a stable incremental API. It is available only through the
+/// `sofia-fuzz` feature used by the repository's dedicated fuzz crate.
+#[cfg(feature = "sofia-fuzz")]
+#[doc(hidden)]
+pub fn fuzz_sofia_incremental(data: &[u8]) {
+    const MAX_INPUT_BYTES: usize = 1 << 20;
+    if data.len() > MAX_INPUT_BYTES {
+        return;
+    }
+
+    let defaults = CompileOptions::default();
+    let limits = ParserLimits::new(
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
+    );
+    token_parser::fuzz_sofia_incremental_session(data, limits);
+}
+
 fn parse_document_tokens(
     source: &str,
     max_nesting_depth: usize,

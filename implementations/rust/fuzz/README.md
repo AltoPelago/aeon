@@ -7,6 +7,8 @@ Current targets:
 - `compile`: exercises `aeon_core::compile(...)` across the full compile pipeline
 - `token_parse`: exercises `aeon_core::benchmark_token_parse(...)` at the token-parser boundary
 - `sofia_token_parse`: exercises Sofia's strict and recovery frame-machine paths
+- `sofia_incremental`: exercises byte chunking, UTF-8 decoding, incremental
+  lexing, resumable Sofia parsing, and lifecycle-call sequences
 
 The compile and baseline token-parser corpora are seeded from repository
 `stress-tests/` fixtures. The Sofia corpus starts with focused frame-family and
@@ -49,6 +51,21 @@ Run the Sofia-specific parser target:
 cd implementations/rust/fuzz
 cargo +nightly fuzz run sofia_token_parse corpus/sofia_token_parse
 ```
+
+Run the incremental Sofia target:
+
+```bash
+cd implementations/rust/fuzz
+cargo +nightly fuzz run sofia_incremental corpus/sofia_incremental
+```
+
+The incremental target treats the low nibble of the first byte as the schedule
+header length. Header bytes select chunk widths and ordinary, empty-push, or
+early-finish lifecycle operations; the remaining bytes are AEON source. This
+lets the fuzzer mutate source content, raw-byte boundaries, and lifecycle calls
+together. Valid UTF-8 inputs must match one-shot lexer and parser results
+exactly. Invalid and truncated UTF-8 exercise the decoder failure paths without
+lossy conversion.
 
 The Sofia harness enables the private-purpose `sofia-fuzz` crate feature. Its
 doc-hidden entry point does not expose the internal parser selector as a stable

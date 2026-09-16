@@ -35,5 +35,12 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "sofia_incremental"
+path = "fuzz_targets/sofia_incremental.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
 members = ["."]
