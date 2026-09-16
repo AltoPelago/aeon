@@ -494,6 +494,58 @@ pub(crate) fn validate_datatypes(
     );
 }
 
+pub(crate) fn validate_direct_event_datatypes(
+    events: &[AssignmentEvent],
+    rendered_event_paths: &[String],
+    mode: BehaviorMode,
+    datatype_policy: Option<DatatypePolicy>,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let empty_lookup = BTreeMap::new();
+    for (event, path) in events.iter().zip(rendered_event_paths) {
+        if matches!(
+            event.value,
+            Value::CloneReference { .. } | Value::PointerReference { .. }
+        ) {
+            continue;
+        }
+        validate_datatypes(
+            std::slice::from_ref(event),
+            std::slice::from_ref(path),
+            &empty_lookup,
+            &[],
+            Some(mode),
+            datatype_policy,
+            max_separator_depth,
+            max_generic_depth,
+            errors,
+        );
+    }
+}
+
+pub(crate) fn validate_attribute_datatypes(
+    bindings: &[Binding],
+    mode: BehaviorMode,
+    datatype_policy: Option<DatatypePolicy>,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    validate_datatypes(
+        &[],
+        &[],
+        &BTreeMap::new(),
+        bindings,
+        Some(mode),
+        datatype_policy,
+        max_separator_depth,
+        max_generic_depth,
+        errors,
+    );
+}
+
 pub(crate) fn validate_datatypes_light(
     events: &[ValidationEvent],
     event_lookup: &BTreeMap<String, usize>,

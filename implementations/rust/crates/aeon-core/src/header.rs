@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::{BehaviorMode, Binding, Diagnostic, HeaderFields, Position, Span, Value};
+use crate::{
+    AEON_GP_PROFILE_ID, BehaviorMode, Binding, Diagnostic, HeaderFields, Position, Span, Value,
+};
 
 fn combined_span(a: Span, b: Span) -> Span {
     Span {
@@ -26,6 +28,7 @@ pub(crate) struct IncrementalHeaderState {
     first_layout_error: Option<Diagnostic>,
     declared_mode: Option<BehaviorMode>,
     declared_profile: Option<String>,
+    uses_gp_profile: bool,
     observed_field_count: usize,
     seen_non_structured_binding: bool,
 }
@@ -91,6 +94,9 @@ impl IncrementalHeaderState {
         } else if key == "aeon:profile" && self.declared_profile.is_none() {
             self.declared_profile = Some(value.clone());
         }
+        if key == "aeon:profile" && value == AEON_GP_PROFILE_ID {
+            self.uses_gp_profile = true;
+        }
     }
 
     pub(crate) fn error(&self) -> Option<Diagnostic> {
@@ -121,6 +127,10 @@ impl IncrementalHeaderState {
 
     pub(crate) fn declared_profile(&self) -> Option<&str> {
         self.declared_profile.as_deref()
+    }
+
+    pub(crate) fn uses_gp_profile(&self, option_profile: Option<&str>) -> bool {
+        option_profile == Some(AEON_GP_PROFILE_ID) || self.uses_gp_profile
     }
 
     pub(crate) const fn observed_field_count(&self) -> usize {

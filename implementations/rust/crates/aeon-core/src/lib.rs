@@ -1169,7 +1169,7 @@ fn validate_only_compile(
     }
 }
 
-const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
+pub(crate) const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GpDatatypeClarifierRule {
@@ -1207,7 +1207,7 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
     })
 }
 
-fn validate_gp_datatype_clarifiers(
+pub(crate) fn validate_gp_datatype_clarifiers(
     events: &[AssignmentEvent],
     rendered_paths: &[String],
     errors: &mut Vec<Diagnostic>,

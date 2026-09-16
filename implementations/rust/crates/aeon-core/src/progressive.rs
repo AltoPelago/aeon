@@ -10,11 +10,14 @@ use crate::resource_limits::{validate_binding_resource_limits, validate_event_pa
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
-use crate::validation::{validate_duplicate_object_member_keys, validate_typed_mode_rules};
+use crate::validation::{
+    validate_attribute_datatypes, validate_direct_event_datatypes,
+    validate_duplicate_object_member_keys, validate_typed_mode_rules,
+};
 use crate::{
     BehaviorMode, Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch,
-    EventBatches, SourcePlane, compile_owned_with_implementation, event_count_exceeded_error,
-    format_path,
+    EventBatches, SourcePlane, Value, compile_owned_with_implementation,
+    event_count_exceeded_error, format_path, validate_gp_datatype_clarifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +45,35 @@ impl ProvisionalEventBatch {
     }
 }
 
+#[derive(Debug, Default)]
+struct ModeDiagnosticLedger {
+    transport: Vec<Diagnostic>,
+    strict: Vec<Diagnostic>,
+    custom: Vec<Diagnostic>,
+}
+
+impl ModeDiagnosticLedger {
+    fn errors(&self, mode: BehaviorMode) -> &[Diagnostic] {
+        match mode {
+            BehaviorMode::Transport => &self.transport,
+            BehaviorMode::Strict => &self.strict,
+            BehaviorMode::Custom => &self.custom,
+        }
+    }
+
+    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<Diagnostic> {
+        match mode {
+            BehaviorMode::Transport => &mut self.transport,
+            BehaviorMode::Strict => &mut self.strict,
+            BehaviorMode::Custom => &mut self.custom,
+        }
+    }
+
+    fn retained_error_count(&self) -> usize {
+        self.transport.len() + self.strict.len() + self.custom.len()
+    }
+}
+
 #[derive(Debug)]
 struct ProgressiveValidationState {
     options: CompileOptions,
@@ -52,16 +84,22 @@ struct ProgressiveValidationState {
     duplicate_object_errors: Vec<Diagnostic>,
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
-    strict_mode_errors: Vec<Diagnostic>,
-    custom_mode_errors: Vec<Diagnostic>,
+    datatype_event_errors: ModeDiagnosticLedger,
+    datatype_attribute_errors: ModeDiagnosticLedger,
+    gp_profile_errors: Vec<Diagnostic>,
+    deferred_reference_datatype_count: usize,
+    typed_mode_errors: ModeDiagnosticLedger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct ProgressiveValidationRetention {
     effective_mode: Option<BehaviorMode>,
     has_declared_profile: bool,
+    gp_profile_active: bool,
     header_field_count: usize,
     header_string_bytes: usize,
+    deferred_reference_datatype_count: usize,
+    retained_candidate_error_count: usize,
     event_count: usize,
     seen_path_count: usize,
     seen_path_string_bytes: usize,
@@ -79,8 +117,11 @@ impl ProgressiveValidationState {
             duplicate_object_errors: Vec::new(),
             event_path_error: None,
             duplicate_errors: Vec::new(),
-            strict_mode_errors: Vec::new(),
-            custom_mode_errors: Vec::new(),
+            datatype_event_errors: ModeDiagnosticLedger::default(),
+            datatype_attribute_errors: ModeDiagnosticLedger::default(),
+            gp_profile_errors: Vec::new(),
+            deferred_reference_datatype_count: 0,
+            typed_mode_errors: ModeDiagnosticLedger::default(),
         }
     }
 
@@ -97,28 +138,22 @@ impl ProgressiveValidationState {
                 &mut self.duplicate_object_errors,
             );
         }
-        match self.options.mode.or(self.header.declared_mode()) {
-            Some(BehaviorMode::Strict) => validate_typed_mode_rules(
-                bindings,
-                Some(BehaviorMode::Strict),
-                &mut self.strict_mode_errors,
-            ),
-            Some(BehaviorMode::Custom) => validate_typed_mode_rules(
-                bindings,
-                Some(BehaviorMode::Custom),
-                &mut self.custom_mode_errors,
-            ),
-            Some(BehaviorMode::Transport) => {}
-            None => {
-                validate_typed_mode_rules(
-                    bindings,
-                    Some(BehaviorMode::Strict),
-                    &mut self.strict_mode_errors,
+        for &mode in self.candidate_modes() {
+            for binding in bindings.iter().filter(|binding| !binding.is_header) {
+                validate_attribute_datatypes(
+                    std::slice::from_ref(binding),
+                    mode,
+                    self.options.datatype_policy,
+                    self.options.effective_max_clarifier_values(),
+                    self.options.max_generic_depth,
+                    self.datatype_attribute_errors.errors_mut(mode),
                 );
+            }
+            if !matches!(mode, BehaviorMode::Transport) {
                 validate_typed_mode_rules(
                     bindings,
-                    Some(BehaviorMode::Custom),
-                    &mut self.custom_mode_errors,
+                    Some(mode),
+                    self.typed_mode_errors.errors_mut(mode),
                 );
             }
         }
@@ -129,18 +164,59 @@ impl ProgressiveValidationState {
             self.event_path_error = validate_event_path_limits(events, &self.options);
         }
         self.event_count = self.event_count.saturating_add(events.len());
-        for event in events {
-            let path = format_path(&event.path);
+        self.deferred_reference_datatype_count =
+            self.deferred_reference_datatype_count.saturating_add(
+                events
+                    .iter()
+                    .filter(|event| {
+                        event.datatype.is_some()
+                            && matches!(
+                                event.value,
+                                Value::CloneReference { .. } | Value::PointerReference { .. }
+                            )
+                    })
+                    .count(),
+            );
+        let rendered_paths = events
+            .iter()
+            .map(|event| format_path(&event.path))
+            .collect::<Vec<_>>();
+        for (event, path) in events.iter().zip(&rendered_paths) {
             if !self
                 .seen_event_paths
                 .insert((event.source_plane, path.clone()))
             {
                 self.duplicate_errors.push(
                     Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", event.key))
-                        .at_path(path)
+                        .at_path(path.clone())
                         .with_span(event.span),
                 );
             }
+        }
+        for &mode in self.candidate_modes() {
+            validate_direct_event_datatypes(
+                events,
+                &rendered_paths,
+                mode,
+                self.options.datatype_policy,
+                self.options.effective_max_clarifier_values(),
+                self.options.max_generic_depth,
+                self.datatype_event_errors.errors_mut(mode),
+            );
+        }
+        validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
+    }
+
+    fn candidate_modes(&self) -> &'static [BehaviorMode] {
+        match self.options.mode.or(self.header.declared_mode()) {
+            Some(BehaviorMode::Transport) => &[BehaviorMode::Transport],
+            Some(BehaviorMode::Strict) => &[BehaviorMode::Strict],
+            Some(BehaviorMode::Custom) => &[BehaviorMode::Custom],
+            None => &[
+                BehaviorMode::Transport,
+                BehaviorMode::Strict,
+                BehaviorMode::Custom,
+            ],
         }
     }
 
@@ -156,29 +232,68 @@ impl ProgressiveValidationState {
         {
             return vec![event_count_exceeded_error(self.event_count, max_events)];
         }
-        self.duplicate_object_errors
+        let mut errors = self
+            .duplicate_object_errors
             .iter()
             .cloned()
             .chain(self.event_path_error.iter().cloned())
             .chain(self.duplicate_errors.iter().cloned())
-            .chain(self.effective_typed_mode_errors().iter().cloned())
-            .collect()
+            .collect::<Vec<_>>();
+        if !self.fail_closed_duplicate_suppresses_events() {
+            errors.extend(self.effective_datatype_event_errors().iter().cloned());
+        }
+        errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
+        if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
+            errors.extend(self.gp_profile_errors.iter().cloned());
+        }
+        errors.extend(self.effective_typed_mode_errors().iter().cloned());
+        errors
+    }
+
+    fn effective_mode(&self) -> BehaviorMode {
+        self.header.effective_mode(self.options.mode)
+    }
+
+    fn gp_profile_active(&self) -> bool {
+        self.header.uses_gp_profile(self.options.profile.as_deref())
+    }
+
+    fn fail_closed_duplicate_suppresses_events(&self) -> bool {
+        !self.duplicate_errors.is_empty() && !self.validation_only()
+    }
+
+    fn validation_only(&self) -> bool {
+        self.options.shallow_event_values
+            && !self.options.emit_binding_projections
+            && !self.options.include_header
+            && !self.options.include_event_annotations
+            && !self.options.recovery
+    }
+
+    fn effective_datatype_event_errors(&self) -> &[Diagnostic] {
+        self.datatype_event_errors.errors(self.effective_mode())
+    }
+
+    fn effective_datatype_attribute_errors(&self) -> &[Diagnostic] {
+        self.datatype_attribute_errors.errors(self.effective_mode())
     }
 
     fn effective_typed_mode_errors(&self) -> &[Diagnostic] {
-        match self.header.effective_mode(self.options.mode) {
-            BehaviorMode::Strict => &self.strict_mode_errors,
-            BehaviorMode::Custom => &self.custom_mode_errors,
-            BehaviorMode::Transport => &[],
-        }
+        self.typed_mode_errors.errors(self.effective_mode())
     }
 
     fn retention(&self) -> ProgressiveValidationRetention {
         ProgressiveValidationRetention {
-            effective_mode: Some(self.header.effective_mode(self.options.mode)),
+            effective_mode: Some(self.effective_mode()),
             has_declared_profile: self.header.declared_profile().is_some(),
+            gp_profile_active: self.gp_profile_active(),
             header_field_count: self.header.observed_field_count(),
             header_string_bytes: self.header.retained_string_bytes(),
+            deferred_reference_datatype_count: self.deferred_reference_datatype_count,
+            retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
+                + self.datatype_attribute_errors.retained_error_count()
+                + self.gp_profile_errors.len()
+                + self.typed_mode_errors.retained_error_count(),
             event_count: self.event_count,
             seen_path_count: self.seen_event_paths.len(),
             seen_path_string_bytes: self
@@ -191,6 +306,17 @@ impl ProgressiveValidationState {
                 + self.duplicate_object_errors.len()
                 + usize::from(self.event_path_error.is_some())
                 + self.duplicate_errors.len()
+                + if self.fail_closed_duplicate_suppresses_events() {
+                    0
+                } else {
+                    self.effective_datatype_event_errors().len()
+                }
+                + self.effective_datatype_attribute_errors().len()
+                + if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
+                    self.gp_profile_errors.len()
+                } else {
+                    0
+                }
                 + self.effective_typed_mode_errors().len(),
         }
     }
@@ -286,6 +412,8 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidation_errors: Vec<Diagnostic>,
     pub(crate) prevalidated_event_count: usize,
     pub(crate) prevalidated_effective_mode: BehaviorMode,
+    pub(crate) prevalidated_gp_profile_active: bool,
+    pub(crate) deferred_reference_datatype_count: usize,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -327,6 +455,8 @@ impl ProgressiveSofiaFrontend {
             prevalidated_effective_mode: validation
                 .effective_mode
                 .expect("active validation state must retain an effective mode"),
+            prevalidated_gp_profile_active: validation.gp_profile_active,
+            deferred_reference_datatype_count: validation.deferred_reference_datatype_count,
         }
     }
 }
@@ -391,8 +521,11 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub released_completed_binding_count: usize,
     pub validation_effective_mode: Option<BehaviorMode>,
     pub validation_has_declared_profile: bool,
+    pub validation_gp_profile_active: bool,
     pub validation_header_field_count: usize,
     pub validation_header_string_bytes: usize,
+    pub validation_deferred_reference_datatype_count: usize,
+    pub validation_retained_candidate_error_count: usize,
     pub validation_event_count: usize,
     pub validation_seen_path_count: usize,
     pub validation_seen_path_string_bytes: usize,
@@ -498,8 +631,12 @@ impl ProgressiveCompiler {
             released_completed_binding_count: incremental.released_completed_binding_count,
             validation_effective_mode: validation.effective_mode,
             validation_has_declared_profile: validation.has_declared_profile,
+            validation_gp_profile_active: validation.gp_profile_active,
             validation_header_field_count: validation.header_field_count,
             validation_header_string_bytes: validation.header_string_bytes,
+            validation_deferred_reference_datatype_count: validation
+                .deferred_reference_datatype_count,
+            validation_retained_candidate_error_count: validation.retained_candidate_error_count,
             validation_event_count: validation.event_count,
             validation_seen_path_count: validation.seen_path_count,
             validation_seen_path_string_bytes: validation.seen_path_string_bytes,
@@ -1354,6 +1491,123 @@ mod tests {
                 "{name}",
             );
         }
+    }
+
+    #[test]
+    fn compact_prevalidation_matches_direct_datatype_and_profile_errors() {
+        let gp_option = CompileOptions {
+            profile: Some(String::from("aeon.gp.profile.v1")),
+            ..CompileOptions::default()
+        };
+        let validation_only = CompileOptions {
+            shallow_event_values: true,
+            emit_binding_projections: false,
+            include_header: false,
+            include_event_annotations: false,
+            ..CompileOptions::default()
+        };
+        let cases = [
+            (
+                "literal mismatch",
+                "value:string = 1",
+                CompileOptions::default(),
+            ),
+            (
+                "late strict reserved policy",
+                "value:custom = 1\naeon:mode = \"strict\"",
+                CompileOptions::default(),
+            ),
+            (
+                "attribute mismatch",
+                "value@{note:string=1}:n = 3",
+                CompileOptions::default(),
+            ),
+            (
+                "event errors precede attribute errors",
+                concat!("first@{note:string=1}:string = 2\n", "second:string = 3",),
+                CompileOptions::default(),
+            ),
+            (
+                "late GP profile",
+                "value:n[3] = 3\naeon:profile = \"aeon.gp.profile.v1\"",
+                CompileOptions::default(),
+            ),
+            ("GP profile option", "value:n[3] = 3", gp_option),
+            (
+                "fail-closed duplicate suppresses event datatypes",
+                "same:string = 1\nsame:string = 2",
+                CompileOptions::default(),
+            ),
+            (
+                "validation-only duplicate retains event datatypes",
+                "same:string = 1\nsame:string = 2",
+                validation_only,
+            ),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            assert!(!expected.errors.is_empty(), "{name}");
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+        }
+    }
+
+    #[test]
+    fn reference_dependent_datatype_claims_are_explicitly_deferred() {
+        let source = "target:number = 1\ncopy:string = ~target";
+        let options = CompileOptions::default();
+        let expected = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(expected.errors.len(), 1);
+        assert_eq!(expected.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+
+        let (_, finished) = collect_progressive(source, &options, 8);
+        assert!(finished.parse_valid);
+        assert!(finished.prevalidation_errors.is_empty());
+        assert_eq!(finished.deferred_reference_datatype_count, 1);
+
+        let (_, disposition) = compile_through_progressive_lifecycle(source, options);
+        let ProgressiveDisposition::Invalidated { result, .. } = disposition else {
+            panic!("authoritative replay must invalidate the deferred mismatch");
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn retention_snapshot_counts_datatype_profile_candidate_state() {
+        let source = concat!(
+            "value:string = 1\n",
+            "profiled:n[3] = 3\n",
+            "aeon:profile = \"aeon.gp.profile.v1\"\n",
+            "copy:string = ~value\n",
+            "pending =",
+        );
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable { .. })
+        ));
+
+        let retained = compiler.retention();
+        assert!(retained.validation_gp_profile_active);
+        assert_eq!(retained.validation_deferred_reference_datatype_count, 1);
+        assert!(retained.validation_retained_candidate_error_count >= 4);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.released_completed_binding_count, 4);
+        assert_eq!(retained.prevalidation_error_count, 2);
     }
 
     #[test]
