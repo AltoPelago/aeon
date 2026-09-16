@@ -124,6 +124,20 @@ struct QuotedStringState {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum CommentState {
+    Line {
+        start: Position,
+        metadata: CommentMetadata,
+    },
+    Block {
+        start: Position,
+        closing: char,
+        metadata: CommentMetadata,
+        saw_closing: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
 struct LexerCheckpoint {
     offset: usize,
     line: usize,
@@ -146,6 +160,7 @@ pub(crate) struct LexerSession<'a> {
     error_count: usize,
     aborted: bool,
     quoted_string: Option<QuotedStringState>,
+    comment: Option<CommentState>,
     finished: bool,
 }
 
@@ -163,6 +178,7 @@ impl<'a> LexerSession<'a> {
             error_count: 0,
             aborted: false,
             quoted_string: None,
+            comment: None,
             finished: false,
         }
     }
@@ -183,6 +199,9 @@ impl<'a> LexerSession<'a> {
         self.scan_available(true);
         if self.quoted_string.is_some() {
             self.finish_quoted_string();
+        }
+        if self.comment.is_some() {
+            self.finish_comment();
         }
         let pos = self.current_position();
         self.tokens.push(Token {
@@ -223,6 +242,16 @@ impl<'a> LexerSession<'a> {
                 continue;
             }
 
+            if self.comment.is_some() {
+                if !self.scan_comment() {
+                    if final_input {
+                        self.finish_comment();
+                    }
+                    return;
+                }
+                continue;
+            }
+
             if self.is_at_end() {
                 return;
             }
@@ -235,6 +264,12 @@ impl<'a> LexerSession<'a> {
             if self.quoted_string.is_some() {
                 if final_input {
                     self.finish_quoted_string();
+                }
+                return;
+            }
+            if self.comment.is_some() {
+                if final_input {
+                    self.finish_comment();
                 }
                 return;
             }
@@ -312,6 +347,69 @@ impl<'a> LexerSession<'a> {
                 end: self.current_position(),
             },
         });
+    }
+
+    fn scan_comment(&mut self) -> bool {
+        match self.comment.expect("comment scanner requires active state") {
+            CommentState::Line { start, metadata } => {
+                while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
+                    self.advance();
+                }
+                if self.is_at_end() {
+                    return false;
+                }
+
+                let text = self.slice_from(start.offset);
+                self.maybe_push_comment(TokenKind::LineComment, &text, start, metadata);
+                self.comment = None;
+                true
+            }
+            CommentState::Block {
+                start,
+                closing,
+                metadata,
+                mut saw_closing,
+            } => {
+                while !self.is_at_end() {
+                    let ch = self.advance();
+                    if saw_closing && ch == '/' {
+                        let text = self.slice_from(start.offset);
+                        self.maybe_push_comment(TokenKind::BlockComment, &text, start, metadata);
+                        self.comment = None;
+                        return true;
+                    }
+                    saw_closing = ch == closing;
+                }
+                self.comment = Some(CommentState::Block {
+                    start,
+                    closing,
+                    metadata,
+                    saw_closing,
+                });
+                false
+            }
+        }
+    }
+
+    fn finish_comment(&mut self) {
+        match self
+            .comment
+            .take()
+            .expect("comment finish requires active state")
+        {
+            CommentState::Line { start, metadata } => {
+                let text = self.slice_from(start.offset);
+                self.maybe_push_comment(TokenKind::LineComment, &text, start, metadata);
+            }
+            CommentState::Block { start, .. } => self.push_error(LexError {
+                code: String::from("UNTERMINATED_BLOCK_COMMENT"),
+                message: String::from("Unterminated block comment"),
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            }),
+        }
     }
 
     fn scan_token(&mut self) -> bool {
@@ -419,7 +517,7 @@ impl<'a> LexerSession<'a> {
                     self.push_token(TokenKind::Percent, "%", start, None, None);
                 }
             }
-            '/' => self.scan_slash_channel_or_symbol(start),
+            '/' => return self.scan_slash_channel_or_symbol(start),
             '"' | '\'' | '`' => {
                 self.quoted_string = Some(QuotedStringState {
                     start,
@@ -796,53 +894,34 @@ impl<'a> LexerSession<'a> {
         self.push_token(TokenKind::SansaAddressLiteral, &text, start, None, None);
     }
 
-    fn scan_slash_channel_or_symbol(&mut self, start: Position) {
+    fn scan_slash_channel_or_symbol(&mut self, start: Position) -> bool {
         match self.peek() {
             '/' => {
                 self.advance();
-                while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
-                    self.advance();
-                }
-                let text = self.slice_from(start.offset);
-                self.maybe_push_comment(
-                    TokenKind::LineComment,
-                    &text,
+                self.comment = Some(CommentState::Line {
                     start,
-                    CommentMetadata {
+                    metadata: CommentMetadata {
                         channel: CommentChannel::Plain,
                         form: CommentForm::Line,
                         subtype: None,
                     },
-                );
+                });
+                self.scan_comment()
             }
             '#' | '@' | '?' | '{' | '[' | '(' | '*' => {
                 let marker = self.advance();
-                let closing = slash_channel_closing_marker(marker);
-                while !self.is_at_end() {
-                    if self.peek() == closing && self.peek_next() == '/' {
-                        self.advance();
-                        self.advance();
-                        let text = self.slice_from(start.offset);
-                        self.maybe_push_comment(
-                            TokenKind::BlockComment,
-                            &text,
-                            start,
-                            comment_metadata_for_marker(marker),
-                        );
-                        return;
-                    }
-                    self.advance();
-                }
-                self.push_error(LexError {
-                    code: String::from("UNTERMINATED_BLOCK_COMMENT"),
-                    message: String::from("Unterminated block comment"),
-                    span: Span {
-                        start,
-                        end: self.current_position(),
-                    },
+                self.comment = Some(CommentState::Block {
+                    start,
+                    closing: slash_channel_closing_marker(marker),
+                    metadata: comment_metadata_for_marker(marker),
+                    saw_closing: false,
                 });
+                self.scan_comment()
             }
-            _ => self.push_token(TokenKind::Symbol, "/", start, None, None),
+            _ => {
+                self.push_token(TokenKind::Symbol, "/", start, None, None);
+                false
+            }
         }
     }
 
@@ -1174,10 +1253,20 @@ fn is_separator_raw_char(ch: char) -> bool {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{CommentChannel, LexResult, LexerOptions, LexerSession, TokenKind, tokenize};
+    use super::{
+        CommentChannel, CommentForm, CommentMetadata, LexResult, LexerOptions, LexerSession,
+        ReservedCommentSubtype, TokenKind, tokenize,
+    };
 
     fn tokenize_chunks<'a>(chunks: impl IntoIterator<Item = &'a str>) -> LexResult {
-        let mut lexer = LexerSession::new(LexerOptions::default());
+        tokenize_chunks_with_options(chunks, LexerOptions::default())
+    }
+
+    fn tokenize_chunks_with_options<'a>(
+        chunks: impl IntoIterator<Item = &'a str>,
+        options: LexerOptions,
+    ) -> LexResult {
+        let mut lexer = LexerSession::new(options);
         let mut tokens = Vec::new();
         let mut errors = Vec::new();
         for chunk in chunks {
@@ -1356,6 +1445,131 @@ mod tests {
             finished.errors[0].span.end.offset,
             "`first\nwave 🌊\\".len()
         );
+        assert_eq!(finished.tokens.len(), 1);
+        assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn every_comment_channel_matches_one_shot_at_every_scalar_split() {
+        let source = "// line 🌊\r\n/* plain */ /# doc #/ /@ annotation @/ /? hint ?/ /{ structure }/ /[ profile ]/ /( instructions )/ tail";
+        let options = LexerOptions {
+            include_comments: true,
+            include_newlines: true,
+        };
+        let expected = tokenize(source, options);
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual =
+                tokenize_chunks_with_options([&source[..split], &source[split..]], options);
+            assert_eq!(actual, expected, "comment split at byte {split}");
+        }
+
+        let metadata = expected
+            .tokens
+            .iter()
+            .filter_map(|token| token.comment)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            metadata,
+            [
+                CommentMetadata {
+                    channel: CommentChannel::Plain,
+                    form: CommentForm::Line,
+                    subtype: None,
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Plain,
+                    form: CommentForm::Block,
+                    subtype: None,
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Doc,
+                    form: CommentForm::Block,
+                    subtype: None,
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Annotation,
+                    form: CommentForm::Block,
+                    subtype: None,
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Hint,
+                    form: CommentForm::Block,
+                    subtype: None,
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Reserved,
+                    form: CommentForm::Block,
+                    subtype: Some(ReservedCommentSubtype::Structure),
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Reserved,
+                    form: CommentForm::Block,
+                    subtype: Some(ReservedCommentSubtype::Profile),
+                },
+                CommentMetadata {
+                    channel: CommentChannel::Reserved,
+                    form: CommentForm::Block,
+                    subtype: Some(ReservedCommentSubtype::Instructions),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_emit_only_at_deterministic_boundary_or_finish() {
+        let options = LexerOptions {
+            include_comments: true,
+            ..LexerOptions::default()
+        };
+
+        let mut line = LexerSession::new(options);
+        let pending_line = line.push(Cow::Owned("// pending 🌊".to_owned()));
+        assert!(pending_line.tokens.is_empty());
+        assert!(pending_line.errors.is_empty());
+        let finished_line = line.finish();
+        assert!(finished_line.errors.is_empty());
+        assert_eq!(finished_line.tokens[0].kind, TokenKind::LineComment);
+        assert_eq!(finished_line.tokens[0].text, "// pending 🌊");
+
+        let mut block = LexerSession::new(options);
+        let pending_block = block.push(Cow::Owned("/@ pending 🌊@".to_owned()));
+        assert!(pending_block.tokens.is_empty());
+        assert!(pending_block.errors.is_empty());
+        let completed_block = block.push(Cow::Owned("/".to_owned()));
+        assert!(completed_block.errors.is_empty());
+        assert_eq!(completed_block.tokens.len(), 1);
+        assert_eq!(completed_block.tokens[0].kind, TokenKind::BlockComment);
+        assert_eq!(completed_block.tokens[0].text, "/@ pending 🌊@/");
+        assert_eq!(
+            completed_block.tokens[0]
+                .comment
+                .expect("annotation metadata")
+                .channel,
+            CommentChannel::Annotation
+        );
+    }
+
+    #[test]
+    fn unterminated_block_comment_reports_only_when_finished() {
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_comments: true,
+            ..LexerOptions::default()
+        });
+        let pushed = lexer.push(Cow::Owned("/{ pending }".to_owned()));
+        assert!(pushed.tokens.is_empty());
+        assert!(pushed.errors.is_empty());
+
+        let finished = lexer.finish();
+        assert_eq!(finished.errors.len(), 1);
+        assert_eq!(finished.errors[0].code, "UNTERMINATED_BLOCK_COMMENT");
+        assert_eq!(finished.errors[0].span.start.offset, 0);
+        assert_eq!(finished.errors[0].span.end.offset, "/{ pending }".len());
         assert_eq!(finished.tokens.len(), 1);
         assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
     }
