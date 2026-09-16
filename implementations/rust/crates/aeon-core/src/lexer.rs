@@ -106,7 +106,7 @@ pub struct LexResult {
 }
 
 pub fn tokenize(input: &str, options: LexerOptions) -> LexResult {
-    let mut lexer = LexerSession::new(options);
+    let mut lexer = LexerSession::one_shot(options);
     let mut result = lexer.push(Cow::Borrowed(input));
     let final_result = lexer.finish();
     result.tokens.extend(final_result.tokens);
@@ -215,6 +215,8 @@ struct LexerCheckpoint {
 
 pub(crate) struct LexerSession<'a> {
     input: Cow<'a, str>,
+    buffer_start_offset: usize,
+    compact_input: bool,
     options: LexerOptions,
     offset: usize,
     line: usize,
@@ -234,13 +236,26 @@ pub(crate) struct LexerSession<'a> {
     sansa_address: Option<SansaAddressState>,
     shebang: Option<ShebangState>,
     carriage_return: Option<CarriageReturnState>,
+    saw_leading_bom: bool,
     finished: bool,
 }
 
 impl<'a> LexerSession<'a> {
     pub(crate) fn new(options: LexerOptions) -> Self {
+        Self::with_compaction(options, true)
+    }
+
+    fn one_shot(options: LexerOptions) -> Self {
+        let mut lexer = Self::new(options);
+        lexer.compact_input = false;
+        lexer
+    }
+
+    fn with_compaction(options: LexerOptions, compact_input: bool) -> Self {
         Self {
             input: Cow::Owned(String::new()),
+            buffer_start_offset: 0,
+            compact_input,
             options,
             offset: 0,
             line: 1,
@@ -260,6 +275,7 @@ impl<'a> LexerSession<'a> {
             sansa_address: None,
             shebang: None,
             carriage_return: None,
+            saw_leading_bom: false,
             finished: false,
         }
     }
@@ -272,6 +288,7 @@ impl<'a> LexerSession<'a> {
             self.input.to_mut().push_str(&chunk);
         }
         self.scan_available(false);
+        self.compact_input_buffer();
         self.take_result()
     }
 
@@ -296,6 +313,7 @@ impl<'a> LexerSession<'a> {
             quote: None,
         });
         self.finished = true;
+        self.compact_input_buffer();
         self.take_result()
     }
 
@@ -955,13 +973,14 @@ impl<'a> LexerSession<'a> {
         let ch = self.advance();
 
         if ch == '\u{feff}' && start.offset == 0 {
+            self.saw_leading_bom = true;
             return true;
         }
         if ch == '#'
             && self.peek() == '!'
             && start.line == 1
             && (start.offset == 0
-                || (self.input.starts_with('\u{feff}') && start.offset == '\u{feff}'.len_utf8()))
+                || (self.saw_leading_bom && start.offset == '\u{feff}'.len_utf8()))
         {
             return self.begin_shebang();
         }
@@ -1364,7 +1383,7 @@ impl<'a> LexerSession<'a> {
         Position {
             line: self.line,
             column: self.column,
-            offset: self.offset,
+            offset: self.buffer_start_offset + self.offset,
         }
     }
 
@@ -1406,7 +1425,57 @@ impl<'a> LexerSession<'a> {
     }
 
     fn slice_from(&self, start_offset: usize) -> String {
-        self.input[start_offset..self.offset].to_owned()
+        let local_start = start_offset
+            .checked_sub(self.buffer_start_offset)
+            .expect("token start precedes retained lexer input");
+        self.input[local_start..self.offset].to_owned()
+    }
+
+    fn compact_input_buffer(&mut self) {
+        if !self.compact_input {
+            return;
+        }
+
+        let retain_from = self
+            .active_token_start_offset()
+            .unwrap_or_else(|| self.current_position().offset);
+        let local_retain_from = retain_from
+            .checked_sub(self.buffer_start_offset)
+            .expect("retained lexer start precedes input buffer");
+        if local_retain_from == 0 {
+            return;
+        }
+
+        let input = self.input.to_mut();
+        input.drain(..local_retain_from);
+        self.buffer_start_offset += local_retain_from;
+        self.offset -= local_retain_from;
+        if let Some(state) = &mut self.structural_identity {
+            state.search_offset -= local_retain_from;
+        }
+    }
+
+    fn active_token_start_offset(&self) -> Option<usize> {
+        self.quoted_string
+            .map(|state| state.start.offset)
+            .or_else(|| {
+                self.comment.map(|state| match state {
+                    CommentState::Line { start, .. } | CommentState::Block { start, .. } => {
+                        start.offset
+                    }
+                })
+            })
+            .or_else(|| self.number.map(|state| state.start.offset))
+            .or_else(|| self.prefixed_literal.map(|state| state.start.offset))
+            .or_else(|| self.separator_literal.map(|state| state.start.offset))
+            .or_else(|| self.identifier.map(|state| state.start.offset))
+            .or_else(|| self.structural_identity.map(|state| state.start.offset))
+            .or_else(|| self.sansa_address.as_ref().map(|state| state.start.offset))
+    }
+
+    #[cfg(test)]
+    fn retained_input_bytes(&self) -> usize {
+        self.input.len()
     }
 }
 
@@ -1673,6 +1742,90 @@ mod tests {
             ]
         );
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn incremental_session_releases_completed_prefixes_without_losing_absolute_spans() {
+        let source = "a = 1\n".repeat(512);
+        let expected = tokenize(&source, LexerOptions::default());
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let mut tokens = Vec::new();
+        let mut errors = Vec::new();
+        let mut peak_retained = 0usize;
+
+        for ch in source.chars() {
+            let result = lexer.push(Cow::Owned(ch.to_string()));
+            tokens.extend(result.tokens);
+            errors.extend(result.errors);
+            peak_retained = peak_retained.max(lexer.retained_input_bytes());
+        }
+        let result = lexer.finish();
+        tokens.extend(result.tokens);
+        errors.extend(result.errors);
+
+        assert_eq!(LexResult { tokens, errors }, expected);
+        assert_eq!(peak_retained, 1);
+        assert_eq!(lexer.retained_input_bytes(), 0);
+    }
+
+    #[test]
+    fn incremental_buffer_retains_only_the_active_raw_token() {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let prefix = lexer.push(Cow::Borrowed("prefix = \""));
+        assert_eq!(prefix.tokens.len(), 2);
+        assert!(prefix.errors.is_empty());
+        assert_eq!(lexer.retained_input_bytes(), 1);
+
+        let mut expected_active_bytes = 1usize;
+        for _ in 0..64 {
+            let pending = lexer.push(Cow::Borrowed("🌊"));
+            assert!(pending.tokens.is_empty());
+            assert!(pending.errors.is_empty());
+            expected_active_bytes += "🌊".len();
+            assert_eq!(lexer.retained_input_bytes(), expected_active_bytes);
+        }
+
+        let completed = lexer.push(Cow::Borrowed("\" tail "));
+        assert!(completed.errors.is_empty());
+        let string = completed
+            .tokens
+            .iter()
+            .find(|token| token.kind == TokenKind::String)
+            .expect("closing quote emits the active string");
+        assert_eq!(string.span.start.offset, "prefix = ".len());
+        assert_eq!(string.text.len(), expected_active_bytes + 1);
+        assert_eq!(lexer.retained_input_bytes(), 1);
+
+        let structural_prefix = "\nroot = 1\n";
+        let pending_identity = lexer.push(Cow::Owned(format!("{structural_prefix}\\alpha")));
+        assert!(pending_identity.errors.is_empty());
+        assert_eq!(lexer.retained_input_bytes(), "\\alpha".len());
+        let identity_start =
+            "prefix = \"".len() + 64 * "🌊".len() + "\" tail ".len() + structural_prefix.len();
+        let completed_identity = lexer.push(Cow::Borrowed("-id\\ "));
+        assert!(completed_identity.errors.is_empty());
+        let identity = completed_identity
+            .tokens
+            .iter()
+            .find(|token| token.kind == TokenKind::StructuralIdentity)
+            .expect("closing backslash emits the active identity");
+        assert_eq!(identity.text, "alpha-id");
+        assert_eq!(identity.span.start.offset, identity_start);
+        assert_eq!(lexer.retained_input_bytes(), 1);
+    }
+
+    #[test]
+    fn one_shot_session_keeps_the_borrowed_source_fast_path() {
+        let source = String::from("name = \"Pat\"");
+        let mut lexer = LexerSession::one_shot(LexerOptions::default());
+        let pushed = lexer.push(Cow::Borrowed(&source));
+        assert!(pushed.errors.is_empty());
+        assert!(matches!(&lexer.input, Cow::Borrowed(_)));
+        assert_eq!(lexer.retained_input_bytes(), source.len());
+
+        let finished = lexer.finish();
+        assert!(finished.errors.is_empty());
+        assert!(matches!(&lexer.input, Cow::Borrowed(_)));
     }
 
     #[test]
