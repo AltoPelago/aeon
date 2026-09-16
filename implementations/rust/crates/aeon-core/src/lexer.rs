@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::temporal::invalid_temporal_literal;
 use crate::{Position, Span};
 
@@ -104,37 +106,83 @@ pub struct LexResult {
 }
 
 pub fn tokenize(input: &str, options: LexerOptions) -> LexResult {
-    Lexer::new(input, options).tokenize()
+    let mut lexer = LexerSession::new(options);
+    let mut result = lexer.push(Cow::Borrowed(input));
+    let final_result = lexer.finish();
+    result.tokens.extend(final_result.tokens);
+    result.errors.extend(final_result.errors);
+    result
 }
 
 const MAX_LEX_ERRORS: usize = 256;
 
-struct Lexer<'a> {
-    input: &'a str,
+#[derive(Debug, Clone, Copy)]
+struct QuotedStringState {
+    start: Position,
+    quote: char,
+    escaped: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LexerCheckpoint {
+    offset: usize,
+    line: usize,
+    column: usize,
+    tokens_len: usize,
+    errors_len: usize,
+    error_count: usize,
+    previous_token_kind: Option<TokenKind>,
+}
+
+pub(crate) struct LexerSession<'a> {
+    input: Cow<'a, str>,
     options: LexerOptions,
     offset: usize,
     line: usize,
     column: usize,
     tokens: Vec<Token>,
     errors: Vec<LexError>,
+    previous_token_kind: Option<TokenKind>,
+    error_count: usize,
+    aborted: bool,
+    quoted_string: Option<QuotedStringState>,
+    finished: bool,
 }
 
-impl<'a> Lexer<'a> {
-    fn new(input: &'a str, options: LexerOptions) -> Self {
+impl<'a> LexerSession<'a> {
+    pub(crate) fn new(options: LexerOptions) -> Self {
         Self {
-            input,
+            input: Cow::Owned(String::new()),
             options,
             offset: 0,
             line: 1,
             column: 1,
             tokens: Vec::new(),
             errors: Vec::new(),
+            previous_token_kind: None,
+            error_count: 0,
+            aborted: false,
+            quoted_string: None,
+            finished: false,
         }
     }
 
-    fn tokenize(mut self) -> LexResult {
-        while !self.is_at_end() {
-            self.scan_token();
+    pub(crate) fn push(&mut self, chunk: Cow<'a, str>) -> LexResult {
+        assert!(!self.finished, "cannot push input after lexer finish");
+        if self.input.is_empty() && self.offset == 0 {
+            self.input = chunk;
+        } else {
+            self.input.to_mut().push_str(&chunk);
+        }
+        self.scan_available(false);
+        self.take_result()
+    }
+
+    pub(crate) fn finish(&mut self) -> LexResult {
+        assert!(!self.finished, "cannot finish lexer more than once");
+        self.scan_available(true);
+        if self.quoted_string.is_some() {
+            self.finish_quoted_string();
         }
         let pos = self.current_position();
         self.tokens.push(Token {
@@ -147,18 +195,131 @@ impl<'a> Lexer<'a> {
             comment: None,
             quote: None,
         });
+        self.finished = true;
+        self.take_result()
+    }
+
+    fn take_result(&mut self) -> LexResult {
         LexResult {
-            tokens: self.tokens,
-            errors: self.errors,
+            tokens: std::mem::take(&mut self.tokens),
+            errors: std::mem::take(&mut self.errors),
         }
     }
 
-    fn scan_token(&mut self) {
+    fn scan_available(&mut self, final_input: bool) {
+        if self.aborted {
+            self.offset = self.input.len();
+            return;
+        }
+
+        loop {
+            if self.quoted_string.is_some() {
+                if !self.scan_quoted_string() {
+                    if final_input {
+                        self.finish_quoted_string();
+                    }
+                    return;
+                }
+                continue;
+            }
+
+            if self.is_at_end() {
+                return;
+            }
+
+            let checkpoint = self.checkpoint();
+            let stable_at_boundary = self.scan_token();
+            if self.aborted {
+                return;
+            }
+            if self.quoted_string.is_some() {
+                if final_input {
+                    self.finish_quoted_string();
+                }
+                return;
+            }
+
+            if !final_input && self.is_at_end() && !stable_at_boundary {
+                self.restore(checkpoint);
+                return;
+            }
+        }
+    }
+
+    fn checkpoint(&self) -> LexerCheckpoint {
+        LexerCheckpoint {
+            offset: self.offset,
+            line: self.line,
+            column: self.column,
+            tokens_len: self.tokens.len(),
+            errors_len: self.errors.len(),
+            error_count: self.error_count,
+            previous_token_kind: self.previous_token_kind,
+        }
+    }
+
+    fn restore(&mut self, checkpoint: LexerCheckpoint) {
+        self.offset = checkpoint.offset;
+        self.line = checkpoint.line;
+        self.column = checkpoint.column;
+        self.tokens.truncate(checkpoint.tokens_len);
+        self.errors.truncate(checkpoint.errors_len);
+        self.error_count = checkpoint.error_count;
+        self.previous_token_kind = checkpoint.previous_token_kind;
+    }
+
+    fn scan_quoted_string(&mut self) -> bool {
+        let mut state = self
+            .quoted_string
+            .expect("quoted string scanner requires active state");
+        while !self.is_at_end() {
+            let ch = self.advance();
+            if state.escaped {
+                state.escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                state.escaped = true;
+                continue;
+            }
+            if ch == state.quote {
+                let text = self.slice_from(state.start.offset);
+                self.push_token(
+                    TokenKind::String,
+                    &text,
+                    state.start,
+                    None,
+                    Some(state.quote),
+                );
+                self.quoted_string = None;
+                return true;
+            }
+        }
+        self.quoted_string = Some(state);
+        false
+    }
+
+    fn finish_quoted_string(&mut self) {
+        let state = self
+            .quoted_string
+            .take()
+            .expect("quoted string finish requires active state");
+        self.push_error(LexError {
+            code: String::from("UNTERMINATED_STRING"),
+            message: format!("Unterminated string literal (started with {})", state.quote),
+            span: Span {
+                start: state.start,
+                end: self.current_position(),
+            },
+        });
+    }
+
+    fn scan_token(&mut self) -> bool {
         let start = self.current_position();
         let ch = self.advance();
 
         if ch == '\u{feff}' && start.offset == 0 {
-            return;
+            return false;
         }
         if ch == '#'
             && self.peek() == '!'
@@ -169,7 +330,7 @@ impl<'a> Lexer<'a> {
             while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
                 self.advance();
             }
-            return;
+            return false;
         }
 
         match ch {
@@ -259,7 +420,14 @@ impl<'a> Lexer<'a> {
                 }
             }
             '/' => self.scan_slash_channel_or_symbol(start),
-            '"' | '\'' | '`' => self.scan_string(start, ch),
+            '"' | '\'' | '`' => {
+                self.quoted_string = Some(QuotedStringState {
+                    start,
+                    quote: ch,
+                    escaped: false,
+                });
+                return self.scan_quoted_string();
+            }
             '+' | '-' => {
                 if self.peek().is_ascii_digit() || self.peek() == '.' {
                     self.scan_number(start, ch);
@@ -283,6 +451,7 @@ impl<'a> Lexer<'a> {
                 },
             }),
         }
+        false
     }
 
     fn scan_structural_identity(&mut self, start: Position) {
@@ -431,34 +600,6 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-    }
-
-    fn scan_string(&mut self, start: Position, quote: char) {
-        while !self.is_at_end() {
-            let ch = self.peek();
-            if ch == quote {
-                self.advance();
-                let text = self.slice_from(start.offset);
-                self.push_token(TokenKind::String, &text, start, None, Some(quote));
-                return;
-            }
-            if ch == '\\' {
-                self.advance();
-                if !self.is_at_end() {
-                    self.advance();
-                }
-                continue;
-            }
-            self.advance();
-        }
-        self.push_error(LexError {
-            code: String::from("UNTERMINATED_STRING"),
-            message: format!("Unterminated string literal (started with {quote})"),
-            span: Span {
-                start,
-                end: self.current_position(),
-            },
-        });
     }
 
     fn scan_separator_literal(&mut self, start: Position) {
@@ -725,6 +866,7 @@ impl<'a> Lexer<'a> {
         comment: Option<CommentMetadata>,
         quote: Option<char>,
     ) {
+        self.previous_token_kind = Some(kind);
         self.tokens.push(Token {
             kind,
             text: text.to_owned(),
@@ -738,18 +880,20 @@ impl<'a> Lexer<'a> {
     }
 
     fn previous_token_is_reference_marker(&self) -> bool {
-        self.tokens
-            .last()
-            .is_some_and(|token| matches!(token.kind, TokenKind::Tilde | TokenKind::TildeArrow))
+        matches!(
+            self.previous_token_kind,
+            Some(TokenKind::Tilde | TokenKind::TildeArrow)
+        )
     }
 
     fn push_error(&mut self, error: LexError) {
         let span = error.span;
-        if self.errors.len() < MAX_LEX_ERRORS {
+        if self.error_count < MAX_LEX_ERRORS {
             self.errors.push(error);
+            self.error_count += 1;
         }
 
-        if self.errors.len() == MAX_LEX_ERRORS {
+        if self.error_count == MAX_LEX_ERRORS && !self.aborted {
             self.errors.push(LexError {
                 code: String::from("LEX_ERROR_LIMIT_EXCEEDED"),
                 message: format!(
@@ -757,6 +901,7 @@ impl<'a> Lexer<'a> {
                 ),
                 span,
             });
+            self.aborted = true;
             self.offset = self.input.len();
         }
     }
@@ -1027,7 +1172,24 @@ fn is_separator_raw_char(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommentChannel, LexerOptions, TokenKind, tokenize};
+    use std::borrow::Cow;
+
+    use super::{CommentChannel, LexResult, LexerOptions, LexerSession, TokenKind, tokenize};
+
+    fn tokenize_chunks<'a>(chunks: impl IntoIterator<Item = &'a str>) -> LexResult {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let mut tokens = Vec::new();
+        let mut errors = Vec::new();
+        for chunk in chunks {
+            let result = lexer.push(Cow::Owned(chunk.to_owned()));
+            tokens.extend(result.tokens);
+            errors.extend(result.errors);
+        }
+        let result = lexer.finish();
+        tokens.extend(result.tokens);
+        errors.extend(result.errors);
+        LexResult { tokens, errors }
+    }
 
     #[test]
     fn tokenizes_basic_binding() {
@@ -1047,6 +1209,95 @@ mod tests {
             ]
         );
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn quoted_strings_and_escapes_match_one_shot_at_every_scalar_split() {
+        for source in [
+            r#"name = "left\"🌊right" next"#,
+            r#"name = 'left\'🌊right' next"#,
+            r#"name = "line\nwave\u{1f30a}" next"#,
+        ] {
+            let expected = tokenize(source, LexerOptions::default());
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for split in splits {
+                let actual = tokenize_chunks([&source[..split], &source[split..]]);
+                assert_eq!(actual, expected, "source {source:?}, split at byte {split}");
+            }
+        }
+    }
+
+    #[test]
+    fn escape_at_chunk_end_suspends_and_completed_string_emits_before_finish() {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let first = lexer.push(Cow::Owned(r#"value = "left\"#.to_owned()));
+        assert!(first.errors.is_empty());
+        assert!(
+            first
+                .tokens
+                .iter()
+                .all(|token| token.kind != TokenKind::String)
+        );
+
+        let second = lexer.push(Cow::Owned(r#""right""#.to_owned()));
+        assert!(second.errors.is_empty());
+        let string = second
+            .tokens
+            .iter()
+            .find(|token| token.kind == TokenKind::String)
+            .expect("closing quote emits the completed string during push");
+        assert_eq!(string.text, r#""left\"right""#);
+        assert_eq!(string.span.start.offset, "value = ".len());
+        assert_eq!(string.span.end.offset, r#"value = "left\"right""#.len());
+
+        let final_result = lexer.finish();
+        assert!(final_result.errors.is_empty());
+        assert_eq!(final_result.tokens.len(), 1);
+        assert_eq!(final_result.tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn unterminated_quoted_string_reports_only_when_finished() {
+        let mut lexer = LexerSession::new(LexerOptions::default());
+        let pushed = lexer.push(Cow::Owned(r#""unterminated\"#.to_owned()));
+        assert!(pushed.tokens.is_empty());
+        assert!(pushed.errors.is_empty());
+
+        let finished = lexer.finish();
+        assert_eq!(finished.errors.len(), 1);
+        assert_eq!(finished.errors[0].code, "UNTERMINATED_STRING");
+        assert_eq!(finished.errors[0].span.start.offset, 0);
+        assert_eq!(
+            finished.errors[0].span.end.offset,
+            r#""unterminated\"#.len()
+        );
+        assert_eq!(finished.tokens.len(), 1);
+        assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn drained_batches_preserve_prior_token_context() {
+        let expected = tokenize("~ $", LexerOptions::default());
+        let actual = tokenize_chunks(["~ ", "$"]);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.tokens[1].kind, TokenKind::Dollar);
+    }
+
+    #[test]
+    fn diagnostic_cap_is_session_wide_across_chunks() {
+        let invalid = "\u{00a8}";
+        let chunks = std::iter::repeat_n(invalid, super::MAX_LEX_ERRORS + 32);
+        let result = tokenize_chunks(chunks);
+        assert_eq!(result.errors.len(), super::MAX_LEX_ERRORS + 1);
+        assert_eq!(
+            result.errors.last().map(|error| error.code.as_str()),
+            Some("LEX_ERROR_LIMIT_EXCEEDED")
+        );
     }
 
     #[test]
