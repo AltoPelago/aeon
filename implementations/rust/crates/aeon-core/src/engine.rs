@@ -4,6 +4,7 @@ use std::iter::FusedIterator;
 use std::mem;
 use std::num::NonZeroUsize;
 
+use crate::utf8_decoder::{Utf8DecodeError, Utf8Decoder};
 use crate::{AssignmentEvent, CompileOptions, CompileResult, compile_owned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -137,6 +138,7 @@ pub struct Compiler {
     source_retention: SourceRetention,
     state: CompilerState,
     input: Vec<u8>,
+    utf8: Utf8Decoder,
 }
 
 impl Compiler {
@@ -152,6 +154,7 @@ impl Compiler {
             source_retention: config.source_retention,
             state: CompilerState::Accepting,
             input: Vec::new(),
+            utf8: Utf8Decoder::default(),
         }
     }
 
@@ -172,6 +175,9 @@ impl Compiler {
 
     pub fn push(&mut self, chunk: &[u8]) -> Result<CompilerProgress, CompilerError> {
         self.require_accepting(CompilerOperation::Push)?;
+        if let Err(error) = self.utf8.push(chunk, |_, _| {}) {
+            return Err(self.fail_invalid_utf8(error));
+        }
         self.input.extend_from_slice(chunk);
         Ok(CompilerProgress::NeedMoreInput {
             buffered_bytes: self.input.len(),
@@ -179,13 +185,25 @@ impl Compiler {
     }
 
     pub fn push_str(&mut self, chunk: &str) -> Result<CompilerProgress, CompilerError> {
-        self.push(chunk.as_bytes())
+        self.require_accepting(CompilerOperation::Push)?;
+        if let Err(error) = self.utf8.push_str(chunk, |_, _| {}) {
+            return Err(self.fail_invalid_utf8(error));
+        }
+        self.input.extend_from_slice(chunk.as_bytes());
+        Ok(CompilerProgress::NeedMoreInput {
+            buffered_bytes: self.input.len(),
+        })
     }
 
     pub fn finish(&mut self) -> Result<CompileResult, CompilerError> {
         self.require_accepting(CompilerOperation::Finish)?;
 
+        if let Err(error) = self.utf8.finish() {
+            return Err(self.fail_invalid_utf8(error));
+        }
+
         let input = mem::take(&mut self.input);
+        self.utf8 = Utf8Decoder::default();
         let source = match String::from_utf8(input) {
             Ok(source) => source,
             Err(error) => {
@@ -215,6 +233,7 @@ impl Compiler {
     pub fn cancel(&mut self) -> Result<(), CompilerError> {
         self.require_accepting(CompilerOperation::Cancel)?;
         self.input = Vec::new();
+        self.utf8 = Utf8Decoder::default();
         self.options = CompileOptions::default();
         self.state = CompilerState::Cancelled;
         Ok(())
@@ -228,6 +247,17 @@ impl Compiler {
                 operation,
                 state: self.state,
             })
+        }
+    }
+
+    fn fail_invalid_utf8(&mut self, error: Utf8DecodeError) -> CompilerError {
+        self.input = Vec::new();
+        self.utf8 = Utf8Decoder::default();
+        self.options = CompileOptions::default();
+        self.state = CompilerState::Failed;
+        CompilerError::InvalidUtf8 {
+            valid_up_to: error.valid_up_to,
+            error_len: error.error_len,
         }
     }
 }
@@ -424,6 +454,31 @@ mod tests {
             compiler.finish(),
             Err(CompilerError::InvalidState {
                 operation: CompilerOperation::Finish,
+                state: CompilerState::Failed,
+            })
+        );
+    }
+
+    #[test]
+    fn complete_invalid_utf8_fails_during_push_with_absolute_offset() {
+        let mut compiler = Compiler::new(CompileOptions::default());
+        compiler
+            .push(b"ok ")
+            .expect("valid prefix remains accepting");
+
+        assert_eq!(
+            compiler.push(&[0xf0, b'(']),
+            Err(CompilerError::InvalidUtf8 {
+                valid_up_to: 3,
+                error_len: Some(1),
+            })
+        );
+        assert_eq!(compiler.state(), CompilerState::Failed);
+        assert_eq!(compiler.buffered_bytes(), 0);
+        assert_eq!(
+            compiler.push_str("cannot recover"),
+            Err(CompilerError::InvalidState {
+                operation: CompilerOperation::Push,
                 state: CompilerState::Failed,
             })
         );

@@ -11,6 +11,7 @@ mod resource_limits;
 mod sansa;
 mod temporal;
 mod token_parser;
+mod utf8_decoder;
 mod validation;
 
 use std::collections::BTreeMap;
