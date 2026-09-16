@@ -5,7 +5,9 @@ use std::mem;
 use std::num::NonZeroUsize;
 
 use crate::flatten::flatten_document;
-use crate::token_parser::{IncrementalSofiaFrontend, IncrementalSofiaResult};
+use crate::token_parser::{
+    IncrementalSofiaFrontend, IncrementalSofiaResult, IncrementalSofiaRetention,
+};
 use crate::{
     Binding, CanonicalPath, CompileOptions, CompileResult, EventBatch, EventBatches,
     compile_parsed, compile_portability_warnings, failed_compile_result, input_size_diagnostic,
@@ -128,7 +130,11 @@ impl ProgressiveSofiaFrontend {
 
     pub(crate) fn push_str(&mut self, chunk: &str) -> Vec<ProvisionalEventBatch> {
         let bindings = self.parser.push_str(chunk);
-        self.events.push_completed_bindings(&bindings)
+        self.events.push_completed_bindings(bindings)
+    }
+
+    pub(crate) fn retention(&self) -> IncrementalSofiaRetention {
+        self.parser.retention()
     }
 
     pub(crate) fn finish(self, source: &str) -> ProgressiveSofiaFinish {
@@ -193,6 +199,36 @@ pub(crate) enum ProgressiveDisposition {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct ProgressiveRetentionSnapshot {
+    pub source_bytes: usize,
+    pub source_capacity_bytes: usize,
+    pub lexer_active_bytes: usize,
+    pub parser_token_count: usize,
+    pub parser_token_storage_bytes: usize,
+    pub parser_frame_count: usize,
+    pub completed_binding_count: usize,
+    pub ready_batch_count: usize,
+    pub ready_event_count: usize,
+    pub ready_event_slot_bytes: usize,
+    pub staged_batch_count: usize,
+    pub staged_event_count: usize,
+    pub staged_event_slot_bytes: usize,
+    pub terminal_source_capacity_bytes: usize,
+    pub terminal_event_count: usize,
+}
+
+impl ProgressiveRetentionSnapshot {
+    pub(crate) fn accounted_shallow_bytes(&self) -> usize {
+        self.source_capacity_bytes
+            .saturating_add(self.lexer_active_bytes)
+            .saturating_add(self.parser_token_storage_bytes)
+            .saturating_add(self.ready_event_slot_bytes)
+            .saturating_add(self.staged_event_slot_bytes)
+            .saturating_add(self.terminal_source_capacity_bytes)
+    }
+}
+
 pub(crate) struct ProgressiveCompiler {
     frontend: Option<ProgressiveSofiaFrontend>,
     options: Option<CompileOptions>,
@@ -234,6 +270,49 @@ impl ProgressiveCompiler {
 
     pub(crate) fn pending_batches(&self) -> usize {
         self.pending.len()
+    }
+
+    pub(crate) fn retention(&self) -> ProgressiveRetentionSnapshot {
+        let incremental = self
+            .frontend
+            .as_ref()
+            .map_or_else(IncrementalSofiaRetention::default, |frontend| {
+                frontend.retention()
+            });
+        let (terminal_source_capacity_bytes, terminal_event_count) =
+            self.terminal
+                .as_ref()
+                .map_or((0, 0), |terminal| match terminal {
+                    ProgressiveDisposition::Accepted { result, .. }
+                    | ProgressiveDisposition::Invalidated { result, .. } => {
+                        (result.source.capacity(), result.events.len())
+                    }
+                });
+        ProgressiveRetentionSnapshot {
+            source_bytes: self.source.len(),
+            source_capacity_bytes: self.source.capacity(),
+            lexer_active_bytes: incremental.lexer_active_bytes,
+            parser_token_count: incremental.parser_token_count,
+            parser_token_storage_bytes: incremental.parser_token_storage_bytes,
+            parser_frame_count: incremental.parser_frame_count,
+            completed_binding_count: incremental.completed_binding_count,
+            ready_batch_count: self.pending.len(),
+            ready_event_count: self.pending.iter().map(|batch| batch.events().len()).sum(),
+            ready_event_slot_bytes: self
+                .pending
+                .iter()
+                .map(|batch| batch.batch.retained_event_slot_bytes())
+                .sum(),
+            staged_batch_count: self.deferred.len(),
+            staged_event_count: self.deferred.iter().map(|batch| batch.events().len()).sum(),
+            staged_event_slot_bytes: self
+                .deferred
+                .iter()
+                .map(|batch| batch.batch.retained_event_slot_bytes())
+                .sum(),
+            terminal_source_capacity_bytes,
+            terminal_event_count,
+        }
     }
 
     pub(crate) fn is_backpressured(&self) -> bool {
@@ -835,5 +914,88 @@ mod tests {
         };
         assert_eq!(exposed_event_count, 0);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn retention_snapshot_separates_ready_staged_parser_ast_and_source_state() {
+        let first_chunk = "wide = [1, 2, 3, 4, 5]\nnext =";
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(first_chunk),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable {
+                backpressured: true,
+                ..
+            })
+        ));
+
+        let retained = compiler.retention();
+        assert_eq!(retained.source_bytes, first_chunk.len());
+        assert!(retained.source_capacity_bytes >= retained.source_bytes);
+        assert_eq!(retained.completed_binding_count, 1);
+        assert!(retained.parser_token_count <= 4);
+        assert_eq!(retained.ready_batch_count, 2);
+        assert_eq!(retained.ready_event_count, 2);
+        assert_eq!(retained.staged_batch_count, 4);
+        assert_eq!(retained.staged_event_count, 4);
+        assert!(retained.ready_event_slot_bytes > 0);
+        assert!(retained.staged_event_slot_bytes > 0);
+        assert!(retained.accounted_shallow_bytes() >= retained.source_capacity_bytes);
+
+        let before_events = retained.ready_event_count + retained.staged_event_count;
+        let _ = compiler
+            .pull_batch()
+            .expect("retained snapshot fixture must expose a batch");
+        let after_pull = compiler.retention();
+        assert_eq!(
+            after_pull.ready_event_count + after_pull.staged_event_count,
+            before_events - 1
+        );
+        assert!(after_pull.ready_batch_count <= 2);
+    }
+
+    #[test]
+    fn flat_stream_retention_reports_bounded_tokens_and_open_ast_source_categories() {
+        let bindings = (0..128)
+            .map(|index| format!("key_{index} = {index}\n"))
+            .collect::<String>();
+        let source = format!("{bindings}pending =");
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(16).expect("sixteen is non-zero"),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+        );
+
+        for scalar in source.chars() {
+            let mut encoded = [0; 4];
+            let chunk = scalar.encode_utf8(&mut encoded);
+            loop {
+                match compiler.push_str(chunk).expect("push should remain valid") {
+                    ProgressiveLifecycleProgress::Backpressured { .. } => {
+                        let _ = compiler
+                            .pull_batch()
+                            .expect("backpressure must expose a batch");
+                    }
+                    ProgressiveLifecycleProgress::NeedMoreInput { .. }
+                    | ProgressiveLifecycleProgress::BatchAvailable { .. } => break,
+                    progress => panic!("unexpected accepting progress: {progress:?}"),
+                }
+            }
+        }
+
+        let retained = compiler.retention();
+        assert_eq!(retained.source_bytes, source.len());
+        assert_eq!(retained.completed_binding_count, 128);
+        assert!(
+            retained.parser_token_count <= 4,
+            "flat parser retained {} tokens",
+            retained.parser_token_count
+        );
+        assert!(retained.parser_token_storage_bytes > 0);
+        assert!(retained.parser_frame_count > 0);
+        assert!(retained.ready_batch_count <= 1);
     }
 }

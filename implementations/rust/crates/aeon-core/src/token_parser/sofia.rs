@@ -150,20 +150,57 @@ impl<'a> ParserSession<'a> {
         self.token_start_index = retain_from;
     }
 
-    /// Clones top-level bindings whose terminating delimiter has been parsed
-    /// since the previous call. The parser retains the originals until the
-    /// whole-document validation pipeline can consume them.
-    pub(super) fn clone_newly_completed_bindings(&mut self) -> Vec<Binding> {
-        let Some(bindings) = self.frames.iter().find_map(|frame| match frame {
-            Frame::Document(document) => Some(&document.bindings),
-            _ => None,
-        }) else {
-            return Vec::new();
+    /// Borrows top-level bindings whose terminating delimiter has been parsed
+    /// since the previous call. The parser retains the sole AST copy until the
+    /// whole-document validation pipeline can consume it.
+    pub(super) fn newly_completed_bindings(&mut self) -> &[Binding] {
+        let Some(document_index) = self
+            .frames
+            .iter()
+            .position(|frame| matches!(frame, Frame::Document(_)))
+        else {
+            return &[];
         };
-        debug_assert!(self.completed_binding_cursor <= bindings.len());
-        let completed = bindings[self.completed_binding_cursor..].to_vec();
-        self.completed_binding_cursor = bindings.len();
-        completed
+        let Frame::Document(document) = &self.frames[document_index] else {
+            unreachable!("located Sofia document frame changed variant");
+        };
+        debug_assert!(self.completed_binding_cursor <= document.bindings.len());
+        let start = self.completed_binding_cursor;
+        self.completed_binding_cursor = document.bindings.len();
+        &document.bindings[start..]
+    }
+
+    pub(super) fn retained_token_count(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub(super) fn retained_token_storage_bytes(&self) -> usize {
+        match &self.tokens {
+            Cow::Borrowed(_) => 0,
+            Cow::Owned(tokens) => tokens
+                .capacity()
+                .saturating_mul(std::mem::size_of::<Token>())
+                .saturating_add(
+                    tokens
+                        .iter()
+                        .map(|token| token.text.capacity())
+                        .sum::<usize>(),
+                ),
+        }
+    }
+
+    pub(super) fn active_frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub(super) fn completed_binding_count(&self) -> usize {
+        self.frames
+            .iter()
+            .find_map(|frame| match frame {
+                Frame::Document(document) => Some(document.bindings.len()),
+                _ => None,
+            })
+            .unwrap_or(0)
     }
 
     fn run_available(&mut self, final_input: bool) -> Option<ParseOutcome> {
@@ -3273,12 +3310,12 @@ literal = ~true.off"#,
                     .expect("completed binding chunk should be accepted"),
                 ParserSessionProgress::NeedMoreInput
             );
-            let completed = parser.clone_newly_completed_bindings();
+            let completed = parser.newly_completed_bindings();
             assert_eq!(completed.len(), usize::from(expected_key.is_some()));
             if let Some(expected_key) = expected_key {
                 assert_eq!(completed[0].key, expected_key);
             }
-            assert!(parser.clone_newly_completed_bindings().is_empty());
+            assert!(parser.newly_completed_bindings().is_empty());
         }
 
         let final_batch = lexer.finish();

@@ -287,6 +287,12 @@ impl EventBatch {
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
+
+    pub(crate) fn retained_event_slot_bytes(&self) -> usize {
+        self.events
+            .capacity()
+            .saturating_mul(std::mem::size_of::<AssignmentEvent>())
+    }
 }
 
 #[derive(Debug)]

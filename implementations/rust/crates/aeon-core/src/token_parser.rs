@@ -140,6 +140,15 @@ pub(crate) struct IncrementalSofiaResult {
     pub peak_retained_token_bytes: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct IncrementalSofiaRetention {
+    pub lexer_active_bytes: usize,
+    pub parser_token_count: usize,
+    pub parser_token_storage_bytes: usize,
+    pub parser_frame_count: usize,
+    pub completed_binding_count: usize,
+}
+
 impl IncrementalSofiaFrontend {
     pub(crate) fn new(options: &CompileOptions) -> Self {
         let limits = ParserLimits::new(
@@ -166,9 +175,9 @@ impl IncrementalSofiaFrontend {
         }
     }
 
-    pub(crate) fn push_str(&mut self, chunk: &str) -> Vec<Binding> {
+    pub(crate) fn push_str(&mut self, chunk: &str) -> &[Binding] {
         if self.fallback_to_one_shot {
-            return Vec::new();
+            return &[];
         }
         let batch = self
             .lexer
@@ -189,17 +198,20 @@ impl IncrementalSofiaFrontend {
             self.fallback_to_one_shot = true;
             self.lexer = None;
             self.parser = None;
-            return Vec::new();
+            return &[];
         }
 
-        let parser = self
+        let progress = self
             .parser
             .as_mut()
-            .expect("active incremental front end must retain its parser");
-        match parser.push_tokens(Cow::Owned(batch.tokens)) {
-            Ok(sofia::ParserSessionProgress::NeedMoreInput) => {
-                parser.clone_newly_completed_bindings()
-            }
+            .expect("active incremental front end must retain its parser")
+            .push_tokens(Cow::Owned(batch.tokens));
+        match progress {
+            Ok(sofia::ParserSessionProgress::NeedMoreInput) => self
+                .parser
+                .as_mut()
+                .expect("active incremental front end must retain its parser")
+                .newly_completed_bindings(),
             Ok(sofia::ParserSessionProgress::Complete(_)) | Err(_) => {
                 // A terminal non-final parse is deterministic, but replaying
                 // the complete source keeps this migration surface fail-closed
@@ -208,8 +220,24 @@ impl IncrementalSofiaFrontend {
                 self.fallback_to_one_shot = true;
                 self.lexer = None;
                 self.parser = None;
-                Vec::new()
+                &[]
             }
+        }
+    }
+
+    pub(crate) fn retention(&self) -> IncrementalSofiaRetention {
+        let parser = self.parser.as_ref();
+        IncrementalSofiaRetention {
+            lexer_active_bytes: self
+                .lexer
+                .as_ref()
+                .map_or(0, LexerSession::retained_input_bytes),
+            parser_token_count: parser.map_or(0, sofia::ParserSession::retained_token_count),
+            parser_token_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::retained_token_storage_bytes),
+            parser_frame_count: parser.map_or(0, sofia::ParserSession::active_frame_count),
+            completed_binding_count: parser
+                .map_or(0, sofia::ParserSession::completed_binding_count),
         }
     }
 
@@ -2140,16 +2168,15 @@ mod tests {
             "nested = { child = true }\n",
             "pending = \"final\"",
         ] {
-            completed.extend(frontend.push_str(chunk));
+            completed.extend(
+                frontend
+                    .push_str(chunk)
+                    .iter()
+                    .map(|binding| binding.key.clone()),
+            );
         }
 
-        assert_eq!(
-            completed
-                .iter()
-                .map(|binding| binding.key.as_str())
-                .collect::<Vec<_>>(),
-            ["aeon:mode", "first", "nested"]
-        );
+        assert_eq!(completed, ["aeon:mode", "first", "nested"]);
 
         let finished = frontend.finish(source);
         assert!(!finished.retention_fallback);
