@@ -2870,6 +2870,71 @@ context = ?.name"#;
     }
 
     #[test]
+    fn incremental_preambles_and_line_endings_match_both_parsers() {
+        let source = concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "//! format:aeon.test.v1\r\n",
+            "\"café😀\" = true\r\n",
+            "second = [1, 2]\n",
+            "third = ?.name\r",
+            "pointer = ~>$.second[0]",
+        );
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected =
+                parse_with(source, implementation).expect("one-shot preamble and newline parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "preamble split at byte {split}");
+            }
+
+            assert_eq!(expected.len(), 4);
+            assert_eq!(expected[0].key, "café😀");
+            assert_eq!(
+                expected[0].span.start.offset,
+                source.find("\"café😀\"").expect("first binding")
+            );
+            assert_eq!(expected[0].span.start.line, 3);
+            assert_eq!(expected[0].span.start.column, 1);
+            assert!(matches!(expected[3].value, Value::PointerReference { .. }));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_preambles_match_one_shot_errors() {
+        for source in [
+            concat!(
+                "\u{feff}#!/usr/bin/env aeon\r\n",
+                "//! format:aeon.test.v1\r\n",
+                "bad = [1 2]\r\nlater = true",
+            ),
+            "value:number = 1\r\n#!/usr/bin/env aeon\r\n",
+        ] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("source must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental source must remain malformed");
+                    assert_eq!(actual, expected, "malformed preamble split at byte {split}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings = parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(

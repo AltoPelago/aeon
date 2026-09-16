@@ -195,6 +195,14 @@ struct SansaAddressState {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct ShebangState;
+
+#[derive(Debug, Clone, Copy)]
+struct CarriageReturnState {
+    start: Position,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct LexerCheckpoint {
     offset: usize,
     line: usize,
@@ -224,6 +232,8 @@ pub(crate) struct LexerSession<'a> {
     identifier: Option<IdentifierState>,
     structural_identity: Option<StructuralIdentityState>,
     sansa_address: Option<SansaAddressState>,
+    shebang: Option<ShebangState>,
+    carriage_return: Option<CarriageReturnState>,
     finished: bool,
 }
 
@@ -248,6 +258,8 @@ impl<'a> LexerSession<'a> {
             identifier: None,
             structural_identity: None,
             sansa_address: None,
+            shebang: None,
+            carriage_return: None,
             finished: false,
         }
     }
@@ -356,6 +368,18 @@ impl<'a> LexerSession<'a> {
                 }
                 continue;
             }
+            if self.shebang.is_some() {
+                if !self.scan_shebang(final_input) {
+                    return;
+                }
+                continue;
+            }
+            if self.carriage_return.is_some() {
+                if !self.scan_carriage_return(final_input) {
+                    return;
+                }
+                continue;
+            }
 
             if self.is_at_end() {
                 return;
@@ -410,6 +434,18 @@ impl<'a> LexerSession<'a> {
             }
             if self.sansa_address.is_some() {
                 if final_input && self.scan_sansa_address(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.shebang.is_some() {
+                if final_input && self.scan_shebang(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.carriage_return.is_some() {
+                if final_input && self.scan_carriage_return(true) {
                     continue;
                 }
                 return;
@@ -919,7 +955,7 @@ impl<'a> LexerSession<'a> {
         let ch = self.advance();
 
         if ch == '\u{feff}' && start.offset == 0 {
-            return false;
+            return true;
         }
         if ch == '#'
             && self.peek() == '!'
@@ -927,10 +963,7 @@ impl<'a> LexerSession<'a> {
             && (start.offset == 0
                 || (self.input.starts_with('\u{feff}') && start.offset == '\u{feff}'.len_utf8()))
         {
-            while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
-                self.advance();
-            }
-            return false;
+            return self.begin_shebang();
         }
 
         match ch {
@@ -939,16 +972,9 @@ impl<'a> LexerSession<'a> {
                 if self.options.include_newlines {
                     self.push_token(TokenKind::Newline, "\n", start, None, None);
                 }
+                return true;
             }
-            '\r' => {
-                if self.match_char('\n') {
-                    if self.options.include_newlines {
-                        self.push_token(TokenKind::Newline, "\r\n", start, None, None);
-                    }
-                } else if self.options.include_newlines {
-                    self.push_token(TokenKind::Newline, "\r", start, None, None);
-                }
-            }
+            '\r' => return self.begin_carriage_return(start),
             '{' => self.push_token(TokenKind::LeftBrace, "{", start, None, None),
             '}' => self.push_token(TokenKind::RightBrace, "}", start, None, None),
             '[' => self.push_token(TokenKind::LeftBracket, "[", start, None, None),
@@ -1036,6 +1062,45 @@ impl<'a> LexerSession<'a> {
             }),
         }
         false
+    }
+
+    fn begin_shebang(&mut self) -> bool {
+        debug_assert_eq!(self.peek(), '!');
+        self.advance();
+        self.shebang = Some(ShebangState);
+        self.scan_shebang(false)
+    }
+
+    fn scan_shebang(&mut self, final_input: bool) -> bool {
+        while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
+            self.advance();
+        }
+        if self.is_at_end() && !final_input {
+            return false;
+        }
+        self.shebang = None;
+        true
+    }
+
+    fn begin_carriage_return(&mut self, start: Position) -> bool {
+        self.carriage_return = Some(CarriageReturnState { start });
+        self.scan_carriage_return(false)
+    }
+
+    fn scan_carriage_return(&mut self, final_input: bool) -> bool {
+        let state = self
+            .carriage_return
+            .expect("carriage-return scanner requires active state");
+        if self.is_at_end() && !final_input {
+            return false;
+        }
+
+        let text = if self.match_char('\n') { "\r\n" } else { "\r" };
+        self.carriage_return = None;
+        if self.options.include_newlines {
+            self.push_token(TokenKind::Newline, text, state.start, None, None);
+        }
+        true
     }
 
     fn begin_structural_identity(&mut self, start: Position) -> bool {
@@ -1829,6 +1894,84 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn preambles_and_line_endings_match_one_shot_at_every_scalar_split() {
+        let source = concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "//! format:aeon.test.v1\r\n",
+            "first = 1\rsecond = 2\n",
+            "\"🌊\" = 3\r\n",
+        );
+        let options = LexerOptions {
+            include_comments: true,
+            include_newlines: true,
+        };
+        let expected = tokenize(source, options);
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual =
+                tokenize_chunks_with_options([&source[..split], &source[split..]], options);
+            assert_eq!(actual, expected, "preamble split at byte {split}");
+        }
+
+        assert!(expected.errors.is_empty());
+        assert_eq!(
+            expected
+                .tokens
+                .iter()
+                .filter(|token| token.kind == TokenKind::Newline)
+                .map(|token| token.text.as_str())
+                .collect::<Vec<_>>(),
+            ["\r\n", "\r\n", "\r", "\n", "\r\n"]
+        );
+        assert!(expected.tokens.iter().all(|token| token.text != "#!"));
+    }
+
+    #[test]
+    fn split_shebang_and_carriage_return_emit_only_at_deterministic_boundaries() {
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut lexer = LexerSession::new(options);
+        for chunk in ["\u{feff}", "#", "!/usr/bin/env aeon", "\r"] {
+            let pending = lexer.push(Cow::Owned(chunk.to_owned()));
+            assert!(pending.tokens.is_empty(), "chunk {chunk:?}");
+            assert!(pending.errors.is_empty(), "chunk {chunk:?}");
+        }
+
+        let completed = lexer.push(Cow::Owned("\nvalue ".to_owned()));
+        assert!(completed.errors.is_empty());
+        assert_eq!(completed.tokens.len(), 2);
+        assert_eq!(completed.tokens[0].kind, TokenKind::Newline);
+        assert_eq!(completed.tokens[0].text, "\r\n");
+        assert_eq!(
+            completed.tokens[0].span.start.offset,
+            "\u{feff}#!/usr/bin/env aeon".len()
+        );
+        assert_eq!(completed.tokens[0].span.start.line, 1);
+        assert_eq!(completed.tokens[0].span.end.line, 2);
+        assert_eq!(completed.tokens[0].span.end.column, 1);
+        assert_eq!(completed.tokens[1].kind, TokenKind::Identifier);
+        assert_eq!(completed.tokens[1].text, "value");
+
+        let mut bare = LexerSession::new(options);
+        let pending_bare = bare.push(Cow::Owned("a\r".to_owned()));
+        assert_eq!(pending_bare.tokens.len(), 1);
+        assert_eq!(pending_bare.tokens[0].kind, TokenKind::Identifier);
+        let finished_bare = bare.finish();
+        assert!(finished_bare.errors.is_empty());
+        assert_eq!(finished_bare.tokens[0].kind, TokenKind::Newline);
+        assert_eq!(finished_bare.tokens[0].text, "\r");
+        assert_eq!(finished_bare.tokens[0].span.start.line, 1);
+        assert_eq!(finished_bare.tokens[0].span.end.line, 1);
     }
 
     #[test]
