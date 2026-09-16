@@ -138,6 +138,44 @@ enum CommentState {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum NumberPhase {
+    Integer { temporal_eligible: bool },
+    AfterInteger,
+    FractionDigits,
+    ExponentSign,
+    ExponentDigitsRequired,
+    ExponentDigits,
+    InvalidExponent,
+    Temporal,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NumberState {
+    start: Position,
+    phase: NumberPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrefixedLiteralKind {
+    Hex,
+    Radix,
+    Encoding,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PrefixedLiteralState {
+    start: Position,
+    kind: PrefixedLiteralKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeparatorLiteralState {
+    start: Position,
+    quote: Option<char>,
+    escaped: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct LexerCheckpoint {
     offset: usize,
     line: usize,
@@ -161,6 +199,9 @@ pub(crate) struct LexerSession<'a> {
     aborted: bool,
     quoted_string: Option<QuotedStringState>,
     comment: Option<CommentState>,
+    number: Option<NumberState>,
+    prefixed_literal: Option<PrefixedLiteralState>,
+    separator_literal: Option<SeparatorLiteralState>,
     finished: bool,
 }
 
@@ -179,6 +220,9 @@ impl<'a> LexerSession<'a> {
             aborted: false,
             quoted_string: None,
             comment: None,
+            number: None,
+            prefixed_literal: None,
+            separator_literal: None,
             finished: false,
         }
     }
@@ -251,6 +295,24 @@ impl<'a> LexerSession<'a> {
                 }
                 continue;
             }
+            if self.number.is_some() {
+                if !self.scan_number(final_input) {
+                    return;
+                }
+                continue;
+            }
+            if self.prefixed_literal.is_some() {
+                if !self.scan_prefixed_literal(final_input) {
+                    return;
+                }
+                continue;
+            }
+            if self.separator_literal.is_some() {
+                if !self.scan_separator_literal(final_input) {
+                    return;
+                }
+                continue;
+            }
 
             if self.is_at_end() {
                 return;
@@ -270,6 +332,24 @@ impl<'a> LexerSession<'a> {
             if self.comment.is_some() {
                 if final_input {
                     self.finish_comment();
+                }
+                return;
+            }
+            if self.number.is_some() {
+                if final_input && self.scan_number(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.prefixed_literal.is_some() {
+                if final_input && self.scan_prefixed_literal(true) {
+                    continue;
+                }
+                return;
+            }
+            if self.separator_literal.is_some() {
+                if final_input && self.scan_separator_literal(true) {
+                    continue;
                 }
                 return;
             }
@@ -412,6 +492,336 @@ impl<'a> LexerSession<'a> {
         }
     }
 
+    fn begin_number(&mut self, start: Position, first: char) -> bool {
+        self.number = Some(NumberState {
+            start,
+            phase: match first {
+                '.' => NumberPhase::FractionDigits,
+                '+' | '-' => NumberPhase::Integer {
+                    temporal_eligible: false,
+                },
+                _ => NumberPhase::Integer {
+                    temporal_eligible: true,
+                },
+            },
+        });
+        self.scan_number(false)
+    }
+
+    fn scan_number(&mut self, final_input: bool) -> bool {
+        let mut state = self.number.expect("number scanner requires active state");
+        loop {
+            match state.phase {
+                NumberPhase::Integer { temporal_eligible } => {
+                    while self.peek().is_ascii_digit() || self.peek() == '_' {
+                        self.advance();
+                    }
+                    if self.is_at_end() {
+                        if final_input {
+                            return self.complete_number(state.start);
+                        }
+                        self.number = Some(state);
+                        return false;
+                    }
+                    if temporal_eligible && matches!(self.peek(), '-' | ':') {
+                        state.phase = NumberPhase::Temporal;
+                    } else {
+                        state.phase = NumberPhase::AfterInteger;
+                    }
+                }
+                NumberPhase::AfterInteger => {
+                    if self.peek() == '.' {
+                        if self.peek_next() == '\0' && self.next_char_reaches_input_end() {
+                            if final_input {
+                                return self.complete_number(state.start);
+                            }
+                            self.number = Some(state);
+                            return false;
+                        }
+                        if self.peek_next().is_ascii_digit() {
+                            self.advance();
+                            state.phase = NumberPhase::FractionDigits;
+                            continue;
+                        }
+                    }
+                    if matches!(self.peek(), 'e' | 'E') {
+                        self.advance();
+                        state.phase = NumberPhase::ExponentSign;
+                    } else {
+                        return self.complete_number(state.start);
+                    }
+                }
+                NumberPhase::FractionDigits => {
+                    while self.peek().is_ascii_digit() || self.peek() == '_' {
+                        self.advance();
+                    }
+                    if self.is_at_end() {
+                        if final_input {
+                            return self.complete_number(state.start);
+                        }
+                        self.number = Some(state);
+                        return false;
+                    }
+                    if matches!(self.peek(), 'e' | 'E') {
+                        self.advance();
+                        state.phase = NumberPhase::ExponentSign;
+                    } else {
+                        return self.complete_number(state.start);
+                    }
+                }
+                NumberPhase::ExponentSign => {
+                    if self.is_at_end() {
+                        if final_input {
+                            return self.fail_number(state.start);
+                        }
+                        self.number = Some(state);
+                        return false;
+                    }
+                    if matches!(self.peek(), '+' | '-') {
+                        self.advance();
+                    }
+                    state.phase = NumberPhase::ExponentDigitsRequired;
+                }
+                NumberPhase::ExponentDigitsRequired => {
+                    if self.is_at_end() {
+                        if final_input {
+                            return self.fail_number(state.start);
+                        }
+                        self.number = Some(state);
+                        return false;
+                    }
+                    if self.peek().is_ascii_digit() {
+                        state.phase = NumberPhase::ExponentDigits;
+                    } else {
+                        state.phase = NumberPhase::InvalidExponent;
+                    }
+                }
+                NumberPhase::ExponentDigits => {
+                    while self.peek().is_ascii_digit() || self.peek() == '_' {
+                        self.advance();
+                    }
+                    if self.is_at_end() {
+                        if final_input {
+                            return self.complete_number(state.start);
+                        }
+                        self.number = Some(state);
+                        return false;
+                    }
+                    return self.complete_number(state.start);
+                }
+                NumberPhase::InvalidExponent => {
+                    while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+                        self.advance();
+                    }
+                    if self.is_at_end() && !final_input {
+                        self.number = Some(state);
+                        return false;
+                    }
+                    return self.fail_number(state.start);
+                }
+                NumberPhase::Temporal => {
+                    while !self.is_at_end()
+                        && !matches!(
+                            self.peek(),
+                            ' ' | '\t' | '\n' | '\r' | ',' | ']' | ')' | '}'
+                        )
+                    {
+                        self.advance();
+                    }
+                    if self.is_at_end() && !final_input {
+                        self.number = Some(state);
+                        return false;
+                    }
+                    return self.complete_temporal(state.start);
+                }
+            }
+        }
+    }
+
+    fn complete_number(&mut self, start: Position) -> bool {
+        let text = self.slice_from(start.offset);
+        self.number = None;
+        self.push_token(TokenKind::Number, &text, start, None, None);
+        true
+    }
+
+    fn fail_number(&mut self, start: Position) -> bool {
+        let text = self.slice_from(start.offset);
+        self.number = None;
+        self.push_error(LexError {
+            code: String::from("INVALID_NUMBER"),
+            message: format!("Invalid number literal `{text}`"),
+            span: Span {
+                start,
+                end: self.current_position(),
+            },
+        });
+        true
+    }
+
+    fn complete_temporal(&mut self, start: Position) -> bool {
+        let text = self.slice_from(start.offset);
+        self.number = None;
+        if let Some((code, message)) = invalid_temporal_literal(&text) {
+            self.push_error(LexError {
+                code: String::from(code),
+                message,
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            });
+        } else {
+            self.push_token(TokenKind::Number, &text, start, None, None);
+        }
+        true
+    }
+
+    fn begin_prefixed_literal(&mut self, start: Position, kind: PrefixedLiteralKind) -> bool {
+        self.prefixed_literal = Some(PrefixedLiteralState { start, kind });
+        self.scan_prefixed_literal(false)
+    }
+
+    fn scan_prefixed_literal(&mut self, final_input: bool) -> bool {
+        let state = self
+            .prefixed_literal
+            .expect("prefixed literal scanner requires active state");
+        while match state.kind {
+            PrefixedLiteralKind::Hex => self.peek().is_ascii_hexdigit() || self.peek() == '_',
+            PrefixedLiteralKind::Radix => is_radix_char(self.peek()),
+            PrefixedLiteralKind::Encoding => is_encoding_char(self.peek()),
+        } {
+            self.advance();
+        }
+
+        if self.is_at_end() && !final_input {
+            return false;
+        }
+
+        let text = self.slice_from(state.start.offset);
+        self.prefixed_literal = None;
+        let (token_kind, valid, code, family) = match state.kind {
+            PrefixedLiteralKind::Hex => (
+                TokenKind::HexLiteral,
+                text.len() != 1 && has_valid_literal_underscores(&text),
+                "SYNTAX_ERROR",
+                "hex literal",
+            ),
+            PrefixedLiteralKind::Radix => (
+                TokenKind::RadixLiteral,
+                is_valid_radix_payload(&text[1..]),
+                "INVALID_NUMBER",
+                "radix literal",
+            ),
+            PrefixedLiteralKind::Encoding => (
+                TokenKind::EncodingLiteral,
+                is_valid_encoding_payload(&text[1..]),
+                "SYNTAX_ERROR",
+                "encoding literal",
+            ),
+        };
+        if valid {
+            self.push_token(token_kind, &text, state.start, None, None);
+        } else {
+            self.push_error(LexError {
+                code: String::from(code),
+                message: format!("Invalid {family} `{text}`"),
+                span: Span {
+                    start: state.start,
+                    end: self.current_position(),
+                },
+            });
+        }
+        true
+    }
+
+    fn begin_separator_literal(&mut self, start: Position) -> bool {
+        self.separator_literal = Some(SeparatorLiteralState {
+            start,
+            quote: None,
+            escaped: false,
+        });
+        self.scan_separator_literal(false)
+    }
+
+    fn scan_separator_literal(&mut self, final_input: bool) -> bool {
+        let mut state = self
+            .separator_literal
+            .expect("separator literal scanner requires active state");
+        loop {
+            if self.is_at_end() {
+                if !final_input {
+                    self.separator_literal = Some(state);
+                    return false;
+                }
+                if let Some(quote) = state.quote {
+                    return self.fail_separator_string(state.start, quote);
+                }
+                return self.complete_separator_literal(state.start);
+            }
+
+            if let Some(quote) = state.quote {
+                if matches!(self.peek(), '\n' | '\r') {
+                    return self.fail_separator_string(state.start, quote);
+                }
+                let ch = self.advance();
+                if state.escaped {
+                    state.escaped = false;
+                } else if ch == '\\' {
+                    state.escaped = true;
+                } else if ch == quote {
+                    state.quote = None;
+                }
+                continue;
+            }
+
+            match self.peek() {
+                '"' | '\'' => {
+                    state.quote = Some(self.advance());
+                }
+                ch if is_separator_raw_char(ch) => {
+                    self.advance();
+                }
+                _ => {
+                    return self.complete_separator_literal(state.start);
+                }
+            }
+        }
+    }
+
+    fn complete_separator_literal(&mut self, start: Position) -> bool {
+        let text = self.slice_from(start.offset);
+        self.separator_literal = None;
+        if text == "^" {
+            self.push_token(TokenKind::Caret, &text, start, None, None);
+        } else if is_valid_separator_payload(&text[1..]) {
+            self.push_token(TokenKind::SeparatorLiteral, &text, start, None, None);
+        } else {
+            self.push_error(LexError {
+                code: String::from("SYNTAX_ERROR"),
+                message: format!("Invalid separator literal `{text}`"),
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            });
+        }
+        true
+    }
+
+    fn fail_separator_string(&mut self, start: Position, quote: char) -> bool {
+        self.separator_literal = None;
+        self.push_error(LexError {
+            code: String::from("UNTERMINATED_STRING"),
+            message: format!("Unterminated string literal (started with {quote})"),
+            span: Span {
+                start,
+                end: self.current_position(),
+            },
+        });
+        true
+    }
+
     fn scan_token(&mut self) -> bool {
         let start = self.current_position();
         let ch = self.advance();
@@ -460,7 +870,7 @@ impl<'a> LexerSession<'a> {
             ',' => self.push_token(TokenKind::Comma, ",", start, None, None),
             '.' => {
                 if self.peek().is_ascii_digit() {
-                    self.scan_number(start, '.');
+                    return self.begin_number(start, '.');
                 } else {
                     self.push_token(TokenKind::Dot, ".", start, None, None);
                 }
@@ -481,10 +891,10 @@ impl<'a> LexerSession<'a> {
                     self.push_token(TokenKind::Tilde, "~", start, None, None);
                 }
             }
-            '^' => self.scan_separator_literal(start),
+            '^' => return self.begin_separator_literal(start),
             '#' => {
                 if self.peek().is_ascii_hexdigit() {
-                    self.scan_hex_literal(start);
+                    return self.begin_prefixed_literal(start, PrefixedLiteralKind::Hex);
                 } else {
                     self.push_token(TokenKind::Hash, "#", start, None, None);
                 }
@@ -495,24 +905,14 @@ impl<'a> LexerSession<'a> {
             '$' | '?' => self.scan_sansa_address_literal(start),
             '&' => {
                 if is_encoding_start_char(self.peek()) {
-                    self.scan_prefixed_literal(
-                        start,
-                        TokenKind::EncodingLiteral,
-                        is_encoding_char,
-                        is_valid_encoding_payload,
-                    );
+                    return self.begin_prefixed_literal(start, PrefixedLiteralKind::Encoding);
                 } else {
                     self.push_token(TokenKind::Ampersand, "&", start, None, None);
                 }
             }
             '%' => {
                 if is_radix_start_char(self.peek()) {
-                    self.scan_prefixed_literal(
-                        start,
-                        TokenKind::RadixLiteral,
-                        is_radix_char,
-                        is_valid_radix_payload,
-                    );
+                    return self.begin_prefixed_literal(start, PrefixedLiteralKind::Radix);
                 } else {
                     self.push_token(TokenKind::Percent, "%", start, None, None);
                 }
@@ -528,13 +928,13 @@ impl<'a> LexerSession<'a> {
             }
             '+' | '-' => {
                 if self.peek().is_ascii_digit() || self.peek() == '.' {
-                    self.scan_number(start, ch);
+                    return self.begin_number(start, ch);
                 } else {
                     let text = self.slice_from(start.offset);
                     self.push_token(TokenKind::Symbol, &text, start, None, None);
                 }
             }
-            _ if ch.is_ascii_digit() => self.scan_number(start, ch),
+            _ if ch.is_ascii_digit() => return self.begin_number(start, ch),
             _ if is_identifier_start(ch) => self.scan_identifier(start),
             _ if is_printable_ascii(ch) => {
                 let text = self.slice_from(start.offset);
@@ -620,210 +1020,6 @@ impl<'a> LexerSession<'a> {
             "off" => TokenKind::Off,
             _ => TokenKind::Identifier,
         };
-        self.push_token(kind, &text, start, None, None);
-    }
-
-    fn scan_number(&mut self, start: Position, first: char) {
-        if first != '.' && first != '+' && first != '-' {
-            while self.peek().is_ascii_digit() || self.peek() == '_' {
-                self.advance();
-            }
-
-            if matches!(self.peek(), '-' | ':') {
-                self.scan_temporal_tail();
-                let text = self.slice_from(start.offset);
-                if let Some((code, message)) = invalid_temporal_literal(&text) {
-                    self.push_error(LexError {
-                        code: String::from(code),
-                        message,
-                        span: Span {
-                            start,
-                            end: self.current_position(),
-                        },
-                    });
-                    return;
-                }
-                self.push_token(TokenKind::Number, &text, start, None, None);
-                return;
-            }
-        } else if self.peek().is_ascii_digit() {
-            while self.peek().is_ascii_digit() || self.peek() == '_' {
-                self.advance();
-            }
-        }
-
-        if self.peek() == '.' && self.peek_next().is_ascii_digit() {
-            self.advance();
-            while self.peek().is_ascii_digit() || self.peek() == '_' {
-                self.advance();
-            }
-        }
-
-        if matches!(self.peek(), 'e' | 'E') {
-            self.advance();
-            if matches!(self.peek(), '+' | '-') {
-                self.advance();
-            }
-            if self.peek().is_ascii_digit() {
-                while self.peek().is_ascii_digit() || self.peek() == '_' {
-                    self.advance();
-                }
-            } else {
-                while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
-                    self.advance();
-                }
-                let text = self.slice_from(start.offset);
-                self.push_error(LexError {
-                    code: String::from("INVALID_NUMBER"),
-                    message: format!("Invalid number literal `{text}`"),
-                    span: Span {
-                        start,
-                        end: self.current_position(),
-                    },
-                });
-                return;
-            }
-        }
-
-        let text = self.slice_from(start.offset);
-        self.push_token(TokenKind::Number, &text, start, None, None);
-    }
-
-    fn scan_temporal_tail(&mut self) {
-        while !self.is_at_end() {
-            match self.peek() {
-                ' ' | '\t' | '\n' | '\r' | ',' | ']' | ')' | '}' => break,
-                _ => {
-                    self.advance();
-                }
-            }
-        }
-    }
-
-    fn scan_separator_literal(&mut self, start: Position) {
-        while !self.is_at_end() {
-            match self.peek() {
-                '"' | '\'' => {
-                    let quote = self.advance();
-                    while !self.is_at_end() {
-                        match self.peek() {
-                            '\n' | '\r' => {
-                                self.push_error(LexError {
-                                    code: String::from("UNTERMINATED_STRING"),
-                                    message: format!(
-                                        "Unterminated string literal (started with {quote})"
-                                    ),
-                                    span: Span {
-                                        start,
-                                        end: self.current_position(),
-                                    },
-                                });
-                                return;
-                            }
-                            '\\' => {
-                                self.advance();
-                                if !self.is_at_end() {
-                                    self.advance();
-                                }
-                            }
-                            ch => {
-                                self.advance();
-                                if ch == quote {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if self.is_at_end() && !self.input[start.offset..self.offset].ends_with(quote) {
-                        self.push_error(LexError {
-                            code: String::from("UNTERMINATED_STRING"),
-                            message: format!("Unterminated string literal (started with {quote})"),
-                            span: Span {
-                                start,
-                                end: self.current_position(),
-                            },
-                        });
-                        return;
-                    }
-                }
-                ch if is_separator_raw_char(ch) => {
-                    self.advance();
-                }
-                _ => break,
-            }
-        }
-        let text = self.slice_from(start.offset);
-        if text == "^" {
-            self.push_token(TokenKind::Caret, &text, start, None, None);
-            return;
-        }
-        if !is_valid_separator_payload(&text[1..]) {
-            self.push_error(LexError {
-                code: String::from("SYNTAX_ERROR"),
-                message: format!("Invalid separator literal `{text}`"),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
-            return;
-        }
-        self.push_token(TokenKind::SeparatorLiteral, &text, start, None, None);
-    }
-
-    fn scan_hex_literal(&mut self, start: Position) {
-        while self.peek().is_ascii_hexdigit() || self.peek() == '_' {
-            self.advance();
-        }
-        let text = self.slice_from(start.offset);
-        if text.len() == 1 || !has_valid_literal_underscores(&text) {
-            self.push_error(LexError {
-                code: String::from("SYNTAX_ERROR"),
-                message: format!("Invalid hex literal `{text}`"),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
-            return;
-        }
-        self.push_token(TokenKind::HexLiteral, &text, start, None, None);
-    }
-
-    fn scan_prefixed_literal(
-        &mut self,
-        start: Position,
-        kind: TokenKind,
-        predicate: fn(char) -> bool,
-        validator: fn(&str) -> bool,
-    ) {
-        while predicate(self.peek()) {
-            self.advance();
-        }
-        let text = self.slice_from(start.offset);
-        if !validator(&text[1..]) {
-            let code = if kind == TokenKind::RadixLiteral {
-                "INVALID_NUMBER"
-            } else {
-                "SYNTAX_ERROR"
-            };
-            self.push_error(LexError {
-                code: String::from(code),
-                message: format!(
-                    "Invalid {} `{text}`",
-                    match kind {
-                        TokenKind::RadixLiteral => "radix literal",
-                        TokenKind::EncodingLiteral => "encoding literal",
-                        _ => "prefixed literal",
-                    }
-                ),
-                span: Span {
-                    start,
-                    end: self.current_position(),
-                },
-            });
-            return;
-        }
         self.push_token(kind, &text, start, None, None);
     }
 
@@ -1005,6 +1201,10 @@ impl<'a> LexerSession<'a> {
         let mut chars = self.input[self.offset..].chars();
         let _ = chars.next();
         chars.next().unwrap_or('\0')
+    }
+
+    fn next_char_reaches_input_end(&self) -> bool {
+        self.offset + self.peek().len_utf8() >= self.input.len()
     }
 
     fn advance(&mut self) -> char {
@@ -1519,6 +1719,108 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn numeric_temporal_and_prefixed_literals_match_at_every_scalar_split() {
+        let source = concat!(
+            "a=123_456 b=-42 c=+.75 d=6.02e+23 ",
+            "e=2024-02-29 f=23:59:59 g=2025-01-01T09:30:00Z ",
+            "h=#00_Ff i=%+9&.! j=&abc-_== k=^root\"🌊,/\"tail end",
+        );
+        let expected = tokenize(source, LexerOptions::default());
+        assert!(expected.errors.is_empty());
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual = tokenize_chunks([&source[..split], &source[split..]]);
+            assert_eq!(actual, expected, "literal split at byte {split}");
+        }
+    }
+
+    #[test]
+    fn malformed_literal_diagnostics_match_at_every_scalar_split() {
+        let source = concat!(
+            "a=1e+ b=2025-13-40 c=#F__f d=%1__0 e=&abc=a= ",
+            "f=^\"unterminated",
+        );
+        let expected = tokenize(source, LexerOptions::default());
+        assert_eq!(expected.errors.len(), 6);
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for split in splits {
+            let actual = tokenize_chunks([&source[..split], &source[split..]]);
+            assert_eq!(actual, expected, "invalid literal split at byte {split}");
+        }
+    }
+
+    #[test]
+    fn incomplete_literals_suspend_until_a_boundary_or_finish() {
+        let mut number = LexerSession::new(LexerOptions::default());
+        let pending_number = number.push(Cow::Owned("6.02e+".to_owned()));
+        assert!(pending_number.tokens.is_empty());
+        assert!(pending_number.errors.is_empty());
+        let completed_number = number.push(Cow::Owned("23 ".to_owned()));
+        assert!(completed_number.errors.is_empty());
+        assert_eq!(completed_number.tokens[0].kind, TokenKind::Number);
+        assert_eq!(completed_number.tokens[0].text, "6.02e+23");
+
+        let mut temporal = LexerSession::new(LexerOptions::default());
+        let pending_temporal = temporal.push(Cow::Owned("2024-02-".to_owned()));
+        assert!(pending_temporal.tokens.is_empty());
+        assert!(pending_temporal.errors.is_empty());
+        let completed_temporal = temporal.push(Cow::Owned("29 ".to_owned()));
+        assert!(completed_temporal.errors.is_empty());
+        assert_eq!(completed_temporal.tokens[0].kind, TokenKind::Number);
+        assert_eq!(completed_temporal.tokens[0].text, "2024-02-29");
+
+        let mut prefixed = LexerSession::new(LexerOptions::default());
+        let pending_prefixed = prefixed.push(Cow::Owned("#00_".to_owned()));
+        assert!(pending_prefixed.tokens.is_empty());
+        assert!(pending_prefixed.errors.is_empty());
+        let completed_prefixed = prefixed.push(Cow::Owned("Ff ".to_owned()));
+        assert!(completed_prefixed.errors.is_empty());
+        assert_eq!(completed_prefixed.tokens[0].kind, TokenKind::HexLiteral);
+        assert_eq!(completed_prefixed.tokens[0].text, "#00_Ff");
+
+        let mut separator = LexerSession::new(LexerOptions::default());
+        let pending_separator = separator.push(Cow::Owned("^root\"left".to_owned()));
+        assert!(pending_separator.tokens.is_empty());
+        assert!(pending_separator.errors.is_empty());
+        let completed_separator = separator.push(Cow::Owned(" right\"tail ".to_owned()));
+        assert!(completed_separator.errors.is_empty());
+        assert_eq!(
+            completed_separator.tokens[0].kind,
+            TokenKind::SeparatorLiteral
+        );
+        assert_eq!(
+            completed_separator.tokens[0].text,
+            "^root\"left right\"tail"
+        );
+    }
+
+    #[test]
+    fn incomplete_numeric_and_temporal_errors_are_deferred_to_finish() {
+        for (source, code) in [("1e+", "INVALID_NUMBER"), ("2025-13-40", "INVALID_DATE")] {
+            let mut lexer = LexerSession::new(LexerOptions::default());
+            let pushed = lexer.push(Cow::Owned(source.to_owned()));
+            assert!(pushed.tokens.is_empty(), "{source}");
+            assert!(pushed.errors.is_empty(), "{source}");
+
+            let finished = lexer.finish();
+            assert_eq!(finished.errors.len(), 1, "{source}");
+            assert_eq!(finished.errors[0].code, code, "{source}");
+            assert_eq!(finished.errors[0].span.start.offset, 0, "{source}");
+            assert_eq!(finished.errors[0].span.end.offset, source.len(), "{source}");
+        }
     }
 
     #[test]
