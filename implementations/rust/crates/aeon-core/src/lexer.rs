@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::temporal::invalid_temporal_literal;
-use crate::{Position, Span};
+use crate::{CompileOptions, Position, Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
@@ -252,6 +252,13 @@ impl<'a> LexerSession<'a> {
         max_retained_token_bytes: usize,
     ) -> Self {
         Self::with_compaction(options, true, Some(max_retained_token_bytes))
+    }
+
+    pub(crate) fn with_compile_limits(
+        options: LexerOptions,
+        compile_options: &CompileOptions,
+    ) -> Self {
+        Self::with_retained_token_limit(options, retained_token_byte_limit(compile_options))
     }
 
     fn one_shot(options: LexerOptions) -> Self {
@@ -1549,8 +1556,7 @@ impl<'a> LexerSession<'a> {
             .or_else(|| self.sansa_address.as_ref().map(|state| state.start))
     }
 
-    #[cfg(test)]
-    fn retained_input_bytes(&self) -> usize {
+    pub(crate) fn retained_input_bytes(&self) -> usize {
         self.input.len()
     }
 }
@@ -1573,6 +1579,31 @@ fn bounded_char_boundary(input: &str, allowance: usize) -> usize {
     } else {
         end
     }
+}
+
+fn retained_token_byte_limit(options: &CompileOptions) -> usize {
+    // A valid quoted scalar may use the ten-byte `\u{10ffff}` spelling. A
+    // single string token can later become a value, key, or quoted path
+    // segment, so retain enough for the largest applicable semantic limit.
+    let quoted_characters = options
+        .max_string_codepoints
+        .max(options.max_key_segment_codepoints)
+        .max(options.max_path_characters);
+    let quoted_bytes = quoted_characters.saturating_mul(10).saturating_add(2);
+    // Structured-comment payloads are counted as Unicode scalars. Four bytes
+    // per scalar plus the longest opening/closing markers is conservative.
+    let structured_comment_bytes = options
+        .max_structured_comment_characters
+        .saturating_mul(4)
+        .saturating_add(4);
+    let mut limit = options
+        .max_numeric_literal_characters
+        .min(quoted_bytes)
+        .min(structured_comment_bytes);
+    if let Some(max_input_bytes) = options.max_input_bytes {
+        limit = limit.min(max_input_bytes);
+    }
+    limit
 }
 
 fn is_identifier_continue(ch: char) -> bool {

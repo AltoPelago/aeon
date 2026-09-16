@@ -60,7 +60,8 @@ pub use limits::{
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::{
-    ParserImplementation, ParserLimits, parse_document_from_tokens_recovery_with_implementation,
+    IncrementalSofiaFrontend, ParserImplementation, ParserLimits,
+    parse_document_from_tokens_recovery_with_implementation,
 };
 #[cfg(test)]
 use validation::datatype_has_generic_args;
@@ -661,26 +662,8 @@ fn compile_owned_with_implementation(
 ) -> CompileResult {
     trace_compile("compile:start");
     let warnings = compile_portability_warnings(&options);
-    if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = source.len();
-        if actual_bytes > max_bytes {
-            return CompileResult {
-                source,
-                events: Vec::new(),
-                errors: vec![Diagnostic {
-                    code: String::from("INPUT_SIZE_EXCEEDED"),
-                    path: Some(String::from("$")),
-                    span: Some(Span::zero()),
-                    phase: Some(0),
-                    message: format!(
-                        "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
-                    ),
-                }],
-                warnings,
-                bindings: Vec::new(),
-                header: None,
-            };
-        }
+    if let Some(error) = input_size_diagnostic(&source, &options) {
+        return failed_compile_result(source, warnings, vec![error]);
     }
 
     trace_compile(format!("compile:normalized bytes={}", source.len()));
@@ -697,25 +680,76 @@ fn compile_owned_with_implementation(
         ),
         implementation,
     );
+    compile_parsed(source, options, warnings, parsed)
+}
+
+#[allow(dead_code)]
+fn compile_owned_incremental_sofia(
+    source: String,
+    options: CompileOptions,
+) -> (CompileResult, bool, usize) {
+    trace_compile("compile:incremental_sofia:start");
+    let warnings = compile_portability_warnings(&options);
+    if let Some(error) = input_size_diagnostic(&source, &options) {
+        return (
+            failed_compile_result(source, warnings, vec![error]),
+            false,
+            0,
+        );
+    }
+
+    let mut frontend = IncrementalSofiaFrontend::new(&options);
+    for scalar in source.chars() {
+        frontend.push_str(scalar.encode_utf8(&mut [0; 4]));
+    }
+    let incremental = frontend.finish(&source);
+    (
+        compile_parsed(source, options, warnings, incremental.parsed),
+        incremental.retention_fallback,
+        incremental.peak_retained_token_bytes,
+    )
+}
+
+fn input_size_diagnostic(source: &str, options: &CompileOptions) -> Option<Diagnostic> {
+    let max_bytes = options.max_input_bytes?;
+    let actual_bytes = source.len();
+    (actual_bytes > max_bytes).then(|| Diagnostic {
+        code: String::from("INPUT_SIZE_EXCEEDED"),
+        path: Some(String::from("$")),
+        span: Some(Span::zero()),
+        phase: Some(0),
+        message: format!(
+            "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
+        ),
+    })
+}
+
+fn failed_compile_result(
+    source: String,
+    warnings: Vec<Diagnostic>,
+    errors: Vec<Diagnostic>,
+) -> CompileResult {
+    CompileResult {
+        source,
+        events: Vec::new(),
+        errors,
+        warnings,
+        bindings: Vec::new(),
+        header: None,
+    }
+}
+
+fn compile_parsed(
+    source: String,
+    options: CompileOptions,
+    warnings: Vec<Diagnostic>,
+    parsed: token_parser::ParseRecoveryResult,
+) -> CompileResult {
     if !parsed.errors.is_empty() {
-        return CompileResult {
-            source,
-            events: Vec::new(),
-            errors: parsed.errors,
-            warnings,
-            bindings: Vec::new(),
-            header: None,
-        };
+        return failed_compile_result(source, warnings, parsed.errors);
     }
     if let Some(error) = validate_source_resource_limits(&source, &parsed.bindings, &options) {
-        return CompileResult {
-            source,
-            events: Vec::new(),
-            errors: vec![error],
-            warnings,
-            bindings: Vec::new(),
-            header: None,
-        };
+        return failed_compile_result(source, warnings, vec![error]);
     }
     trace_compile(format!("compile:parsed bindings={}", parsed.bindings.len()));
     finalize_compile(source, parsed.bindings, options)
@@ -1935,6 +1969,159 @@ mod tests {
                 expected_code,
                 expected_phase,
             );
+        }
+    }
+
+    #[test]
+    fn incremental_sofia_preserves_retained_token_limits_and_diagnostic_precedence() {
+        let numeric_source = "a = 1234";
+        let numeric_boundary = configured_options(|options| {
+            options.max_numeric_literal_characters = 4;
+        });
+        let expected = compile_owned_with_implementation(
+            numeric_source.to_owned(),
+            numeric_boundary.clone(),
+            ParserImplementation::Sofia,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(numeric_source.to_owned(), numeric_boundary);
+        assert_eq!(actual, expected);
+        assert!(!fallback, "numeric boundary should remain incremental");
+        assert_eq!(peak_retained, 4);
+
+        let numeric_beyond = configured_options(|options| {
+            options.max_numeric_literal_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            numeric_source.to_owned(),
+            numeric_beyond.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(numeric_source.to_owned(), numeric_beyond);
+        assert_eq!(actual, baseline);
+        assert!(
+            fallback,
+            "oversized numeric token should use exact fallback"
+        );
+        assert_eq!(peak_retained, 3);
+        assert_eq!(
+            actual.errors[0].code,
+            "MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED"
+        );
+
+        let malformed = "a = 1234e";
+        let malformed_options = configured_options(|options| {
+            options.max_numeric_literal_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            malformed.to_owned(),
+            malformed_options.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(malformed.to_owned(), malformed_options);
+        assert_eq!(actual, baseline);
+        assert!(
+            fallback,
+            "oversized malformed token should use exact fallback"
+        );
+        assert_eq!(peak_retained, 3);
+        assert_eq!(actual.errors[0].code, "INVALID_NUMBER");
+
+        let comment_boundary_source = "//@🌊🌊🌊\na = 1";
+        let comment_boundary = configured_options(|options| {
+            options.max_numeric_literal_characters = 100;
+            options.max_string_codepoints = 100;
+            options.max_key_segment_codepoints = 100;
+            options.max_path_characters = 100;
+            options.max_structured_comment_characters = 3;
+        });
+        let expected = compile_owned_with_implementation(
+            comment_boundary_source.to_owned(),
+            comment_boundary.clone(),
+            ParserImplementation::Sofia,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(comment_boundary_source.to_owned(), comment_boundary);
+        assert_eq!(actual, expected);
+        assert!(
+            !fallback,
+            "structured-comment boundary should remain incremental"
+        );
+        assert_eq!(peak_retained, 15);
+
+        let comment_beyond_source = "//@🌊🌊🌊🌊\na = 1";
+        let comment_beyond = configured_options(|options| {
+            options.max_numeric_literal_characters = 100;
+            options.max_string_codepoints = 100;
+            options.max_key_segment_codepoints = 100;
+            options.max_path_characters = 100;
+            options.max_structured_comment_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            comment_beyond_source.to_owned(),
+            comment_beyond.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(comment_beyond_source.to_owned(), comment_beyond);
+        assert_eq!(actual, baseline);
+        assert!(
+            fallback,
+            "oversized structured comment should use exact fallback"
+        );
+        assert_eq!(peak_retained, 15);
+        assert_eq!(
+            actual.errors[0].code,
+            "MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED"
+        );
+
+        for (name, source, at_boundary, beyond_boundary, expected_code) in [
+            (
+                "string",
+                "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+            ),
+            (
+                "key",
+                "ab = 1",
+                configured_options(|options| options.max_key_segment_codepoints = 2),
+                configured_options(|options| options.max_key_segment_codepoints = 1),
+                "MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED",
+            ),
+            (
+                "path",
+                "a = 1\nb = ~$.a",
+                configured_options(|options| options.max_path_characters = 3),
+                configured_options(|options| options.max_path_characters = 2),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+            ),
+        ] {
+            let baseline_at = compile_owned_with_implementation(
+                source.to_owned(),
+                at_boundary.clone(),
+                ParserImplementation::Baseline,
+            );
+            let (incremental_at, _, _) =
+                compile_owned_incremental_sofia(source.to_owned(), at_boundary);
+            assert_eq!(incremental_at, baseline_at, "{name} boundary drift");
+            assert!(incremental_at.errors.is_empty());
+
+            let baseline_beyond = compile_owned_with_implementation(
+                source.to_owned(),
+                beyond_boundary.clone(),
+                ParserImplementation::Baseline,
+            );
+            let (incremental_beyond, _, _) =
+                compile_owned_incremental_sofia(source.to_owned(), beyond_boundary);
+            assert_eq!(
+                incremental_beyond, baseline_beyond,
+                "{name} beyond-boundary drift"
+            );
+            assert_eq!(incremental_beyond.errors[0].code, expected_code);
         }
     }
 

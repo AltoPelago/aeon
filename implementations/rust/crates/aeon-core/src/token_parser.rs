@@ -2,15 +2,17 @@
 
 mod sofia;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
+use crate::lexer::LexerSession;
 use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
-    AttributeValue, Binding, Diagnostic, LexerOptions, NullLiteralMode, ReferenceSegment, Span,
-    Token, TokenKind, TrimtickMetadata, Value, tokenize,
+    AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, NullLiteralMode,
+    ReferenceSegment, Span, Token, TokenKind, TrimtickMetadata, Value, tokenize,
 };
 
 const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
@@ -123,6 +125,157 @@ pub(crate) struct ParseRecoveryResult {
     pub errors: Vec<Diagnostic>,
 }
 
+pub(crate) struct IncrementalSofiaFrontend {
+    lexer: Option<LexerSession<'static>>,
+    parser: Option<sofia::ParserSession<'static>>,
+    limits: ParserLimits,
+    fallback_to_one_shot: bool,
+    retention_fallback: bool,
+    peak_retained_token_bytes: usize,
+}
+
+pub(crate) struct IncrementalSofiaResult {
+    pub parsed: ParseRecoveryResult,
+    pub retention_fallback: bool,
+    pub peak_retained_token_bytes: usize,
+}
+
+impl IncrementalSofiaFrontend {
+    pub(crate) fn new(options: &CompileOptions) -> Self {
+        let limits = ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        );
+        Self {
+            lexer: Some(LexerSession::with_compile_limits(
+                LexerOptions {
+                    include_newlines: true,
+                    ..LexerOptions::default()
+                },
+                options,
+            )),
+            parser: Some(sofia::ParserSession::new(limits, true)),
+            limits,
+            fallback_to_one_shot: false,
+            retention_fallback: false,
+            peak_retained_token_bytes: 0,
+        }
+    }
+
+    pub(crate) fn push_str(&mut self, chunk: &str) {
+        if self.fallback_to_one_shot {
+            return;
+        }
+        let batch = self
+            .lexer
+            .as_mut()
+            .expect("active incremental front end must retain its lexer")
+            .push(Cow::Owned(chunk.to_owned()));
+        self.peak_retained_token_bytes = self.peak_retained_token_bytes.max(
+            self.lexer
+                .as_ref()
+                .expect("active incremental front end must retain its lexer")
+                .retained_input_bytes(),
+        );
+        if !batch.errors.is_empty() {
+            self.retention_fallback = batch
+                .errors
+                .iter()
+                .any(|error| error.code == "INCREMENTAL_TOKEN_RETENTION_EXCEEDED");
+            self.fallback_to_one_shot = true;
+            self.lexer = None;
+            self.parser = None;
+            return;
+        }
+
+        if matches!(
+            self.parser
+                .as_mut()
+                .expect("active incremental front end must retain its parser")
+                .push_tokens(Cow::Owned(batch.tokens)),
+            Ok(sofia::ParserSessionProgress::Complete(_)) | Err(_)
+        ) {
+            // A terminal non-final parse is deterministic, but replaying the
+            // complete source keeps this migration surface fail-closed until
+            // the public compiler selects the incremental result directly.
+            self.fallback_to_one_shot = true;
+            self.lexer = None;
+            self.parser = None;
+        }
+    }
+
+    pub(crate) fn finish(mut self, source: &str) -> IncrementalSofiaResult {
+        if self.fallback_to_one_shot {
+            return IncrementalSofiaResult {
+                parsed: parse_document_from_tokens_recovery_with_implementation(
+                    source,
+                    self.limits,
+                    ParserImplementation::Sofia,
+                ),
+                retention_fallback: self.retention_fallback,
+                peak_retained_token_bytes: self.peak_retained_token_bytes,
+            };
+        }
+
+        let batch = self
+            .lexer
+            .as_mut()
+            .expect("active incremental front end must retain its lexer")
+            .finish();
+        if !batch.errors.is_empty() {
+            return IncrementalSofiaResult {
+                parsed: ParseRecoveryResult {
+                    bindings: Vec::new(),
+                    errors: batch.errors.into_iter().map(lex_error_diagnostic).collect(),
+                },
+                retention_fallback: false,
+                peak_retained_token_bytes: self.peak_retained_token_bytes,
+            };
+        }
+
+        let outcome = self
+            .parser
+            .as_mut()
+            .expect("active incremental front end must retain its parser")
+            .finish_tokens(Cow::Owned(batch.tokens))
+            .expect("lexer finish must provide one final EOF");
+        IncrementalSofiaResult {
+            parsed: recovery_result_from_sofia(outcome),
+            retention_fallback: false,
+            peak_retained_token_bytes: self.peak_retained_token_bytes,
+        }
+    }
+}
+
+fn lex_error_diagnostic(error: crate::LexError) -> Diagnostic {
+    Diagnostic {
+        code: error.code,
+        path: Some(String::from("$")),
+        span: Some(error.span),
+        phase: None,
+        message: error.message,
+    }
+}
+
+fn recovery_result_from_sofia(outcome: sofia::ParseOutcome) -> ParseRecoveryResult {
+    match outcome {
+        sofia::ParseOutcome::Recovered { bindings, errors } => {
+            ParseRecoveryResult { bindings, errors }
+        }
+        sofia::ParseOutcome::Failed(error) => ParseRecoveryResult {
+            bindings: Vec::new(),
+            errors: vec![error],
+        },
+        sofia::ParseOutcome::Parsed(_) => {
+            unreachable!("recovery Sofia session returned a strict product")
+        }
+    }
+}
+
 pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
     input: &str,
     limits: ParserLimits,
@@ -138,17 +291,7 @@ pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
     if !lexed.errors.is_empty() {
         return ParseRecoveryResult {
             bindings: Vec::new(),
-            errors: lexed
-                .errors
-                .into_iter()
-                .map(|error| Diagnostic {
-                    code: error.code,
-                    path: Some(String::from("$")),
-                    span: Some(error.span),
-                    phase: None,
-                    message: error.message,
-                })
-                .collect(),
+            errors: lexed.errors.into_iter().map(lex_error_diagnostic).collect(),
         };
     }
     parse_tokenized_document_recovery(&lexed.tokens, limits, implementation)
