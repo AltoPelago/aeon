@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
 use crate::lexer::LexerSession;
+use crate::resource_limits::structured_comment_limit_diagnostic;
 use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
@@ -133,12 +134,16 @@ pub(crate) struct IncrementalSofiaFrontend {
     retention_fallback: bool,
     peak_retained_token_bytes: usize,
     released_completed_binding_count: usize,
+    structured_comment_count: usize,
+    structured_comment_error: Option<Diagnostic>,
 }
 
 pub(crate) struct IncrementalSofiaResult {
     pub parsed: ParseRecoveryResult,
     pub retention_fallback: bool,
     pub peak_retained_token_bytes: usize,
+    pub structured_comment_count: usize,
+    pub structured_comment_error: Option<Diagnostic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -178,6 +183,8 @@ impl IncrementalSofiaFrontend {
             retention_fallback: false,
             peak_retained_token_bytes: 0,
             released_completed_binding_count: 0,
+            structured_comment_count: 0,
+            structured_comment_error: None,
         }
     }
 
@@ -196,6 +203,7 @@ impl IncrementalSofiaFrontend {
                 .expect("active incremental front end must retain its lexer")
                 .retained_input_bytes(),
         );
+        self.sync_structured_comment_state();
         if !batch.errors.is_empty() {
             self.retention_fallback = batch
                 .errors
@@ -254,6 +262,29 @@ impl IncrementalSofiaFrontend {
         }
     }
 
+    pub(crate) fn structured_comment_state(&self) -> (usize, Option<Diagnostic>) {
+        (
+            self.structured_comment_count,
+            self.structured_comment_error.clone(),
+        )
+    }
+
+    fn sync_structured_comment_state(&mut self) {
+        let Some(lexer) = self.lexer.as_ref() else {
+            return;
+        };
+        self.structured_comment_count = lexer.structured_comment_count();
+        if self.structured_comment_error.is_none()
+            && let Some(violation) = lexer.structured_comment_limit_violation()
+        {
+            self.structured_comment_error = Some(structured_comment_limit_diagnostic(
+                violation.observed,
+                violation.limit,
+                violation.span,
+            ));
+        }
+    }
+
     pub(crate) fn release_completed_bindings(&mut self) {
         let released = self
             .parser
@@ -274,6 +305,8 @@ impl IncrementalSofiaFrontend {
                 ),
                 retention_fallback: self.retention_fallback,
                 peak_retained_token_bytes: self.peak_retained_token_bytes,
+                structured_comment_count: self.structured_comment_count,
+                structured_comment_error: self.structured_comment_error,
             };
         }
 
@@ -282,6 +315,7 @@ impl IncrementalSofiaFrontend {
             .as_mut()
             .expect("active incremental front end must retain its lexer")
             .finish();
+        self.sync_structured_comment_state();
         if !batch.errors.is_empty() {
             return IncrementalSofiaResult {
                 parsed: ParseRecoveryResult {
@@ -290,6 +324,8 @@ impl IncrementalSofiaFrontend {
                 },
                 retention_fallback: false,
                 peak_retained_token_bytes: self.peak_retained_token_bytes,
+                structured_comment_count: self.structured_comment_count,
+                structured_comment_error: self.structured_comment_error,
             };
         }
 
@@ -303,6 +339,8 @@ impl IncrementalSofiaFrontend {
             parsed: recovery_result_from_sofia(outcome),
             retention_fallback: false,
             peak_retained_token_bytes: self.peak_retained_token_bytes,
+            structured_comment_count: self.structured_comment_count,
+            structured_comment_error: self.structured_comment_error,
         }
     }
 }

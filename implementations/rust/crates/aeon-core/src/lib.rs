@@ -2050,7 +2050,7 @@ mod tests {
             !fallback,
             "structured-comment boundary should remain incremental"
         );
-        assert_eq!(peak_retained, 15);
+        assert_eq!(peak_retained, 1);
 
         let comment_beyond_source = "//@🌊🌊🌊🌊\na = 1";
         let comment_beyond = configured_options(|options| {
@@ -2069,10 +2069,10 @@ mod tests {
             compile_owned_incremental_sofia(comment_beyond_source.to_owned(), comment_beyond);
         assert_eq!(actual, baseline);
         assert!(
-            fallback,
-            "oversized structured comment should use exact fallback"
+            !fallback,
+            "oversized structured comment should remain incrementally classified"
         );
-        assert_eq!(peak_retained, 15);
+        assert_eq!(peak_retained, 1);
         assert_eq!(
             actual.errors[0].code,
             "MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED"

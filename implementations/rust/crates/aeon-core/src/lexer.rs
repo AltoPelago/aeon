@@ -128,13 +128,24 @@ enum CommentState {
     Line {
         start: Position,
         metadata: CommentMetadata,
+        structured: Option<bool>,
+        payload_characters: usize,
     },
     Block {
         start: Position,
         closing: char,
         metadata: CommentMetadata,
         saw_closing: bool,
+        structured: bool,
+        payload_characters: usize,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StructuredCommentLimitViolation {
+    pub(crate) observed: usize,
+    pub(crate) limit: usize,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -218,6 +229,7 @@ pub(crate) struct LexerSession<'a> {
     buffer_start_offset: usize,
     compact_input: bool,
     max_retained_token_bytes: Option<usize>,
+    max_structured_comment_characters: Option<usize>,
     options: LexerOptions,
     offset: usize,
     line: usize,
@@ -226,6 +238,8 @@ pub(crate) struct LexerSession<'a> {
     errors: Vec<LexError>,
     previous_token_kind: Option<TokenKind>,
     error_count: usize,
+    structured_comment_count: usize,
+    structured_comment_limit_violation: Option<StructuredCommentLimitViolation>,
     aborted: bool,
     quoted_string: Option<QuotedStringState>,
     comment: Option<CommentState>,
@@ -258,7 +272,11 @@ impl<'a> LexerSession<'a> {
         options: LexerOptions,
         compile_options: &CompileOptions,
     ) -> Self {
-        Self::with_retained_token_limit(options, retained_token_byte_limit(compile_options))
+        let mut lexer =
+            Self::with_retained_token_limit(options, retained_token_byte_limit(compile_options));
+        lexer.max_structured_comment_characters =
+            Some(compile_options.max_structured_comment_characters);
+        lexer
     }
 
     fn one_shot(options: LexerOptions) -> Self {
@@ -277,6 +295,7 @@ impl<'a> LexerSession<'a> {
             buffer_start_offset: 0,
             compact_input,
             max_retained_token_bytes,
+            max_structured_comment_characters: None,
             options,
             offset: 0,
             line: 1,
@@ -285,6 +304,8 @@ impl<'a> LexerSession<'a> {
             errors: Vec::new(),
             previous_token_kind: None,
             error_count: 0,
+            structured_comment_count: 0,
+            structured_comment_limit_violation: None,
             aborted: false,
             quoted_string: None,
             comment: None,
@@ -626,16 +647,37 @@ impl<'a> LexerSession<'a> {
 
     fn scan_comment(&mut self) -> bool {
         match self.comment.expect("comment scanner requires active state") {
-            CommentState::Line { start, metadata } => {
+            CommentState::Line {
+                start,
+                metadata,
+                mut structured,
+                mut payload_characters,
+            } => {
                 while !self.is_at_end() && !matches!(self.peek(), '\n' | '\r') {
-                    self.advance();
+                    let ch = self.advance();
+                    match structured {
+                        None => {
+                            structured =
+                                Some(matches!(ch, '#' | '@' | '?' | '!' | '{' | '[' | '('));
+                        }
+                        Some(true) => payload_characters = payload_characters.saturating_add(1),
+                        Some(false) => {}
+                    }
                 }
                 if self.is_at_end() {
+                    self.comment = Some(CommentState::Line {
+                        start,
+                        metadata,
+                        structured,
+                        payload_characters,
+                    });
                     return false;
                 }
 
-                let text = self.slice_from(start.offset);
-                self.maybe_push_comment(TokenKind::LineComment, &text, start, metadata);
+                if structured == Some(true) {
+                    self.observe_structured_comment(start, payload_characters);
+                }
+                self.maybe_push_comment(TokenKind::LineComment, start, metadata);
                 self.comment = None;
                 true
             }
@@ -644,12 +686,20 @@ impl<'a> LexerSession<'a> {
                 closing,
                 metadata,
                 mut saw_closing,
+                structured,
+                mut payload_characters,
             } => {
                 while !self.is_at_end() {
                     let ch = self.advance();
+                    payload_characters = payload_characters.saturating_add(1);
                     if saw_closing && ch == '/' {
-                        let text = self.slice_from(start.offset);
-                        self.maybe_push_comment(TokenKind::BlockComment, &text, start, metadata);
+                        if structured {
+                            self.observe_structured_comment(
+                                start,
+                                payload_characters.saturating_sub(2),
+                            );
+                        }
+                        self.maybe_push_comment(TokenKind::BlockComment, start, metadata);
                         self.comment = None;
                         return true;
                     }
@@ -660,6 +710,8 @@ impl<'a> LexerSession<'a> {
                     closing,
                     metadata,
                     saw_closing,
+                    structured,
+                    payload_characters,
                 });
                 false
             }
@@ -672,9 +724,16 @@ impl<'a> LexerSession<'a> {
             .take()
             .expect("comment finish requires active state")
         {
-            CommentState::Line { start, metadata } => {
-                let text = self.slice_from(start.offset);
-                self.maybe_push_comment(TokenKind::LineComment, &text, start, metadata);
+            CommentState::Line {
+                start,
+                metadata,
+                structured,
+                payload_characters,
+            } => {
+                if structured == Some(true) {
+                    self.observe_structured_comment(start, payload_characters);
+                }
+                self.maybe_push_comment(TokenKind::LineComment, start, metadata);
             }
             CommentState::Block { start, .. } => self.push_error(LexError {
                 code: String::from("UNTERMINATED_BLOCK_COMMENT"),
@@ -1375,6 +1434,8 @@ impl<'a> LexerSession<'a> {
                         form: CommentForm::Line,
                         subtype: None,
                     },
+                    structured: None,
+                    payload_characters: 0,
                 });
                 self.scan_comment()
             }
@@ -1385,6 +1446,8 @@ impl<'a> LexerSession<'a> {
                     closing: slash_channel_closing_marker(marker),
                     metadata: comment_metadata_for_marker(marker),
                     saw_closing: false,
+                    structured: matches!(marker, '#' | '@' | '?' | '!' | '{' | '[' | '('),
+                    payload_characters: 0,
                 });
                 self.scan_comment()
             }
@@ -1395,15 +1458,27 @@ impl<'a> LexerSession<'a> {
         }
     }
 
-    fn maybe_push_comment(
-        &mut self,
-        kind: TokenKind,
-        text: &str,
-        start: Position,
-        comment: CommentMetadata,
-    ) {
+    fn maybe_push_comment(&mut self, kind: TokenKind, start: Position, comment: CommentMetadata) {
         if self.options.include_comments {
-            self.push_token(kind, text, start, Some(comment), None);
+            let text = self.slice_from(start.offset);
+            self.push_token(kind, &text, start, Some(comment), None);
+        }
+    }
+
+    fn observe_structured_comment(&mut self, start: Position, payload_characters: usize) {
+        self.structured_comment_count = self.structured_comment_count.saturating_add(1);
+        let Some(limit) = self.max_structured_comment_characters else {
+            return;
+        };
+        if payload_characters > limit && self.structured_comment_limit_violation.is_none() {
+            self.structured_comment_limit_violation = Some(StructuredCommentLimitViolation {
+                observed: payload_characters,
+                limit,
+                span: Span {
+                    start,
+                    end: self.current_position(),
+                },
+            });
         }
     }
 
@@ -1536,8 +1611,24 @@ impl<'a> LexerSession<'a> {
     }
 
     fn active_token_start_offset(&self) -> Option<usize> {
-        self.active_token_start_position()
-            .map(|position| position.offset)
+        self.quoted_string
+            .map(|state| state.start.offset)
+            .or_else(|| {
+                (self.options.include_comments)
+                    .then(|| {
+                        self.comment.map(|state| match state {
+                            CommentState::Line { start, .. }
+                            | CommentState::Block { start, .. } => start.offset,
+                        })
+                    })
+                    .flatten()
+            })
+            .or_else(|| self.number.map(|state| state.start.offset))
+            .or_else(|| self.prefixed_literal.map(|state| state.start.offset))
+            .or_else(|| self.separator_literal.map(|state| state.start.offset))
+            .or_else(|| self.identifier.map(|state| state.start.offset))
+            .or_else(|| self.structural_identity.map(|state| state.start.offset))
+            .or_else(|| self.sansa_address.as_ref().map(|state| state.start.offset))
     }
 
     fn active_token_start_position(&self) -> Option<Position> {
@@ -1558,6 +1649,16 @@ impl<'a> LexerSession<'a> {
 
     pub(crate) fn retained_input_bytes(&self) -> usize {
         self.input.len()
+    }
+
+    pub(crate) const fn structured_comment_count(&self) -> usize {
+        self.structured_comment_count
+    }
+
+    pub(crate) const fn structured_comment_limit_violation(
+        &self,
+    ) -> Option<StructuredCommentLimitViolation> {
+        self.structured_comment_limit_violation
     }
 }
 
@@ -1590,16 +1691,7 @@ fn retained_token_byte_limit(options: &CompileOptions) -> usize {
         .max(options.max_key_segment_codepoints)
         .max(options.max_path_characters);
     let quoted_bytes = quoted_characters.saturating_mul(10).saturating_add(2);
-    // Structured-comment payloads are counted as Unicode scalars. Four bytes
-    // per scalar plus the longest opening/closing markers is conservative.
-    let structured_comment_bytes = options
-        .max_structured_comment_characters
-        .saturating_mul(4)
-        .saturating_add(4);
-    let mut limit = options
-        .max_numeric_literal_characters
-        .min(quoted_bytes)
-        .min(structured_comment_bytes);
+    let mut limit = options.max_numeric_literal_characters.min(quoted_bytes);
     if let Some(max_input_bytes) = options.max_input_bytes {
         limit = limit.min(max_input_bytes);
     }

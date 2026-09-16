@@ -127,6 +127,8 @@ struct ProgressiveValidationState {
     event_count: usize,
     seen_event_paths: HashSet<(SourcePlane, String)>,
     source_resource_error: Option<Diagnostic>,
+    structured_comment_error: Option<Diagnostic>,
+    structured_comment_count: usize,
     duplicate_object_errors: Vec<Diagnostic>,
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
@@ -161,6 +163,8 @@ struct ProgressiveValidationRetention {
     seen_path_count: usize,
     seen_path_string_bytes: usize,
     error_count: usize,
+    structured_comment_count: usize,
+    has_structured_comment_error: bool,
 }
 
 impl ProgressiveValidationState {
@@ -171,6 +175,8 @@ impl ProgressiveValidationState {
             event_count: 0,
             seen_event_paths: HashSet::new(),
             source_resource_error: None,
+            structured_comment_error: None,
+            structured_comment_count: 0,
             duplicate_object_errors: Vec::new(),
             event_path_error: None,
             duplicate_errors: Vec::new(),
@@ -216,6 +222,13 @@ impl ProgressiveValidationState {
                     self.typed_mode_errors.errors_mut(mode),
                 );
             }
+        }
+    }
+
+    fn observe_structured_comments(&mut self, count: usize, error: Option<Diagnostic>) {
+        self.structured_comment_count = count;
+        if self.structured_comment_error.is_none() {
+            self.structured_comment_error = error;
         }
     }
 
@@ -302,6 +315,9 @@ impl ProgressiveValidationState {
 
     fn errors(&self) -> Vec<Diagnostic> {
         if let Some(error) = &self.source_resource_error {
+            return vec![error.clone()];
+        }
+        if let Some(error) = &self.structured_comment_error {
             return vec![error.clone()];
         }
         if let Some(error) = self.header.error() {
@@ -460,24 +476,9 @@ impl ProgressiveValidationState {
                 .iter()
                 .map(|(_, path)| path.capacity())
                 .sum(),
-            error_count: usize::from(self.source_resource_error.is_some())
-                + usize::from(self.header.error().is_some())
-                + self.duplicate_object_errors.len()
-                + usize::from(self.event_path_error.is_some())
-                + self.duplicate_errors.len()
-                + if self.fail_closed_duplicate_suppresses_events() {
-                    0
-                } else {
-                    self.effective_datatype_event_errors().len()
-                }
-                + self.effective_datatype_attribute_errors().len()
-                + if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
-                    self.gp_profile_errors.len()
-                } else {
-                    0
-                }
-                + self.reference_errors().len()
-                + self.effective_typed_mode_errors().len(),
+            error_count: self.errors().len(),
+            structured_comment_count: self.structured_comment_count,
+            has_structured_comment_error: self.structured_comment_error.is_some(),
         }
     }
 }
@@ -512,6 +513,10 @@ impl ProgressiveEventAssembler {
 
     fn finish_bindings(&mut self, remaining: &[Binding]) -> Vec<ProvisionalEventBatch> {
         self.batch_bindings(remaining)
+    }
+
+    fn observe_structured_comments(&mut self, count: usize, error: Option<Diagnostic>) {
+        self.validation.observe_structured_comments(count, error);
     }
 
     fn batch_bindings(&mut self, bindings: &[Binding]) -> Vec<ProvisionalEventBatch> {
@@ -575,6 +580,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidated_event_count: usize,
     pub(crate) prevalidated_effective_mode: BehaviorMode,
     pub(crate) prevalidated_gp_profile_active: bool,
+    pub(crate) prevalidated_structured_comment_count: usize,
     pub(crate) prevalidated_reference_datatype_claim_count: usize,
     pub(crate) prevalidated_reference_claim_count: usize,
 }
@@ -591,6 +597,8 @@ impl ProgressiveSofiaFrontend {
         let bindings = self.parser.push_str(chunk);
         let batches = self.events.push_completed_bindings(bindings);
         self.parser.release_completed_bindings();
+        let (count, error) = self.parser.structured_comment_state();
+        self.events.observe_structured_comments(count, error);
         batches
     }
 
@@ -601,6 +609,10 @@ impl ProgressiveSofiaFrontend {
     pub(crate) fn finish(self, source: &str) -> ProgressiveSofiaFinish {
         let Self { parser, mut events } = self;
         let incremental = parser.finish(source);
+        events.observe_structured_comments(
+            incremental.structured_comment_count,
+            incremental.structured_comment_error.clone(),
+        );
         let parse_valid = !incremental.retention_fallback && incremental.parsed.errors.is_empty();
         let final_batches = if parse_valid {
             events.finish_bindings(&incremental.parsed.bindings)
@@ -619,6 +631,7 @@ impl ProgressiveSofiaFrontend {
                 .effective_mode
                 .expect("active validation state must retain an effective mode"),
             prevalidated_gp_profile_active: validation.gp_profile_active,
+            prevalidated_structured_comment_count: validation.structured_comment_count,
             prevalidated_reference_datatype_claim_count: validation.reference_datatype_claim_count,
             prevalidated_reference_claim_count: validation.reference_claim_count,
         }
@@ -688,6 +701,8 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub validation_gp_profile_active: bool,
     pub validation_header_field_count: usize,
     pub validation_header_string_bytes: usize,
+    pub validation_structured_comment_count: usize,
+    pub validation_has_structured_comment_error: bool,
     pub validation_reference_datatype_claim_count: usize,
     pub validation_datatype_target_count: usize,
     pub validation_datatype_target_string_bytes: usize,
@@ -810,6 +825,8 @@ impl ProgressiveCompiler {
             validation_gp_profile_active: validation.gp_profile_active,
             validation_header_field_count: validation.header_field_count,
             validation_header_string_bytes: validation.header_string_bytes,
+            validation_structured_comment_count: validation.structured_comment_count,
+            validation_has_structured_comment_error: validation.has_structured_comment_error,
             validation_reference_datatype_claim_count: validation.reference_datatype_claim_count,
             validation_datatype_target_count: validation.datatype_target_count,
             validation_datatype_target_string_bytes: validation.datatype_target_string_bytes,
@@ -1584,6 +1601,66 @@ mod tests {
     }
 
     #[test]
+    fn compact_prevalidation_matches_structured_comment_limits_and_precedence() {
+        let comment_limited = CompileOptions {
+            max_structured_comment_characters: 2,
+            ..CompileOptions::default()
+        };
+        let binding_precedes_comment = CompileOptions {
+            max_structured_comment_characters: 1,
+            max_key_segment_codepoints: 2,
+            ..CompileOptions::default()
+        };
+        let cases = [
+            (
+                "line comment unicode boundary",
+                "//@🌊🌊\nvalue = 1",
+                comment_limited.clone(),
+                1,
+            ),
+            (
+                "line comment unicode overflow",
+                "//@🌊🌊🌊\nvalue = 1",
+                comment_limited.clone(),
+                1,
+            ),
+            (
+                "block comment overflow",
+                "/@abc@/\nvalue = 1",
+                comment_limited.clone(),
+                1,
+            ),
+            (
+                "plain comments are not structured",
+                "//plain text\n/*plain block*/\nvalue = 1",
+                comment_limited,
+                0,
+            ),
+            (
+                "binding resource error precedes structured comment error",
+                "//@abc\nlong = 1",
+                binding_precedes_comment,
+                1,
+            ),
+        ];
+
+        for (name, source, options, expected_comment_count) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            let (_, finished) = collect_progressive(source, &options, 8);
+            assert!(finished.parse_valid, "{name}");
+            assert_eq!(finished.prevalidation_errors, expected.errors, "{name}");
+            assert_eq!(
+                finished.prevalidated_structured_comment_count, expected_comment_count,
+                "{name}",
+            );
+        }
+    }
+
+    #[test]
     fn compact_prevalidation_matches_authoritative_header_errors() {
         let cases = [
             (
@@ -1971,6 +2048,36 @@ mod tests {
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.released_completed_binding_count, 4);
         assert_eq!(retained.prevalidation_error_count, 3);
+    }
+
+    #[test]
+    fn retention_snapshot_counts_structured_comments_without_payload_storage() {
+        let source = concat!(
+            "//@ok\n",
+            "// plain\n",
+            "/@abc@/\n",
+            "//!toolong\n",
+            "pending =",
+        );
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions {
+                max_structured_comment_characters: 3,
+                ..CompileOptions::default()
+            },
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::NeedMoreInput { .. })
+        ));
+
+        let retained = compiler.retention();
+        assert_eq!(retained.validation_structured_comment_count, 3);
+        assert!(retained.validation_has_structured_comment_error);
+        assert_eq!(retained.prevalidation_error_count, 1);
+        assert!(retained.lexer_active_bytes <= 1);
+        assert_eq!(retained.completed_binding_count, 0);
     }
 
     #[test]

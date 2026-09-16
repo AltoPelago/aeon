@@ -66,8 +66,7 @@ fn validate_structured_comment_limits(
                     4
                 });
         if payload_chars > options.max_structured_comment_characters {
-            return Some(exhausted(
-                "max_structured_comment_characters",
+            return Some(structured_comment_limit_diagnostic(
                 payload_chars,
                 options.max_structured_comment_characters,
                 token.span,
@@ -75,6 +74,14 @@ fn validate_structured_comment_limits(
         }
     }
     None
+}
+
+pub(crate) fn structured_comment_limit_diagnostic(
+    observed: usize,
+    limit: usize,
+    span: Span,
+) -> Diagnostic {
+    exhausted("max_structured_comment_characters", observed, limit, span)
 }
 
 pub(crate) fn validate_event_path_limits(
