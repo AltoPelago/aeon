@@ -2765,6 +2765,7 @@ mod tests {
     use std::borrow::Cow;
 
     use crate::lexer::LexerSession;
+    use crate::utf8_decoder::Utf8Decoder;
     use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, TokenKind, Value, tokenize};
 
     use super::{
@@ -2773,6 +2774,30 @@ mod tests {
     };
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
+
+    const BOUNDED_INCREMENTAL_CORPUS: &[&str] = &[
+        concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "first = \"Sofía 🌊\"\rsecond = 2\n",
+            "third = true\r\n",
+        ),
+        r#"root\root\:list = [
+  \child\:string = "value"
+  :number = 1
+  { "nested key"\nested\:object = {} }
+]"#,
+        r#"clone = ~$.["root.key"][1].member
+pointer = ~>root.@.meta.["x.y"][0]
+literal = ~true.off"#,
+        r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+  "text"
+  \child\:string = "typed"
+  <leaf>
+)>"#,
+        "/* plain 🌊 */ note = >`\n  one\n  two\n`\nreason = !\"postponed\"",
+        "broken = [1,,2]\nlater = true",
+        "items = [1, 2 ",
+    ];
 
     fn parse(input: &str) -> ParseOutcome {
         parse_with_limits(input, TEST_LIMITS)
@@ -2827,6 +2852,89 @@ mod tests {
         parser
             .finish_tokens(Cow::Owned(final_batch.tokens))
             .expect("final lexer batch should finish the parser")
+    }
+
+    fn parse_incremental_bytes(input: &str, chunk_sizes: &[usize], recovery: bool) -> ParseOutcome {
+        assert_eq!(chunk_sizes.iter().sum::<usize>(), input.len());
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut decoder = Utf8Decoder::default();
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, recovery);
+        let mut terminal = None;
+        let mut offset = 0;
+        let mut decoded_bytes = 0;
+
+        for &chunk_size in chunk_sizes {
+            let end = offset + chunk_size;
+            let mut decoded = Vec::new();
+            decoder
+                .push(&input.as_bytes()[offset..end], |absolute_offset, text| {
+                    decoded.push((absolute_offset, text.to_owned()));
+                })
+                .expect("bounded corpus must contain valid UTF-8");
+            offset = end;
+
+            for (absolute_offset, text) in decoded {
+                assert_eq!(absolute_offset, decoded_bytes);
+                decoded_bytes += text.len();
+                if terminal.is_some() {
+                    continue;
+                }
+                let batch = lexer.push(Cow::Owned(text));
+                assert!(batch.errors.is_empty());
+                match parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("decoded token batch should be accepted")
+                {
+                    ParserSessionProgress::NeedMoreInput => {}
+                    ParserSessionProgress::Complete(outcome) => terminal = Some(outcome),
+                }
+            }
+        }
+
+        decoder
+            .finish()
+            .expect("complete bounded corpus input must finish UTF-8");
+        assert_eq!(decoded_bytes, input.len());
+        if let Some(outcome) = terminal {
+            return outcome;
+        }
+
+        let final_batch = lexer.finish();
+        assert!(final_batch.errors.is_empty());
+        parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("final lexer batch should finish the parser")
+    }
+
+    fn fixed_byte_schedule(length: usize, width: usize) -> Vec<usize> {
+        assert!(width > 0);
+        let mut schedule = Vec::new();
+        let mut remaining = length;
+        while remaining > 0 {
+            let size = remaining.min(width);
+            schedule.push(size);
+            remaining -= size;
+        }
+        schedule
+    }
+
+    fn randomized_byte_schedule(length: usize, seed: u64) -> Vec<usize> {
+        let mut schedule = Vec::new();
+        let mut remaining = length;
+        let mut state = seed;
+        while remaining > 0 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let size = remaining.min(1 + (state as usize % 23));
+            schedule.push(size);
+            remaining -= size;
+        }
+        schedule
     }
 
     #[test]
@@ -2934,6 +3042,81 @@ mod tests {
                 expected,
                 "incremental Sofia recovery mismatch at byte split {split}"
             );
+        }
+    }
+
+    #[test]
+    fn parser_session_bounded_core_corpus_matches_byte_at_a_time() {
+        for input in BOUNDED_INCREMENTAL_CORPUS {
+            let schedule = vec![1; input.len()];
+            for recovery in [false, true] {
+                let expected = if recovery {
+                    parse_recovery(input)
+                } else {
+                    parse(input)
+                };
+                assert_eq!(
+                    parse_incremental_bytes(input, &schedule, recovery),
+                    expected,
+                    "byte-at-a-time mismatch with recovery={recovery} for:\n{input}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn parser_session_bounded_core_corpus_matches_fixed_and_randomized_schedules() {
+        const FIXED_WIDTHS: &[usize] = &[2, 3, 4, 7, 16, 31];
+        const RANDOM_SEEDS: &[u64] = &[0x5eed, 0xae01, 0x5af1_a123];
+
+        for input in BOUNDED_INCREMENTAL_CORPUS {
+            for recovery in [false, true] {
+                let expected = if recovery {
+                    parse_recovery(input)
+                } else {
+                    parse(input)
+                };
+                for &width in FIXED_WIDTHS {
+                    let schedule = fixed_byte_schedule(input.len(), width);
+                    assert_eq!(
+                        parse_incremental_bytes(input, &schedule, recovery),
+                        expected,
+                        "fixed-width {width} mismatch with recovery={recovery} for:\n{input}"
+                    );
+                }
+                for &seed in RANDOM_SEEDS {
+                    let schedule = randomized_byte_schedule(input.len(), seed);
+                    assert_eq!(
+                        parse_incremental_bytes(input, &schedule, recovery),
+                        expected,
+                        "random seed {seed:#x} mismatch with recovery={recovery} for:\n{input}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parser_session_matches_one_shot_at_every_selected_byte_split() {
+        for input in [
+            BOUNDED_INCREMENTAL_CORPUS[0],
+            BOUNDED_INCREMENTAL_CORPUS[4],
+            BOUNDED_INCREMENTAL_CORPUS[5],
+        ] {
+            for recovery in [false, true] {
+                let expected = if recovery {
+                    parse_recovery(input)
+                } else {
+                    parse(input)
+                };
+                for split in 0..=input.len() {
+                    assert_eq!(
+                        parse_incremental_bytes(input, &[split, input.len() - split], recovery,),
+                        expected,
+                        "byte split {split} mismatch with recovery={recovery} for:\n{input}"
+                    );
+                }
+            }
         }
     }
 
