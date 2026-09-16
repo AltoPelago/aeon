@@ -1,10 +1,15 @@
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
+use std::mem;
 use std::num::NonZeroUsize;
 
 use crate::flatten::flatten_document;
 use crate::token_parser::{IncrementalSofiaFrontend, IncrementalSofiaResult};
-use crate::{Binding, CanonicalPath, CompileOptions, EventBatch, EventBatches};
+use crate::{
+    Binding, CanonicalPath, CompileOptions, CompileResult, EventBatch, EventBatches,
+    compile_parsed, compile_portability_warnings, failed_compile_result, input_size_diagnostic,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProvisionalEventBatch {
@@ -143,6 +148,252 @@ impl ProgressiveSofiaFrontend {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgressiveLifecycleState {
+    Accepting,
+    Draining,
+    TerminalReady,
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgressiveLifecycleProgress {
+    NeedMoreInput {
+        pending_batches: usize,
+    },
+    BatchAvailable {
+        pending_batches: usize,
+        backpressured: bool,
+    },
+    /// The attempted input or finish operation was not consumed.
+    Backpressured {
+        pending_batches: usize,
+    },
+    Draining {
+        pending_batches: usize,
+    },
+    TerminalReady,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProgressiveLifecycleError {
+    operation: &'static str,
+    state: ProgressiveLifecycleState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProgressiveDisposition {
+    Accepted {
+        result: CompileResult,
+        event_count: usize,
+    },
+    Invalidated {
+        result: CompileResult,
+        exposed_event_count: usize,
+    },
+}
+
+pub(crate) struct ProgressiveCompiler {
+    frontend: Option<ProgressiveSofiaFrontend>,
+    options: Option<CompileOptions>,
+    source: String,
+    max_pending_batches: NonZeroUsize,
+    pending: VecDeque<ProvisionalEventBatch>,
+    deferred: VecDeque<ProvisionalEventBatch>,
+    exposed_event_count: usize,
+    state: ProgressiveLifecycleState,
+    terminal: Option<ProgressiveDisposition>,
+}
+
+impl ProgressiveCompiler {
+    pub(crate) fn new(
+        options: CompileOptions,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+    ) -> Self {
+        Self {
+            frontend: Some(ProgressiveSofiaFrontend::new(&options, max_batch_events)),
+            options: Some(options),
+            source: String::new(),
+            max_pending_batches,
+            pending: VecDeque::new(),
+            deferred: VecDeque::new(),
+            exposed_event_count: 0,
+            state: ProgressiveLifecycleState::Accepting,
+            terminal: None,
+        }
+    }
+
+    pub(crate) const fn state(&self) -> ProgressiveLifecycleState {
+        self.state
+    }
+
+    pub(crate) fn buffered_bytes(&self) -> usize {
+        self.source.len()
+    }
+
+    pub(crate) fn pending_batches(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub(crate) fn is_backpressured(&self) -> bool {
+        self.pending.len() == self.max_pending_batches.get() || !self.deferred.is_empty()
+    }
+
+    pub(crate) fn push_str(
+        &mut self,
+        chunk: &str,
+    ) -> Result<ProgressiveLifecycleProgress, ProgressiveLifecycleError> {
+        self.require_state("push", ProgressiveLifecycleState::Accepting)?;
+        if self.is_backpressured() {
+            return Ok(self.backpressured_progress());
+        }
+
+        self.source.push_str(chunk);
+        let batches = self
+            .frontend
+            .as_mut()
+            .expect("accepting progressive compiler must retain its front end")
+            .push_str(chunk);
+        self.enqueue(batches);
+        Ok(self.accepting_progress())
+    }
+
+    pub(crate) fn finish(
+        &mut self,
+    ) -> Result<ProgressiveLifecycleProgress, ProgressiveLifecycleError> {
+        self.require_state("finish", ProgressiveLifecycleState::Accepting)?;
+        if self.is_backpressured() {
+            return Ok(self.backpressured_progress());
+        }
+
+        let frontend = self
+            .frontend
+            .take()
+            .expect("accepting progressive compiler must retain its front end");
+        let finished = frontend.finish(&self.source);
+        let options = self
+            .options
+            .take()
+            .expect("accepting progressive compiler must retain options");
+        let warnings = compile_portability_warnings(&options);
+        let source = mem::take(&mut self.source);
+        let result = if let Some(error) = input_size_diagnostic(&source, &options) {
+            failed_compile_result(source, warnings, vec![error])
+        } else {
+            compile_parsed(source, options, warnings, finished.incremental.parsed)
+        };
+
+        if result.errors.is_empty() && finished.parse_valid {
+            let event_count = result.events.len();
+            self.enqueue(finished.final_batches);
+            self.state = if self.pending.is_empty() && self.deferred.is_empty() {
+                ProgressiveLifecycleState::TerminalReady
+            } else {
+                ProgressiveLifecycleState::Draining
+            };
+            self.terminal = Some(ProgressiveDisposition::Accepted {
+                result,
+                event_count,
+            });
+        } else {
+            self.pending.clear();
+            self.deferred.clear();
+            self.state = ProgressiveLifecycleState::TerminalReady;
+            self.terminal = Some(ProgressiveDisposition::Invalidated {
+                result,
+                exposed_event_count: self.exposed_event_count,
+            });
+        }
+
+        Ok(self.progress())
+    }
+
+    pub(crate) fn pull_batch(&mut self) -> Option<ProvisionalEventBatch> {
+        let batch = self.pending.pop_front()?;
+        self.exposed_event_count += batch.events().len();
+        self.refill_pending();
+        if self.state == ProgressiveLifecycleState::Draining
+            && self.pending.is_empty()
+            && self.deferred.is_empty()
+        {
+            self.state = ProgressiveLifecycleState::TerminalReady;
+        }
+        Some(batch)
+    }
+
+    pub(crate) fn take_terminal(
+        &mut self,
+    ) -> Result<ProgressiveDisposition, ProgressiveLifecycleError> {
+        self.require_state("take terminal", ProgressiveLifecycleState::TerminalReady)?;
+        let terminal = self
+            .terminal
+            .take()
+            .expect("terminal-ready compiler must retain a disposition");
+        self.state = ProgressiveLifecycleState::Complete;
+        Ok(terminal)
+    }
+
+    fn enqueue(&mut self, batches: Vec<ProvisionalEventBatch>) {
+        self.deferred.extend(batches);
+        self.refill_pending();
+    }
+
+    fn refill_pending(&mut self) {
+        while self.pending.len() < self.max_pending_batches.get() {
+            let Some(batch) = self.deferred.pop_front() else {
+                break;
+            };
+            self.pending.push_back(batch);
+        }
+    }
+
+    fn progress(&self) -> ProgressiveLifecycleProgress {
+        match self.state {
+            ProgressiveLifecycleState::Accepting => self.accepting_progress(),
+            ProgressiveLifecycleState::Draining => ProgressiveLifecycleProgress::Draining {
+                pending_batches: self.pending.len(),
+            },
+            ProgressiveLifecycleState::TerminalReady => ProgressiveLifecycleProgress::TerminalReady,
+            ProgressiveLifecycleState::Complete => {
+                unreachable!("complete lifecycle has no further progress")
+            }
+        }
+    }
+
+    fn backpressured_progress(&self) -> ProgressiveLifecycleProgress {
+        ProgressiveLifecycleProgress::Backpressured {
+            pending_batches: self.pending.len(),
+        }
+    }
+
+    fn accepting_progress(&self) -> ProgressiveLifecycleProgress {
+        if self.pending.is_empty() {
+            ProgressiveLifecycleProgress::NeedMoreInput { pending_batches: 0 }
+        } else {
+            ProgressiveLifecycleProgress::BatchAvailable {
+                pending_batches: self.pending.len(),
+                backpressured: self.is_backpressured(),
+            }
+        }
+    }
+
+    fn require_state(
+        &self,
+        operation: &'static str,
+        expected: ProgressiveLifecycleState,
+    ) -> Result<(), ProgressiveLifecycleError> {
+        if self.state == expected {
+            Ok(())
+        } else {
+            Err(ProgressiveLifecycleError {
+                operation,
+                state: self.state,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +415,60 @@ mod tests {
         }
         let finished = frontend.finish(source);
         (batches, finished)
+    }
+
+    fn compile_through_progressive_lifecycle(
+        source: &str,
+        options: CompileOptions,
+    ) -> (Vec<crate::AssignmentEvent>, ProgressiveDisposition) {
+        let mut compiler = ProgressiveCompiler::new(
+            options,
+            NonZeroUsize::new(2).expect("two is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+        let mut events = Vec::new();
+
+        for scalar in source.chars() {
+            let mut encoded = [0; 4];
+            let chunk = scalar.encode_utf8(&mut encoded);
+            loop {
+                match compiler
+                    .push_str(chunk)
+                    .expect("push state should be valid")
+                {
+                    ProgressiveLifecycleProgress::Backpressured { .. } => events.extend(
+                        compiler
+                            .pull_batch()
+                            .expect("backpressure must expose a pending batch")
+                            .into_events(),
+                    ),
+                    ProgressiveLifecycleProgress::NeedMoreInput { .. }
+                    | ProgressiveLifecycleProgress::BatchAvailable { .. } => break,
+                    progress => panic!("unexpected push progress: {progress:?}"),
+                }
+            }
+        }
+
+        loop {
+            match compiler.finish().expect("finish state should be valid") {
+                ProgressiveLifecycleProgress::Backpressured { .. } => events.extend(
+                    compiler
+                        .pull_batch()
+                        .expect("finish backpressure must expose a pending batch")
+                        .into_events(),
+                ),
+                ProgressiveLifecycleProgress::Draining { .. }
+                | ProgressiveLifecycleProgress::TerminalReady => break,
+                progress => panic!("unexpected finish progress: {progress:?}"),
+            }
+        }
+        while let Some(batch) = compiler.pull_batch() {
+            events.extend(batch.into_events());
+        }
+        let terminal = compiler
+            .take_terminal()
+            .expect("drained compiler must expose its terminal disposition");
+        (events, terminal)
     }
 
     #[test]
@@ -260,5 +565,275 @@ mod tests {
         assert_eq!(second_key, "second");
         assert_eq!(batches[0].events()[0].key, second_key);
         assert_eq!(batches[1].events()[0].key, "third");
+    }
+
+    #[test]
+    fn bounded_pending_queue_applies_lossless_pull_backpressure() {
+        let first_chunk = "wide = [1, 2, 3, 4, 5]\nnext =";
+        let retry_chunk = " 6";
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+
+        assert_eq!(
+            compiler.push_str(first_chunk),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable {
+                pending_batches: 2,
+                backpressured: true,
+            })
+        );
+        assert_eq!(compiler.pending_batches(), 2);
+        let accepted_bytes = compiler.buffered_bytes();
+        assert_eq!(
+            compiler.finish(),
+            Ok(ProgressiveLifecycleProgress::Backpressured { pending_batches: 2 })
+        );
+        assert_eq!(compiler.state(), ProgressiveLifecycleState::Accepting);
+        assert_eq!(
+            compiler.push_str(retry_chunk),
+            Ok(ProgressiveLifecycleProgress::Backpressured { pending_batches: 2 })
+        );
+        assert_eq!(compiler.buffered_bytes(), accepted_bytes);
+
+        let mut events = Vec::new();
+        while compiler.is_backpressured() {
+            events.extend(
+                compiler
+                    .pull_batch()
+                    .expect("backpressured compiler must expose a batch")
+                    .into_events(),
+            );
+            assert!(compiler.pending_batches() <= 2);
+        }
+
+        assert!(matches!(
+            compiler.push_str(retry_chunk),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable {
+                backpressured: false,
+                ..
+            })
+        ));
+        assert!(matches!(
+            compiler.finish(),
+            Ok(ProgressiveLifecycleProgress::Draining { .. })
+        ));
+        assert!(compiler.take_terminal().is_err());
+
+        while let Some(batch) = compiler.pull_batch() {
+            events.extend(batch.into_events());
+        }
+        assert_eq!(compiler.state(), ProgressiveLifecycleState::TerminalReady);
+        let ProgressiveDisposition::Accepted {
+            result,
+            event_count,
+        } = compiler.take_terminal().expect("terminal should be ready")
+        else {
+            panic!("valid stream should be accepted");
+        };
+        assert_eq!(event_count, result.events.len());
+        assert_eq!(events, result.events);
+        assert_eq!(compiler.state(), ProgressiveLifecycleState::Complete);
+        assert_eq!(
+            compiler.push_str("ignored"),
+            Err(ProgressiveLifecycleError {
+                operation: "push",
+                state: ProgressiveLifecycleState::Complete,
+            })
+        );
+        assert_eq!(
+            compiler.finish(),
+            Err(ProgressiveLifecycleError {
+                operation: "finish",
+                state: ProgressiveLifecycleState::Complete,
+            })
+        );
+    }
+
+    #[test]
+    fn semantic_failure_clears_queued_output_and_invalidates_exposed_events() {
+        let source = "first = 1\nsecond = 2\ncopy = ~missing";
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions::default(),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(4).expect("four is non-zero"),
+        );
+        assert!(matches!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::BatchAvailable {
+                pending_batches: 2,
+                backpressured: false,
+            })
+        ));
+        let exposed = compiler
+            .pull_batch()
+            .expect("first provisional batch should be available");
+        assert_eq!(exposed.events()[0].key, "first");
+
+        assert_eq!(
+            compiler.finish(),
+            Ok(ProgressiveLifecycleProgress::TerminalReady)
+        );
+        assert_eq!(compiler.pending_batches(), 0);
+        assert!(compiler.pull_batch().is_none());
+        let ProgressiveDisposition::Invalidated {
+            result,
+            exposed_event_count,
+        } = compiler
+            .take_terminal()
+            .expect("invalidation should be ready")
+        else {
+            panic!("unresolved reference should invalidate the stream");
+        };
+        assert_eq!(exposed_event_count, 1);
+        assert!(result.events.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "MISSING_REFERENCE_TARGET");
+    }
+
+    #[test]
+    fn recovery_mode_reaches_acceptance_without_provisional_delivery() {
+        let source = "first = 1\nsecond = 2";
+        let mut compiler = ProgressiveCompiler::new(
+            CompileOptions {
+                recovery: true,
+                ..CompileOptions::default()
+            },
+            NonZeroUsize::new(1).expect("one is non-zero"),
+            NonZeroUsize::new(1).expect("one is non-zero"),
+        );
+        assert_eq!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::NeedMoreInput { pending_batches: 0 })
+        );
+        assert_eq!(
+            compiler.finish(),
+            Ok(ProgressiveLifecycleProgress::TerminalReady)
+        );
+        assert!(compiler.pull_batch().is_none());
+        let ProgressiveDisposition::Accepted {
+            result,
+            event_count,
+        } = compiler.take_terminal().expect("result should be accepted")
+        else {
+            panic!("valid recovery-mode document should be accepted");
+        };
+        assert_eq!(event_count, 2);
+        assert_eq!(result.events.len(), 2);
+    }
+
+    #[test]
+    fn lifecycle_terminal_results_match_one_shot_sofia_across_outcomes() {
+        let cases = [
+            (
+                "valid nested",
+                concat!(
+                    "aeon:mode = \"transport\"\n",
+                    "root = { child:string = \"yes\", items = [1, 2, 3] }\n",
+                    "copy = ~root.child",
+                ),
+                CompileOptions::default(),
+            ),
+            (
+                "shallow without annotations",
+                "root@{note:string = \"x\"} = { child = [1, 2] }",
+                CompileOptions {
+                    shallow_event_values: true,
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+            ),
+            (
+                "recovery withholding",
+                "first = 1\nsecond = 2",
+                CompileOptions {
+                    recovery: true,
+                    ..CompileOptions::default()
+                },
+            ),
+            (
+                "semantic invalidation",
+                "first = 1\ncopy = ~missing",
+                CompileOptions::default(),
+            ),
+            (
+                "syntax invalidation",
+                "first = 1\nbroken = [2,,3]",
+                CompileOptions::default(),
+            ),
+            (
+                "event limit invalidation",
+                "first = 1\nsecond = 2",
+                CompileOptions {
+                    max_events: Some(1),
+                    ..CompileOptions::default()
+                },
+            ),
+            (
+                "active token fallback",
+                "first = 1\nlarge = 1234",
+                CompileOptions {
+                    max_numeric_literal_characters: 3,
+                    ..CompileOptions::default()
+                },
+            ),
+        ];
+
+        for (name, source, options) in cases {
+            let expected = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Sofia,
+            );
+            let (events, disposition) =
+                compile_through_progressive_lifecycle(source, options.clone());
+            match disposition {
+                ProgressiveDisposition::Accepted {
+                    result,
+                    event_count,
+                } => {
+                    assert!(expected.errors.is_empty(), "{name}");
+                    assert_eq!(result, expected, "{name}");
+                    assert_eq!(event_count, result.events.len(), "{name}");
+                    if options.recovery {
+                        assert!(events.is_empty(), "{name}");
+                    } else {
+                        assert_eq!(events, result.events, "{name}");
+                    }
+                }
+                ProgressiveDisposition::Invalidated { result, .. } => {
+                    assert!(!expected.errors.is_empty(), "{name}");
+                    assert_eq!(result, expected, "{name}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn conservative_internal_fallback_invalidates_but_preserves_valid_result() {
+        let source = "first = 1";
+        let options = CompileOptions {
+            max_numeric_literal_characters: 1,
+            ..CompileOptions::default()
+        };
+        let expected = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Sofia,
+        );
+        assert!(expected.errors.is_empty());
+
+        let (events, disposition) = compile_through_progressive_lifecycle(source, options);
+        assert!(events.is_empty());
+        let ProgressiveDisposition::Invalidated {
+            result,
+            exposed_event_count,
+        } = disposition
+        else {
+            panic!("internal fallback must invalidate the progressive stream");
+        };
+        assert_eq!(exposed_event_count, 0);
+        assert_eq!(result, expected);
     }
 }
