@@ -7,6 +7,7 @@ mod lexer;
 mod limits;
 mod pathing;
 mod portable;
+mod progressive;
 mod resource_limits;
 mod sansa;
 mod temporal;
