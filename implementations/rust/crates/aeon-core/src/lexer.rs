@@ -217,6 +217,7 @@ pub(crate) struct LexerSession<'a> {
     input: Cow<'a, str>,
     buffer_start_offset: usize,
     compact_input: bool,
+    max_retained_token_bytes: Option<usize>,
     options: LexerOptions,
     offset: usize,
     line: usize,
@@ -242,7 +243,15 @@ pub(crate) struct LexerSession<'a> {
 
 impl<'a> LexerSession<'a> {
     pub(crate) fn new(options: LexerOptions) -> Self {
-        Self::with_compaction(options, true)
+        Self::with_compaction(options, true, None)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_retained_token_limit(
+        options: LexerOptions,
+        max_retained_token_bytes: usize,
+    ) -> Self {
+        Self::with_compaction(options, true, Some(max_retained_token_bytes))
     }
 
     fn one_shot(options: LexerOptions) -> Self {
@@ -251,11 +260,16 @@ impl<'a> LexerSession<'a> {
         lexer
     }
 
-    fn with_compaction(options: LexerOptions, compact_input: bool) -> Self {
+    fn with_compaction(
+        options: LexerOptions,
+        compact_input: bool,
+        max_retained_token_bytes: Option<usize>,
+    ) -> Self {
         Self {
             input: Cow::Owned(String::new()),
             buffer_start_offset: 0,
             compact_input,
+            max_retained_token_bytes,
             options,
             offset: 0,
             line: 1,
@@ -282,6 +296,49 @@ impl<'a> LexerSession<'a> {
 
     pub(crate) fn push(&mut self, chunk: Cow<'a, str>) -> LexResult {
         assert!(!self.finished, "cannot push input after lexer finish");
+        if let Some(limit) = self.max_retained_token_bytes {
+            return self.push_bounded(chunk.as_ref(), limit);
+        }
+        self.push_piece(chunk)
+    }
+
+    fn push_bounded(&mut self, mut chunk: &str, limit: usize) -> LexResult {
+        let mut result = LexResult {
+            tokens: Vec::new(),
+            errors: Vec::new(),
+        };
+        while !chunk.is_empty() && !self.aborted {
+            let retained = self.input.len();
+            let allowance = limit.saturating_add(1).saturating_sub(retained);
+            let end = bounded_char_boundary(chunk, allowance);
+            let (piece, remainder) = chunk.split_at(end);
+            let batch = self.push_piece(Cow::Owned(piece.to_owned()));
+            result.tokens.extend(batch.tokens);
+            result.errors.extend(batch.errors);
+            if self.input.len() > limit {
+                let start = self
+                    .active_token_start_position()
+                    .unwrap_or_else(|| self.current_position());
+                let observed = self.input.len();
+                result.errors.push(LexError {
+                    code: String::from("INCREMENTAL_TOKEN_RETENTION_EXCEEDED"),
+                    message: format!(
+                        "Incremental token retained {observed} bytes, exceeding configured limit of {limit} bytes"
+                    ),
+                    span: Span {
+                        start,
+                        end: self.current_position(),
+                    },
+                });
+                self.abort_and_release_retained_input();
+                break;
+            }
+            chunk = remainder;
+        }
+        result
+    }
+
+    fn push_piece(&mut self, chunk: Cow<'a, str>) -> LexResult {
         if self.input.is_empty() && self.offset == 0 {
             self.input = chunk;
         } else {
@@ -290,6 +347,22 @@ impl<'a> LexerSession<'a> {
         self.scan_available(false);
         self.compact_input_buffer();
         self.take_result()
+    }
+
+    fn abort_and_release_retained_input(&mut self) {
+        self.aborted = true;
+        self.quoted_string = None;
+        self.comment = None;
+        self.number = None;
+        self.prefixed_literal = None;
+        self.separator_literal = None;
+        self.identifier = None;
+        self.structural_identity = None;
+        self.sansa_address = None;
+        self.shebang = None;
+        self.carriage_return = None;
+        self.offset = self.input.len();
+        self.compact_input_buffer();
     }
 
     pub(crate) fn finish(&mut self) -> LexResult {
@@ -1456,21 +1529,24 @@ impl<'a> LexerSession<'a> {
     }
 
     fn active_token_start_offset(&self) -> Option<usize> {
+        self.active_token_start_position()
+            .map(|position| position.offset)
+    }
+
+    fn active_token_start_position(&self) -> Option<Position> {
         self.quoted_string
-            .map(|state| state.start.offset)
+            .map(|state| state.start)
             .or_else(|| {
                 self.comment.map(|state| match state {
-                    CommentState::Line { start, .. } | CommentState::Block { start, .. } => {
-                        start.offset
-                    }
+                    CommentState::Line { start, .. } | CommentState::Block { start, .. } => start,
                 })
             })
-            .or_else(|| self.number.map(|state| state.start.offset))
-            .or_else(|| self.prefixed_literal.map(|state| state.start.offset))
-            .or_else(|| self.separator_literal.map(|state| state.start.offset))
-            .or_else(|| self.identifier.map(|state| state.start.offset))
-            .or_else(|| self.structural_identity.map(|state| state.start.offset))
-            .or_else(|| self.sansa_address.as_ref().map(|state| state.start.offset))
+            .or_else(|| self.number.map(|state| state.start))
+            .or_else(|| self.prefixed_literal.map(|state| state.start))
+            .or_else(|| self.separator_literal.map(|state| state.start))
+            .or_else(|| self.identifier.map(|state| state.start))
+            .or_else(|| self.structural_identity.map(|state| state.start))
+            .or_else(|| self.sansa_address.as_ref().map(|state| state.start))
     }
 
     #[cfg(test)]
@@ -1481,6 +1557,22 @@ impl<'a> LexerSession<'a> {
 
 fn is_identifier_start(ch: char) -> bool {
     ch.is_ascii_alphabetic() || ch == '_'
+}
+
+fn bounded_char_boundary(input: &str, allowance: usize) -> usize {
+    let mut end = allowance.min(input.len());
+    while end > 0 && !input.is_char_boundary(end) {
+        end -= 1;
+    }
+    if end == 0 {
+        input
+            .chars()
+            .next()
+            .map_or(0, char::len_utf8)
+            .min(input.len())
+    } else {
+        end
+    }
 }
 
 fn is_identifier_continue(ch: char) -> bool {
@@ -1812,6 +1904,92 @@ mod tests {
         assert_eq!(identity.text, "alpha-id");
         assert_eq!(identity.span.start.offset, identity_start);
         assert_eq!(lexer.retained_input_bytes(), 1);
+    }
+
+    #[test]
+    fn bounded_incremental_session_accepts_the_retained_token_boundary() {
+        let mut lexer = LexerSession::with_retained_token_limit(LexerOptions::default(), 5);
+
+        let pending = lexer.push(Cow::Borrowed("\"abcd"));
+        assert!(pending.tokens.is_empty());
+        assert!(pending.errors.is_empty());
+        assert_eq!(lexer.retained_input_bytes(), 5);
+
+        let completed = lexer.push(Cow::Borrowed("\" "));
+        assert!(completed.errors.is_empty());
+        assert_eq!(completed.tokens[0].kind, TokenKind::String);
+        assert_eq!(completed.tokens[0].text, "\"abcd\"");
+        assert_eq!(completed.tokens[0].span.start.offset, 0);
+        assert_eq!(completed.tokens[0].span.end.offset, 6);
+        assert_eq!(lexer.retained_input_bytes(), 1);
+    }
+
+    #[test]
+    fn bounded_incremental_session_preserves_tokens_below_the_limit() {
+        let source = "a = \"wave 🌊\"\nb = 1234\n";
+        let expected = tokenize(
+            source,
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+        );
+        let mut lexer = LexerSession::with_retained_token_limit(
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+            12,
+        );
+
+        let mut actual = lexer.push(Cow::Borrowed(source));
+        let finished = lexer.finish();
+        actual.tokens.extend(finished.tokens);
+        actual.errors.extend(finished.errors);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn bounded_incremental_session_fails_and_releases_one_byte_beyond_limit() {
+        let mut lexer = LexerSession::with_retained_token_limit(LexerOptions::default(), 5);
+
+        let exceeded = lexer.push(Cow::Borrowed("p = \"abcde"));
+        assert_eq!(exceeded.tokens.len(), 2);
+        assert_eq!(exceeded.errors.len(), 1);
+        assert_eq!(
+            exceeded.errors[0].code,
+            "INCREMENTAL_TOKEN_RETENTION_EXCEEDED"
+        );
+        assert_eq!(exceeded.errors[0].span.start.offset, "p = ".len());
+        assert_eq!(exceeded.errors[0].span.end.offset, "p = \"abcde".len());
+        assert!(exceeded.errors[0].message.contains("retained 6 bytes"));
+        assert!(exceeded.errors[0].message.contains("limit of 5 bytes"));
+        assert_eq!(lexer.retained_input_bytes(), 0);
+
+        let ignored = lexer.push(Cow::Borrowed("ignored"));
+        assert!(ignored.tokens.is_empty());
+        assert!(ignored.errors.is_empty());
+        let finished = lexer.finish();
+        assert_eq!(finished.tokens.len(), 1);
+        assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
+        assert_eq!(lexer.retained_input_bytes(), 0);
+    }
+
+    #[test]
+    fn bounded_incremental_session_limits_bytes_across_multibyte_chunks() {
+        let mut lexer = LexerSession::with_retained_token_limit(LexerOptions::default(), 5);
+
+        let exceeded = lexer.push(Cow::Borrowed("\"🌊x"));
+        assert_eq!(exceeded.errors.len(), 1);
+        assert_eq!(
+            exceeded.errors[0].code,
+            "INCREMENTAL_TOKEN_RETENTION_EXCEEDED"
+        );
+        assert!(exceeded.errors[0].message.contains("retained 6 bytes"));
+        assert_eq!(exceeded.errors[0].span.start.offset, 0);
+        assert_eq!(exceeded.errors[0].span.end.offset, 6);
+        assert_eq!(lexer.retained_input_bytes(), 0);
     }
 
     #[test]
