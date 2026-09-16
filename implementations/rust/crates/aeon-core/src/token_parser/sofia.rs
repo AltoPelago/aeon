@@ -56,6 +56,7 @@ pub(super) enum ParserSessionProgress {
 
 pub(super) struct ParserSession<'a> {
     tokens: Cow<'a, [Token]>,
+    token_start_index: usize,
     state: ParserState,
     frames: Vec<Frame>,
     product: Option<Product>,
@@ -66,6 +67,7 @@ impl<'a> ParserSession<'a> {
     pub(super) fn new(limits: ParserLimits, recovery: bool) -> Self {
         Self {
             tokens: Cow::Owned(Vec::new()),
+            token_start_index: 0,
             state: ParserState::new(limits, recovery),
             frames: vec![Frame::Document(DocumentFrame::new())],
             product: None,
@@ -89,6 +91,7 @@ impl<'a> ParserSession<'a> {
             self.finished = true;
             Ok(ParserSessionProgress::Complete(outcome))
         } else {
+            self.compact_consumed_tokens();
             Ok(ParserSessionProgress::NeedMoreInput)
         }
     }
@@ -125,6 +128,26 @@ impl<'a> ParserSession<'a> {
         }
     }
 
+    fn compact_consumed_tokens(&mut self) {
+        let mut retain_from = self
+            .state
+            .current
+            .saturating_sub(1)
+            .max(self.token_start_index);
+        for frame in &self.frames {
+            if let Some(index) = frame.earliest_retained_token() {
+                retain_from = retain_from.min(index);
+            }
+        }
+
+        let drain = retain_from.saturating_sub(self.token_start_index);
+        if drain == 0 {
+            return;
+        }
+        self.tokens.to_mut().drain(..drain);
+        self.token_start_index = retain_from;
+    }
+
     fn run_available(&mut self, final_input: bool) -> Option<ParseOutcome> {
         debug_assert_eq!(
             self.tokens.last().map(|token| token.kind) == Some(TokenKind::Eof),
@@ -152,7 +175,12 @@ impl<'a> ParserSession<'a> {
             let input_snapshot = (!final_input).then(|| input.clone());
             let state_snapshot = (!final_input).then(|| self.state.clone());
             let (step, needs_token) = {
-                let mut parser = Parser::new(&self.tokens, &mut self.state, final_input);
+                let mut parser = Parser::new(
+                    &self.tokens,
+                    self.token_start_index,
+                    &mut self.state,
+                    final_input,
+                );
                 let step = frame.step(&mut parser, input, &mut self.product);
                 (step, parser.needs_token())
             };
@@ -189,7 +217,13 @@ impl<'a> ParserSession<'a> {
                         Some(Product::Document(document)) => {
                             debug_assert_eq!(self.state.current_value_nesting_depth, 0);
                             debug_assert!(
-                                Parser::new(&self.tokens, &mut self.state, true).is_at_end()
+                                Parser::new(
+                                    &self.tokens,
+                                    self.token_start_index,
+                                    &mut self.state,
+                                    true,
+                                )
+                                .is_at_end()
                             );
                             debug_assert!(self.frames.is_empty());
                             debug_assert!(self.product.is_none());
@@ -238,7 +272,12 @@ impl<'a> ParserSession<'a> {
                         return Some(ParseOutcome::Failed(error));
                     };
                     let (recovery, recovery_needs_token) = {
-                        let mut parser = Parser::new(&self.tokens, &mut self.state, final_input);
+                        let mut parser = Parser::new(
+                            &self.tokens,
+                            self.token_start_index,
+                            &mut self.state,
+                            final_input,
+                        );
                         let recovery = frame.recover_child_failure(&mut parser, error);
                         (recovery, parser.needs_token())
                     };
@@ -425,6 +464,7 @@ impl ParserState {
 
 struct Parser<'tokens, 'state> {
     tokens: &'tokens [Token],
+    token_start_index: usize,
     state: &'state mut ParserState,
     final_input: bool,
     needs_token: Cell<bool>,
@@ -453,9 +493,15 @@ impl DerefMut for Parser<'_, '_> {
 }
 
 impl<'tokens, 'state> Parser<'tokens, 'state> {
-    fn new(tokens: &'tokens [Token], state: &'state mut ParserState, final_input: bool) -> Self {
+    fn new(
+        tokens: &'tokens [Token],
+        token_start_index: usize,
+        state: &'state mut ParserState,
+        final_input: bool,
+    ) -> Self {
         Self {
             tokens,
+            token_start_index,
             state,
             final_input,
             needs_token: Cell::new(false),
@@ -736,7 +782,11 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
 
     fn projected_opening_container_depth(&self) -> Option<usize> {
         let mut extra_depth = 0usize;
-        for token in &self.tokens[self.current..] {
+        let current = self
+            .current
+            .checked_sub(self.token_start_index)
+            .expect("parser cursor must not precede retained tokens");
+        for token in &self.tokens[current..] {
             match token.kind {
                 TokenKind::LeftBracket
                 | TokenKind::LeftParen
@@ -1020,6 +1070,12 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn normalized_datatype(&self, start: usize, end: usize) -> String {
+        let start = start
+            .checked_sub(self.token_start_index)
+            .expect("datatype start must remain retained");
+        let end = end
+            .checked_sub(self.token_start_index)
+            .expect("datatype end must remain retained");
         self.tokens[start..end]
             .iter()
             .fold(String::new(), |mut datatype, token| {
@@ -1045,8 +1101,8 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
         let previous_value = self
             .current
             .checked_sub(1)
-            .and_then(|index| self.tokens.get(index));
-        let next_token = self.tokens.get(self.current + 1);
+            .and_then(|index| self.get_token(index));
+        let next_token = self.get_token(self.current + 1);
         let could_collide = previous_value
             .is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
             && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset);
@@ -1125,23 +1181,28 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn advance(&mut self) -> &'tokens Token {
-        if self.current >= self.tokens.len() {
+        if self.current >= self.token_start_index + self.tokens.len() {
             return self.unavailable_token();
         }
         debug_assert!(!self.is_at_end(), "Sofia advanced past EOF");
-        let token = &self.tokens[self.current];
+        let token = self
+            .get_token(self.current)
+            .expect("parser cursor must address a retained token");
         self.current += 1;
         token
     }
 
     fn previous(&self) -> &'tokens Token {
-        self.tokens
-            .get(self.current.saturating_sub(1))
+        self.get_token(self.current.saturating_sub(1))
             .unwrap_or_else(|| self.unavailable_token())
     }
 
     fn previous_non_newline(&self) -> &'tokens Token {
-        self.tokens[..self.current.min(self.tokens.len())]
+        let current = self
+            .current
+            .saturating_sub(self.token_start_index)
+            .min(self.tokens.len());
+        self.tokens[..current]
             .iter()
             .rev()
             .find(|token| token.kind != TokenKind::Newline)
@@ -1149,6 +1210,12 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn tokens_text(&self, start: usize, end: usize) -> String {
+        let start = start
+            .checked_sub(self.token_start_index)
+            .expect("raw token start must remain retained");
+        let end = end
+            .checked_sub(self.token_start_index)
+            .expect("raw token end must remain retained");
         self.tokens[start..end]
             .iter()
             .map(|token| token.text.as_str())
@@ -1160,7 +1227,7 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn peek_next(&self) -> &'tokens Token {
-        if let Some(token) = self.tokens.get(self.current + 1) {
+        if let Some(token) = self.get_token(self.current + 1) {
             return token;
         }
         if self.final_input {
@@ -1170,9 +1237,14 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn token_at(&self, index: usize) -> &'tokens Token {
-        self.tokens
-            .get(index)
+        self.get_token(index)
             .unwrap_or_else(|| self.unavailable_token())
+    }
+
+    fn get_token(&self, index: usize) -> Option<&'tokens Token> {
+        index
+            .checked_sub(self.token_start_index)
+            .and_then(|index| self.tokens.get(index))
     }
 }
 
@@ -1194,6 +1266,16 @@ enum Frame {
 impl Frame {
     const fn counts_as_value_container(&self) -> bool {
         matches!(self, Self::Node(_) | Self::Sequence(_) | Self::Object(_))
+    }
+
+    fn earliest_retained_token(&self) -> Option<usize> {
+        match self {
+            Self::Datatype(frame) if !matches!(frame.phase, DatatypePhase::Name) => {
+                Some(frame.start)
+            }
+            Self::Node(frame) => Some(frame.start_index()),
+            _ => None,
+        }
     }
 
     fn step(
@@ -2411,6 +2493,16 @@ impl NodeFrame {
         }
     }
 
+    const fn start_index(&self) -> usize {
+        match &self.phase {
+            NodePhase::Tag { start_index } => *start_index,
+            NodePhase::Attributes(head)
+            | NodePhase::Datatype(head)
+            | NodePhase::Closure(head)
+            | NodePhase::Children(head) => head.start_index,
+        }
+    }
+
     fn step(
         self,
         parser: &mut Parser<'_, '_>,
@@ -3246,6 +3338,91 @@ literal = ~true.off"#,
         }
     }
 
+    #[test]
+    fn parser_session_reclaims_consumed_flat_document_tokens() {
+        let input = (0..512)
+            .map(|index| format!("key_{index} = {index}\n"))
+            .collect::<String>();
+        let expected = parse(&input);
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+        let mut peak_retained = 0;
+
+        for character in input.chars() {
+            let batch = lexer.push(Cow::Owned(character.to_string()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("flat document batch should be accepted"),
+                ParserSessionProgress::NeedMoreInput
+            );
+            peak_retained = peak_retained.max(parser.tokens.len());
+        }
+
+        assert!(parser.token_start_index > 1_000);
+        assert!(
+            peak_retained <= 4,
+            "flat parser queue retained {peak_retained} tokens"
+        );
+        let final_batch = lexer.finish();
+        let actual = parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("flat document should finish");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parser_session_retains_raw_node_and_datatype_anchors_across_compaction() {
+        let prefix = (0..64)
+            .map(|index| format!("prefix_{index} = {index}\n"))
+            .collect::<String>();
+        let input = format!(
+            "{prefix}typed:map<string,list<number>> = true\ntree = <root(1, <leaf>, \"🌊\")>"
+        );
+        let expected = parse(&input);
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+
+        for character in input.chars() {
+            let batch = lexer.push(Cow::Owned(character.to_string()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("anchored raw batch should be accepted"),
+                ParserSessionProgress::NeedMoreInput
+            );
+        }
+
+        assert!(parser.token_start_index > 100);
+        let final_batch = lexer.finish();
+        let actual = parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("anchored raw document should finish");
+        assert_eq!(actual, expected);
+
+        let ParseOutcome::Parsed(bindings) = actual else {
+            panic!("anchored raw document should parse");
+        };
+        assert_eq!(
+            bindings[64].datatype.as_deref(),
+            Some("map<string,list<number>>")
+        );
+        let Value::NodeLiteral { raw, .. } = &bindings[65].value else {
+            panic!("final binding should retain a raw node literal");
+        };
+        assert_eq!(raw, "<root(1,<leaf>,\"🌊\")>");
+    }
+
     #[cfg(feature = "sofia-fuzz")]
     #[test]
     fn incremental_fuzz_harness_covers_seed_and_utf8_lifecycle_paths() {
@@ -3375,7 +3552,7 @@ literal = ~true.off"#,
             },
         );
         let mut state = ParserState::new(TEST_LIMITS, false);
-        let mut parser = Parser::new(&lexed.tokens, &mut state, true);
+        let mut parser = Parser::new(&lexed.tokens, 0, &mut state, true);
         let mut output = None;
         let _ = Frame::Value.step(&mut parser, Some(Product::Values(Vec::new())), &mut output);
     }
