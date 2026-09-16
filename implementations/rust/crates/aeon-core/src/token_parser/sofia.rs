@@ -1,5 +1,7 @@
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
+use std::ops::{Deref, DerefMut};
 
 use crate::header::apply_trimticks;
 use crate::sansa::parse_address as parse_sansa_address;
@@ -46,10 +48,17 @@ pub(super) enum ParserSessionError {
     MissingFinalEof,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ParserSessionProgress {
+    NeedMoreInput,
+    Complete(ParseOutcome),
+}
+
 pub(super) struct ParserSession<'a> {
     tokens: Cow<'a, [Token]>,
-    limits: ParserLimits,
-    recovery: bool,
+    state: ParserState,
+    frames: Vec<Frame>,
+    product: Option<Product>,
     finished: bool,
 }
 
@@ -57,8 +66,9 @@ impl<'a> ParserSession<'a> {
     pub(super) fn new(limits: ParserLimits, recovery: bool) -> Self {
         Self {
             tokens: Cow::Owned(Vec::new()),
-            limits,
-            recovery,
+            state: ParserState::new(limits, recovery),
+            frames: vec![Frame::Document(DocumentFrame::new())],
+            product: None,
             finished: false,
         }
     }
@@ -67,7 +77,7 @@ impl<'a> ParserSession<'a> {
     pub(super) fn push_tokens(
         &mut self,
         tokens: Cow<'a, [Token]>,
-    ) -> Result<usize, ParserSessionError> {
+    ) -> Result<ParserSessionProgress, ParserSessionError> {
         if self.finished {
             return Err(ParserSessionError::Finished);
         }
@@ -75,7 +85,12 @@ impl<'a> ParserSession<'a> {
             return Err(ParserSessionError::EofBeforeFinish);
         }
         self.append_tokens(tokens);
-        Ok(self.tokens.len())
+        if let Some(outcome) = self.run_available(false) {
+            self.finished = true;
+            Ok(ParserSessionProgress::Complete(outcome))
+        } else {
+            Ok(ParserSessionProgress::NeedMoreInput)
+        }
     }
 
     pub(super) fn finish_tokens(
@@ -97,7 +112,9 @@ impl<'a> ParserSession<'a> {
 
         self.append_tokens(tokens);
         self.finished = true;
-        Ok(Parser::new(&self.tokens, self.limits, self.recovery).run())
+        Ok(self
+            .run_available(true)
+            .expect("final EOF must drive the Sofia parser to a terminal outcome"))
     }
 
     fn append_tokens(&mut self, tokens: Cow<'a, [Token]>) {
@@ -107,55 +124,23 @@ impl<'a> ParserSession<'a> {
             self.tokens.to_mut().extend_from_slice(&tokens);
         }
     }
-}
 
-struct Parser<'a> {
-    tokens: &'a [Token],
-    current: usize,
-    max_value_nesting_depth: usize,
-    max_attribute_depth: usize,
-    max_clarifier_values: usize,
-    max_generic_depth: usize,
-    max_generic_arguments: usize,
-    max_datatype_components: usize,
-    current_value_nesting_depth: usize,
-    current_datatype_components: usize,
-    structural_identities: HashSet<String>,
-    recovery: bool,
-}
-
-impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token], limits: ParserLimits, recovery: bool) -> Self {
-        debug_assert_eq!(tokens.last().map(|token| token.kind), Some(TokenKind::Eof));
-        Self {
-            tokens,
-            current: 0,
-            max_value_nesting_depth: limits.max_value_nesting_depth,
-            max_attribute_depth: limits.max_attribute_depth,
-            max_clarifier_values: limits.max_clarifier_values,
-            max_generic_depth: limits.max_generic_depth,
-            max_generic_arguments: limits.max_generic_arguments,
-            max_datatype_components: limits.max_datatype_components,
-            current_value_nesting_depth: 0,
-            current_datatype_components: 0,
-            structural_identities: HashSet::new(),
-            recovery,
-        }
-    }
-
-    fn run(mut self) -> ParseOutcome {
-        let mut frames = vec![Frame::Document(DocumentFrame::new())];
-        let mut product = None;
+    fn run_available(&mut self, final_input: bool) -> Option<ParseOutcome> {
+        debug_assert_eq!(
+            self.tokens.last().map(|token| token.kind) == Some(TokenKind::Eof),
+            final_input
+        );
 
         loop {
-            debug_assert!(self.current < self.tokens.len());
-            let frame = frames
+            let frame = self
+                .frames
                 .pop()
                 .expect("Sofia frame stack exhausted without a document product");
+            let frame_snapshot = (!final_input).then(|| frame.clone());
 
             debug_assert_eq!(
-                self.current_value_nesting_depth,
-                frames
+                self.state.current_value_nesting_depth,
+                self.frames
                     .iter()
                     .filter(|frame| frame.counts_as_value_container())
                     .count()
@@ -163,31 +148,52 @@ impl<'a> Parser<'a> {
                 "Sofia value depth diverged from active container frames",
             );
 
-            let input = product.take();
-            match frame.step(&mut self, input, &mut product) {
+            let input = self.product.take();
+            let input_snapshot = (!final_input).then(|| input.clone());
+            let state_snapshot = (!final_input).then(|| self.state.clone());
+            let (step, needs_token) = {
+                let mut parser = Parser::new(&self.tokens, &mut self.state, final_input);
+                let step = frame.step(&mut parser, input, &mut self.product);
+                (step, parser.needs_token())
+            };
+            // A streaming transition may discover that it needs current or
+            // lookahead input only after entering a helper. Roll the entire
+            // transition back so the durable session exposes no partial
+            // consumption or mutation. Final one-shot parsing skips snapshots.
+            if needs_token {
+                debug_assert!(!final_input, "final Sofia parse requested another token");
+                self.state = state_snapshot.expect("streaming transition must snapshot state");
+                self.product = input_snapshot.expect("streaming transition must snapshot product");
+                self.frames
+                    .push(frame_snapshot.expect("streaming transition must snapshot its frame"));
+                return None;
+            }
+            match step {
                 Step::Continue(frame) => {
                     debug_assert!(
-                        product.is_none(),
+                        self.product.is_none(),
                         "Sofia continue transition produced an unconsumed product"
                     );
-                    frames.push(frame);
+                    self.frames.push(frame);
                 }
                 Step::Push { parent, child } => {
                     debug_assert!(
-                        product.is_none(),
+                        self.product.is_none(),
                         "Sofia push transition produced an unconsumed product"
                     );
-                    frames.push(parent);
-                    frames.push(child);
+                    self.frames.push(parent);
+                    self.frames.push(child);
                 }
-                Step::Complete if frames.is_empty() => {
-                    return match product.take() {
+                Step::Complete if self.frames.is_empty() => {
+                    return Some(match self.product.take() {
                         Some(Product::Document(document)) => {
-                            debug_assert_eq!(self.current_value_nesting_depth, 0);
-                            debug_assert!(self.is_at_end());
-                            debug_assert!(frames.is_empty());
-                            debug_assert!(product.is_none());
-                            if self.recovery {
+                            debug_assert_eq!(self.state.current_value_nesting_depth, 0);
+                            debug_assert!(
+                                Parser::new(&self.tokens, &mut self.state, true).is_at_end()
+                            );
+                            debug_assert!(self.frames.is_empty());
+                            debug_assert!(self.product.is_none());
+                            if self.state.recovery {
                                 ParseOutcome::Recovered {
                                     bindings: document.bindings,
                                     errors: document.errors,
@@ -206,33 +212,144 @@ impl<'a> Parser<'a> {
                             | Product::Value(_),
                         )
                         | None => unreachable!("Sofia root frame returned the wrong product"),
-                    };
+                    });
                 }
                 Step::Complete => {
-                    debug_assert!(product.is_some(), "Sofia frame completed without a product");
+                    debug_assert!(
+                        self.product.is_some(),
+                        "Sofia frame completed without a product"
+                    );
                 }
                 Step::Failed(error) => {
                     debug_assert!(
-                        product.is_none(),
+                        self.product.is_none(),
                         "Sofia failure transition produced an unconsumed product"
                     );
                     let mut document = None;
-                    while let Some(parent) = frames.pop() {
+                    let mut unwound = Vec::new();
+                    while let Some(parent) = self.frames.pop() {
+                        unwound.push(parent.clone());
                         if let Frame::Document(frame) = parent {
                             document = Some(frame);
                             break;
                         }
                     }
                     let Some(frame) = document else {
-                        return ParseOutcome::Failed(error);
+                        return Some(ParseOutcome::Failed(error));
                     };
-                    match frame.recover_child_failure(&mut self, error) {
-                        Ok(frame) => frames.push(Frame::Document(frame)),
-                        Err(error) => return ParseOutcome::Failed(error),
+                    let (recovery, recovery_needs_token) = {
+                        let mut parser = Parser::new(&self.tokens, &mut self.state, final_input);
+                        let recovery = frame.recover_child_failure(&mut parser, error);
+                        (recovery, parser.needs_token())
+                    };
+                    if recovery_needs_token {
+                        debug_assert!(!final_input, "final Sofia recovery requested another token");
+                        self.state =
+                            state_snapshot.expect("streaming transition must snapshot state");
+                        self.product =
+                            input_snapshot.expect("streaming transition must snapshot product");
+                        self.frames.extend(unwound.into_iter().rev());
+                        self.frames.push(
+                            frame_snapshot.expect("streaming transition must snapshot its frame"),
+                        );
+                        return None;
+                    }
+                    match recovery {
+                        Ok(frame) => self.frames.push(Frame::Document(frame)),
+                        Err(error) => return Some(ParseOutcome::Failed(error)),
                     }
                 }
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct ParserState {
+    current: usize,
+    max_value_nesting_depth: usize,
+    max_attribute_depth: usize,
+    max_clarifier_values: usize,
+    max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
+    current_value_nesting_depth: usize,
+    current_datatype_components: usize,
+    structural_identities: HashSet<String>,
+    recovery: bool,
+}
+
+impl ParserState {
+    fn new(limits: ParserLimits, recovery: bool) -> Self {
+        Self {
+            current: 0,
+            max_value_nesting_depth: limits.max_value_nesting_depth,
+            max_attribute_depth: limits.max_attribute_depth,
+            max_clarifier_values: limits.max_clarifier_values,
+            max_generic_depth: limits.max_generic_depth,
+            max_generic_arguments: limits.max_generic_arguments,
+            max_datatype_components: limits.max_datatype_components,
+            current_value_nesting_depth: 0,
+            current_datatype_components: 0,
+            structural_identities: HashSet::new(),
+            recovery,
+        }
+    }
+}
+
+struct Parser<'tokens, 'state> {
+    tokens: &'tokens [Token],
+    state: &'state mut ParserState,
+    final_input: bool,
+    needs_token: Cell<bool>,
+}
+
+static UNAVAILABLE_TOKEN: Token = Token {
+    kind: TokenKind::Eof,
+    text: String::new(),
+    span: Span::zero(),
+    comment: None,
+    quote: None,
+};
+
+impl<'tokens, 'state> Deref for Parser<'tokens, 'state> {
+    type Target = ParserState;
+
+    fn deref(&self) -> &Self::Target {
+        self.state
+    }
+}
+
+impl DerefMut for Parser<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.state
+    }
+}
+
+impl<'tokens, 'state> Parser<'tokens, 'state> {
+    fn new(tokens: &'tokens [Token], state: &'state mut ParserState, final_input: bool) -> Self {
+        Self {
+            tokens,
+            state,
+            final_input,
+            needs_token: Cell::new(false),
+        }
+    }
+
+    fn needs_token(&self) -> bool {
+        self.needs_token.get()
+    }
+
+    fn unavailable_token(&self) -> &'tokens Token {
+        debug_assert!(
+            !self.final_input,
+            "final Sofia parse exhausted its EOF token"
+        );
+        // The EOF-shaped sentinel lets existing transitions unwind normally.
+        // `run_available` observes this flag and restores the pre-step state,
+        // so the sentinel can never become a semantic EOF or diagnostic.
+        self.needs_token.set(true);
+        &UNAVAILABLE_TOKEN
     }
 
     fn parse_scalar(&mut self) -> Result<Option<Value>, Diagnostic> {
@@ -742,11 +859,11 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
         let mut next = self.current + 1;
-        while self.tokens[next].kind == TokenKind::Newline {
+        while self.token_at(next).kind == TokenKind::Newline {
             next += 1;
         }
         if matches!(
-            self.tokens[next].kind,
+            self.token_at(next).kind,
             TokenKind::LeftAngle | TokenKind::LeftBracket
         ) {
             return Ok(None);
@@ -804,8 +921,13 @@ impl<'a> Parser<'a> {
             .checked_sub(1)
             .and_then(|index| self.tokens.get(index));
         let next_token = self.tokens.get(self.current + 1);
-        previous_value.is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
-            && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset)
+        let could_collide = previous_value
+            .is_some_and(|token| token.kind == TokenKind::SeparatorLiteral)
+            && previous_value.is_some_and(|token| token.span.end.offset == comma.span.start.offset);
+        if could_collide && next_token.is_none() && !self.final_input {
+            self.needs_token.set(true);
+        }
+        could_collide
             && next_token.is_some_and(|token| token.span.start.offset == comma.span.end.offset)
     }
 
@@ -857,7 +979,7 @@ impl<'a> Parser<'a> {
         self.peek().kind == kind
     }
 
-    fn consume(&mut self, kind: TokenKind, message: &str) -> Result<&'a Token, Diagnostic> {
+    fn consume(&mut self, kind: TokenKind, message: &str) -> Result<&'tokens Token, Diagnostic> {
         if self.check(kind) {
             return Ok(self.advance());
         }
@@ -876,19 +998,24 @@ impl<'a> Parser<'a> {
         self.check(TokenKind::Eof)
     }
 
-    fn advance(&mut self) -> &'a Token {
+    fn advance(&mut self) -> &'tokens Token {
+        if self.current >= self.tokens.len() {
+            return self.unavailable_token();
+        }
         debug_assert!(!self.is_at_end(), "Sofia advanced past EOF");
         let token = &self.tokens[self.current];
         self.current += 1;
         token
     }
 
-    fn previous(&self) -> &'a Token {
-        &self.tokens[self.current.saturating_sub(1)]
+    fn previous(&self) -> &'tokens Token {
+        self.tokens
+            .get(self.current.saturating_sub(1))
+            .unwrap_or_else(|| self.unavailable_token())
     }
 
-    fn previous_non_newline(&self) -> &'a Token {
-        self.tokens[..self.current]
+    fn previous_non_newline(&self) -> &'tokens Token {
+        self.tokens[..self.current.min(self.tokens.len())]
             .iter()
             .rev()
             .find(|token| token.kind != TokenKind::Newline)
@@ -902,17 +1029,28 @@ impl<'a> Parser<'a> {
             .collect()
     }
 
-    fn peek(&self) -> &'a Token {
-        &self.tokens[self.current]
+    fn peek(&self) -> &'tokens Token {
+        self.token_at(self.current)
     }
 
-    fn peek_next(&self) -> &'a Token {
+    fn peek_next(&self) -> &'tokens Token {
+        if let Some(token) = self.tokens.get(self.current + 1) {
+            return token;
+        }
+        if self.final_input {
+            return self.tokens.last().expect("final token stream has EOF");
+        }
+        self.unavailable_token()
+    }
+
+    fn token_at(&self, index: usize) -> &'tokens Token {
         self.tokens
-            .get(self.current + 1)
-            .unwrap_or_else(|| self.tokens.last().expect("token stream has EOF"))
+            .get(index)
+            .unwrap_or_else(|| self.unavailable_token())
     }
 }
 
+#[derive(Clone)]
 enum Frame {
     AttributeEntry(AttributeEntryFrame),
     AttributeMembers(AttributeMembersFrame),
@@ -934,7 +1072,7 @@ impl Frame {
 
     fn step(
         self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -997,6 +1135,7 @@ impl Frame {
     }
 }
 
+#[derive(Clone)]
 enum Product {
     AttributeEntry(ParsedAttributeEntry),
     Attributes(ParsedAttributes),
@@ -1025,11 +1164,13 @@ fn debug_assert_map_order<T>(members: &BTreeMap<String, T>, order: &[String]) {
     debug_assert!(order.iter().all(|key| members.contains_key(key)));
 }
 
+#[derive(Clone)]
 struct ParsedDocument {
     bindings: Vec<Binding>,
     errors: Vec<Diagnostic>,
 }
 
+#[derive(Clone)]
 struct DocumentFrame {
     bindings: Vec<Binding>,
     errors: Vec<Diagnostic>,
@@ -1047,7 +1188,7 @@ impl DocumentFrame {
 
     fn recover_child_failure(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         error: Diagnostic,
     ) -> Result<Self, Diagnostic> {
         parser.current_value_nesting_depth = 0;
@@ -1066,7 +1207,7 @@ impl DocumentFrame {
         Ok(self)
     }
 
-    fn recover_own_failure(mut self, parser: &mut Parser<'_>, error: Diagnostic) -> Step {
+    fn recover_own_failure(mut self, parser: &mut Parser<'_, '_>, error: Diagnostic) -> Step {
         if !parser.recovery {
             return Step::Failed(error);
         }
@@ -1080,7 +1221,7 @@ impl DocumentFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1141,11 +1282,13 @@ impl DocumentFrame {
     }
 }
 
+#[derive(Clone)]
 enum DocumentPhase {
     Binding,
     Delimiter,
 }
 
+#[derive(Clone)]
 struct BindingFrame {
     phase: BindingPhase,
 }
@@ -1159,7 +1302,7 @@ impl BindingFrame {
 
     fn step(
         self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1238,7 +1381,7 @@ impl BindingFrame {
     }
 
     fn push_datatype_or_value(
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         mut head: BindingHead,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1271,7 +1414,7 @@ impl BindingFrame {
     }
 
     fn push_value(
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         head: BindingHead,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1297,7 +1440,7 @@ impl BindingFrame {
     }
 
     fn finish(
-        parser: &Parser<'_>,
+        parser: &Parser<'_, '_>,
         head: BindingHead,
         value: Value,
         output: &mut Option<Product>,
@@ -1322,6 +1465,7 @@ impl BindingFrame {
     }
 }
 
+#[derive(Clone)]
 enum BindingPhase {
     Key,
     Attributes(BindingHead),
@@ -1329,6 +1473,7 @@ enum BindingPhase {
     Value(BindingHead),
 }
 
+#[derive(Clone)]
 struct BindingHead {
     start: crate::Position,
     key: String,
@@ -1339,6 +1484,7 @@ struct BindingHead {
     attribute_order: Vec<String>,
 }
 
+#[derive(Clone)]
 struct AnonymousValueFrame {
     phase: AnonymousValuePhase,
 }
@@ -1352,7 +1498,7 @@ impl AnonymousValueFrame {
 
     fn step(
         self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1438,7 +1584,7 @@ impl AnonymousValueFrame {
         }
     }
 
-    fn push_datatype_or_value(parser: &mut Parser<'_>, head: AnonymousHead) -> Step {
+    fn push_datatype_or_value(parser: &mut Parser<'_, '_>, head: AnonymousHead) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
             parser.skip_newlines();
@@ -1454,7 +1600,7 @@ impl AnonymousValueFrame {
         }
     }
 
-    fn push_value(parser: &mut Parser<'_>, head: AnonymousHead) -> Step {
+    fn push_value(parser: &mut Parser<'_, '_>, head: AnonymousHead) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             return Step::Failed(
@@ -1472,6 +1618,7 @@ impl AnonymousValueFrame {
     }
 }
 
+#[derive(Clone)]
 enum AnonymousValuePhase {
     Head,
     Attributes(AnonymousHead),
@@ -1479,6 +1626,7 @@ enum AnonymousValuePhase {
     Value(AnonymousHead),
 }
 
+#[derive(Clone)]
 struct AnonymousHead {
     structural_id: Option<String>,
     datatype: Option<String>,
@@ -1486,17 +1634,20 @@ struct AnonymousHead {
     attribute_order: Vec<String>,
 }
 
+#[derive(Clone)]
 struct ParsedAttributes {
     members: BTreeMap<String, AttributeValue>,
     order: Vec<String>,
 }
 
+#[derive(Clone)]
 struct ParsedAttributeEntry {
     key: String,
     key_span: Span,
     value: AttributeValue,
 }
 
+#[derive(Clone)]
 struct AttributeMembersFrame {
     kind: AttributeMembersKind,
     depth: usize,
@@ -1526,7 +1677,7 @@ impl AttributeMembersFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1616,11 +1767,13 @@ impl AttributeMembersKind {
     }
 }
 
+#[derive(Clone)]
 enum AttributeMembersPhase {
     Entry,
     Delimiter,
 }
 
+#[derive(Clone)]
 struct AttributeEntryFrame {
     depth: usize,
     phase: AttributeEntryPhase,
@@ -1636,7 +1789,7 @@ impl AttributeEntryFrame {
 
     fn step(
         self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -1728,7 +1881,7 @@ impl AttributeEntryFrame {
     }
 
     fn push_datatype_or_value(
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         depth: usize,
         head: AttributeEntryHead,
     ) -> Step {
@@ -1748,7 +1901,7 @@ impl AttributeEntryFrame {
         }
     }
 
-    fn push_value(parser: &mut Parser<'_>, depth: usize, head: AttributeEntryHead) -> Step {
+    fn push_value(parser: &mut Parser<'_, '_>, depth: usize, head: AttributeEntryHead) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             let message = if depth == 0 {
@@ -1781,7 +1934,7 @@ impl AttributeEntryFrame {
     }
 
     fn finish(
-        parser: &Parser<'_>,
+        parser: &Parser<'_, '_>,
         head: AttributeEntryHead,
         value: Option<Value>,
         object: Option<ParsedAttributes>,
@@ -1816,6 +1969,7 @@ impl AttributeEntryFrame {
     }
 }
 
+#[derive(Clone)]
 enum AttributeEntryPhase {
     Key,
     NestedAttributes(AttributeEntryHead),
@@ -1824,6 +1978,7 @@ enum AttributeEntryPhase {
     ObjectValue(AttributeEntryHead),
 }
 
+#[derive(Clone)]
 struct AttributeEntryHead {
     key: String,
     key_span: Span,
@@ -1833,6 +1988,7 @@ struct AttributeEntryHead {
     nested_attr_order: Vec<String>,
 }
 
+#[derive(Clone)]
 struct DatatypeFrame {
     start: usize,
     name: String,
@@ -1852,7 +2008,7 @@ impl DatatypeFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -2095,7 +2251,7 @@ impl DatatypeFrame {
         }
     }
 
-    fn finish(self, parser: &Parser<'_>, output: &mut Option<Product>) -> Step {
+    fn finish(self, parser: &Parser<'_, '_>, output: &mut Option<Product>) -> Step {
         let datatype = parser.normalized_datatype(self.start, parser.current);
         if let Err(error) = validate_reserved_datatype_adornments(&datatype, parser.previous().span)
         {
@@ -2105,6 +2261,7 @@ impl DatatypeFrame {
     }
 }
 
+#[derive(Clone)]
 enum DatatypePhase {
     Name,
     GenericArgument { count: usize },
@@ -2116,6 +2273,7 @@ enum DatatypePhase {
     Finish,
 }
 
+#[derive(Clone)]
 struct NodeFrame {
     phase: NodePhase,
 }
@@ -2129,7 +2287,7 @@ impl NodeFrame {
 
     fn step(
         self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -2254,7 +2412,7 @@ impl NodeFrame {
         }
     }
 
-    fn push_datatype_or_closure(parser: &mut Parser<'_>, head: NodeHead) -> Step {
+    fn push_datatype_or_closure(parser: &mut Parser<'_, '_>, head: NodeHead) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
             parser.begin_datatype();
@@ -2272,7 +2430,7 @@ impl NodeFrame {
     }
 
     fn finish(
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         head: NodeHead,
         children: Vec<Value>,
         output: &mut Option<Product>,
@@ -2298,6 +2456,7 @@ impl NodeFrame {
     }
 }
 
+#[derive(Clone)]
 enum NodePhase {
     Tag { start_index: usize },
     Attributes(NodeHead),
@@ -2306,6 +2465,7 @@ enum NodePhase {
     Children(NodeHead),
 }
 
+#[derive(Clone)]
 struct NodeHead {
     start_index: usize,
     head_start: crate::Position,
@@ -2317,6 +2477,7 @@ struct NodeHead {
     datatype: Option<String>,
 }
 
+#[derive(Clone)]
 struct NodeChildrenFrame {
     children: Vec<Value>,
     phase: NodeChildrenPhase,
@@ -2332,7 +2493,7 @@ impl NodeChildrenFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -2382,6 +2543,7 @@ impl NodeChildrenFrame {
     }
 }
 
+#[derive(Clone)]
 enum NodeChildrenPhase {
     Child,
     Delimiter,
@@ -2402,6 +2564,7 @@ impl ContainerKind {
     }
 }
 
+#[derive(Clone)]
 struct ValueSequenceFrame {
     kind: ContainerKind,
     items: Vec<Value>,
@@ -2419,7 +2582,7 @@ impl ValueSequenceFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -2493,7 +2656,7 @@ impl ValueSequenceFrame {
         }
     }
 
-    fn finish(self, parser: &mut Parser<'_>, output: &mut Option<Product>) -> Step {
+    fn finish(self, parser: &mut Parser<'_, '_>, output: &mut Option<Product>) -> Step {
         debug_assert!(parser.check(self.kind.terminator()));
         parser.advance();
         parser.leave_value_container();
@@ -2505,11 +2668,13 @@ impl ValueSequenceFrame {
     }
 }
 
+#[derive(Clone)]
 enum SequencePhase {
     Item,
     Delimiter,
 }
 
+#[derive(Clone)]
 struct ObjectFrame {
     bindings: Vec<Binding>,
     phase: ObjectPhase,
@@ -2525,7 +2690,7 @@ impl ObjectFrame {
 
     fn step(
         mut self,
-        parser: &mut Parser<'_>,
+        parser: &mut Parser<'_, '_>,
         product: Option<Product>,
         output: &mut Option<Product>,
     ) -> Step {
@@ -2576,7 +2741,7 @@ impl ObjectFrame {
         }
     }
 
-    fn finish(self, parser: &mut Parser<'_>, output: &mut Option<Product>) -> Step {
+    fn finish(self, parser: &mut Parser<'_, '_>, output: &mut Option<Product>) -> Step {
         debug_assert!(parser.check(TokenKind::RightBrace));
         parser.advance();
         parser.leave_value_container();
@@ -2589,6 +2754,7 @@ impl ObjectFrame {
     }
 }
 
+#[derive(Clone)]
 enum ObjectPhase {
     Binding,
     Delimiter,
@@ -2602,8 +2768,8 @@ mod tests {
     use crate::{LexerOptions, NullLiteralMode, ReferenceSegment, TokenKind, Value, tokenize};
 
     use super::{
-        Frame, ParseOutcome, Parser, ParserLimits, ParserSession, ParserSessionError, Product,
-        parse_document, parse_document_recovery,
+        Frame, ParseOutcome, Parser, ParserLimits, ParserSession, ParserSessionError,
+        ParserSessionProgress, ParserState, Product, parse_document, parse_document_recovery,
     };
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
@@ -2636,6 +2802,33 @@ mod tests {
         parse_document_recovery(&lexed.tokens, TEST_LIMITS)
     }
 
+    fn parse_incremental_at_split(input: &str, split: usize, recovery: bool) -> ParseOutcome {
+        assert!(input.is_char_boundary(split));
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, recovery);
+
+        for chunk in [&input[..split], &input[split..]] {
+            let batch = lexer.push(Cow::Owned(chunk.to_owned()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("non-final token batch should be accepted"),
+                ParserSessionProgress::NeedMoreInput
+            );
+        }
+
+        let final_batch = lexer.finish();
+        assert!(final_batch.errors.is_empty());
+        parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("final lexer batch should finish the parser")
+    }
+
     #[test]
     fn parser_session_keeps_one_shot_tokens_borrowed() {
         let lexed = tokenize(
@@ -2658,7 +2851,7 @@ mod tests {
 
     #[test]
     fn parser_session_accepts_incremental_lexer_batches_without_early_eof() {
-        let input = "name = \"Sofía\"\nitems = [1, true, { nested = \"yes\" }]\nref = @name";
+        let input = "name = \"Sofía\"\nitems = [1, true, { nested = \"yes\" }]\nref = ~name";
         let options = LexerOptions {
             include_newlines: true,
             ..LexerOptions::default()
@@ -2666,7 +2859,7 @@ mod tests {
         let expected = parse(input);
         let mut lexer = LexerSession::new(options);
         let mut parser = ParserSession::new(TEST_LIMITS, false);
-        let mut queued = 0;
+        let mut furthest_cursor = 0;
 
         for character in input.chars() {
             let mut encoded = [0; 4];
@@ -2678,14 +2871,19 @@ mod tests {
                     .iter()
                     .all(|token| token.kind != TokenKind::Eof)
             );
-            queued += batch.tokens.len();
             assert_eq!(
                 parser
                     .push_tokens(Cow::Owned(batch.tokens))
                     .expect("non-final lexer batch should queue"),
-                queued
+                ParserSessionProgress::NeedMoreInput
             );
+            furthest_cursor = furthest_cursor.max(parser.state.current);
         }
+
+        assert!(
+            furthest_cursor > 0,
+            "parser should advance before final input"
+        );
 
         let final_batch = lexer.finish();
         assert!(final_batch.errors.is_empty());
@@ -2706,6 +2904,89 @@ mod tests {
             .finish_tokens(Cow::Owned(final_batch.tokens))
             .expect("final lexer batch should finish the parser session");
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parser_session_matches_one_shot_at_every_character_split() {
+        let positive = [
+            "name = \"Sofía\"\nage = 49, enabled = true",
+            "items = [1, true, { nested = \"yes\" }]\nref = ~$.items[0]",
+            "root\\root\\:list = [\\child\\:string = \"value\", { nested = true }]",
+            "aeon\n:\nprofile = \"core\"\ntrim = >`\n  one\n  two\n`",
+        ];
+
+        for input in positive {
+            let expected = parse(input);
+            for split in (0..=input.len()).filter(|split| input.is_char_boundary(*split)) {
+                assert_eq!(
+                    parse_incremental_at_split(input, split, false),
+                    expected,
+                    "incremental Sofia mismatch at byte split {split} for:\n{input}"
+                );
+            }
+        }
+
+        let recovery = "broken = [1,,2]\nlater = true";
+        let expected = parse_recovery(recovery);
+        for split in (0..=recovery.len()).filter(|split| recovery.is_char_boundary(*split)) {
+            assert_eq!(
+                parse_incremental_at_split(recovery, split, true),
+                expected,
+                "incremental Sofia recovery mismatch at byte split {split}"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_session_defers_incomplete_constructs_until_finish() {
+        let input = "items = [1, 2 ";
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let expected = parse(input);
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+
+        let batch = lexer.push(Cow::Borrowed(input));
+        assert!(batch.errors.is_empty());
+        assert_eq!(
+            parser
+                .push_tokens(Cow::Owned(batch.tokens))
+                .expect("incomplete construct should suspend"),
+            ParserSessionProgress::NeedMoreInput
+        );
+
+        let final_batch = lexer.finish();
+        let actual = parser
+            .finish_tokens(Cow::Owned(final_batch.tokens))
+            .expect("final input should resolve to the truncation diagnostic");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parser_session_reports_deterministic_malformed_input_during_push() {
+        let input = "name = @ true\n";
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let expected = parse(input);
+        let mut lexer = LexerSession::new(options);
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+
+        let batch = lexer.push(Cow::Borrowed(input));
+        assert!(batch.errors.is_empty());
+        assert_eq!(
+            parser
+                .push_tokens(Cow::Owned(batch.tokens))
+                .expect("complete malformed construct should be diagnosed"),
+            ParserSessionProgress::Complete(expected)
+        );
+        assert!(matches!(
+            parser.finish_tokens(Cow::Owned(lexer.finish().tokens)),
+            Err(ParserSessionError::Finished)
+        ));
     }
 
     #[test]
@@ -2771,7 +3052,8 @@ mod tests {
                 ..LexerOptions::default()
             },
         );
-        let mut parser = Parser::new(&lexed.tokens, TEST_LIMITS, false);
+        let mut state = ParserState::new(TEST_LIMITS, false);
+        let mut parser = Parser::new(&lexed.tokens, &mut state, true);
         let mut output = None;
         let _ = Frame::Value.step(&mut parser, Some(Product::Values(Vec::new())), &mut output);
     }
