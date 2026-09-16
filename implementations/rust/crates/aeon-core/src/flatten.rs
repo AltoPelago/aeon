@@ -25,6 +25,427 @@ pub(crate) struct FlattenedValidationDocument {
     pub(crate) reference_steps: Vec<ValidationReferenceStep>,
 }
 
+#[derive(Debug)]
+enum BorrowedFlattenTask<'a> {
+    Bindings {
+        bindings: std::slice::Iter<'a, Binding>,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+    },
+    Sequence {
+        items: std::slice::Iter<'a, Value>,
+        next_index: usize,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+        span: Span,
+    },
+}
+
+pub(crate) struct FlattenValidationItem {
+    pub(crate) event: AssignmentEvent,
+    pub(crate) reference_targets: HashSet<String>,
+    pub(crate) reference_steps: Vec<ValidationReferenceStep>,
+}
+
+/// Walks a completed binding without retaining a flattened event vector.
+/// Each yielded item carries only the reference-validation state introduced
+/// by that event, allowing progressive validation to consume it immediately.
+pub(crate) struct FlattenValidationCursor<'a> {
+    tasks: Vec<BorrowedFlattenTask<'a>>,
+    shallow_event_values: bool,
+    include_event_annotations: bool,
+}
+
+impl<'a> FlattenValidationCursor<'a> {
+    pub(crate) fn new(
+        binding: &'a Binding,
+        shallow_event_values: bool,
+        include_event_annotations: bool,
+    ) -> Self {
+        Self {
+            tasks: vec![BorrowedFlattenTask::Bindings {
+                bindings: std::slice::from_ref(binding).iter(),
+                parent: CanonicalPath::root(),
+                source_plane: crate::SourcePlane::Body,
+            }],
+            shallow_event_values,
+            include_event_annotations,
+        }
+    }
+
+    fn push_children(
+        &mut self,
+        value: &'a Value,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+        span: Span,
+    ) {
+        match unwrap_typed_value(value) {
+            Value::ObjectNode { bindings } if !bindings.is_empty() => {
+                self.tasks.push(BorrowedFlattenTask::Bindings {
+                    bindings: bindings.iter(),
+                    parent,
+                    source_plane,
+                });
+            }
+            Value::ListNode { items } | Value::TupleLiteral { items } if !items.is_empty() => {
+                self.tasks.push(BorrowedFlattenTask::Sequence {
+                    items: items.iter(),
+                    next_index: 0,
+                    parent,
+                    source_plane,
+                    span,
+                });
+            }
+            Value::NodeLiteral { children, .. } if !children.is_empty() => {
+                self.tasks.push(BorrowedFlattenTask::Sequence {
+                    items: children.iter(),
+                    next_index: 0,
+                    parent,
+                    source_plane,
+                    span,
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Iterator for FlattenValidationCursor<'_> {
+    type Item = FlattenValidationItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let task = self.tasks.pop()?;
+            match task {
+                BorrowedFlattenTask::Bindings {
+                    mut bindings,
+                    parent,
+                    source_plane: inherited_source_plane,
+                } => {
+                    let Some(binding) = bindings.next() else {
+                        continue;
+                    };
+                    if !bindings.as_slice().is_empty() {
+                        self.tasks.push(BorrowedFlattenTask::Bindings {
+                            bindings,
+                            parent: parent.clone(),
+                            source_plane: inherited_source_plane,
+                        });
+                    }
+                    let source_plane = if binding.is_header {
+                        crate::SourcePlane::Header
+                    } else {
+                        inherited_source_plane
+                    };
+                    let path = parent.member(binding.key.clone());
+                    let path_text = format_path(&path);
+                    let mut reference_targets = HashSet::new();
+                    let mut reference_steps = Vec::new();
+                    track_reference_binding(
+                        &mut reference_targets,
+                        &mut reference_steps,
+                        &format_path(&parent),
+                        &binding.key,
+                        &path_text,
+                        &binding.attributes,
+                        &binding.attribute_order,
+                        &binding.value,
+                        self.shallow_event_values,
+                    );
+                    self.push_children(&binding.value, path.clone(), source_plane, binding.span);
+                    if binding.is_header {
+                        continue;
+                    }
+                    return Some(FlattenValidationItem {
+                        event: AssignmentEvent {
+                            path,
+                            key: binding.key.clone(),
+                            source_plane,
+                            structural_id: binding.structural_id.clone(),
+                            datatype: binding.datatype.clone(),
+                            annotations: if self.include_event_annotations {
+                                binding.attributes.clone()
+                            } else {
+                                BTreeMap::new()
+                            },
+                            annotation_order: if self.include_event_annotations {
+                                binding.attribute_order.clone()
+                            } else {
+                                Vec::new()
+                            },
+                            value: clone_event_value(&binding.value, self.shallow_event_values),
+                            span: binding.span,
+                        },
+                        reference_targets,
+                        reference_steps,
+                    });
+                }
+                BorrowedFlattenTask::Sequence {
+                    mut items,
+                    next_index,
+                    parent,
+                    source_plane,
+                    span,
+                } => {
+                    let Some(value) = items.next() else {
+                        continue;
+                    };
+                    if !items.as_slice().is_empty() {
+                        self.tasks.push(BorrowedFlattenTask::Sequence {
+                            items,
+                            next_index: next_index + 1,
+                            parent: parent.clone(),
+                            source_plane,
+                            span,
+                        });
+                    }
+                    let path = parent.index(next_index);
+                    let mut reference_targets = HashSet::new();
+                    let mut reference_steps = Vec::new();
+                    track_reference_sequence_item(
+                        &mut reference_targets,
+                        &mut reference_steps,
+                        &format_path(&parent),
+                        next_index,
+                        value,
+                        self.shallow_event_values,
+                    );
+                    self.push_children(value, path.clone(), source_plane, span);
+                    return Some(FlattenValidationItem {
+                        event: AssignmentEvent {
+                            path,
+                            key: next_index.to_string(),
+                            source_plane,
+                            structural_id: typed_structural_id(value),
+                            datatype: typed_datatype(value),
+                            annotations: typed_annotations(value),
+                            annotation_order: typed_annotation_order(value),
+                            value: clone_event_value(
+                                unwrap_typed_value(value),
+                                self.shallow_event_values,
+                            ),
+                            span,
+                        },
+                        reference_targets,
+                        reference_steps,
+                    });
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+enum OwnedFlattenTask {
+    Bindings {
+        bindings: std::vec::IntoIter<Binding>,
+        allocation_slots: usize,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+    },
+    Sequence {
+        items: std::vec::IntoIter<Value>,
+        allocation_slots: usize,
+        next_index: usize,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+        span: Span,
+    },
+}
+
+/// Owns one completed binding and materializes its events one at a time.
+/// Container iterators retain the unvisited AST without allocating one task or
+/// event slot per child.
+#[derive(Debug)]
+pub(crate) struct FlattenEventCursor {
+    tasks: Vec<OwnedFlattenTask>,
+    shallow_event_values: bool,
+    include_event_annotations: bool,
+    remaining_events: usize,
+}
+
+impl FlattenEventCursor {
+    pub(crate) fn new(
+        binding: Binding,
+        shallow_event_values: bool,
+        include_event_annotations: bool,
+        event_count: usize,
+    ) -> Self {
+        let bindings = vec![binding];
+        let allocation_slots = bindings.capacity();
+        Self {
+            tasks: vec![OwnedFlattenTask::Bindings {
+                bindings: bindings.into_iter(),
+                allocation_slots,
+                parent: CanonicalPath::root(),
+                source_plane: crate::SourcePlane::Body,
+            }],
+            shallow_event_values,
+            include_event_annotations,
+            remaining_events: event_count,
+        }
+    }
+
+    pub(crate) const fn remaining_events(&self) -> usize {
+        self.remaining_events
+    }
+
+    pub(crate) fn retained_ast_slot_bytes(&self) -> usize {
+        self.tasks
+            .iter()
+            .map(|task| match task {
+                OwnedFlattenTask::Bindings {
+                    allocation_slots, ..
+                } => allocation_slots.saturating_mul(std::mem::size_of::<Binding>()),
+                OwnedFlattenTask::Sequence {
+                    allocation_slots, ..
+                } => allocation_slots.saturating_mul(std::mem::size_of::<Value>()),
+            })
+            .sum()
+    }
+
+    fn push_children(
+        &mut self,
+        value: Value,
+        parent: CanonicalPath,
+        source_plane: crate::SourcePlane,
+        span: Span,
+    ) {
+        match into_unwrapped_value(value) {
+            Value::ObjectNode { bindings } if !bindings.is_empty() => {
+                let allocation_slots = bindings.capacity();
+                self.tasks.push(OwnedFlattenTask::Bindings {
+                    bindings: bindings.into_iter(),
+                    allocation_slots,
+                    parent,
+                    source_plane,
+                });
+            }
+            Value::ListNode { items } | Value::TupleLiteral { items } if !items.is_empty() => {
+                let allocation_slots = items.capacity();
+                self.tasks.push(OwnedFlattenTask::Sequence {
+                    items: items.into_iter(),
+                    allocation_slots,
+                    next_index: 0,
+                    parent,
+                    source_plane,
+                    span,
+                });
+            }
+            Value::NodeLiteral { children, .. } if !children.is_empty() => {
+                let allocation_slots = children.capacity();
+                self.tasks.push(OwnedFlattenTask::Sequence {
+                    items: children.into_iter(),
+                    allocation_slots,
+                    next_index: 0,
+                    parent,
+                    source_plane,
+                    span,
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Iterator for FlattenEventCursor {
+    type Item = AssignmentEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let task = self.tasks.pop()?;
+        let (event, value, path, source_plane, span) = match task {
+            OwnedFlattenTask::Bindings {
+                mut bindings,
+                allocation_slots,
+                parent,
+                source_plane,
+            } => {
+                let binding = bindings.next()?;
+                if !bindings.as_slice().is_empty() {
+                    self.tasks.push(OwnedFlattenTask::Bindings {
+                        bindings,
+                        allocation_slots,
+                        parent: parent.clone(),
+                        source_plane,
+                    });
+                }
+                let path = parent.member(binding.key.clone());
+                let event = AssignmentEvent {
+                    path: path.clone(),
+                    key: binding.key,
+                    source_plane,
+                    structural_id: binding.structural_id,
+                    datatype: binding.datatype,
+                    annotations: if self.include_event_annotations {
+                        binding.attributes
+                    } else {
+                        BTreeMap::new()
+                    },
+                    annotation_order: if self.include_event_annotations {
+                        binding.attribute_order
+                    } else {
+                        Vec::new()
+                    },
+                    value: clone_event_value(&binding.value, self.shallow_event_values),
+                    span: binding.span,
+                };
+                (event, binding.value, path, source_plane, binding.span)
+            }
+            OwnedFlattenTask::Sequence {
+                mut items,
+                allocation_slots,
+                next_index,
+                parent,
+                source_plane,
+                span,
+            } => {
+                let value = items.next()?;
+                let index = next_index;
+                if !items.as_slice().is_empty() {
+                    self.tasks.push(OwnedFlattenTask::Sequence {
+                        items,
+                        allocation_slots,
+                        next_index: next_index + 1,
+                        parent: parent.clone(),
+                        source_plane,
+                        span,
+                    });
+                }
+                let path = parent.index(index);
+                let event = AssignmentEvent {
+                    path: path.clone(),
+                    key: index.to_string(),
+                    source_plane,
+                    structural_id: typed_structural_id(&value),
+                    datatype: typed_datatype(&value),
+                    annotations: typed_annotations(&value),
+                    annotation_order: typed_annotation_order(&value),
+                    value: clone_event_value(unwrap_typed_value(&value), self.shallow_event_values),
+                    span,
+                };
+                (event, value, path, source_plane, span)
+            }
+        };
+        self.push_children(value, path, source_plane, span);
+        self.remaining_events = self.remaining_events.saturating_sub(1);
+        Some(event)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining_events, Some(self.remaining_events))
+    }
+}
+
+impl ExactSizeIterator for FlattenEventCursor {}
+
+fn into_unwrapped_value(mut value: Value) -> Value {
+    while let Value::TypedValue { value: nested, .. } = value {
+        value = *nested;
+    }
+    value
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ValidationEvent {
     pub(crate) path: String,

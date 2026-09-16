@@ -170,20 +170,20 @@ impl<'a> ParserSession<'a> {
         &document.bindings[start..]
     }
 
-    /// Releases every top-level binding already reported through
-    /// `newly_completed_bindings`. The active binding under construction is
-    /// held by its own frame and is unaffected.
-    pub(super) fn release_completed_bindings(&mut self) -> usize {
+    /// Moves every binding already reported through
+    /// `newly_completed_bindings` out of the parser so downstream progressive
+    /// work can resume without cloning its AST.
+    pub(super) fn take_completed_bindings(&mut self) -> Vec<Binding> {
         let Some(document) = self.frames.iter_mut().find_map(|frame| match frame {
             Frame::Document(document) => Some(document),
             _ => None,
         }) else {
-            return 0;
+            return Vec::new();
         };
         debug_assert_eq!(self.completed_binding_cursor, document.bindings.len());
-        let released = std::mem::take(&mut document.bindings).len();
+        let completed = std::mem::take(&mut document.bindings);
         self.completed_binding_cursor = 0;
-        released
+        completed
     }
 
     pub(super) fn retained_token_count(&self) -> usize {
@@ -3408,7 +3408,7 @@ literal = ~true.off"#,
             if let Some(expected_key) = expected_key {
                 assert_eq!(completed.len(), 1);
                 assert_eq!(completed[0].key, expected_key);
-                assert_eq!(parser.release_completed_bindings(), 1);
+                assert_eq!(parser.take_completed_bindings().len(), 1);
                 assert_eq!(parser.completed_binding_count(), 0);
                 assert_eq!(parser.completed_binding_storage_bytes(), 0);
             } else {

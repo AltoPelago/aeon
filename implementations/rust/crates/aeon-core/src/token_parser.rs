@@ -285,14 +285,15 @@ impl IncrementalSofiaFrontend {
         }
     }
 
-    pub(crate) fn release_completed_bindings(&mut self) {
-        let released = self
+    pub(crate) fn take_completed_bindings(&mut self) -> Vec<Binding> {
+        let completed = self
             .parser
             .as_mut()
-            .map_or(0, sofia::ParserSession::release_completed_bindings);
+            .map_or_else(Vec::new, sofia::ParserSession::take_completed_bindings);
         self.released_completed_binding_count = self
             .released_completed_binding_count
-            .saturating_add(released);
+            .saturating_add(completed.len());
+        completed
     }
 
     pub(crate) fn finish(self, source: &str) -> IncrementalSofiaResult {

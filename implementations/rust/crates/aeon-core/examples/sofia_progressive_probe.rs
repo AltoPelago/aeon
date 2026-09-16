@@ -173,8 +173,10 @@ fn retention_json(retention: ProgressiveRetentionSnapshot) -> Value {
         "ready_event_count": retention.ready_event_count,
         "ready_event_slot_bytes": retention.ready_event_slot_bytes,
         "staged_batch_count": retention.staged_batch_count,
+        "staged_cursor_count": retention.staged_cursor_count,
         "staged_event_count": retention.staged_event_count,
         "staged_event_slot_bytes": retention.staged_event_slot_bytes,
+        "staged_ast_slot_bytes": retention.staged_ast_slot_bytes,
         "terminal_source_capacity_bytes": retention.terminal_source_capacity_bytes,
         "terminal_event_count": retention.terminal_event_count,
     })

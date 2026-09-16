@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::num::NonZeroUsize;
 
-use crate::flatten::{ValidationReferenceStep, flatten_document};
+use crate::flatten::{FlattenEventCursor, FlattenValidationCursor, ValidationReferenceStep};
 use crate::header::IncrementalHeaderState;
 use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
@@ -20,8 +20,8 @@ use crate::validation::{
     validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 use crate::{
-    BehaviorMode, Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch,
-    EventBatches, SourcePlane, SourceRetention, Value, compile_owned_with_implementation,
+    BehaviorMode, Binding, CompileOptions, CompileResult, Diagnostic, EventBatch, EventBatches,
+    SourcePlane, SourceRetention, Value, compile_owned_with_implementation,
     compile_portability_warnings, event_count_exceeded_error, format_path,
     input_size_diagnostic_for_len, validate_gp_datatype_clarifiers,
 };
@@ -496,6 +496,7 @@ struct ProgressiveEventAssembler {
     validation: ProgressiveValidationState,
     next_sequence: usize,
     next_event_index: usize,
+    pending_output: VecDeque<FlattenEventCursor>,
 }
 
 impl ProgressiveEventAssembler {
@@ -508,55 +509,121 @@ impl ProgressiveEventAssembler {
             validation: ProgressiveValidationState::new(options),
             next_sequence: 0,
             next_event_index: 0,
+            pending_output: VecDeque::new(),
         }
     }
 
-    fn push_completed_bindings(&mut self, bindings: &[Binding]) -> Vec<ProvisionalEventBatch> {
-        self.batch_bindings(bindings)
+    fn push_completed_bindings(
+        &mut self,
+        bindings: Vec<Binding>,
+        max_batches: usize,
+    ) -> Vec<ProvisionalEventBatch> {
+        self.queue_bindings(bindings);
+        self.take_batches(max_batches)
     }
 
-    fn finish_bindings(&mut self, remaining: &[Binding]) -> Vec<ProvisionalEventBatch> {
-        self.batch_bindings(remaining)
+    fn finish_bindings(
+        &mut self,
+        remaining: Vec<Binding>,
+        max_batches: usize,
+    ) -> Vec<ProvisionalEventBatch> {
+        self.queue_bindings(remaining);
+        self.take_batches(max_batches)
     }
 
     fn observe_structured_comments(&mut self, count: usize, error: Option<Diagnostic>) {
         self.validation.observe_structured_comments(count, error);
     }
 
-    fn batch_bindings(&mut self, bindings: &[Binding]) -> Vec<ProvisionalEventBatch> {
+    fn queue_bindings(&mut self, bindings: Vec<Binding>) {
         if !self.enabled {
-            return Vec::new();
+            return;
         }
 
-        self.validation.observe_bindings(bindings);
-        let root = CanonicalPath::root();
-        let mut events = Vec::new();
-        for binding in bindings.iter().filter(|binding| !binding.is_header) {
-            let flattened = flatten_document(
-                std::slice::from_ref(binding),
-                &root,
+        self.validation.observe_bindings(&bindings);
+        for binding in bindings.into_iter().filter(|binding| !binding.is_header) {
+            let mut event_count = 0;
+            for item in FlattenValidationCursor::new(
+                &binding,
                 self.shallow_event_values,
-                false,
                 self.include_event_annotations,
-            );
-            self.validation
-                .observe_references(&flattened.reference_targets, &flattened.reference_steps);
-            self.validation.observe_events(&flattened.events);
-            events.extend(flattened.events);
+            ) {
+                self.validation
+                    .observe_references(&item.reference_targets, &item.reference_steps);
+                self.validation
+                    .observe_events(std::slice::from_ref(&item.event));
+                event_count += 1;
+            }
+            self.pending_output.push_back(FlattenEventCursor::new(
+                binding,
+                self.shallow_event_values,
+                self.include_event_annotations,
+                event_count,
+            ));
         }
+    }
 
-        EventBatches::new(events, self.max_batch_events)
-            .map(|batch| {
-                let provisional = ProvisionalEventBatch {
-                    sequence: self.next_sequence,
-                    first_event_index: self.next_event_index,
-                    batch,
+    fn take_batches(&mut self, max_batches: usize) -> Vec<ProvisionalEventBatch> {
+        let mut batches = Vec::with_capacity(max_batches.min(self.pending_output.len()));
+        while batches.len() < max_batches && !self.pending_output.is_empty() {
+            let mut events = Vec::with_capacity(self.max_batch_events.get());
+            while events.len() < self.max_batch_events.get() {
+                let Some(cursor) = self.pending_output.front_mut() else {
+                    break;
                 };
-                self.next_sequence += 1;
-                self.next_event_index += provisional.events().len();
-                provisional
-            })
-            .collect()
+                if let Some(event) = cursor.next() {
+                    events.push(event);
+                } else {
+                    self.pending_output.pop_front();
+                }
+            }
+            if events.is_empty() {
+                continue;
+            }
+            let batch = EventBatches::new(events, self.max_batch_events)
+                .next()
+                .expect("non-empty bounded events must produce one batch");
+            let provisional = ProvisionalEventBatch {
+                sequence: self.next_sequence,
+                first_event_index: self.next_event_index,
+                batch,
+            };
+            self.next_sequence += 1;
+            self.next_event_index += provisional.events().len();
+            batches.push(provisional);
+        }
+        batches
+    }
+
+    fn has_pending_output(&self) -> bool {
+        !self.pending_output.is_empty()
+    }
+
+    fn pending_event_count(&self) -> usize {
+        self.pending_output
+            .iter()
+            .map(FlattenEventCursor::remaining_events)
+            .sum()
+    }
+
+    fn pending_cursor_count(&self) -> usize {
+        self.pending_output.len()
+    }
+
+    fn pending_ast_slot_bytes(&self) -> usize {
+        self.pending_output
+            .iter()
+            .map(FlattenEventCursor::retained_ast_slot_bytes)
+            .sum()
+    }
+
+    fn into_pending_output(self) -> ProgressivePendingOutput {
+        ProgressivePendingOutput {
+            max_batch_events: self.max_batch_events,
+            next_sequence: self.next_sequence,
+            next_event_index: self.next_event_index,
+            cursors: self.pending_output,
+        }
     }
 
     fn validation_errors(&self) -> Vec<Diagnostic> {
@@ -565,6 +632,70 @@ impl ProgressiveEventAssembler {
 
     fn validation_retention(&self) -> ProgressiveValidationRetention {
         self.validation.retention()
+    }
+}
+
+#[derive(Debug)]
+struct ProgressivePendingOutput {
+    max_batch_events: NonZeroUsize,
+    next_sequence: usize,
+    next_event_index: usize,
+    cursors: VecDeque<FlattenEventCursor>,
+}
+
+impl ProgressivePendingOutput {
+    fn take_batches(&mut self, max_batches: usize) -> Vec<ProvisionalEventBatch> {
+        let mut batches = Vec::with_capacity(max_batches.min(self.cursors.len()));
+        while batches.len() < max_batches && !self.cursors.is_empty() {
+            let mut events = Vec::with_capacity(self.max_batch_events.get());
+            while events.len() < self.max_batch_events.get() {
+                let Some(cursor) = self.cursors.front_mut() else {
+                    break;
+                };
+                if let Some(event) = cursor.next() {
+                    events.push(event);
+                } else {
+                    self.cursors.pop_front();
+                }
+            }
+            if events.is_empty() {
+                continue;
+            }
+            let batch = EventBatches::new(events, self.max_batch_events)
+                .next()
+                .expect("non-empty bounded events must produce one batch");
+            let provisional = ProvisionalEventBatch {
+                sequence: self.next_sequence,
+                first_event_index: self.next_event_index,
+                batch,
+            };
+            self.next_sequence += 1;
+            self.next_event_index += provisional.events().len();
+            batches.push(provisional);
+        }
+        batches
+    }
+
+    fn has_pending_output(&self) -> bool {
+        !self.cursors.is_empty()
+    }
+
+    fn pending_event_count(&self) -> usize {
+        self.cursors
+            .iter()
+            .map(FlattenEventCursor::remaining_events)
+            .sum()
+    }
+
+    fn pending_cursor_count(&self) -> usize {
+        self.cursors.len()
+    }
+
+    fn pending_ast_slot_bytes(&self) -> usize {
+        self.cursors
+            .iter()
+            .map(FlattenEventCursor::retained_ast_slot_bytes)
+            .sum()
     }
 }
 
@@ -588,6 +719,7 @@ pub(crate) struct ProgressiveSofiaFinish {
     pub(crate) prevalidated_reference_datatype_claim_count: usize,
     pub(crate) prevalidated_reference_claim_count: usize,
     validation_retention: ProgressiveValidationRetention,
+    pending_output: ProgressivePendingOutput,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -598,28 +730,40 @@ impl ProgressiveSofiaFrontend {
         }
     }
 
-    pub(crate) fn push_str(&mut self, chunk: &str) -> Vec<ProvisionalEventBatch> {
-        let bindings = self.parser.push_str(chunk);
-        let batches = self.events.push_completed_bindings(bindings);
-        self.parser.release_completed_bindings();
+    pub(crate) fn push_str(
+        &mut self,
+        chunk: &str,
+        max_batches: usize,
+    ) -> Vec<ProvisionalEventBatch> {
+        self.parser.push_str(chunk);
+        let bindings = self.parser.take_completed_bindings();
+        let batches = self.events.push_completed_bindings(bindings, max_batches);
         let (count, error) = self.parser.structured_comment_state();
         self.events.observe_structured_comments(count, error);
         batches
+    }
+
+    fn take_batches(&mut self, max_batches: usize) -> Vec<ProvisionalEventBatch> {
+        self.events.take_batches(max_batches)
+    }
+
+    fn has_pending_output(&self) -> bool {
+        self.events.has_pending_output()
     }
 
     fn retention(&self) -> (IncrementalSofiaRetention, ProgressiveValidationRetention) {
         (self.parser.retention(), self.events.validation_retention())
     }
 
-    pub(crate) fn finish(self, source: &str) -> ProgressiveSofiaFinish {
-        self.finish_inner(Some(source))
+    pub(crate) fn finish(self, source: &str, max_batches: usize) -> ProgressiveSofiaFinish {
+        self.finish_inner(Some(source), max_batches)
     }
 
-    pub(crate) fn finish_without_replay(self) -> ProgressiveSofiaFinish {
-        self.finish_inner(None)
+    pub(crate) fn finish_without_replay(self, max_batches: usize) -> ProgressiveSofiaFinish {
+        self.finish_inner(None, max_batches)
     }
 
-    fn finish_inner(self, source: Option<&str>) -> ProgressiveSofiaFinish {
+    fn finish_inner(self, source: Option<&str>, max_batches: usize) -> ProgressiveSofiaFinish {
         let Self { parser, mut events } = self;
         let incremental = match source {
             Some(source) => parser.finish(source),
@@ -631,7 +775,7 @@ impl ProgressiveSofiaFrontend {
         );
         let parse_valid = !incremental.retention_fallback && incremental.parsed.errors.is_empty();
         let final_batches = if parse_valid {
-            events.finish_bindings(&incremental.parsed.bindings)
+            events.finish_bindings(incremental.parsed.bindings, max_batches)
         } else {
             Vec::new()
         };
@@ -651,6 +795,7 @@ impl ProgressiveSofiaFrontend {
             prevalidated_reference_datatype_claim_count: validation.reference_datatype_claim_count,
             prevalidated_reference_claim_count: validation.reference_claim_count,
             validation_retention: validation,
+            pending_output: events.into_pending_output(),
         }
     }
 }
@@ -747,8 +892,10 @@ pub struct ProgressiveRetentionSnapshot {
     pub ready_event_count: usize,
     pub ready_event_slot_bytes: usize,
     pub staged_batch_count: usize,
+    pub staged_cursor_count: usize,
     pub staged_event_count: usize,
     pub staged_event_slot_bytes: usize,
+    pub staged_ast_slot_bytes: usize,
     pub terminal_source_capacity_bytes: usize,
     pub terminal_event_count: usize,
 }
@@ -768,6 +915,7 @@ impl ProgressiveRetentionSnapshot {
             .saturating_add(self.validation_reference_step_string_bytes)
             .saturating_add(self.ready_event_slot_bytes)
             .saturating_add(self.staged_event_slot_bytes)
+            .saturating_add(self.staged_ast_slot_bytes)
             .saturating_add(self.terminal_source_capacity_bytes)
     }
 
@@ -812,8 +960,10 @@ impl ProgressiveRetentionSnapshot {
             ready_event_count,
             ready_event_slot_bytes,
             staged_batch_count,
+            staged_cursor_count,
             staged_event_count,
             staged_event_slot_bytes,
+            staged_ast_slot_bytes,
             terminal_source_capacity_bytes,
             terminal_event_count,
         );
@@ -850,7 +1000,7 @@ pub(crate) struct ProgressiveCompiler {
     terminal_validation_retention: Option<ProgressiveValidationRetention>,
     max_pending_batches: NonZeroUsize,
     pending: VecDeque<ProvisionalEventBatch>,
-    deferred: VecDeque<ProvisionalEventBatch>,
+    terminal_output: Option<ProgressivePendingOutput>,
     exposed_event_count: usize,
     state: ProgressiveLifecycleState,
     terminal: Option<ProgressiveDisposition>,
@@ -920,7 +1070,7 @@ impl ProgressiveCompiler {
             terminal_validation_retention: None,
             max_pending_batches,
             pending: VecDeque::new(),
-            deferred: VecDeque::new(),
+            terminal_output: None,
             exposed_event_count: 0,
             state: ProgressiveLifecycleState::Accepting,
             terminal: None,
@@ -962,6 +1112,30 @@ impl ProgressiveCompiler {
                         (result.source.capacity(), result.events.len())
                     }
                 });
+        let (staged_batch_count, staged_cursor_count, staged_event_count, staged_ast_slot_bytes) =
+            self.frontend
+                .as_ref()
+                .map(|frontend| {
+                    let events = frontend.events.pending_event_count();
+                    (
+                        events.div_ceil(frontend.events.max_batch_events.get()),
+                        frontend.events.pending_cursor_count(),
+                        events,
+                        frontend.events.pending_ast_slot_bytes(),
+                    )
+                })
+                .or_else(|| {
+                    self.terminal_output.as_ref().map(|output| {
+                        let events = output.pending_event_count();
+                        (
+                            events.div_ceil(output.max_batch_events.get()),
+                            output.pending_cursor_count(),
+                            events,
+                            output.pending_ast_slot_bytes(),
+                        )
+                    })
+                })
+                .unwrap_or((0, 0, 0, 0));
         ProgressiveRetentionSnapshot {
             accepted_input_bytes: self.accepted_input_bytes,
             compact_output: matches!(self.output_mode, ProgressiveOutputMode::Compact),
@@ -1006,20 +1180,26 @@ impl ProgressiveCompiler {
                 .iter()
                 .map(|batch| batch.batch.retained_event_slot_bytes())
                 .sum(),
-            staged_batch_count: self.deferred.len(),
-            staged_event_count: self.deferred.iter().map(|batch| batch.events().len()).sum(),
-            staged_event_slot_bytes: self
-                .deferred
-                .iter()
-                .map(|batch| batch.batch.retained_event_slot_bytes())
-                .sum(),
+            staged_batch_count,
+            staged_cursor_count,
+            staged_event_count,
+            staged_event_slot_bytes: 0,
+            staged_ast_slot_bytes,
             terminal_source_capacity_bytes,
             terminal_event_count,
         }
     }
 
     pub(crate) fn is_backpressured(&self) -> bool {
-        self.pending.len() == self.max_pending_batches.get() || !self.deferred.is_empty()
+        self.pending.len() == self.max_pending_batches.get()
+            || self
+                .frontend
+                .as_ref()
+                .is_some_and(ProgressiveSofiaFrontend::has_pending_output)
+            || self
+                .terminal_output
+                .as_ref()
+                .is_some_and(ProgressivePendingOutput::has_pending_output)
     }
 
     pub(crate) fn push_str(
@@ -1035,11 +1215,15 @@ impl ProgressiveCompiler {
         if let Some(source) = &mut self.source {
             source.push_str(chunk);
         }
+        let available = self
+            .max_pending_batches
+            .get()
+            .saturating_sub(self.pending.len());
         let batches = self
             .frontend
             .as_mut()
             .expect("accepting progressive compiler must retain its front end")
-            .push_str(chunk);
+            .push_str(chunk, available);
         self.enqueue(batches);
         Ok(self.accepting_progress())
     }
@@ -1056,12 +1240,17 @@ impl ProgressiveCompiler {
             .frontend
             .take()
             .expect("accepting progressive compiler must retain its front end");
+        let available = self
+            .max_pending_batches
+            .get()
+            .saturating_sub(self.pending.len());
         let finished = match self.output_mode {
-            ProgressiveOutputMode::Compact => frontend.finish_without_replay(),
+            ProgressiveOutputMode::Compact => frontend.finish_without_replay(available),
             ProgressiveOutputMode::Rich(_) => frontend.finish(
                 self.source
                     .as_deref()
                     .expect("rich progressive mode must retain replay source"),
+                available,
             ),
         };
         self.terminal_validation_retention = Some(finished.validation_retention);
@@ -1123,7 +1312,13 @@ impl ProgressiveCompiler {
                 ProgressiveOutputMode::Rich(_) => result.events.len(),
             };
             self.enqueue(finished.final_batches);
-            self.state = if self.pending.is_empty() && self.deferred.is_empty() {
+            self.terminal_output = Some(finished.pending_output);
+            self.state = if self.pending.is_empty()
+                && !self
+                    .terminal_output
+                    .as_ref()
+                    .is_some_and(ProgressivePendingOutput::has_pending_output)
+            {
                 ProgressiveLifecycleState::TerminalReady
             } else {
                 ProgressiveLifecycleState::Draining
@@ -1134,7 +1329,7 @@ impl ProgressiveCompiler {
             });
         } else {
             self.pending.clear();
-            self.deferred.clear();
+            self.terminal_output = None;
             self.state = ProgressiveLifecycleState::TerminalReady;
             self.terminal = Some(ProgressiveDisposition::Invalidated {
                 result,
@@ -1151,7 +1346,10 @@ impl ProgressiveCompiler {
         self.refill_pending();
         if self.state == ProgressiveLifecycleState::Draining
             && self.pending.is_empty()
-            && self.deferred.is_empty()
+            && !self
+                .terminal_output
+                .as_ref()
+                .is_some_and(ProgressivePendingOutput::has_pending_output)
         {
             self.state = ProgressiveLifecycleState::TerminalReady;
         }
@@ -1171,16 +1369,32 @@ impl ProgressiveCompiler {
     }
 
     fn enqueue(&mut self, batches: Vec<ProvisionalEventBatch>) {
-        self.deferred.extend(batches);
-        self.refill_pending();
+        debug_assert!(self.pending.len() + batches.len() <= self.max_pending_batches.get());
+        self.pending.extend(batches);
     }
 
     fn refill_pending(&mut self) {
-        while self.pending.len() < self.max_pending_batches.get() {
-            let Some(batch) = self.deferred.pop_front() else {
-                break;
-            };
-            self.pending.push_back(batch);
+        let available = self
+            .max_pending_batches
+            .get()
+            .saturating_sub(self.pending.len());
+        if available == 0 {
+            return;
+        }
+        let batches = if let Some(frontend) = &mut self.frontend {
+            frontend.take_batches(available)
+        } else if let Some(output) = &mut self.terminal_output {
+            output.take_batches(available)
+        } else {
+            Vec::new()
+        };
+        self.pending.extend(batches);
+        if self
+            .terminal_output
+            .as_ref()
+            .is_some_and(|output| !output.has_pending_output())
+        {
+            self.terminal_output = None;
         }
     }
 
@@ -1389,9 +1603,9 @@ mod tests {
         );
         let mut batches = Vec::new();
         for scalar in source.chars() {
-            batches.extend(frontend.push_str(scalar.encode_utf8(&mut [0; 4])));
+            batches.extend(frontend.push_str(scalar.encode_utf8(&mut [0; 4]), usize::MAX));
         }
-        let finished = frontend.finish(source);
+        let finished = frontend.finish(source, usize::MAX);
         (batches, finished)
     }
 
@@ -2060,9 +2274,11 @@ mod tests {
         assert_eq!(retained.ready_batch_count, 2);
         assert_eq!(retained.ready_event_count, 2);
         assert_eq!(retained.staged_batch_count, 4);
+        assert_eq!(retained.staged_cursor_count, 1);
         assert_eq!(retained.staged_event_count, 4);
         assert!(retained.ready_event_slot_bytes > 0);
-        assert!(retained.staged_event_slot_bytes > 0);
+        assert_eq!(retained.staged_event_slot_bytes, 0);
+        assert!(retained.staged_ast_slot_bytes > 0);
         assert!(retained.accounted_shallow_bytes() >= retained.source_capacity_bytes);
 
         let before_events = retained.ready_event_count + retained.staged_event_count;
