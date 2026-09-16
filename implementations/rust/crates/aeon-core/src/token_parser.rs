@@ -132,6 +132,7 @@ pub(crate) struct IncrementalSofiaFrontend {
     fallback_to_one_shot: bool,
     retention_fallback: bool,
     peak_retained_token_bytes: usize,
+    released_completed_binding_count: usize,
 }
 
 pub(crate) struct IncrementalSofiaResult {
@@ -147,6 +148,8 @@ pub(crate) struct IncrementalSofiaRetention {
     pub parser_token_storage_bytes: usize,
     pub parser_frame_count: usize,
     pub completed_binding_count: usize,
+    pub completed_binding_storage_bytes: usize,
+    pub released_completed_binding_count: usize,
 }
 
 impl IncrementalSofiaFrontend {
@@ -172,6 +175,7 @@ impl IncrementalSofiaFrontend {
             fallback_to_one_shot: false,
             retention_fallback: false,
             peak_retained_token_bytes: 0,
+            released_completed_binding_count: 0,
         }
     }
 
@@ -238,7 +242,20 @@ impl IncrementalSofiaFrontend {
             parser_frame_count: parser.map_or(0, sofia::ParserSession::active_frame_count),
             completed_binding_count: parser
                 .map_or(0, sofia::ParserSession::completed_binding_count),
+            completed_binding_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::completed_binding_storage_bytes),
+            released_completed_binding_count: self.released_completed_binding_count,
         }
+    }
+
+    pub(crate) fn release_completed_bindings(&mut self) {
+        let released = self
+            .parser
+            .as_mut()
+            .map_or(0, sofia::ParserSession::release_completed_bindings);
+        self.released_completed_binding_count = self
+            .released_completed_binding_count
+            .saturating_add(released);
     }
 
     pub(crate) fn finish(mut self, source: &str) -> IncrementalSofiaResult {

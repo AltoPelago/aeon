@@ -170,6 +170,22 @@ impl<'a> ParserSession<'a> {
         &document.bindings[start..]
     }
 
+    /// Releases every top-level binding already reported through
+    /// `newly_completed_bindings`. The active binding under construction is
+    /// held by its own frame and is unaffected.
+    pub(super) fn release_completed_bindings(&mut self) -> usize {
+        let Some(document) = self.frames.iter_mut().find_map(|frame| match frame {
+            Frame::Document(document) => Some(document),
+            _ => None,
+        }) else {
+            return 0;
+        };
+        debug_assert_eq!(self.completed_binding_cursor, document.bindings.len());
+        let released = std::mem::take(&mut document.bindings).len();
+        self.completed_binding_cursor = 0;
+        released
+    }
+
     pub(super) fn retained_token_count(&self) -> usize {
         self.tokens.len()
     }
@@ -198,6 +214,21 @@ impl<'a> ParserSession<'a> {
             .iter()
             .find_map(|frame| match frame {
                 Frame::Document(document) => Some(document.bindings.len()),
+                _ => None,
+            })
+            .unwrap_or(0)
+    }
+
+    pub(super) fn completed_binding_storage_bytes(&self) -> usize {
+        self.frames
+            .iter()
+            .find_map(|frame| match frame {
+                Frame::Document(document) => Some(
+                    document
+                        .bindings
+                        .capacity()
+                        .saturating_mul(std::mem::size_of::<Binding>()),
+                ),
                 _ => None,
             })
             .unwrap_or(0)
@@ -3332,6 +3363,49 @@ literal = ~true.off"#,
                 .collect::<Vec<_>>(),
             ["aeon:mode", "first", "nested", "pending"]
         );
+    }
+
+    #[test]
+    fn parser_session_releases_reported_top_level_bindings_and_finishes_remaining_binding() {
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        });
+        let mut parser = ParserSession::new(TEST_LIMITS, false);
+
+        for (chunk, expected_key) in [
+            ("first = 1\n", None),
+            ("second = { child = true }\n", Some("first")),
+            ("third = 3", Some("second")),
+        ] {
+            let batch = lexer.push(Cow::Owned(chunk.to_owned()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("chunk should remain non-terminal"),
+                ParserSessionProgress::NeedMoreInput
+            );
+            let completed = parser.newly_completed_bindings();
+            if let Some(expected_key) = expected_key {
+                assert_eq!(completed.len(), 1);
+                assert_eq!(completed[0].key, expected_key);
+                assert_eq!(parser.release_completed_bindings(), 1);
+                assert_eq!(parser.completed_binding_count(), 0);
+                assert_eq!(parser.completed_binding_storage_bytes(), 0);
+            } else {
+                assert!(completed.is_empty());
+            }
+        }
+
+        let outcome = parser
+            .finish_tokens(Cow::Owned(lexer.finish().tokens))
+            .expect("final EOF should complete the remaining binding");
+        let ParseOutcome::Parsed(bindings) = outcome else {
+            panic!("strict parser should return its remaining document");
+        };
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "third");
     }
 
     #[test]

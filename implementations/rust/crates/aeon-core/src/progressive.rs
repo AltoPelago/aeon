@@ -6,11 +6,11 @@ use std::num::NonZeroUsize;
 
 use crate::flatten::flatten_document;
 use crate::token_parser::{
-    IncrementalSofiaFrontend, IncrementalSofiaResult, IncrementalSofiaRetention,
+    IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
 use crate::{
-    Binding, CanonicalPath, CompileOptions, CompileResult, EventBatch, EventBatches,
-    compile_parsed, compile_portability_warnings, failed_compile_result, input_size_diagnostic,
+    Binding, CanonicalPath, CompileOptions, CompileResult, Diagnostic, EventBatch, EventBatches,
+    compile_owned_with_implementation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +44,6 @@ struct ProgressiveEventAssembler {
     shallow_event_values: bool,
     include_event_annotations: bool,
     enabled: bool,
-    observed_bindings: usize,
     next_sequence: usize,
     next_event_index: usize,
 }
@@ -56,21 +55,16 @@ impl ProgressiveEventAssembler {
             shallow_event_values: options.shallow_event_values,
             include_event_annotations: options.include_event_annotations,
             enabled: !options.recovery,
-            observed_bindings: 0,
             next_sequence: 0,
             next_event_index: 0,
         }
     }
 
     fn push_completed_bindings(&mut self, bindings: &[Binding]) -> Vec<ProvisionalEventBatch> {
-        self.observed_bindings += bindings.len();
         self.batch_bindings(bindings)
     }
 
-    fn finish_bindings(&mut self, bindings: &[Binding]) -> Vec<ProvisionalEventBatch> {
-        debug_assert!(self.observed_bindings <= bindings.len());
-        let remaining = &bindings[self.observed_bindings..];
-        self.observed_bindings = bindings.len();
+    fn finish_bindings(&mut self, remaining: &[Binding]) -> Vec<ProvisionalEventBatch> {
         self.batch_bindings(remaining)
     }
 
@@ -113,11 +107,12 @@ pub(crate) struct ProgressiveSofiaFrontend {
 }
 
 pub(crate) struct ProgressiveSofiaFinish {
-    pub(crate) incremental: IncrementalSofiaResult,
     pub(crate) final_batches: Vec<ProvisionalEventBatch>,
     /// This only means the provisional stream can proceed to semantic
     /// validation. It is not final whole-document acceptance.
     pub(crate) parse_valid: bool,
+    pub(crate) retention_fallback: bool,
+    pub(crate) parse_errors: Vec<Diagnostic>,
 }
 
 impl ProgressiveSofiaFrontend {
@@ -130,7 +125,9 @@ impl ProgressiveSofiaFrontend {
 
     pub(crate) fn push_str(&mut self, chunk: &str) -> Vec<ProvisionalEventBatch> {
         let bindings = self.parser.push_str(chunk);
-        self.events.push_completed_bindings(bindings)
+        let batches = self.events.push_completed_bindings(bindings);
+        self.parser.release_completed_bindings();
+        batches
     }
 
     pub(crate) fn retention(&self) -> IncrementalSofiaRetention {
@@ -147,9 +144,10 @@ impl ProgressiveSofiaFrontend {
             Vec::new()
         };
         ProgressiveSofiaFinish {
-            incremental,
             final_batches,
             parse_valid,
+            retention_fallback: incremental.retention_fallback,
+            parse_errors: incremental.parsed.errors,
         }
     }
 }
@@ -208,6 +206,8 @@ pub(crate) struct ProgressiveRetentionSnapshot {
     pub parser_token_storage_bytes: usize,
     pub parser_frame_count: usize,
     pub completed_binding_count: usize,
+    pub completed_binding_storage_bytes: usize,
+    pub released_completed_binding_count: usize,
     pub ready_batch_count: usize,
     pub ready_event_count: usize,
     pub ready_event_slot_bytes: usize,
@@ -223,6 +223,7 @@ impl ProgressiveRetentionSnapshot {
         self.source_capacity_bytes
             .saturating_add(self.lexer_active_bytes)
             .saturating_add(self.parser_token_storage_bytes)
+            .saturating_add(self.completed_binding_storage_bytes)
             .saturating_add(self.ready_event_slot_bytes)
             .saturating_add(self.staged_event_slot_bytes)
             .saturating_add(self.terminal_source_capacity_bytes)
@@ -296,6 +297,8 @@ impl ProgressiveCompiler {
             parser_token_storage_bytes: incremental.parser_token_storage_bytes,
             parser_frame_count: incremental.parser_frame_count,
             completed_binding_count: incremental.completed_binding_count,
+            completed_binding_storage_bytes: incremental.completed_binding_storage_bytes,
+            released_completed_binding_count: incremental.released_completed_binding_count,
             ready_batch_count: self.pending.len(),
             ready_event_count: self.pending.iter().map(|batch| batch.events().len()).sum(),
             ready_event_slot_bytes: self
@@ -355,13 +358,12 @@ impl ProgressiveCompiler {
             .options
             .take()
             .expect("accepting progressive compiler must retain options");
-        let warnings = compile_portability_warnings(&options);
         let source = mem::take(&mut self.source);
-        let result = if let Some(error) = input_size_diagnostic(&source, &options) {
-            failed_compile_result(source, warnings, vec![error])
-        } else {
-            compile_parsed(source, options, warnings, finished.incremental.parsed)
-        };
+        // Completed streaming ASTs have already been released. Replay the
+        // retained source through the authoritative Sofia pipeline so final
+        // validation and rich result construction remain exactly compatible.
+        let result =
+            compile_owned_with_implementation(source, options, ParserImplementation::Sofia);
 
         if result.errors.is_empty() && finished.parse_valid {
             let event_count = result.events.len();
@@ -578,7 +580,7 @@ mod tests {
 
             let (mut batches, finished) = collect_progressive(source, &options, 2);
             assert!(finished.parse_valid);
-            assert!(!finished.incremental.retention_fallback);
+            assert!(!finished.retention_fallback);
             batches.extend(finished.final_batches);
 
             let mut next_event_index = 0;
@@ -625,7 +627,7 @@ mod tests {
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].events()[0].key, "first");
         assert!(!finished.parse_valid);
-        assert!(!finished.incremental.parsed.errors.is_empty());
+        assert!(!finished.parse_errors.is_empty());
         assert!(finished.final_batches.is_empty());
     }
 
@@ -935,7 +937,9 @@ mod tests {
         let retained = compiler.retention();
         assert_eq!(retained.source_bytes, first_chunk.len());
         assert!(retained.source_capacity_bytes >= retained.source_bytes);
-        assert_eq!(retained.completed_binding_count, 1);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.completed_binding_storage_bytes, 0);
+        assert_eq!(retained.released_completed_binding_count, 1);
         assert!(retained.parser_token_count <= 4);
         assert_eq!(retained.ready_batch_count, 2);
         assert_eq!(retained.ready_event_count, 2);
@@ -958,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_stream_retention_reports_bounded_tokens_and_open_ast_source_categories() {
+    fn flat_stream_releases_completed_ast_while_bounding_tokens() {
         let bindings = (0..128)
             .map(|index| format!("key_{index} = {index}\n"))
             .collect::<String>();
@@ -988,7 +992,9 @@ mod tests {
 
         let retained = compiler.retention();
         assert_eq!(retained.source_bytes, source.len());
-        assert_eq!(retained.completed_binding_count, 128);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.completed_binding_storage_bytes, 0);
+        assert_eq!(retained.released_completed_binding_count, 128);
         assert!(
             retained.parser_token_count <= 4,
             "flat parser retained {} tokens",
