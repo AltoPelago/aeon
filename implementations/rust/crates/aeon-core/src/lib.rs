@@ -1021,7 +1021,9 @@ fn finalize_compile(
     };
     let mut errors = Vec::new();
     let root = CanonicalPath::root();
-    validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let has_top_level_duplicate_paths =
+        validation::top_level_canonical_paths_have_duplicates(&bindings);
     let validation_only = options.shallow_event_values
         && !options.emit_binding_projections
         && !options.include_header
@@ -1064,7 +1066,12 @@ fn finalize_compile(
     if options.recovery {
         materialize_binding_projection_paths(&mut flattened, true);
     }
-    validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
+    // Unique binding keys and generated sequence indexes imply unique
+    // canonical event paths. Preserve the full scan only when the earlier AST
+    // checks found a scope that recovery or diagnostics must reconcile.
+    if has_nested_duplicate_keys || has_top_level_duplicate_paths {
+        validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
+    }
     let indexes = if flattened.reference_steps.is_empty() {
         validation::ValidationIndexes::default()
     } else {
@@ -1169,7 +1176,7 @@ fn validate_only_compile(
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
     let mut errors = Vec::new();
-    validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let _ = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
     if let Some(max_events) = options.max_events
         && flattened.events.len() > max_events

@@ -50,13 +50,20 @@ pub(crate) fn build_validation_event_lookup(
     event_lookup
 }
 
+pub(crate) fn top_level_canonical_paths_have_duplicates(bindings: &[Binding]) -> bool {
+    let mut seen = HashSet::with_capacity(bindings.len());
+    bindings
+        .iter()
+        .any(|binding| !seen.insert((binding.is_header, binding.key.as_str())))
+}
+
 pub(crate) fn validate_duplicate_canonical_paths(
     flattened: &mut FlattenedDocument,
     recovery: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let duplicate_indexes = {
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::with_capacity(flattened.events.len());
         let mut duplicate_indexes = Vec::new();
         for (index, (event, path)) in flattened
             .events
@@ -114,28 +121,33 @@ pub(crate) fn validate_duplicate_canonical_paths(
 pub(crate) fn validate_duplicate_object_member_keys(
     bindings: &[Binding],
     errors: &mut Vec<Diagnostic>,
-) {
+) -> bool {
     let root = CanonicalPath::root();
+    let mut found_duplicate = false;
     for binding in bindings {
         let path = root.member(binding.key.clone());
-        validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
+        found_duplicate |=
+            validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
     }
+    found_duplicate
 }
 
 fn validate_duplicate_object_member_keys_in_value(
     value: &Value,
     path: &CanonicalPath,
     errors: &mut Vec<Diagnostic>,
-) {
+) -> bool {
+    let mut found_duplicate = false;
     match value {
         Value::TypedValue { value, .. } => {
-            validate_duplicate_object_member_keys_in_value(value, path, errors);
+            found_duplicate |= validate_duplicate_object_member_keys_in_value(value, path, errors);
         }
         Value::ObjectNode { bindings } => {
             let mut seen = HashSet::new();
             for binding in bindings {
                 let member_path = path.member(binding.key.clone());
                 if !seen.insert(binding.key.clone()) {
+                    found_duplicate = true;
                     errors.push(
                         Diagnostic::new(
                             "DUPLICATE_KEY",
@@ -145,7 +157,7 @@ fn validate_duplicate_object_member_keys_in_value(
                         .with_span(binding.span),
                     );
                 }
-                validate_duplicate_object_member_keys_in_value(
+                found_duplicate |= validate_duplicate_object_member_keys_in_value(
                     &binding.value,
                     &member_path,
                     errors,
@@ -154,16 +166,25 @@ fn validate_duplicate_object_member_keys_in_value(
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
-                validate_duplicate_object_member_keys_in_value(item, &path.index(index), errors);
+                found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                    item,
+                    &path.index(index),
+                    errors,
+                );
             }
         }
         Value::NodeLiteral { children, .. } => {
             for (index, child) in children.iter().enumerate() {
-                validate_duplicate_object_member_keys_in_value(child, &path.index(index), errors);
+                found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                    child,
+                    &path.index(index),
+                    errors,
+                );
             }
         }
         _ => {}
     }
+    found_duplicate
 }
 
 fn key_from_path(path: &str) -> String {
