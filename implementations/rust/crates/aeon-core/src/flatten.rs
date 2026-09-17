@@ -510,6 +510,16 @@ fn is_container_value(value: &Value) -> bool {
     )
 }
 
+fn has_flattened_descendants(value: &Value) -> bool {
+    matches!(
+        unwrap_typed_value(value),
+        Value::ObjectNode { .. }
+            | Value::ListNode { .. }
+            | Value::TupleLiteral { .. }
+            | Value::NodeLiteral { .. }
+    )
+}
+
 pub(crate) fn flatten_document(
     bindings: &[Binding],
     root: &CanonicalPath,
@@ -1036,6 +1046,7 @@ fn flatten_bindings(
                 );
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
+                    let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                     let item_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
@@ -1064,20 +1075,22 @@ fn flatten_bindings(
                             kind: "binding",
                         });
                     }
-                    flatten_container_item(
-                        unwrap_typed_value(item),
-                        &path.index(index),
-                        source_plane,
-                        shallow_event_values,
-                        emit_binding_projections,
-                        include_event_annotations,
-                        events,
-                        rendered_event_paths,
-                        bindings_out,
-                        reference_targets,
-                        reference_steps,
-                        binding.span,
-                    );
+                    if let Some(nested_parent) = nested_parent.as_ref() {
+                        flatten_container_item(
+                            unwrap_typed_value(item),
+                            nested_parent,
+                            source_plane,
+                            shallow_event_values,
+                            emit_binding_projections,
+                            include_event_annotations,
+                            events,
+                            rendered_event_paths,
+                            bindings_out,
+                            reference_targets,
+                            reference_steps,
+                            binding.span,
+                        );
+                    }
                 }
             }
             Value::TupleLiteral { items } => {
@@ -1092,6 +1105,7 @@ fn flatten_bindings(
                 );
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
+                    let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                     let item_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
@@ -1120,20 +1134,22 @@ fn flatten_bindings(
                             kind: "binding",
                         });
                     }
-                    flatten_container_item(
-                        unwrap_typed_value(item),
-                        &path.index(index),
-                        source_plane,
-                        shallow_event_values,
-                        emit_binding_projections,
-                        include_event_annotations,
-                        events,
-                        rendered_event_paths,
-                        bindings_out,
-                        reference_targets,
-                        reference_steps,
-                        binding.span,
-                    );
+                    if let Some(nested_parent) = nested_parent.as_ref() {
+                        flatten_container_item(
+                            unwrap_typed_value(item),
+                            nested_parent,
+                            source_plane,
+                            shallow_event_values,
+                            emit_binding_projections,
+                            include_event_annotations,
+                            events,
+                            rendered_event_paths,
+                            bindings_out,
+                            reference_targets,
+                            reference_steps,
+                            binding.span,
+                        );
+                    }
                 }
             }
             Value::ObjectNode { bindings: nested } => {
@@ -1163,6 +1179,8 @@ fn flatten_bindings(
                 );
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
+                    let nested_parent =
+                        has_flattened_descendants(child).then(|| child_path.clone());
                     let child_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
@@ -1173,7 +1191,7 @@ fn flatten_bindings(
                         shallow_event_values,
                     );
                     events.push(AssignmentEvent {
-                        path: child_path.clone(),
+                        path: child_path,
                         key: index.to_string(),
                         source_plane,
                         structural_id: typed_structural_id(child),
@@ -1191,20 +1209,22 @@ fn flatten_bindings(
                             kind: "binding",
                         });
                     }
-                    flatten_container_item(
-                        unwrap_typed_value(child),
-                        &child_path,
-                        source_plane,
-                        shallow_event_values,
-                        emit_binding_projections,
-                        include_event_annotations,
-                        events,
-                        rendered_event_paths,
-                        bindings_out,
-                        reference_targets,
-                        reference_steps,
-                        binding.span,
-                    );
+                    if let Some(nested_parent) = nested_parent.as_ref() {
+                        flatten_container_item(
+                            unwrap_typed_value(child),
+                            nested_parent,
+                            source_plane,
+                            shallow_event_values,
+                            emit_binding_projections,
+                            include_event_annotations,
+                            events,
+                            rendered_event_paths,
+                            bindings_out,
+                            reference_targets,
+                            reference_steps,
+                            binding.span,
+                        );
+                    }
                 }
             }
             _ => {}
@@ -1253,6 +1273,7 @@ fn flatten_container_item(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
+                let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                 let item_text = render_child_index_path(&parent_path, index);
                 track_compact_reference_sequence_item(
                     reference_targets,
@@ -1263,7 +1284,7 @@ fn flatten_container_item(
                     shallow_event_values,
                 );
                 events.push(AssignmentEvent {
-                    path: item_path.clone(),
+                    path: item_path,
                     key: index.to_string(),
                     source_plane,
                     structural_id: typed_structural_id(item),
@@ -1281,20 +1302,22 @@ fn flatten_container_item(
                         kind: "binding",
                     });
                 }
-                flatten_container_item(
-                    unwrap_typed_value(item),
-                    &item_path,
-                    source_plane,
-                    shallow_event_values,
-                    emit_binding_projections,
-                    include_event_annotations,
-                    events,
-                    rendered_event_paths,
-                    bindings_out,
-                    reference_targets,
-                    reference_steps,
-                    span,
-                );
+                if let Some(nested_parent) = nested_parent.as_ref() {
+                    flatten_container_item(
+                        unwrap_typed_value(item),
+                        nested_parent,
+                        source_plane,
+                        shallow_event_values,
+                        emit_binding_projections,
+                        include_event_annotations,
+                        events,
+                        rendered_event_paths,
+                        bindings_out,
+                        reference_targets,
+                        reference_steps,
+                        span,
+                    );
+                }
             }
         }
         Value::NodeLiteral { children, .. } => {
@@ -1310,6 +1333,7 @@ fn flatten_container_item(
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
+                let nested_parent = has_flattened_descendants(child).then(|| child_path.clone());
                 let child_text = render_child_index_path(&parent_path, index);
                 track_compact_reference_sequence_item(
                     reference_targets,
@@ -1320,7 +1344,7 @@ fn flatten_container_item(
                     shallow_event_values,
                 );
                 events.push(AssignmentEvent {
-                    path: child_path.clone(),
+                    path: child_path,
                     key: index.to_string(),
                     source_plane,
                     structural_id: typed_structural_id(child),
@@ -1338,20 +1362,22 @@ fn flatten_container_item(
                         kind: "binding",
                     });
                 }
-                flatten_container_item(
-                    unwrap_typed_value(child),
-                    &child_path,
-                    source_plane,
-                    shallow_event_values,
-                    emit_binding_projections,
-                    include_event_annotations,
-                    events,
-                    rendered_event_paths,
-                    bindings_out,
-                    reference_targets,
-                    reference_steps,
-                    span,
-                );
+                if let Some(nested_parent) = nested_parent.as_ref() {
+                    flatten_container_item(
+                        unwrap_typed_value(child),
+                        nested_parent,
+                        source_plane,
+                        shallow_event_values,
+                        emit_binding_projections,
+                        include_event_annotations,
+                        events,
+                        rendered_event_paths,
+                        bindings_out,
+                        reference_targets,
+                        reference_steps,
+                        span,
+                    );
+                }
             }
         }
         _ => {}
