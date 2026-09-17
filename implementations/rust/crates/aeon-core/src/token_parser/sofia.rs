@@ -1649,6 +1649,44 @@ fn complete(slot: &mut Option<Product>, product: Product) -> Step {
     Step::Complete
 }
 
+// Large heads are kept inline while the current transition can finish them.
+// Only heads that must survive a child frame are boxed, keeping `Frame` small
+// without adding allocation to the common scalar binding path.
+enum PhaseHead<T> {
+    Inline(T),
+    Boxed(Box<T>),
+}
+
+impl<T> PhaseHead<T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Inline(value) => value,
+            Self::Boxed(value) => value,
+        }
+    }
+
+    fn as_mut(&mut self) -> &mut T {
+        match self {
+            Self::Inline(value) => value,
+            Self::Boxed(value) => value,
+        }
+    }
+
+    fn into_inner(self) -> T {
+        match self {
+            Self::Inline(value) => value,
+            Self::Boxed(value) => *value,
+        }
+    }
+
+    fn into_box(self) -> Box<T> {
+        match self {
+            Self::Inline(value) => Box::new(value),
+            Self::Boxed(value) => value,
+        }
+    }
+}
+
 fn debug_assert_map_order<T>(members: &BTreeMap<String, T>, order: &[String]) {
     debug_assert_eq!(members.len(), order.len());
     debug_assert!(order.iter().all(|key| members.contains_key(key)));
@@ -1817,12 +1855,12 @@ impl BindingFrame {
                     }
                     Step::Push {
                         parent: Frame::Binding(Self {
-                            phase: BindingPhase::Attributes(head),
+                            phase: BindingPhase::Attributes(Box::new(head)),
                         }),
                         child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
                     }
                 } else {
-                    Self::push_datatype_or_value(parser, head, product)
+                    Self::push_datatype_or_value(parser, PhaseHead::Inline(head), product)
                 }
             }
             BindingPhase::Attributes(mut head) => {
@@ -1837,7 +1875,7 @@ impl BindingFrame {
                         "Only one attribute block is allowed before a binding datatype",
                     ));
                 }
-                Self::push_datatype_or_value(parser, head, product)
+                Self::push_datatype_or_value(parser, PhaseHead::Boxed(head), product)
             }
             BindingPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product.take() else {
@@ -1849,20 +1887,20 @@ impl BindingFrame {
                     return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
-                Self::push_value(parser, head, product)
+                Self::push_value(parser, PhaseHead::Boxed(head), product)
             }
             BindingPhase::Value(head) => {
                 let Some(Product::Value(value)) = product.take() else {
                     unreachable!("Sofia binding frame expected a value product");
                 };
-                Self::finish(parser, head, value, product)
+                Self::finish(parser, *head, value, product)
             }
         }
     }
 
     fn push_datatype_or_value(
         parser: &mut Parser<'_, '_>,
-        mut head: BindingHead,
+        mut head: PhaseHead<BindingHead>,
         output: &mut Option<Product>,
     ) -> Step {
         if parser.check(TokenKind::Colon) {
@@ -1876,7 +1914,7 @@ impl BindingFrame {
                     {
                         return Step::Failed(error);
                     }
-                    head.datatype = Some(datatype);
+                    head.as_mut().datatype = Some(datatype);
                     return Self::push_value(parser, head, output);
                 }
                 Ok(None) => {}
@@ -1884,7 +1922,7 @@ impl BindingFrame {
             }
             Step::Push {
                 parent: Frame::Binding(Self {
-                    phase: BindingPhase::Datatype(head),
+                    phase: BindingPhase::Datatype(head.into_box()),
                 }),
                 child: Frame::Datatype(DatatypeFrame::new(0)),
             }
@@ -1895,25 +1933,25 @@ impl BindingFrame {
 
     fn push_value(
         parser: &mut Parser<'_, '_>,
-        head: BindingHead,
+        head: PhaseHead<BindingHead>,
         output: &mut Option<Product>,
     ) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             return Step::Failed(
-                parser.error_at_current(format!("Expected '=' after key '{}'", head.key)),
+                parser.error_at_current(format!("Expected '=' after key '{}'", head.as_ref().key)),
             );
         }
         parser.advance();
         parser.skip_newlines();
         match parser.parse_scalar() {
-            Ok(Some(value)) => return Self::finish(parser, head, value, output),
+            Ok(Some(value)) => return Self::finish(parser, head.into_inner(), value, output),
             Ok(None) => {}
             Err(error) => return Step::Failed(error),
         }
         Step::Push {
             parent: Frame::Binding(Self {
-                phase: BindingPhase::Value(head),
+                phase: BindingPhase::Value(head.into_box()),
             }),
             child: Frame::Value,
         }
@@ -1948,9 +1986,9 @@ impl BindingFrame {
 #[derive(Clone)]
 enum BindingPhase {
     Key,
-    Attributes(BindingHead),
-    Datatype(BindingHead),
-    Value(BindingHead),
+    Attributes(Box<BindingHead>),
+    Datatype(Box<BindingHead>),
+    Value(Box<BindingHead>),
 }
 
 #[derive(Clone)]
@@ -2007,12 +2045,12 @@ impl AnonymousValueFrame {
                     }
                     Step::Push {
                         parent: Frame::AnonymousValue(Self {
-                            phase: AnonymousValuePhase::Attributes(head),
+                            phase: AnonymousValuePhase::Attributes(Box::new(head)),
                         }),
                         child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
                     }
                 } else {
-                    Self::push_datatype_or_value(parser, head)
+                    Self::push_datatype_or_value(parser, PhaseHead::Inline(head))
                 }
             }
             AnonymousValuePhase::Attributes(mut head) => {
@@ -2027,7 +2065,7 @@ impl AnonymousValueFrame {
                         "Only one attribute block is allowed before an anonymous value datatype",
                     ));
                 }
-                Self::push_datatype_or_value(parser, head)
+                Self::push_datatype_or_value(parser, PhaseHead::Boxed(head))
             }
             AnonymousValuePhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product.take() else {
@@ -2039,12 +2077,13 @@ impl AnonymousValueFrame {
                     return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
-                Self::push_value(parser, head)
+                Self::push_value(parser, PhaseHead::Boxed(head))
             }
             AnonymousValuePhase::Value(head) => {
                 let Some(Product::Value(value)) = product.take() else {
                     unreachable!("Sofia anonymous-value frame expected a value product");
                 };
+                let head = *head;
                 complete(
                     product,
                     Product::Value(Value::TypedValue {
@@ -2059,14 +2098,14 @@ impl AnonymousValueFrame {
         }
     }
 
-    fn push_datatype_or_value(parser: &mut Parser<'_, '_>, head: AnonymousHead) -> Step {
+    fn push_datatype_or_value(parser: &mut Parser<'_, '_>, head: PhaseHead<AnonymousHead>) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
             parser.skip_newlines();
             parser.begin_datatype();
             Step::Push {
                 parent: Frame::AnonymousValue(Self {
-                    phase: AnonymousValuePhase::Datatype(head),
+                    phase: AnonymousValuePhase::Datatype(head.into_box()),
                 }),
                 child: Frame::Datatype(DatatypeFrame::new(0)),
             }
@@ -2075,7 +2114,7 @@ impl AnonymousValueFrame {
         }
     }
 
-    fn push_value(parser: &mut Parser<'_, '_>, head: AnonymousHead) -> Step {
+    fn push_value(parser: &mut Parser<'_, '_>, head: PhaseHead<AnonymousHead>) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             return Step::Failed(
@@ -2086,7 +2125,7 @@ impl AnonymousValueFrame {
         parser.skip_newlines();
         Step::Push {
             parent: Frame::AnonymousValue(Self {
-                phase: AnonymousValuePhase::Value(head),
+                phase: AnonymousValuePhase::Value(head.into_box()),
             }),
             child: Frame::Value,
         }
@@ -2096,9 +2135,9 @@ impl AnonymousValueFrame {
 #[derive(Clone)]
 enum AnonymousValuePhase {
     Head,
-    Attributes(AnonymousHead),
-    Datatype(AnonymousHead),
-    Value(AnonymousHead),
+    Attributes(Box<AnonymousHead>),
+    Datatype(Box<AnonymousHead>),
+    Value(Box<AnonymousHead>),
 }
 
 #[derive(Clone)]
@@ -2296,12 +2335,12 @@ impl AttributeEntryFrame {
                     Step::Push {
                         parent: Frame::AttributeEntry(Self {
                             depth: self.depth,
-                            phase: AttributeEntryPhase::NestedAttributes(head),
+                            phase: AttributeEntryPhase::NestedAttributes(Box::new(head)),
                         }),
                         child: Frame::AttributeMembers(AttributeMembersFrame::block(nested_depth)),
                     }
                 } else {
-                    Self::push_datatype_or_value(parser, self.depth, head)
+                    Self::push_datatype_or_value(parser, self.depth, PhaseHead::Inline(head))
                 }
             }
             AttributeEntryPhase::NestedAttributes(mut head) => {
@@ -2316,7 +2355,7 @@ impl AttributeEntryFrame {
                         "Only one attribute block is allowed before an attribute entry datatype",
                     ));
                 }
-                Self::push_datatype_or_value(parser, self.depth, head)
+                Self::push_datatype_or_value(parser, self.depth, PhaseHead::Boxed(head))
             }
             AttributeEntryPhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product.take() else {
@@ -2328,19 +2367,19 @@ impl AttributeEntryFrame {
                     return Step::Failed(error);
                 }
                 head.datatype = Some(datatype);
-                Self::push_value(parser, self.depth, head)
+                Self::push_value(parser, self.depth, PhaseHead::Boxed(head))
             }
             AttributeEntryPhase::Value(head) => {
                 let Some(Product::Value(value)) = product.take() else {
                     unreachable!("Sofia attribute entry expected a value");
                 };
-                Self::finish(parser, head, Some(value), None, product)
+                Self::finish(parser, *head, Some(value), None, product)
             }
             AttributeEntryPhase::ObjectValue(head) => {
                 let Some(Product::Attributes(object)) = product.take() else {
                     unreachable!("Sofia attribute entry expected object members");
                 };
-                Self::finish(parser, head, None, Some(object), product)
+                Self::finish(parser, *head, None, Some(object), product)
             }
         }
     }
@@ -2348,7 +2387,7 @@ impl AttributeEntryFrame {
     fn push_datatype_or_value(
         parser: &mut Parser<'_, '_>,
         depth: usize,
-        head: AttributeEntryHead,
+        head: PhaseHead<AttributeEntryHead>,
     ) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
@@ -2357,7 +2396,7 @@ impl AttributeEntryFrame {
             Step::Push {
                 parent: Frame::AttributeEntry(Self {
                     depth,
-                    phase: AttributeEntryPhase::Datatype(head),
+                    phase: AttributeEntryPhase::Datatype(head.into_box()),
                 }),
                 child: Frame::Datatype(DatatypeFrame::new(0)),
             }
@@ -2366,7 +2405,11 @@ impl AttributeEntryFrame {
         }
     }
 
-    fn push_value(parser: &mut Parser<'_, '_>, depth: usize, head: AttributeEntryHead) -> Step {
+    fn push_value(
+        parser: &mut Parser<'_, '_>,
+        depth: usize,
+        head: PhaseHead<AttributeEntryHead>,
+    ) -> Step {
         parser.skip_newlines();
         if !parser.check(TokenKind::Equals) {
             let message = if depth == 0 {
@@ -2383,7 +2426,7 @@ impl AttributeEntryFrame {
             Step::Push {
                 parent: Frame::AttributeEntry(Self {
                     depth,
-                    phase: AttributeEntryPhase::ObjectValue(head),
+                    phase: AttributeEntryPhase::ObjectValue(head.into_box()),
                 }),
                 child: Frame::AttributeMembers(AttributeMembersFrame::object()),
             }
@@ -2391,7 +2434,7 @@ impl AttributeEntryFrame {
             Step::Push {
                 parent: Frame::AttributeEntry(Self {
                     depth,
-                    phase: AttributeEntryPhase::Value(head),
+                    phase: AttributeEntryPhase::Value(head.into_box()),
                 }),
                 child: Frame::Value,
             }
@@ -2437,10 +2480,10 @@ impl AttributeEntryFrame {
 #[derive(Clone)]
 enum AttributeEntryPhase {
     Key,
-    NestedAttributes(AttributeEntryHead),
-    Datatype(AttributeEntryHead),
-    Value(AttributeEntryHead),
-    ObjectValue(AttributeEntryHead),
+    NestedAttributes(Box<AttributeEntryHead>),
+    Datatype(Box<AttributeEntryHead>),
+    Value(Box<AttributeEntryHead>),
+    ObjectValue(Box<AttributeEntryHead>),
 }
 
 #[derive(Clone)]
@@ -2794,12 +2837,12 @@ impl NodeFrame {
                     }
                     Step::Push {
                         parent: Frame::Node(Self {
-                            phase: NodePhase::Attributes(head),
+                            phase: NodePhase::Attributes(Box::new(head)),
                         }),
                         child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
                     }
                 } else {
-                    Self::push_datatype_or_closure(parser, head)
+                    Self::push_datatype_or_closure(parser, PhaseHead::Inline(head))
                 }
             }
             NodePhase::Attributes(mut head) => {
@@ -2815,7 +2858,7 @@ impl NodeFrame {
                         "Only one attribute block is allowed before a node datatype",
                     ));
                 }
-                Self::push_datatype_or_closure(parser, head)
+                Self::push_datatype_or_closure(parser, PhaseHead::Boxed(head))
             }
             NodePhase::Datatype(mut head) => {
                 let Some(Product::Datatype(datatype)) = product.take() else {
@@ -2840,7 +2883,7 @@ impl NodeFrame {
                 parser.skip_newlines();
                 if parser.check(TokenKind::RightAngle) {
                     parser.advance();
-                    return Self::finish(parser, head, Vec::new(), product);
+                    return Self::finish(parser, *head, Vec::new(), product);
                 }
                 if !parser.check(TokenKind::LeftParen) {
                     return Step::Failed(
@@ -2872,24 +2915,24 @@ impl NodeFrame {
                     );
                 }
                 parser.advance();
-                Self::finish(parser, head, children, product)
+                Self::finish(parser, *head, children, product)
             }
         }
     }
 
-    fn push_datatype_or_closure(parser: &mut Parser<'_, '_>, head: NodeHead) -> Step {
+    fn push_datatype_or_closure(parser: &mut Parser<'_, '_>, head: PhaseHead<NodeHead>) -> Step {
         if parser.check(TokenKind::Colon) {
             parser.advance();
             parser.begin_datatype();
             Step::Push {
                 parent: Frame::Node(Self {
-                    phase: NodePhase::Datatype(head),
+                    phase: NodePhase::Datatype(head.into_box()),
                 }),
                 child: Frame::Datatype(DatatypeFrame::new(0)),
             }
         } else {
             Step::Continue(Frame::Node(Self {
-                phase: NodePhase::Closure(head),
+                phase: NodePhase::Closure(head.into_box()),
             }))
         }
     }
@@ -2924,10 +2967,10 @@ impl NodeFrame {
 #[derive(Clone)]
 enum NodePhase {
     Tag { start_index: usize },
-    Attributes(NodeHead),
-    Datatype(NodeHead),
-    Closure(NodeHead),
-    Children(NodeHead),
+    Attributes(Box<NodeHead>),
+    Datatype(Box<NodeHead>),
+    Closure(Box<NodeHead>),
+    Children(Box<NodeHead>),
 }
 
 #[derive(Clone)]
@@ -3224,6 +3267,11 @@ mod tests {
     };
 
     const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
+
+    #[test]
+    fn parser_frame_remains_compact() {
+        assert!(std::mem::size_of::<Frame>() <= 64);
+    }
 
     const BOUNDED_INCREMENTAL_CORPUS: &[&str] = &[
         concat!(
