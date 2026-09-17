@@ -62,6 +62,8 @@ pub(super) struct ParserSession<'a> {
     frames: Vec<Frame>,
     product: Option<Product>,
     finished: bool,
+    #[cfg(test)]
+    collection_snapshot_count: usize,
 }
 
 impl<'a> ParserSession<'a> {
@@ -74,6 +76,8 @@ impl<'a> ParserSession<'a> {
             frames: vec![Frame::Document(DocumentFrame::new())],
             product: None,
             finished: false,
+            #[cfg(test)]
+            collection_snapshot_count: 0,
         }
     }
 
@@ -252,6 +256,11 @@ impl<'a> ParserSession<'a> {
             .unwrap_or(0)
     }
 
+    #[cfg(test)]
+    const fn collection_snapshot_count(&self) -> usize {
+        self.collection_snapshot_count
+    }
+
     fn run_available(&mut self, final_input: bool) -> Option<ParseOutcome> {
         debug_assert_eq!(
             self.tokens.last().map(|token| token.kind) == Some(TokenKind::Eof),
@@ -263,7 +272,26 @@ impl<'a> ParserSession<'a> {
                 .frames
                 .pop()
                 .expect("Sofia frame stack exhausted without a document product");
-            let frame_snapshot = (!final_input).then(|| frame.clone());
+            let collection_ready = (!final_input)
+                .then(|| {
+                    frame.collection_step_is_infallibly_ready(
+                        &self.tokens,
+                        self.token_start_index,
+                        self.state.current,
+                        self.product.as_ref(),
+                    )
+                })
+                .flatten();
+            if collection_ready == Some(false) {
+                self.frames.push(frame);
+                return None;
+            }
+            let snapshot_required = !final_input && collection_ready.is_none();
+            #[cfg(test)]
+            if snapshot_required && frame.is_accumulating_collection() {
+                self.collection_snapshot_count += 1;
+            }
+            let frame_snapshot = snapshot_required.then(|| frame.clone());
 
             debug_assert_eq!(
                 self.state.current_value_nesting_depth,
@@ -276,8 +304,8 @@ impl<'a> ParserSession<'a> {
             );
 
             let input = self.product.take();
-            let input_snapshot = (!final_input).then(|| input.clone());
-            let state_snapshot = (!final_input).then(|| self.state.clone());
+            let input_snapshot = snapshot_required.then(|| input.clone());
+            let state_snapshot = snapshot_required.then(|| self.state.clone());
             let (step, needs_token) = {
                 let mut parser = Parser::new(
                     &self.tokens,
@@ -294,6 +322,10 @@ impl<'a> ParserSession<'a> {
             // consumption or mutation. Final one-shot parsing skips snapshots.
             if needs_token {
                 debug_assert!(!final_input, "final Sofia parse requested another token");
+                debug_assert!(
+                    snapshot_required,
+                    "snapshot-free Sofia collection transition requested more input"
+                );
                 self.state = state_snapshot.expect("streaming transition must snapshot state");
                 self.product = input_snapshot.expect("streaming transition must snapshot product");
                 self.frames
@@ -1372,6 +1404,78 @@ impl Frame {
         matches!(self, Self::Node(_) | Self::Sequence(_) | Self::Object(_))
     }
 
+    #[cfg(test)]
+    const fn is_accumulating_collection(&self) -> bool {
+        matches!(
+            self,
+            Self::NodeChildren(_) | Self::Sequence(_) | Self::Object(_)
+        )
+    }
+
+    /// Proves that a collection transition cannot fail or encounter the
+    /// incremental token boundary. A recognized but incomplete transition
+    /// returns `Some(false)` so the session can wait without cloning or
+    /// mutating the active frame. Potentially failing and unrelated frames
+    /// return `None` and retain the transactional snapshot path.
+    fn collection_step_is_infallibly_ready(
+        &self,
+        tokens: &[Token],
+        token_start_index: usize,
+        current: usize,
+        product: Option<&Product>,
+    ) -> Option<bool> {
+        match self {
+            Self::Sequence(frame) => match &frame.phase {
+                SequencePhase::Item if product.is_none() => {
+                    Some(next_non_newline_token(tokens, token_start_index, current).is_some())
+                }
+                SequencePhase::Delimiter if matches!(product, Some(Product::Value(_))) => {
+                    match frame.kind {
+                        ContainerKind::List => list_delimiter_step_readiness(
+                            tokens,
+                            token_start_index,
+                            current,
+                            TokenKind::RightBracket,
+                        ),
+                        ContainerKind::Tuple => {
+                            tuple_delimiter_step_readiness(tokens, token_start_index, current)
+                        }
+                    }
+                }
+                _ => None,
+            },
+            Self::Object(frame) => match &frame.phase {
+                ObjectPhase::Binding if product.is_none() => {
+                    Some(next_non_newline_token(tokens, token_start_index, current).is_some())
+                }
+                ObjectPhase::Delimiter if matches!(product, Some(Product::Binding(_))) => {
+                    list_delimiter_step_readiness(
+                        tokens,
+                        token_start_index,
+                        current,
+                        TokenKind::RightBrace,
+                    )
+                }
+                _ => None,
+            },
+            Self::NodeChildren(frame) => match &frame.phase {
+                NodeChildrenPhase::Child if product.is_none() => {
+                    Some(next_non_newline_token(tokens, token_start_index, current).is_some())
+                }
+                NodeChildrenPhase::Delimiter if matches!(product, Some(Product::Value(_))) => {
+                    list_delimiter_step_readiness(
+                        tokens,
+                        token_start_index,
+                        current,
+                        TokenKind::RightParen,
+                    )
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn earliest_retained_token(&self) -> Option<usize> {
         match self {
             Self::Datatype(frame) if !matches!(frame.phase, DatatypePhase::Name) => {
@@ -1444,6 +1548,81 @@ impl Frame {
                 }
             }
         }
+    }
+}
+
+fn retained_token(tokens: &[Token], token_start_index: usize, index: usize) -> Option<&Token> {
+    index
+        .checked_sub(token_start_index)
+        .and_then(|index| tokens.get(index))
+}
+
+fn next_non_newline_token(
+    tokens: &[Token],
+    token_start_index: usize,
+    mut index: usize,
+) -> Option<(usize, &Token)> {
+    loop {
+        let token = retained_token(tokens, token_start_index, index)?;
+        if token.kind != TokenKind::Newline {
+            return Some((index, token));
+        }
+        index = index.saturating_add(1);
+    }
+}
+
+fn list_delimiter_step_readiness(
+    tokens: &[Token],
+    token_start_index: usize,
+    current: usize,
+    terminator: TokenKind,
+) -> Option<bool> {
+    let Some((index, token)) = next_non_newline_token(tokens, token_start_index, current) else {
+        return Some(false);
+    };
+    if token.kind == TokenKind::Comma {
+        let Some((_, next)) =
+            next_non_newline_token(tokens, token_start_index, index.saturating_add(1))
+        else {
+            return Some(false);
+        };
+        let collision = retained_token(tokens, token_start_index, index.saturating_sub(1))
+            .is_some_and(|previous| {
+                previous.kind == TokenKind::SeparatorLiteral
+                    && previous.span.end.offset == token.span.start.offset
+                    && next.span.start.offset == token.span.end.offset
+            });
+        return (!collision).then_some(true);
+    }
+    if token.kind == terminator || index != current {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn tuple_delimiter_step_readiness(
+    tokens: &[Token],
+    token_start_index: usize,
+    current: usize,
+) -> Option<bool> {
+    let Some(token) = retained_token(tokens, token_start_index, current) else {
+        return Some(false);
+    };
+    match token.kind {
+        TokenKind::Comma => {
+            let Some((_, next)) =
+                next_non_newline_token(tokens, token_start_index, current.saturating_add(1))
+            else {
+                return Some(false);
+            };
+            (next.kind != TokenKind::Comma).then_some(true)
+        }
+        TokenKind::Newline => {
+            Some(next_non_newline_token(tokens, token_start_index, current).is_some())
+        }
+        TokenKind::RightParen => Some(true),
+        _ => None,
     }
 }
 
@@ -3424,6 +3603,44 @@ literal = ~true.off"#,
         };
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].key, "third");
+    }
+
+    #[test]
+    fn wide_incremental_collection_waits_without_deep_frame_snapshots() {
+        let source = format!(
+            "wide = [{}]",
+            (0..4_096)
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        });
+        let mut parser = ParserSession::new(TEST_LIMITS, true);
+
+        for bytes in source.as_bytes().chunks(127) {
+            let chunk = std::str::from_utf8(bytes).expect("fixture is ASCII");
+            let batch = lexer.push(Cow::Owned(chunk.to_owned()));
+            assert!(batch.errors.is_empty());
+            assert_eq!(
+                parser
+                    .push_tokens(Cow::Owned(batch.tokens))
+                    .expect("wide collection chunk should remain incremental"),
+                ParserSessionProgress::NeedMoreInput
+            );
+        }
+
+        let outcome = parser
+            .finish_tokens(Cow::Owned(lexer.finish().tokens))
+            .expect("wide collection should finish");
+        let ParseOutcome::Recovered { bindings, errors } = outcome else {
+            panic!("recovery parser should return a recovered document");
+        };
+        assert!(errors.is_empty());
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(parser.collection_snapshot_count(), 0);
     }
 
     #[test]
