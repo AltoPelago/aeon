@@ -1063,7 +1063,11 @@ fn finalize_compile(
         materialize_binding_projection_paths(&mut flattened, true);
     }
     validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
-    let indexes = build_validation_indexes(&flattened);
+    let indexes = if flattened.reference_steps.is_empty() {
+        validation::ValidationIndexes::default()
+    } else {
+        build_validation_indexes(&flattened)
+    };
     let header = options
         .include_header
         .then(|| extract_header_fields(&bindings));

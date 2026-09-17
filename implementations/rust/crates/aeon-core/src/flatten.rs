@@ -1976,6 +1976,14 @@ mod tests {
              widget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
         );
 
+        let flattened = flatten_document(&bindings, &CanonicalPath::root(), false, true, true);
+        assert!(
+            flattened
+                .reference_steps
+                .iter()
+                .any(CompactReferenceStep::is_claim)
+        );
+
         for shallow_event_values in [false, true] {
             for binding in &bindings {
                 let parent_path = "$";

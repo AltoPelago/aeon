@@ -10,7 +10,7 @@ use crate::{
     Diagnostic, ReferenceSegment, Span, Value, format_path,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ValidationIndexes {
     pub(crate) event_lookup: BTreeMap<String, usize>,
 }
