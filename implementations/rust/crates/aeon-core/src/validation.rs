@@ -30,11 +30,9 @@ pub(crate) fn build_validation_event_lookup(
     errors: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
-    let mut seen = HashSet::new();
     let mut duplicate_indexes = Vec::new();
     for (index, event) in events.iter().enumerate() {
-        let _ = event_lookup.insert(event.path.clone(), index);
-        if !seen.insert(event.path.clone()) {
+        if event_lookup.insert(event.path.clone(), index).is_some() {
             duplicate_indexes.push(index);
         }
     }
@@ -57,18 +55,21 @@ pub(crate) fn validate_duplicate_canonical_paths(
     recovery: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mut seen = HashSet::new();
-    let mut duplicate_indexes = Vec::new();
-    for (index, (event, path)) in flattened
-        .events
-        .iter()
-        .zip(flattened.rendered_event_paths.iter())
-        .enumerate()
-    {
-        if !seen.insert((event.source_plane, path.clone())) {
-            duplicate_indexes.push(index);
+    let duplicate_indexes = {
+        let mut seen = HashSet::new();
+        let mut duplicate_indexes = Vec::new();
+        for (index, (event, path)) in flattened
+            .events
+            .iter()
+            .zip(flattened.rendered_event_paths.iter())
+            .enumerate()
+        {
+            if !seen.insert((event.source_plane, path.as_str())) {
+                duplicate_indexes.push(index);
+            }
         }
-    }
+        duplicate_indexes
+    };
     if duplicate_indexes.is_empty() {
         return;
     }
