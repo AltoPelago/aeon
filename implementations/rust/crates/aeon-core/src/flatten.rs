@@ -520,6 +520,113 @@ fn has_flattened_descendants(value: &Value) -> bool {
     )
 }
 
+enum ReferenceScanTask<'a> {
+    Binding(&'a Binding),
+    Attribute(&'a AttributeValue),
+    Value(&'a Value),
+}
+
+fn queue_reference_scan_value<'a>(
+    mut value: &'a Value,
+    pending: &mut Vec<ReferenceScanTask<'a>>,
+) -> bool {
+    loop {
+        match value {
+            Value::TypedValue {
+                attributes,
+                value: nested,
+                ..
+            } => {
+                pending.extend(attributes.values().map(ReferenceScanTask::Attribute));
+                value = nested;
+            }
+            Value::ObjectNode { bindings } => {
+                pending.extend(bindings.iter().map(ReferenceScanTask::Binding));
+                return false;
+            }
+            Value::ListNode { items } | Value::TupleLiteral { items } => {
+                pending.extend(items.iter().map(ReferenceScanTask::Value));
+                return false;
+            }
+            Value::NodeLiteral {
+                attributes,
+                children,
+                ..
+            } => {
+                pending.extend(children.iter().map(ReferenceScanTask::Value));
+                pending.extend(
+                    attributes
+                        .iter()
+                        .flat_map(BTreeMap::values)
+                        .map(ReferenceScanTask::Attribute),
+                );
+                return false;
+            }
+            Value::CloneReference { .. } | Value::PointerReference { .. } => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn queue_reference_scan_binding<'a>(
+    binding: &'a Binding,
+    pending: &mut Vec<ReferenceScanTask<'a>>,
+) -> bool {
+    pending.extend(
+        binding
+            .attributes
+            .values()
+            .map(ReferenceScanTask::Attribute),
+    );
+    queue_reference_scan_value(&binding.value, pending)
+}
+
+fn queue_reference_scan_attribute<'a>(
+    attribute: &'a AttributeValue,
+    pending: &mut Vec<ReferenceScanTask<'a>>,
+) -> bool {
+    pending.extend(
+        attribute
+            .nested_attrs
+            .values()
+            .map(ReferenceScanTask::Attribute),
+    );
+    pending.extend(
+        attribute
+            .object_members
+            .values()
+            .map(ReferenceScanTask::Attribute),
+    );
+    attribute
+        .value
+        .as_ref()
+        .is_some_and(|value| queue_reference_scan_value(value, pending))
+}
+
+fn bindings_contain_references(bindings: &[Binding]) -> bool {
+    let mut pending = Vec::new();
+    for binding in bindings {
+        if queue_reference_scan_binding(binding, &mut pending) {
+            return true;
+        }
+        while let Some(task) = pending.pop() {
+            let found = match task {
+                ReferenceScanTask::Binding(binding) => {
+                    queue_reference_scan_binding(binding, &mut pending)
+                }
+                ReferenceScanTask::Attribute(attribute) => {
+                    queue_reference_scan_attribute(attribute, &mut pending)
+                }
+                ReferenceScanTask::Value(value) => queue_reference_scan_value(value, &mut pending),
+            };
+            if found {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn flatten_document(
     bindings: &[Binding],
     root: &CanonicalPath,
@@ -527,6 +634,7 @@ pub(crate) fn flatten_document(
     emit_binding_projections: bool,
     include_event_annotations: bool,
 ) -> FlattenedDocument {
+    let track_references = bindings_contain_references(bindings);
     let mut events = Vec::new();
     let mut rendered_event_paths = Vec::new();
     let mut projections = Vec::new();
@@ -539,6 +647,7 @@ pub(crate) fn flatten_document(
         shallow_event_values,
         emit_binding_projections,
         include_event_annotations,
+        track_references,
         &mut events,
         &mut rendered_event_paths,
         &mut projections,
@@ -559,6 +668,7 @@ pub(crate) fn flatten_validation_document(
     root: &CanonicalPath,
     shallow_event_values: bool,
 ) -> FlattenedValidationDocument {
+    let track_references = bindings_contain_references(bindings);
     let mut events = Vec::new();
     let mut reference_targets = HashSet::new();
     let mut reference_steps = Vec::new();
@@ -566,6 +676,7 @@ pub(crate) fn flatten_validation_document(
         bindings,
         root,
         shallow_event_values,
+        track_references,
         &mut events,
         &mut reference_targets,
         &mut reference_steps,
@@ -693,6 +804,7 @@ fn flatten_validation_bindings(
     bindings: &[Binding],
     parent: &CanonicalPath,
     shallow_event_values: bool,
+    track_references: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<CompactReferenceStep>,
@@ -701,17 +813,19 @@ fn flatten_validation_bindings(
     for binding in bindings {
         let path = parent.member(binding.key.clone());
         let path_text = render_child_member_path(&parent_path, &binding.key);
-        track_compact_reference_binding(
-            reference_targets,
-            reference_steps,
-            &parent_path,
-            &binding.key,
-            &path_text,
-            &binding.attributes,
-            &binding.attribute_order,
-            &binding.value,
-            shallow_event_values,
-        );
+        if track_references {
+            track_compact_reference_binding(
+                reference_targets,
+                reference_steps,
+                &parent_path,
+                &binding.key,
+                &path_text,
+                &binding.attributes,
+                &binding.attribute_order,
+                &binding.value,
+                shallow_event_values,
+            );
+        }
         if !binding.is_header {
             events.push(ValidationEvent {
                 path: path_text.clone(),
@@ -726,14 +840,16 @@ fn flatten_validation_bindings(
             Value::ListNode { items } => {
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        item,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+                    }
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: render_child_index_path(&path_text, index),
@@ -751,6 +867,7 @@ fn flatten_validation_bindings(
                         &item_path,
                         binding.span,
                         shallow_event_values,
+                        track_references,
                         events,
                         reference_targets,
                         reference_steps,
@@ -760,14 +877,16 @@ fn flatten_validation_bindings(
             Value::TupleLiteral { items } => {
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        item,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+                    }
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: render_child_index_path(&path_text, index),
@@ -785,6 +904,7 @@ fn flatten_validation_bindings(
                         &item_path,
                         binding.span,
                         shallow_event_values,
+                        track_references,
                         events,
                         reference_targets,
                         reference_steps,
@@ -796,6 +916,7 @@ fn flatten_validation_bindings(
                     nested,
                     &path,
                     shallow_event_values,
+                    track_references,
                     events,
                     reference_targets,
                     reference_steps,
@@ -804,14 +925,16 @@ fn flatten_validation_bindings(
             Value::NodeLiteral { children, .. } => {
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        child,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            child,
+                            shallow_event_values,
+                        );
+                    }
                     events.push(ValidationEvent {
                         path: render_child_index_path(&path_text, index),
                         datatype: typed_datatype(child),
@@ -827,6 +950,7 @@ fn flatten_validation_bindings(
                         &child_path,
                         binding.span,
                         shallow_event_values,
+                        track_references,
                         events,
                         reference_targets,
                         reference_steps,
@@ -843,6 +967,7 @@ fn flatten_validation_value(
     parent: &CanonicalPath,
     owner_span: Span,
     shallow_event_values: bool,
+    track_references: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<CompactReferenceStep>,
@@ -852,6 +977,7 @@ fn flatten_validation_value(
             bindings,
             parent,
             shallow_event_values,
+            track_references,
             events,
             reference_targets,
             reference_steps,
@@ -860,14 +986,16 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_compact_reference_sequence_item(
-                    reference_targets,
-                    reference_steps,
-                    &parent_path,
-                    index,
-                    item,
-                    shallow_event_values,
-                );
+                if track_references {
+                    track_compact_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &parent_path,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
+                }
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: render_child_index_path(&parent_path, index),
@@ -885,6 +1013,7 @@ fn flatten_validation_value(
                     &item_path,
                     owner_span,
                     shallow_event_values,
+                    track_references,
                     events,
                     reference_targets,
                     reference_steps,
@@ -895,14 +1024,16 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
-                track_compact_reference_sequence_item(
-                    reference_targets,
-                    reference_steps,
-                    &parent_path,
-                    index,
-                    child,
-                    shallow_event_values,
-                );
+                if track_references {
+                    track_compact_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &parent_path,
+                        index,
+                        child,
+                        shallow_event_values,
+                    );
+                }
                 events.push(ValidationEvent {
                     path: render_child_index_path(&parent_path, index),
                     datatype: typed_datatype(child),
@@ -915,6 +1046,7 @@ fn flatten_validation_value(
                     &child_path,
                     owner_span,
                     shallow_event_values,
+                    track_references,
                     events,
                     reference_targets,
                     reference_steps,
@@ -925,14 +1057,16 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_compact_reference_sequence_item(
-                    reference_targets,
-                    reference_steps,
-                    &parent_path,
-                    index,
-                    item,
-                    shallow_event_values,
-                );
+                if track_references {
+                    track_compact_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &parent_path,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
+                }
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: render_child_index_path(&parent_path, index),
@@ -950,6 +1084,7 @@ fn flatten_validation_value(
                     &item_path,
                     owner_span,
                     shallow_event_values,
+                    track_references,
                     events,
                     reference_targets,
                     reference_steps,
@@ -967,6 +1102,7 @@ fn flatten_bindings(
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
+    track_references: bool,
     events: &mut Vec<AssignmentEvent>,
     rendered_event_paths: &mut Vec<String>,
     bindings_out: &mut Vec<BindingProjection>,
@@ -976,6 +1112,7 @@ fn flatten_bindings(
     reserve_flatten_output(
         bindings.len(),
         emit_binding_projections,
+        track_references,
         events,
         rendered_event_paths,
         bindings_out,
@@ -991,17 +1128,19 @@ fn flatten_bindings(
         };
         let path = parent.member(binding.key.clone());
         let path_text = render_child_member_path(&parent_path, &binding.key);
-        track_compact_reference_binding(
-            reference_targets,
-            reference_steps,
-            &parent_path,
-            &binding.key,
-            &path_text,
-            &binding.attributes,
-            &binding.attribute_order,
-            &binding.value,
-            shallow_event_values,
-        );
+        if track_references {
+            track_compact_reference_binding(
+                reference_targets,
+                reference_steps,
+                &parent_path,
+                &binding.key,
+                &path_text,
+                &binding.attributes,
+                &binding.attribute_order,
+                &binding.value,
+                shallow_event_values,
+            );
+        }
         let visible = !binding.is_header;
         if visible {
             events.push(AssignmentEvent {
@@ -1038,6 +1177,7 @@ fn flatten_bindings(
                 reserve_flatten_output(
                     items.len(),
                     emit_binding_projections,
+                    track_references,
                     events,
                     rendered_event_paths,
                     bindings_out,
@@ -1048,14 +1188,16 @@ fn flatten_bindings(
                     let item_path = path.index(index);
                     let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                     let item_text = render_child_index_path(&path_text, index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        item,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+                    }
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
@@ -1083,6 +1225,7 @@ fn flatten_bindings(
                             shallow_event_values,
                             emit_binding_projections,
                             include_event_annotations,
+                            track_references,
                             events,
                             rendered_event_paths,
                             bindings_out,
@@ -1097,6 +1240,7 @@ fn flatten_bindings(
                 reserve_flatten_output(
                     items.len(),
                     emit_binding_projections,
+                    track_references,
                     events,
                     rendered_event_paths,
                     bindings_out,
@@ -1107,14 +1251,16 @@ fn flatten_bindings(
                     let item_path = path.index(index);
                     let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                     let item_text = render_child_index_path(&path_text, index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        item,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+                    }
                     events.push(AssignmentEvent {
                         path: item_path,
                         key: index.to_string(),
@@ -1142,6 +1288,7 @@ fn flatten_bindings(
                             shallow_event_values,
                             emit_binding_projections,
                             include_event_annotations,
+                            track_references,
                             events,
                             rendered_event_paths,
                             bindings_out,
@@ -1160,6 +1307,7 @@ fn flatten_bindings(
                     shallow_event_values,
                     emit_binding_projections,
                     include_event_annotations,
+                    track_references,
                     events,
                     rendered_event_paths,
                     bindings_out,
@@ -1171,6 +1319,7 @@ fn flatten_bindings(
                 reserve_flatten_output(
                     children.len(),
                     emit_binding_projections,
+                    track_references,
                     events,
                     rendered_event_paths,
                     bindings_out,
@@ -1182,14 +1331,16 @@ fn flatten_bindings(
                     let nested_parent =
                         has_flattened_descendants(child).then(|| child_path.clone());
                     let child_text = render_child_index_path(&path_text, index);
-                    track_compact_reference_sequence_item(
-                        reference_targets,
-                        reference_steps,
-                        &path_text,
-                        index,
-                        child,
-                        shallow_event_values,
-                    );
+                    if track_references {
+                        track_compact_reference_sequence_item(
+                            reference_targets,
+                            reference_steps,
+                            &path_text,
+                            index,
+                            child,
+                            shallow_event_values,
+                        );
+                    }
                     events.push(AssignmentEvent {
                         path: child_path,
                         key: index.to_string(),
@@ -1217,6 +1368,7 @@ fn flatten_bindings(
                             shallow_event_values,
                             emit_binding_projections,
                             include_event_annotations,
+                            track_references,
                             events,
                             rendered_event_paths,
                             bindings_out,
@@ -1239,6 +1391,7 @@ fn flatten_container_item(
     shallow_event_values: bool,
     emit_binding_projections: bool,
     include_event_annotations: bool,
+    track_references: bool,
     events: &mut Vec<AssignmentEvent>,
     rendered_event_paths: &mut Vec<String>,
     bindings_out: &mut Vec<BindingProjection>,
@@ -1254,6 +1407,7 @@ fn flatten_container_item(
             shallow_event_values,
             emit_binding_projections,
             include_event_annotations,
+            track_references,
             events,
             rendered_event_paths,
             bindings_out,
@@ -1264,6 +1418,7 @@ fn flatten_container_item(
             reserve_flatten_output(
                 items.len(),
                 emit_binding_projections,
+                track_references,
                 events,
                 rendered_event_paths,
                 bindings_out,
@@ -1275,14 +1430,16 @@ fn flatten_container_item(
                 let item_path = parent.index(index);
                 let nested_parent = has_flattened_descendants(item).then(|| item_path.clone());
                 let item_text = render_child_index_path(&parent_path, index);
-                track_compact_reference_sequence_item(
-                    reference_targets,
-                    reference_steps,
-                    &parent_path,
-                    index,
-                    item,
-                    shallow_event_values,
-                );
+                if track_references {
+                    track_compact_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &parent_path,
+                        index,
+                        item,
+                        shallow_event_values,
+                    );
+                }
                 events.push(AssignmentEvent {
                     path: item_path,
                     key: index.to_string(),
@@ -1310,6 +1467,7 @@ fn flatten_container_item(
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
+                        track_references,
                         events,
                         rendered_event_paths,
                         bindings_out,
@@ -1324,6 +1482,7 @@ fn flatten_container_item(
             reserve_flatten_output(
                 children.len(),
                 emit_binding_projections,
+                track_references,
                 events,
                 rendered_event_paths,
                 bindings_out,
@@ -1335,14 +1494,16 @@ fn flatten_container_item(
                 let child_path = parent.index(index);
                 let nested_parent = has_flattened_descendants(child).then(|| child_path.clone());
                 let child_text = render_child_index_path(&parent_path, index);
-                track_compact_reference_sequence_item(
-                    reference_targets,
-                    reference_steps,
-                    &parent_path,
-                    index,
-                    child,
-                    shallow_event_values,
-                );
+                if track_references {
+                    track_compact_reference_sequence_item(
+                        reference_targets,
+                        reference_steps,
+                        &parent_path,
+                        index,
+                        child,
+                        shallow_event_values,
+                    );
+                }
                 events.push(AssignmentEvent {
                     path: child_path,
                     key: index.to_string(),
@@ -1370,6 +1531,7 @@ fn flatten_container_item(
                         shallow_event_values,
                         emit_binding_projections,
                         include_event_annotations,
+                        track_references,
                         events,
                         rendered_event_paths,
                         bindings_out,
@@ -1388,6 +1550,7 @@ fn flatten_container_item(
 fn reserve_flatten_output(
     additional: usize,
     emit_binding_projections: bool,
+    track_references: bool,
     events: &mut Vec<AssignmentEvent>,
     rendered_event_paths: &mut Vec<String>,
     bindings_out: &mut Vec<BindingProjection>,
@@ -1399,8 +1562,10 @@ fn reserve_flatten_output(
     if emit_binding_projections {
         bindings_out.reserve(additional);
     }
-    reference_targets.reserve(additional);
-    reference_steps.reserve(additional);
+    if track_references {
+        reference_targets.reserve(additional);
+        reference_steps.reserve(additional);
+    }
 }
 
 fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
@@ -1768,21 +1933,48 @@ mod tests {
     use crate::token_parser::parse_document_from_tokens;
     use crate::validation::compact_reference_steps;
 
+    fn parse_test_document(source: &str) -> Vec<Binding> {
+        parse_document_from_tokens(source, 256, 256, 256, 256, 256, 256)
+            .expect("test document should parse")
+    }
+
+    #[test]
+    fn reference_scan_finds_references_in_nested_metadata() {
+        let bindings = parse_test_document(
+            "anchor = 1\n\
+             payload@{nested = {leaf = ~anchor}}:wrapper = 2\n",
+        );
+
+        assert!(bindings_contain_references(&bindings));
+    }
+
+    #[test]
+    fn reference_free_documents_skip_reference_tracking_state() {
+        let bindings = parse_test_document(
+            "payload@{nested = {leaf = 1}}:wrapper = {items = [1, 2, 3]}\n\
+             widget:node = <card@{label = \"ready\"}:node>\n",
+        );
+
+        assert!(!bindings_contain_references(&bindings));
+
+        let root = CanonicalPath::root();
+        let flattened = flatten_document(&bindings, &root, false, true, true);
+        assert!(flattened.reference_targets.is_empty());
+        assert!(flattened.reference_steps.is_empty());
+
+        let validation = flatten_validation_document(&bindings, &root, false);
+        assert!(validation.reference_targets.is_empty());
+        assert!(validation.reference_steps.is_empty());
+    }
+
     #[test]
     fn direct_compact_reference_tracking_matches_legacy_compaction() {
-        let bindings = parse_document_from_tokens(
+        let bindings = parse_test_document(
             "anchor = 1\n\
              payload@{back = ~anchor, nested = { leaf = ~anchor }} = ~anchor\n\
              items = [~anchor, ~items[0]]\n\
              widget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
-            256,
-            256,
-            256,
-            256,
-            256,
-            256,
-        )
-        .expect("representative reference document should parse");
+        );
 
         for shallow_event_values in [false, true] {
             for binding in &bindings {
