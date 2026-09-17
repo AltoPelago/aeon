@@ -690,7 +690,7 @@ fn flatten_validation_bindings(
     let parent_path = format_path(parent);
     for binding in bindings {
         let path = parent.member(binding.key.clone());
-        let path_text = format_path(&path);
+        let path_text = render_child_member_path(&parent_path, &binding.key);
         track_compact_reference_binding(
             reference_targets,
             reference_steps,
@@ -714,20 +714,19 @@ fn flatten_validation_bindings(
 
         match unwrap_typed_value(&binding.value) {
             Value::ListNode { items } => {
-                let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         item,
                         shallow_event_values,
                     );
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
-                            path: format_path(&item_path),
+                            path: render_child_index_path(&path_text, index),
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(
@@ -749,20 +748,19 @@ fn flatten_validation_bindings(
                 }
             }
             Value::TupleLiteral { items } => {
-                let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         item,
                         shallow_event_values,
                     );
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
-                            path: format_path(&item_path),
+                            path: render_child_index_path(&path_text, index),
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(
@@ -794,19 +792,18 @@ fn flatten_validation_bindings(
                 );
             }
             Value::NodeLiteral { children, .. } => {
-                let path_parent = format_path(&path);
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         child,
                         shallow_event_values,
                     );
                     events.push(ValidationEvent {
-                        path: format_path(&child_path),
+                        path: render_child_index_path(&path_text, index),
                         datatype: typed_datatype(child),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -863,7 +860,7 @@ fn flatten_validation_value(
                 );
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
-                        path: format_path(&item_path),
+                        path: render_child_index_path(&parent_path, index),
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -897,7 +894,7 @@ fn flatten_validation_value(
                     shallow_event_values,
                 );
                 events.push(ValidationEvent {
-                    path: format_path(&child_path),
+                    path: render_child_index_path(&parent_path, index),
                     datatype: typed_datatype(child),
                     annotations: BTreeMap::new(),
                     value: clone_validation_value(unwrap_typed_value(child), shallow_event_values),
@@ -928,7 +925,7 @@ fn flatten_validation_value(
                 );
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
-                        path: format_path(&item_path),
+                        path: render_child_index_path(&parent_path, index),
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -983,7 +980,7 @@ fn flatten_bindings(
             inherited_source_plane
         };
         let path = parent.member(binding.key.clone());
-        let path_text = format_path(&path);
+        let path_text = render_child_member_path(&parent_path, &binding.key);
         track_compact_reference_binding(
             reference_targets,
             reference_steps,
@@ -1037,14 +1034,13 @@ fn flatten_bindings(
                     reference_targets,
                     reference_steps,
                 );
-                let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    let item_text = format_path(&item_path);
+                    let item_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         item,
                         shallow_event_values,
@@ -1094,14 +1090,13 @@ fn flatten_bindings(
                     reference_targets,
                     reference_steps,
                 );
-                let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    let item_text = format_path(&item_path);
+                    let item_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         item,
                         shallow_event_values,
@@ -1166,14 +1161,13 @@ fn flatten_bindings(
                     reference_targets,
                     reference_steps,
                 );
-                let path_parent = format_path(&path);
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
-                    let child_text = format_path(&child_path);
+                    let child_text = render_child_index_path(&path_text, index);
                     track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
-                        &path_parent,
+                        &path_text,
                         index,
                         child,
                         shallow_event_values,
@@ -1259,7 +1253,7 @@ fn flatten_container_item(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                let item_text = format_path(&item_path);
+                let item_text = render_child_index_path(&parent_path, index);
                 track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
@@ -1316,7 +1310,7 @@ fn flatten_container_item(
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
-                let child_text = format_path(&child_path);
+                let child_text = render_child_index_path(&parent_path, index);
                 track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
