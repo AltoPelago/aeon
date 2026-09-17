@@ -145,15 +145,18 @@ impl CanonicalPath {
 
     #[must_use]
     pub fn member(&self, key: impl Into<String>) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push(PathSegment::Member(key.into()));
-        Self { segments }
+        self.with_segment(PathSegment::Member(key.into()))
     }
 
     #[must_use]
     pub fn index(&self, index: usize) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push(PathSegment::Index(index));
+        self.with_segment(PathSegment::Index(index))
+    }
+
+    fn with_segment(&self, segment: PathSegment) -> Self {
+        let mut segments = Vec::with_capacity(self.segments.len() + 1);
+        segments.extend(self.segments.iter().cloned());
+        segments.push(segment);
         Self { segments }
     }
 }
