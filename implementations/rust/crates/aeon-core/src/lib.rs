@@ -611,6 +611,12 @@ pub struct BindingProjection {
     pub kind: &'static str,
 }
 
+impl AsRef<str> for BindingProjection {
+    fn as_ref(&self) -> &str {
+        &self.path
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
@@ -1060,9 +1066,15 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
-    if let Some(error) =
+    if options.emit_binding_projections {
+        materialize_binding_projection_paths(&mut flattened);
+    }
+    let event_path_error = if options.emit_binding_projections {
+        validate_event_path_limits(&flattened.events, &flattened.bindings, &options)
+    } else {
         validate_event_path_limits(&flattened.events, &flattened.rendered_event_paths, &options)
-    {
+    };
+    if let Some(error) = event_path_error {
         errors.push(error);
     }
     if let Some(max_events) = options.max_events
@@ -1082,9 +1094,6 @@ fn finalize_compile(
                 .then(|| extract_header_fields(&bindings)),
         };
     }
-    if options.recovery {
-        materialize_binding_projection_paths(&mut flattened, true);
-    }
     // Unique binding keys and generated sequence indexes imply unique
     // canonical event paths. Preserve the full scan only when the earlier AST
     // checks found a scope that recovery or diagnostics must reconcile.
@@ -1100,23 +1109,41 @@ fn finalize_compile(
         .include_header
         .then(|| extract_header_fields(&bindings));
 
-    validate_datatypes(
-        &flattened.events,
-        &flattened.rendered_event_paths,
-        &indexes.event_lookup,
-        &bindings,
-        options.mode,
-        options.datatype_policy,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        &mut errors,
-    );
-    if uses_gp_profile(options.profile.as_deref(), &bindings) {
-        validate_gp_datatype_clarifiers(
+    if options.emit_binding_projections {
+        validate_datatypes(
             &flattened.events,
-            &flattened.rendered_event_paths,
+            &flattened.bindings,
+            &indexes.event_lookup,
+            &bindings,
+            options.mode,
+            options.datatype_policy,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
             &mut errors,
         );
+    } else {
+        validate_datatypes(
+            &flattened.events,
+            &flattened.rendered_event_paths,
+            &indexes.event_lookup,
+            &bindings,
+            options.mode,
+            options.datatype_policy,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            &mut errors,
+        );
+    }
+    if uses_gp_profile(options.profile.as_deref(), &bindings) {
+        if options.emit_binding_projections {
+            validate_gp_datatype_clarifiers(&flattened.events, &flattened.bindings, &mut errors);
+        } else {
+            validate_gp_datatype_clarifiers(
+                &flattened.events,
+                &flattened.rendered_event_paths,
+                &mut errors,
+            );
+        }
     }
     validate_compact_reference_steps(
         &flattened.reference_steps,
@@ -1142,10 +1169,6 @@ fn finalize_compile(
         };
     }
 
-    if !options.recovery {
-        materialize_binding_projection_paths(&mut flattened, false);
-    }
-
     CompileResult {
         source,
         events: flattened.events,
@@ -1156,10 +1179,7 @@ fn finalize_compile(
     }
 }
 
-fn materialize_binding_projection_paths(
-    flattened: &mut flatten::FlattenedDocument,
-    preserve_rendered_paths: bool,
-) {
+fn materialize_binding_projection_paths(flattened: &mut flatten::FlattenedDocument) {
     if flattened.bindings.is_empty() {
         return;
     }
@@ -1167,22 +1187,9 @@ fn materialize_binding_projection_paths(
         flattened.bindings.len(),
         flattened.rendered_event_paths.len()
     );
-    if preserve_rendered_paths {
-        for (binding, path) in flattened
-            .bindings
-            .iter_mut()
-            .zip(flattened.rendered_event_paths.iter())
-        {
-            binding.path.clone_from(path);
-        }
-    } else {
-        for (binding, path) in flattened
-            .bindings
-            .iter_mut()
-            .zip(flattened.rendered_event_paths.drain(..))
-        {
-            binding.path = path;
-        }
+    let rendered_event_paths = std::mem::take(&mut flattened.rendered_event_paths);
+    for (binding, path) in flattened.bindings.iter_mut().zip(rendered_event_paths) {
+        binding.path = path;
     }
 }
 
@@ -1296,9 +1303,9 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
     })
 }
 
-pub(crate) fn validate_gp_datatype_clarifiers(
+pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
     events: &[AssignmentEvent],
-    rendered_paths: &[String],
+    rendered_paths: &[P],
     errors: &mut Vec<Diagnostic>,
 ) {
     for (index, event) in events.iter().enumerate() {
@@ -1310,7 +1317,7 @@ pub(crate) fn validate_gp_datatype_clarifiers(
         };
         let rendered_path = rendered_paths
             .get(index)
-            .cloned()
+            .map(|path| path.as_ref().to_owned())
             .unwrap_or_else(|| format_path(&event.path));
         validate_gp_datatype_surface(
             &surface,

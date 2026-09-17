@@ -64,12 +64,20 @@ pub fn render_child_member_path(parent_path: &str, key: &str) -> String {
 
 #[must_use]
 pub fn render_child_index_path(parent_path: &str, index: usize) -> String {
-    let mut output = String::with_capacity(parent_path.len() + 22);
+    let mut output = String::with_capacity(parent_path.len() + decimal_width(index) + 2);
     output.push_str(parent_path);
     output.push('[');
     push_usize_decimal(&mut output, index);
     output.push(']');
     output
+}
+
+fn decimal_width(value: usize) -> usize {
+    if value == 0 {
+        1
+    } else {
+        value.ilog10() as usize + 1
+    }
 }
 
 #[must_use]

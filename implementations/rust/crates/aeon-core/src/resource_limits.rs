@@ -69,9 +69,9 @@ pub(crate) fn structured_comment_limit_diagnostic(
     exhausted("max_structured_comment_characters", observed, limit, span)
 }
 
-pub(crate) fn validate_event_path_limits(
+pub(crate) fn validate_event_path_limits<P: AsRef<str>>(
     events: &[AssignmentEvent],
-    rendered_paths: &[String],
+    rendered_paths: &[P],
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
     debug_assert_eq!(events.len(), rendered_paths.len());
@@ -85,7 +85,7 @@ pub(crate) fn validate_event_path_limits(
                 event.span,
             ));
         }
-        let characters = rendered_path.chars().count();
+        let characters = rendered_path.as_ref().chars().count();
         if characters > options.max_path_characters {
             return Some(exhausted(
                 "max_path_characters",

@@ -16,11 +16,8 @@ pub(crate) struct ValidationIndexes {
 }
 
 pub(crate) fn build_validation_indexes(flattened: &FlattenedDocument) -> ValidationIndexes {
-    let event_lookup = flattened
-        .rendered_event_paths
-        .iter()
-        .enumerate()
-        .map(|(index, path)| (path.clone(), index))
+    let event_lookup = (0..flattened.events.len())
+        .map(|index| (flattened.event_path(index).to_owned(), index))
         .collect();
     ValidationIndexes { event_lookup }
 }
@@ -43,7 +40,7 @@ pub(crate) fn build_validation_event_lookup(
                 "DUPLICATE_KEY",
                 format!("Duplicate key: '{}'", key_from_path(path)),
             )
-            .at_path(path.clone())
+            .at_path(path)
             .with_span(events[index].span),
         );
     }
@@ -65,13 +62,8 @@ pub(crate) fn validate_duplicate_canonical_paths(
     let duplicate_indexes = {
         let mut seen = HashSet::with_capacity(flattened.events.len());
         let mut duplicate_indexes = Vec::new();
-        for (index, (event, path)) in flattened
-            .events
-            .iter()
-            .zip(flattened.rendered_event_paths.iter())
-            .enumerate()
-        {
-            if !seen.insert((event.source_plane, path.as_str())) {
+        for (index, event) in flattened.events.iter().enumerate() {
+            if !seen.insert((event.source_plane, flattened.event_path(index))) {
                 duplicate_indexes.push(index);
             }
         }
@@ -81,36 +73,43 @@ pub(crate) fn validate_duplicate_canonical_paths(
         return;
     }
     for index in &duplicate_indexes {
-        let path = &flattened.rendered_event_paths[*index];
+        let path = flattened.event_path(*index);
         errors.push(
             Diagnostic::new(
                 "DUPLICATE_KEY",
                 format!("Duplicate key: '{}'", key_from_path(path)),
             )
-            .at_path(path.clone())
+            .at_path(path)
             .with_span(flattened.events[*index].span),
         );
     }
     if recovery {
         let mut retained = HashSet::new();
         let mut retained_events = Vec::with_capacity(flattened.events.len());
-        let mut retained_paths = Vec::with_capacity(flattened.rendered_event_paths.len());
-        for (event, path) in flattened
-            .events
-            .drain(..)
-            .zip(flattened.rendered_event_paths.drain(..))
-        {
-            if retained.insert((event.source_plane, path.clone())) {
-                retained_events.push(event);
-                retained_paths.push(path);
+        if flattened.paths_are_in_bindings() {
+            let mut retained_bindings = Vec::with_capacity(flattened.bindings.len());
+            for (event, binding) in flattened.events.drain(..).zip(flattened.bindings.drain(..)) {
+                if retained.insert((event.source_plane, binding.path.clone())) {
+                    retained_events.push(event);
+                    retained_bindings.push(binding);
+                }
             }
+            flattened.bindings = retained_bindings;
+        } else {
+            let mut retained_paths = Vec::with_capacity(flattened.rendered_event_paths.len());
+            for (event, path) in flattened
+                .events
+                .drain(..)
+                .zip(flattened.rendered_event_paths.drain(..))
+            {
+                if retained.insert((event.source_plane, path.clone())) {
+                    retained_events.push(event);
+                    retained_paths.push(path);
+                }
+            }
+            flattened.rendered_event_paths = retained_paths;
         }
         flattened.events = retained_events;
-        flattened.rendered_event_paths = retained_paths;
-        let mut retained_bindings = HashSet::new();
-        flattened
-            .bindings
-            .retain(|binding| retained_bindings.insert(binding.path.clone()));
     } else {
         flattened.events.clear();
         flattened.rendered_event_paths.clear();
@@ -503,9 +502,9 @@ fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bo
         .is_some_and(|(binding_path, _)| target == binding_path)
 }
 
-pub(crate) fn validate_datatypes(
+pub(crate) fn validate_datatypes<P: AsRef<str>>(
     events: &[AssignmentEvent],
-    rendered_event_paths: &[String],
+    rendered_event_paths: &[P],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
     effective_mode: Option<BehaviorMode>,
@@ -517,6 +516,7 @@ pub(crate) fn validate_datatypes(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
+        let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
             if let Some(error) =
                 validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
@@ -526,7 +526,7 @@ pub(crate) fn validate_datatypes(
                     | "INVALID_SEPARATOR_CHAR"
                     | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
-                    _ => path.as_str(),
+                    _ => path,
                 };
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
@@ -746,7 +746,7 @@ pub(crate) fn validate_attribute_datatypes(
     max_generic_depth: usize,
     errors: &mut Vec<Diagnostic>,
 ) {
-    validate_datatypes(
+    validate_datatypes::<String>(
         &[],
         &[],
         &BTreeMap::new(),

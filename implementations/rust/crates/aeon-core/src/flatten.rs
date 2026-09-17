@@ -19,6 +19,20 @@ pub(crate) struct FlattenedDocument {
     pub(crate) reference_steps: Vec<CompactReferenceStep>,
 }
 
+impl FlattenedDocument {
+    pub(crate) fn event_path(&self, index: usize) -> &str {
+        if self.bindings.len() == self.events.len() {
+            &self.bindings[index].path
+        } else {
+            &self.rendered_event_paths[index]
+        }
+    }
+
+    pub(crate) fn paths_are_in_bindings(&self) -> bool {
+        self.bindings.len() == self.events.len()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct FlattenedValidationDocument {
     pub(crate) events: Vec<ValidationEvent>,
