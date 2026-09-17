@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
+use crate::lexer::LexerSession;
 use crate::pathing::format_reference_target;
 use crate::{
-    AssignmentEvent, AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, Span,
-    TokenKind, Value, tokenize,
+    AssignmentEvent, AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, Span, Value,
 };
 
 pub(crate) fn validate_source_resource_limits(
@@ -31,49 +33,32 @@ fn validate_structured_comment_limits(
     source: &str,
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
-    let lexed = tokenize(
-        source,
+    const CHUNK_BYTES: usize = 8 * 1024;
+
+    if !source.as_bytes().contains(&b'/') {
+        return None;
+    }
+
+    let mut lexer = LexerSession::with_structured_comment_limit(
         LexerOptions {
-            include_comments: true,
+            include_comments: false,
             ..LexerOptions::default()
         },
+        options.max_structured_comment_characters,
     );
-    for token in lexed.tokens {
-        if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
-            continue;
+    let mut start = 0;
+    while start < source.len() {
+        let mut end = (start + CHUNK_BYTES).min(source.len());
+        while !source.is_char_boundary(end) {
+            end -= 1;
         }
-        let structured_line =
-            token.kind == TokenKind::LineComment
-                && token.text.chars().nth(2).is_some_and(|marker| {
-                    matches!(marker, '#' | '@' | '?' | '!' | '{' | '[' | '(')
-                });
-        let structured_block =
-            token.kind == TokenKind::BlockComment
-                && token.text.chars().nth(1).is_some_and(|marker| {
-                    matches!(marker, '#' | '@' | '?' | '!' | '{' | '[' | '(')
-                });
-        if !structured_line && !structured_block {
-            continue;
-        }
-        let payload_chars =
-            token
-                .text
-                .chars()
-                .count()
-                .saturating_sub(if token.kind == TokenKind::LineComment {
-                    3
-                } else {
-                    4
-                });
-        if payload_chars > options.max_structured_comment_characters {
-            return Some(structured_comment_limit_diagnostic(
-                payload_chars,
-                options.max_structured_comment_characters,
-                token.span,
-            ));
-        }
+        drop(lexer.push(Cow::Borrowed(&source[start..end])));
+        start = end;
     }
-    None
+    drop(lexer.finish());
+    lexer.structured_comment_limit_violation().map(|violation| {
+        structured_comment_limit_diagnostic(violation.observed, violation.limit, violation.span)
+    })
 }
 
 pub(crate) fn structured_comment_limit_diagnostic(

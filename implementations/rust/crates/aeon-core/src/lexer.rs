@@ -107,6 +107,16 @@ pub struct LexResult {
 
 pub fn tokenize(input: &str, options: LexerOptions) -> LexResult {
     let mut lexer = LexerSession::one_shot(options);
+    tokenize_with_session(input, &mut lexer)
+}
+
+pub(crate) fn tokenize_sofia(input: &str, options: LexerOptions) -> LexResult {
+    let mut lexer = LexerSession::one_shot(options);
+    lexer.large_token_growth_chunk = Some(24 * 1024);
+    tokenize_with_session(input, &mut lexer)
+}
+
+fn tokenize_with_session<'a>(input: &'a str, lexer: &mut LexerSession<'a>) -> LexResult {
     let mut result = lexer.push(Cow::Borrowed(input));
     let final_result = lexer.finish();
     result.tokens.extend(final_result.tokens);
@@ -230,6 +240,7 @@ pub(crate) struct LexerSession<'a> {
     compact_input: bool,
     max_retained_token_bytes: Option<usize>,
     max_structured_comment_characters: Option<usize>,
+    large_token_growth_chunk: Option<usize>,
     options: LexerOptions,
     offset: usize,
     line: usize,
@@ -279,6 +290,15 @@ impl<'a> LexerSession<'a> {
         lexer
     }
 
+    pub(crate) fn with_structured_comment_limit(
+        options: LexerOptions,
+        max_structured_comment_characters: usize,
+    ) -> Self {
+        let mut lexer = Self::new(options);
+        lexer.max_structured_comment_characters = Some(max_structured_comment_characters);
+        lexer
+    }
+
     fn one_shot(options: LexerOptions) -> Self {
         let mut lexer = Self::new(options);
         lexer.compact_input = false;
@@ -296,6 +316,7 @@ impl<'a> LexerSession<'a> {
             compact_input,
             max_retained_token_bytes,
             max_structured_comment_characters: None,
+            large_token_growth_chunk: None,
             options,
             offset: 0,
             line: 1,
@@ -403,6 +424,7 @@ impl<'a> LexerSession<'a> {
             self.finish_comment();
         }
         let pos = self.current_position();
+        self.reserve_token_slot();
         self.tokens.push(Token {
             kind: TokenKind::Eof,
             text: String::new(),
@@ -1491,6 +1513,7 @@ impl<'a> LexerSession<'a> {
         quote: Option<char>,
     ) {
         self.previous_token_kind = Some(kind);
+        self.reserve_token_slot();
         self.tokens.push(Token {
             kind,
             text: text.to_owned(),
@@ -1501,6 +1524,15 @@ impl<'a> LexerSession<'a> {
             comment,
             quote,
         });
+    }
+
+    fn reserve_token_slot(&mut self) {
+        if self.tokens.len() == self.tokens.capacity()
+            && self.tokens.capacity() >= 64 * 1024
+            && let Some(chunk) = self.large_token_growth_chunk
+        {
+            self.tokens.reserve_exact(chunk);
+        }
     }
 
     fn previous_token_is_reference_marker(&self) -> bool {

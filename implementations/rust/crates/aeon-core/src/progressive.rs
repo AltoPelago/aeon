@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 #[cfg(feature = "sofia-bench")]
 use std::io::Read;
 use std::num::NonZeroUsize;
 
 use crate::flatten::{FlattenEventCursor, FlattenValidationCursor, ValidationReferenceStep};
-use crate::header::IncrementalHeaderState;
+use crate::header::{IncrementalHeaderState, extract_header_fields, lower_header};
 use crate::lexer::retained_token_byte_limit;
 use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
@@ -21,10 +21,11 @@ use crate::validation::{
     validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 use crate::{
-    BehaviorMode, Binding, CompileOptions, CompileResult, Diagnostic, EventBatch, EventBatches,
-    SourcePlane, SourceRetention, Value, compile_owned_with_implementation,
-    compile_portability_warnings, event_count_exceeded_error, format_path,
-    input_size_diagnostic_for_len, validate_gp_datatype_clarifiers,
+    AssignmentEvent, BehaviorMode, Binding, BindingProjection, CanonicalPath, CompileOptions,
+    CompileResult, Diagnostic, EventBatch, EventBatches, SourcePlane, SourceRetention, Value,
+    compile_owned_sofia_whole, compile_owned_with_implementation, compile_portability_warnings,
+    event_count_exceeded_error, format_path, input_size_diagnostic_for_len,
+    validate_gp_datatype_clarifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,6 +129,7 @@ impl ModeDiagnosticLedger {
 #[derive(Debug)]
 struct ProgressiveValidationState {
     options: CompileOptions,
+    assume_unique_event_paths: bool,
     header: IncrementalHeaderState,
     event_count: usize,
     seen_event_paths: HashSet<(SourcePlane, String)>,
@@ -176,6 +178,7 @@ impl ProgressiveValidationState {
     fn new(options: &CompileOptions) -> Self {
         Self {
             options: options.clone(),
+            assume_unique_event_paths: false,
             header: IncrementalHeaderState::default(),
             event_count: 0,
             seen_event_paths: HashSet::new(),
@@ -196,6 +199,13 @@ impl ProgressiveValidationState {
         }
     }
 
+    fn new_streaming(options: &CompileOptions) -> Self {
+        Self {
+            assume_unique_event_paths: true,
+            ..Self::new(options)
+        }
+    }
+
     fn observe_bindings(&mut self, bindings: &[Binding]) {
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
@@ -210,15 +220,27 @@ impl ProgressiveValidationState {
             );
         }
         for &mode in self.candidate_modes() {
-            for binding in bindings.iter().filter(|binding| !binding.is_header) {
+            let mut body_start = 0;
+            while body_start < bindings.len() {
+                while body_start < bindings.len() && bindings[body_start].is_header {
+                    body_start += 1;
+                }
+                let mut body_end = body_start;
+                while body_end < bindings.len() && !bindings[body_end].is_header {
+                    body_end += 1;
+                }
+                if body_start == body_end {
+                    break;
+                }
                 validate_attribute_datatypes(
-                    std::slice::from_ref(binding),
+                    &bindings[body_start..body_end],
                     mode,
                     self.options.datatype_policy,
                     self.options.effective_max_clarifier_values(),
                     self.options.max_generic_depth,
                     self.datatype_attribute_errors.errors_mut(mode),
                 );
+                body_start = body_end;
             }
             if !matches!(mode, BehaviorMode::Transport) {
                 validate_typed_mode_rules(
@@ -249,9 +271,10 @@ impl ProgressiveValidationState {
         let first_event_ordinal = self.event_count;
         self.event_count = self.event_count.saturating_add(events.len());
         for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
-            if !self
-                .seen_event_paths
-                .insert((event.source_plane, path.clone()))
+            if !self.assume_unique_event_paths
+                && !self
+                    .seen_event_paths
+                    .insert((event.source_plane, path.clone()))
             {
                 self.duplicate_errors.push(
                     Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", event.key))
@@ -487,6 +510,243 @@ impl ProgressiveValidationState {
             has_structured_comment_error: self.structured_comment_error.is_some(),
         }
     }
+}
+
+/// Builds Sofia's ordinary rich result while releasing completed top-level
+/// bindings between bounded lexer/parser chunks. Recovery and unsupported
+/// document shapes fall back to the authoritative whole-document finalizer.
+pub(crate) fn compile_owned_sofia_streaming(
+    source: String,
+    options: CompileOptions,
+) -> CompileResult {
+    const CHUNK_BYTES: usize = 64 * 1024;
+
+    let validation_only = options.shallow_event_values
+        && !options.emit_binding_projections
+        && !options.include_header
+        && !options.include_event_annotations;
+    if options.recovery || validation_only || !supports_flat_scalar_streaming(&source) {
+        return compile_owned_sofia_whole(source, options);
+    }
+
+    let warnings = compile_portability_warnings(&options);
+    let track_references = source.as_bytes().contains(&b'~');
+    let mut parser = IncrementalSofiaFrontend::new(&options);
+    let mut state = StreamingCompileState::new(&options);
+    let mut start = 0;
+    while start < source.len() {
+        let mut end = (start + CHUNK_BYTES).min(source.len());
+        if end < source.len()
+            && let Some(newline) = source[end..].find('\n')
+        {
+            end += newline + 1;
+        }
+        while !source.is_char_boundary(end) {
+            end -= 1;
+        }
+        parser.push_str(&source[start..end]);
+        append_streaming_bindings(
+            parser.take_completed_bindings(),
+            &options,
+            track_references,
+            &mut state,
+        );
+        start = end;
+    }
+
+    let incremental = parser.finish(&source);
+    if incremental.retention_fallback {
+        return compile_owned_sofia_whole(source, options);
+    }
+    state.validation.observe_structured_comments(
+        incremental.structured_comment_count,
+        incremental.structured_comment_error,
+    );
+    append_streaming_bindings(
+        incremental.parsed.bindings,
+        &options,
+        track_references,
+        &mut state,
+    );
+    if state.has_top_level_duplicate || !state.validation.duplicate_object_errors.is_empty() {
+        return compile_owned_sofia_whole(source, options);
+    }
+    if !incremental.parsed.errors.is_empty() {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: incremental.parsed.errors,
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
+    }
+    if let Some(error) = state
+        .validation
+        .source_resource_error
+        .clone()
+        .or_else(|| state.validation.structured_comment_error.clone())
+    {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors: vec![error],
+            warnings,
+            bindings: Vec::new(),
+            header: None,
+        };
+    }
+
+    let errors = state.validation.errors();
+    let header = if options.include_header {
+        lower_header(state.header_bindings)
+            .ok()
+            .map(|lowered| extract_header_fields(&lowered))
+    } else {
+        None
+    };
+    if !errors.is_empty() {
+        return CompileResult {
+            source,
+            events: Vec::new(),
+            errors,
+            warnings,
+            bindings: Vec::new(),
+            header,
+        };
+    }
+
+    CompileResult {
+        source,
+        events: state.events,
+        errors,
+        warnings,
+        bindings: state.projections,
+        header,
+    }
+}
+
+fn supports_flat_scalar_streaming(source: &str) -> bool {
+    const MIN_STREAMING_BYTES: usize = 512 * 1024;
+    if source.len() < MIN_STREAMING_BYTES {
+        return false;
+    }
+    let body = if source.starts_with("aeon:header") {
+        source
+            .find("\n}\n")
+            .map_or(source, |header_end| &source[header_end + 3..])
+    } else {
+        source
+    };
+    !body
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(byte, b'[' | b'{' | b'(' | b'<' | b'~'))
+}
+
+struct StreamingCompileState {
+    validation: ProgressiveValidationState,
+    events: Vec<AssignmentEvent>,
+    projections: Vec<BindingProjection>,
+    header_bindings: Vec<Binding>,
+    top_level_paths: HashSet<String>,
+    has_top_level_duplicate: bool,
+}
+
+impl StreamingCompileState {
+    fn new(options: &CompileOptions) -> Self {
+        Self {
+            validation: ProgressiveValidationState::new_streaming(options),
+            events: Vec::new(),
+            projections: Vec::new(),
+            header_bindings: Vec::new(),
+            top_level_paths: HashSet::new(),
+            has_top_level_duplicate: false,
+        }
+    }
+}
+
+fn append_streaming_bindings(
+    bindings: Vec<Binding>,
+    options: &CompileOptions,
+    track_references: bool,
+    state: &mut StreamingCompileState,
+) {
+    state.validation.observe_bindings(&bindings);
+    let mut completed_events = Vec::new();
+    for binding in bindings {
+        if binding.is_header {
+            state.header_bindings.push(binding);
+            continue;
+        }
+        if !state.top_level_paths.insert(binding.key.clone()) {
+            state.has_top_level_duplicate = true;
+        }
+        if !track_references
+            && !matches!(
+                binding.value,
+                Value::TypedValue { .. }
+                    | Value::NodeLiteral { .. }
+                    | Value::ListNode { .. }
+                    | Value::TupleLiteral { .. }
+                    | Value::ObjectNode { .. }
+                    | Value::CloneReference { .. }
+                    | Value::PointerReference { .. }
+            )
+        {
+            let Binding {
+                key,
+                structural_id,
+                datatype,
+                attributes,
+                attribute_order,
+                value,
+                span,
+                ..
+            } = binding;
+            completed_events.push(AssignmentEvent {
+                path: CanonicalPath::root().member(key.clone()),
+                key,
+                source_plane: SourcePlane::Body,
+                structural_id,
+                datatype,
+                annotations: if options.include_event_annotations {
+                    attributes
+                } else {
+                    BTreeMap::new()
+                },
+                annotation_order: if options.include_event_annotations {
+                    attribute_order
+                } else {
+                    Vec::new()
+                },
+                value,
+                span,
+            });
+            continue;
+        }
+        for item in FlattenValidationCursor::new(
+            &binding,
+            options.shallow_event_values,
+            options.include_event_annotations,
+        ) {
+            state
+                .validation
+                .observe_references(&item.reference_targets, &item.reference_steps);
+            completed_events.push(item.event);
+        }
+    }
+    state.validation.observe_events(&completed_events);
+    if options.emit_binding_projections {
+        state
+            .projections
+            .extend(completed_events.iter().map(|event| BindingProjection {
+                path: format_path(&event.path),
+                datatype: event.datatype.clone(),
+                kind: "binding",
+            }));
+    }
+    state.events.append(&mut completed_events);
 }
 
 #[derive(Debug)]

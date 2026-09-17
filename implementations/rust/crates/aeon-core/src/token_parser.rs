@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
-use crate::lexer::LexerSession;
+use crate::lexer::{LexerSession, tokenize_sofia};
 use crate::resource_limits::structured_comment_limit_diagnostic;
 use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
@@ -101,13 +101,7 @@ pub(crate) fn parse_document_from_tokens_with_implementation(
     limits: ParserLimits,
     implementation: ParserImplementation,
 ) -> Result<Vec<Binding>, Diagnostic> {
-    let lexed = tokenize(
-        input,
-        LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        },
-    );
+    let lexed = tokenize_for_implementation(input, implementation);
     if let Some(error) = lexed.errors.first() {
         return Err(Diagnostic {
             code: error.code.clone(),
@@ -400,20 +394,33 @@ pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
     limits: ParserLimits,
     implementation: ParserImplementation,
 ) -> ParseRecoveryResult {
-    let lexed = tokenize(
-        input,
-        LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        },
-    );
+    let mut lexed = tokenize_for_implementation(input, implementation);
     if !lexed.errors.is_empty() {
         return ParseRecoveryResult {
             bindings: Vec::new(),
             errors: lexed.errors.into_iter().map(lex_error_diagnostic).collect(),
         };
     }
+    if implementation == ParserImplementation::Sofia
+        && lexed.tokens.capacity() > lexed.tokens.len().saturating_add(lexed.tokens.len() / 5)
+    {
+        lexed.tokens.shrink_to_fit();
+    }
     parse_tokenized_document_recovery(&lexed.tokens, limits, implementation)
+}
+
+fn tokenize_for_implementation(
+    input: &str,
+    implementation: ParserImplementation,
+) -> crate::LexResult {
+    let options = LexerOptions {
+        include_newlines: true,
+        ..LexerOptions::default()
+    };
+    match implementation {
+        ParserImplementation::Baseline => tokenize(input, options),
+        ParserImplementation::Sofia => tokenize_sofia(input, options),
+    }
 }
 
 fn parse_tokenized_document(

@@ -521,9 +521,9 @@ fn has_flattened_descendants(value: &Value) -> bool {
 }
 
 enum ReferenceScanTask<'a> {
-    Binding(&'a Binding),
+    Bindings(std::slice::Iter<'a, Binding>),
     Attribute(&'a AttributeValue),
-    Value(&'a Value),
+    Values(std::slice::Iter<'a, Value>),
 }
 
 fn queue_reference_scan_value<'a>(
@@ -541,11 +541,11 @@ fn queue_reference_scan_value<'a>(
                 value = nested;
             }
             Value::ObjectNode { bindings } => {
-                pending.extend(bindings.iter().map(ReferenceScanTask::Binding));
+                pending.push(ReferenceScanTask::Bindings(bindings.iter()));
                 return false;
             }
             Value::ListNode { items } | Value::TupleLiteral { items } => {
-                pending.extend(items.iter().map(ReferenceScanTask::Value));
+                pending.push(ReferenceScanTask::Values(items.iter()));
                 return false;
             }
             Value::NodeLiteral {
@@ -553,7 +553,7 @@ fn queue_reference_scan_value<'a>(
                 children,
                 ..
             } => {
-                pending.extend(children.iter().map(ReferenceScanTask::Value));
+                pending.push(ReferenceScanTask::Values(children.iter()));
                 pending.extend(
                     attributes
                         .iter()
@@ -611,13 +611,27 @@ fn bindings_contain_references(bindings: &[Binding]) -> bool {
         }
         while let Some(task) = pending.pop() {
             let found = match task {
-                ReferenceScanTask::Binding(binding) => {
+                ReferenceScanTask::Bindings(mut bindings) => {
+                    let Some(binding) = bindings.next() else {
+                        continue;
+                    };
+                    if !bindings.as_slice().is_empty() {
+                        pending.push(ReferenceScanTask::Bindings(bindings));
+                    }
                     queue_reference_scan_binding(binding, &mut pending)
                 }
                 ReferenceScanTask::Attribute(attribute) => {
                     queue_reference_scan_attribute(attribute, &mut pending)
                 }
-                ReferenceScanTask::Value(value) => queue_reference_scan_value(value, &mut pending),
+                ReferenceScanTask::Values(mut values) => {
+                    let Some(value) = values.next() else {
+                        continue;
+                    };
+                    if !values.as_slice().is_empty() {
+                        pending.push(ReferenceScanTask::Values(values));
+                    }
+                    queue_reference_scan_value(value, &mut pending)
+                }
             };
             if found {
                 return true;
@@ -1575,14 +1589,14 @@ fn reserve_flatten_output(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
-    events.reserve(additional);
-    rendered_event_paths.reserve(additional);
+    events.reserve_exact(additional);
+    rendered_event_paths.reserve_exact(additional);
     if emit_binding_projections {
-        bindings_out.reserve(additional);
+        bindings_out.reserve_exact(additional);
     }
     if track_references {
         reference_targets.reserve(additional);
-        reference_steps.reserve(additional);
+        reference_steps.reserve_exact(additional);
     }
 }
 

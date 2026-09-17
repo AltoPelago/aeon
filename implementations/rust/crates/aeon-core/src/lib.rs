@@ -678,7 +678,9 @@ fn compile_owned_with_implementation(
     }
 
     trace_compile(format!("compile:normalized bytes={}", source.len()));
-
+    if implementation == ParserImplementation::Sofia {
+        return progressive::compile_owned_sofia_streaming(source, options);
+    }
     let parsed = parse_document_from_tokens_recovery_with_implementation(
         &source,
         ParserLimits::new(
@@ -690,6 +692,23 @@ fn compile_owned_with_implementation(
             options.max_datatype_components,
         ),
         implementation,
+    );
+    compile_parsed(source, options, warnings, parsed)
+}
+
+pub(crate) fn compile_owned_sofia_whole(source: String, options: CompileOptions) -> CompileResult {
+    let warnings = compile_portability_warnings(&options);
+    let parsed = parse_document_from_tokens_recovery_with_implementation(
+        &source,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        ParserImplementation::Sofia,
     );
     compile_parsed(source, options, warnings, parsed)
 }

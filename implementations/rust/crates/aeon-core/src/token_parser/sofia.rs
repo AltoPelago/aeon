@@ -1412,7 +1412,7 @@ impl Frame {
     const fn is_accumulating_collection(&self) -> bool {
         matches!(
             self,
-            Self::NodeChildren(_) | Self::Sequence(_) | Self::Object(_)
+            Self::Document(_) | Self::NodeChildren(_) | Self::Sequence(_) | Self::Object(_)
         )
     }
 
@@ -1429,6 +1429,26 @@ impl Frame {
         product: Option<&Product>,
     ) -> Option<bool> {
         match self {
+            Self::Document(frame) => match &frame.phase {
+                DocumentPhase::Binding if product.is_none() => {
+                    match next_non_newline_token(tokens, token_start_index, current) {
+                        Some((_, token)) if token.kind != TokenKind::Colon => Some(true),
+                        Some(_) => None,
+                        None => Some(false),
+                    }
+                }
+                DocumentPhase::Delimiter if matches!(product, Some(Product::Binding(_))) => {
+                    match retained_token(tokens, token_start_index, current) {
+                        Some(token) if token.kind == TokenKind::Comma => Some(true),
+                        Some(token) if token.kind == TokenKind::Newline => Some(
+                            next_non_newline_token(tokens, token_start_index, current).is_some(),
+                        ),
+                        Some(_) => None,
+                        None => Some(false),
+                    }
+                }
+                _ => None,
+            },
             Self::Sequence(frame) => match &frame.phase {
                 SequencePhase::Item if product.is_none() => {
                     Some(next_non_newline_token(tokens, token_start_index, current).is_some())
