@@ -1056,6 +1056,9 @@ fn finalize_compile(
                 .then(|| extract_header_fields(&bindings)),
         };
     }
+    if options.recovery {
+        materialize_binding_projection_paths(&mut flattened, true);
+    }
     validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
     let indexes = build_validation_indexes(&flattened);
     let header = options
@@ -1104,6 +1107,10 @@ fn finalize_compile(
         };
     }
 
+    if !options.recovery {
+        materialize_binding_projection_paths(&mut flattened, false);
+    }
+
     CompileResult {
         source,
         events: flattened.events,
@@ -1111,6 +1118,36 @@ fn finalize_compile(
         warnings,
         bindings: flattened.bindings,
         header,
+    }
+}
+
+fn materialize_binding_projection_paths(
+    flattened: &mut flatten::FlattenedDocument,
+    preserve_rendered_paths: bool,
+) {
+    if flattened.bindings.is_empty() {
+        return;
+    }
+    debug_assert_eq!(
+        flattened.bindings.len(),
+        flattened.rendered_event_paths.len()
+    );
+    if preserve_rendered_paths {
+        for (binding, path) in flattened
+            .bindings
+            .iter_mut()
+            .zip(flattened.rendered_event_paths.iter())
+        {
+            binding.path.clone_from(path);
+        }
+    } else {
+        for (binding, path) in flattened
+            .bindings
+            .iter_mut()
+            .zip(flattened.rendered_event_paths.drain(..))
+        {
+            binding.path = path;
+        }
     }
 }
 

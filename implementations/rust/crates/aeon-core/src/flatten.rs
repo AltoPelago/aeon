@@ -1019,7 +1019,7 @@ fn flatten_bindings(
             rendered_event_paths.push(path_text.clone());
             if emit_binding_projections {
                 bindings_out.push(BindingProjection {
-                    path: path_text,
+                    path: String::new(),
                     datatype: binding.datatype.clone(),
                     kind: "binding",
                 });
@@ -1060,10 +1060,10 @@ fn flatten_bindings(
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
-                    rendered_event_paths.push(item_text.clone());
+                    rendered_event_paths.push(item_text);
                     if emit_binding_projections {
                         bindings_out.push(BindingProjection {
-                            path: item_text,
+                            path: String::new(),
                             datatype: typed_datatype(item),
                             kind: "binding",
                         });
@@ -1117,10 +1117,10 @@ fn flatten_bindings(
                         value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                         span: binding.span,
                     });
-                    rendered_event_paths.push(item_text.clone());
+                    rendered_event_paths.push(item_text);
                     if emit_binding_projections {
                         bindings_out.push(BindingProjection {
-                            path: item_text,
+                            path: String::new(),
                             datatype: typed_datatype(item),
                             kind: "binding",
                         });
@@ -1189,10 +1189,10 @@ fn flatten_bindings(
                         value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                         span: binding.span,
                     });
-                    rendered_event_paths.push(child_text.clone());
+                    rendered_event_paths.push(child_text);
                     if emit_binding_projections {
                         bindings_out.push(BindingProjection {
-                            path: child_text,
+                            path: String::new(),
                             datatype: typed_datatype(child),
                             kind: "binding",
                         });
@@ -1279,10 +1279,10 @@ fn flatten_container_item(
                     value: clone_event_value(unwrap_typed_value(item), shallow_event_values),
                     span,
                 });
-                rendered_event_paths.push(item_text.clone());
+                rendered_event_paths.push(item_text);
                 if emit_binding_projections {
                     bindings_out.push(BindingProjection {
-                        path: item_text,
+                        path: String::new(),
                         datatype: typed_datatype(item),
                         kind: "binding",
                     });
@@ -1336,10 +1336,10 @@ fn flatten_container_item(
                     value: clone_event_value(unwrap_typed_value(child), shallow_event_values),
                     span,
                 });
-                rendered_event_paths.push(child_text.clone());
+                rendered_event_paths.push(child_text);
                 if emit_binding_projections {
                     bindings_out.push(BindingProjection {
-                        path: child_text,
+                        path: String::new(),
                         datatype: typed_datatype(child),
                         kind: "binding",
                     });
