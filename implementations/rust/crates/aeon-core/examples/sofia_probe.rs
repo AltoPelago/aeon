@@ -15,9 +15,38 @@ use serde_json::json;
 struct Args {
     input: PathBuf,
     parser: Parser,
+    profile: Profile,
     expected_valid: bool,
     max_value_nesting_depth: Option<usize>,
     hold_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Profile {
+    Full,
+    Check,
+}
+
+impl Profile {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Check => "check",
+        }
+    }
+
+    fn options(self) -> CompileOptions {
+        match self {
+            Self::Full => CompileOptions::default(),
+            Self::Check => CompileOptions {
+                shallow_event_values: true,
+                emit_binding_projections: false,
+                include_header: false,
+                include_event_annotations: false,
+                ..CompileOptions::default()
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +97,7 @@ fn run() -> Result<(), String> {
     let args = parse_args()?;
     let source = fs::read_to_string(&args.input)
         .map_err(|error| format!("failed to read {}: {error}", args.input.display()))?;
-    let mut options = CompileOptions::default();
+    let mut options = args.profile.options();
     if let Some(limit) = args.max_value_nesting_depth {
         options.max_value_nesting_depth = Some(limit);
     }
@@ -119,6 +148,7 @@ fn run() -> Result<(), String> {
             "schema": "aeon.sofia.native-probe.v1",
             "input": args.input,
             "parser": args.parser.label(),
+            "profile": args.profile.label(),
             "bytes": source.len(),
             "expected": if args.expected_valid { "valid" } else { "invalid" },
             "max_value_nesting_depth": args.max_value_nesting_depth,
@@ -141,6 +171,7 @@ fn run() -> Result<(), String> {
 fn parse_args() -> Result<Args, String> {
     let mut input = None;
     let mut parser = Parser::Baseline;
+    let mut profile = Profile::Full;
     let mut expected_valid = true;
     let mut max_value_nesting_depth = None;
     let mut hold_ms = 0;
@@ -152,6 +183,13 @@ fn parse_args() -> Result<Args, String> {
                     "baseline" => Parser::Baseline,
                     "sofia" => Parser::Sofia,
                     other => return Err(format!("invalid --parser value: {other}")),
+                };
+            }
+            "--profile" => {
+                profile = match required_value(&mut raw, "--profile")?.as_str() {
+                    "full" => Profile::Full,
+                    "check" => Profile::Check,
+                    other => return Err(format!("invalid --profile value: {other}")),
                 };
             }
             "--expected" => {
@@ -184,6 +222,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         input: input.ok_or_else(usage)?,
         parser,
+        profile,
         expected_valid,
         max_value_nesting_depth,
         hold_ms,
@@ -197,6 +236,6 @@ fn required_value(args: &mut impl Iterator<Item = String>, option: &str) -> Resu
 
 fn usage() -> String {
     String::from(
-        "usage: sofia_probe [--parser baseline|sofia] [--expected valid|invalid] [--max-value-nesting-depth N] [--hold-ms N] <input>",
+        "usage: sofia_probe [--parser baseline|sofia] [--profile full|check] [--expected valid|invalid] [--max-value-nesting-depth N] [--hold-ms N] <input>",
     )
 }

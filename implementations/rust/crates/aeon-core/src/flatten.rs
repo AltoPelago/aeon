@@ -809,6 +809,7 @@ fn flatten_validation_bindings(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
+    events.reserve(bindings.iter().filter(|binding| !binding.is_header).count());
     let parent_path = format_path(parent);
     for binding in bindings {
         let path = parent.member(binding.key.clone());
@@ -838,6 +839,7 @@ fn flatten_validation_bindings(
 
         match unwrap_typed_value(&binding.value) {
             Value::ListNode { items } => {
+                reserve_validation_sequence_events(items, events);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     if track_references {
@@ -875,6 +877,7 @@ fn flatten_validation_bindings(
                 }
             }
             Value::TupleLiteral { items } => {
+                reserve_validation_sequence_events(items, events);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     if track_references {
@@ -923,6 +926,7 @@ fn flatten_validation_bindings(
                 );
             }
             Value::NodeLiteral { children, .. } => {
+                events.reserve(children.len());
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
                     if track_references {
@@ -983,6 +987,7 @@ fn flatten_validation_value(
             reference_steps,
         ),
         Value::ListNode { items } => {
+            reserve_validation_sequence_events(items, events);
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
@@ -1021,6 +1026,7 @@ fn flatten_validation_value(
             }
         }
         Value::NodeLiteral { children, .. } => {
+            events.reserve(children.len());
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
@@ -1054,6 +1060,7 @@ fn flatten_validation_value(
             }
         }
         Value::TupleLiteral { items } => {
+            reserve_validation_sequence_events(items, events);
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
@@ -1092,6 +1099,17 @@ fn flatten_validation_value(
             }
         }
         _ => {}
+    }
+}
+
+fn reserve_validation_sequence_events(items: &[Value], events: &mut Vec<ValidationEvent>) {
+    if events.capacity() - events.len() < items.len() {
+        events.reserve(
+            items
+                .iter()
+                .filter(|item| !is_container_value(item))
+                .count(),
+        );
     }
 }
 
