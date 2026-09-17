@@ -966,6 +966,15 @@ fn flatten_bindings(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
+    reserve_flatten_output(
+        bindings.len(),
+        emit_binding_projections,
+        events,
+        rendered_event_paths,
+        bindings_out,
+        reference_targets,
+        reference_steps,
+    );
     let parent_path = format_path(parent);
     for binding in bindings {
         let source_plane = if binding.is_header {
@@ -1019,6 +1028,15 @@ fn flatten_bindings(
 
         match unwrap_typed_value(&binding.value) {
             Value::ListNode { items } => {
+                reserve_flatten_output(
+                    items.len(),
+                    emit_binding_projections,
+                    events,
+                    rendered_event_paths,
+                    bindings_out,
+                    reference_targets,
+                    reference_steps,
+                );
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
@@ -1067,6 +1085,15 @@ fn flatten_bindings(
                 }
             }
             Value::TupleLiteral { items } => {
+                reserve_flatten_output(
+                    items.len(),
+                    emit_binding_projections,
+                    events,
+                    rendered_event_paths,
+                    bindings_out,
+                    reference_targets,
+                    reference_steps,
+                );
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
@@ -1130,6 +1157,15 @@ fn flatten_bindings(
                 );
             }
             Value::NodeLiteral { children, .. } => {
+                reserve_flatten_output(
+                    children.len(),
+                    emit_binding_projections,
+                    events,
+                    rendered_event_paths,
+                    bindings_out,
+                    reference_targets,
+                    reference_steps,
+                );
                 let path_parent = format_path(&path);
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
@@ -1211,6 +1247,15 @@ fn flatten_container_item(
             reference_steps,
         ),
         Value::ListNode { items } | Value::TupleLiteral { items } => {
+            reserve_flatten_output(
+                items.len(),
+                emit_binding_projections,
+                events,
+                rendered_event_paths,
+                bindings_out,
+                reference_targets,
+                reference_steps,
+            );
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
@@ -1259,6 +1304,15 @@ fn flatten_container_item(
             }
         }
         Value::NodeLiteral { children, .. } => {
+            reserve_flatten_output(
+                children.len(),
+                emit_binding_projections,
+                events,
+                rendered_event_paths,
+                bindings_out,
+                reference_targets,
+                reference_steps,
+            );
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
@@ -1308,6 +1362,25 @@ fn flatten_container_item(
         }
         _ => {}
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reserve_flatten_output(
+    additional: usize,
+    emit_binding_projections: bool,
+    events: &mut Vec<AssignmentEvent>,
+    rendered_event_paths: &mut Vec<String>,
+    bindings_out: &mut Vec<BindingProjection>,
+    reference_targets: &mut HashSet<String>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
+) {
+    events.reserve(additional);
+    rendered_event_paths.reserve(additional);
+    if emit_binding_projections {
+        bindings_out.reserve(additional);
+    }
+    reference_targets.reserve(additional);
+    reference_steps.reserve(additional);
 }
 
 fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
