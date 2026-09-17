@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-#[cfg(feature = "sofia-bench")]
-use aeon_core::benchmark_compile_sofia;
 use aeon_core::{CompileOptions, CompileResult, PhaseTiming, benchmark_validation_phases, compile};
+#[cfg(feature = "sofia-bench")]
+use aeon_core::{benchmark_compile_sofia, benchmark_sofia_validation_phases};
 use serde_json::{Value as JsonValue, json};
 
 const SCHEMA: &str = "aeon.sofia.native-baseline.v1";
@@ -157,27 +157,26 @@ fn run() -> Result<(), String> {
         compile_samples.push(elapsed);
     }
 
-    let phase_samples =
-        if valid && args.profile.supports_phase_timing() && matches!(args.parser, Parser::Baseline)
-        {
-            for _ in 0..args.warmup {
-                black_box(benchmark_validation_phases(
-                    black_box(&source),
-                    options.clone(),
-                ))
-                .map_err(|error| format!("phase warmup failed with {}", error.code))?;
-            }
-            let mut samples = Vec::with_capacity(args.iterations);
-            for _ in 0..args.iterations {
-                samples.push(
-                    benchmark_validation_phases(black_box(&source), options.clone())
-                        .map_err(|error| format!("phase timing failed with {}", error.code))?,
-                );
-            }
-            Some(samples)
-        } else {
-            None
-        };
+    let phase_samples = if valid && args.profile.supports_phase_timing() {
+        for _ in 0..args.warmup {
+            black_box(benchmark_parser_phases(
+                args.parser,
+                black_box(&source),
+                options.clone(),
+            ))
+            .map_err(|error| format!("phase warmup failed with {error}"))?;
+        }
+        let mut samples = Vec::with_capacity(args.iterations);
+        for _ in 0..args.iterations {
+            samples.push(
+                benchmark_parser_phases(args.parser, black_box(&source), options.clone())
+                    .map_err(|error| format!("phase timing failed with {error}"))?,
+            );
+        }
+        Some(samples)
+    } else {
+        None
+    };
 
     let error_codes = preflight
         .errors
@@ -218,6 +217,31 @@ fn run() -> Result<(), String> {
             .map_err(|error| format!("failed to serialize result: {error}"))?
     );
     Ok(())
+}
+
+fn benchmark_parser_phases(
+    parser: Parser,
+    source: &str,
+    options: CompileOptions,
+) -> Result<PhaseTiming, String> {
+    match parser {
+        Parser::Baseline => {
+            benchmark_validation_phases(source, options).map_err(|diagnostic| diagnostic.code)
+        }
+        Parser::Sofia => benchmark_sofia_phases(source, options),
+    }
+}
+
+#[cfg(feature = "sofia-bench")]
+fn benchmark_sofia_phases(source: &str, options: CompileOptions) -> Result<PhaseTiming, String> {
+    benchmark_sofia_validation_phases(source, options).map_err(|diagnostic| diagnostic.code)
+}
+
+#[cfg(not(feature = "sofia-bench"))]
+fn benchmark_sofia_phases(_source: &str, _options: CompileOptions) -> Result<PhaseTiming, String> {
+    Err(String::from(
+        "the Sofia parser requires rebuilding this example with --features sofia-bench",
+    ))
 }
 
 fn parse_args() -> Result<Args, String> {

@@ -69,6 +69,7 @@ use resource_limits::{validate_event_path_limits, validate_source_resource_limit
 use token_parser::{
     IncrementalSofiaFrontend, ParserImplementation, ParserLimits,
     parse_document_from_tokens_recovery_with_implementation,
+    parse_document_from_tokens_with_implementation,
 };
 #[cfg(test)]
 use validation::datatype_has_generic_args;
@@ -772,16 +773,40 @@ pub fn benchmark_validation_phases(
     input: &str,
     options: CompileOptions,
 ) -> Result<PhaseTiming, Diagnostic> {
+    benchmark_validation_phases_with_implementation(input, options, ParserImplementation::Baseline)
+}
+
+/// Measures the iterative Sofia parser and shared validation phases.
+///
+/// This is diagnostic instrumentation rather than a stable parser-selection
+/// API. It is available only to the repository performance harness.
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+pub fn benchmark_sofia_validation_phases(
+    input: &str,
+    options: CompileOptions,
+) -> Result<PhaseTiming, Diagnostic> {
+    benchmark_validation_phases_with_implementation(input, options, ParserImplementation::Sofia)
+}
+
+fn benchmark_validation_phases_with_implementation(
+    input: &str,
+    options: CompileOptions,
+    implementation: ParserImplementation,
+) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(
+    let parsed = parse_document_from_tokens_with_implementation(
         &source,
-        options.effective_max_value_nesting_depth(),
-        options.max_attribute_depth,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        options.max_generic_arguments,
-        options.max_datatype_components,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        implementation,
     )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
@@ -968,26 +993,6 @@ pub fn fuzz_sofia_incremental(data: &[u8]) {
         defaults.max_datatype_components,
     );
     token_parser::fuzz_sofia_incremental_session(data, limits);
-}
-
-fn parse_document_tokens(
-    source: &str,
-    max_nesting_depth: usize,
-    max_attribute_depth: usize,
-    max_separator_depth: usize,
-    max_generic_depth: usize,
-    max_generic_arguments: usize,
-    max_datatype_components: usize,
-) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(
-        source,
-        max_nesting_depth,
-        max_attribute_depth,
-        max_separator_depth,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
 }
 
 fn finalize_compile(
@@ -1673,6 +1678,23 @@ fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagno
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sofia-bench")]
+    #[test]
+    fn phase_benchmark_supports_sofia_parser_selection() {
+        let source = "first:int32 = 1\nsecond = [2, 3, 4]\ncopy = ~first\n";
+        let options = CompileOptions::default();
+        let timing = benchmark_sofia_validation_phases(source, options.clone())
+            .expect("valid input should produce Sofia phase timings");
+        assert_ne!(timing, PhaseTiming::default());
+
+        let malformed = "first = [1 2]";
+        let baseline_error = benchmark_validation_phases(malformed, options.clone())
+            .expect_err("malformed input should fail baseline phase timing");
+        let sofia_error = benchmark_sofia_validation_phases(malformed, options)
+            .expect_err("malformed input should fail Sofia phase timing");
+        assert_eq!(sofia_error, baseline_error);
+    }
 
     #[derive(Clone, Copy)]
     struct DiagnosticExpectation<'a> {
