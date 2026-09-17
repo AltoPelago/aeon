@@ -125,6 +125,9 @@ pub(crate) fn validate_duplicate_object_member_keys(
     let root = CanonicalPath::root();
     let mut found_duplicate = false;
     for binding in bindings {
+        if !value_may_contain_object_bindings(&binding.value) {
+            continue;
+        }
         let path = root.member(binding.key.clone());
         found_duplicate |=
             validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
@@ -157,34 +160,51 @@ fn validate_duplicate_object_member_keys_in_value(
                         .with_span(binding.span),
                     );
                 }
-                found_duplicate |= validate_duplicate_object_member_keys_in_value(
-                    &binding.value,
-                    &member_path,
-                    errors,
-                );
+                if value_may_contain_object_bindings(&binding.value) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        &binding.value,
+                        &member_path,
+                        errors,
+                    );
+                }
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
-                found_duplicate |= validate_duplicate_object_member_keys_in_value(
-                    item,
-                    &path.index(index),
-                    errors,
-                );
+                if value_may_contain_object_bindings(item) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        item,
+                        &path.index(index),
+                        errors,
+                    );
+                }
             }
         }
         Value::NodeLiteral { children, .. } => {
             for (index, child) in children.iter().enumerate() {
-                found_duplicate |= validate_duplicate_object_member_keys_in_value(
-                    child,
-                    &path.index(index),
-                    errors,
-                );
+                if value_may_contain_object_bindings(child) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        child,
+                        &path.index(index),
+                        errors,
+                    );
+                }
             }
         }
         _ => {}
     }
     found_duplicate
+}
+
+fn value_may_contain_object_bindings(value: &Value) -> bool {
+    match value {
+        Value::TypedValue { value, .. } => value_may_contain_object_bindings(value),
+        Value::ObjectNode { .. }
+        | Value::ListNode { .. }
+        | Value::TupleLiteral { .. }
+        | Value::NodeLiteral { .. } => true,
+        _ => false,
+    }
 }
 
 fn key_from_path(path: &str) -> String {
