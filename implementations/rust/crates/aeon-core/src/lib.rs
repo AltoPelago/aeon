@@ -43,9 +43,9 @@ pub use sansa::{
     resolve_parsed_address as resolve_parsed_sansa_address,
 };
 use validation::{
-    build_validation_event_lookup, build_validation_indexes, validate_datatypes,
-    validate_datatypes_light, validate_duplicate_canonical_paths,
-    validate_duplicate_object_member_keys, validate_reference_steps, validate_typed_mode_rules,
+    build_validation_event_lookup, build_validation_indexes, validate_compact_reference_steps,
+    validate_datatypes, validate_datatypes_light, validate_duplicate_canonical_paths,
+    validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 
 pub use lexer::{
@@ -839,7 +839,7 @@ fn benchmark_validation_phases_with_implementation(
 
     let reference_start = std::time::Instant::now();
     let mut reference_errors = Vec::new();
-    validate_reference_steps(
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,
@@ -1080,7 +1080,7 @@ fn finalize_compile(
             &mut errors,
         );
     }
-    validate_reference_steps(
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,
@@ -1163,7 +1163,7 @@ fn validate_only_compile(
         validate_gp_validation_datatype_clarifiers(&flattened.events, &mut errors);
     }
     trace_compile("compile:validation_only:references");
-    validate_reference_steps(
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,

@@ -194,37 +194,6 @@ fn unescape_quoted_path_segment(segment: &str) -> String {
     result
 }
 
-pub(crate) fn validate_reference_steps(
-    steps: &[ValidationReferenceStep],
-    all_targets: &HashSet<String>,
-    max_attribute_depth: usize,
-    errors: &mut Vec<Diagnostic>,
-) {
-    let mut seen_base = HashSet::new();
-    for step in steps {
-        match step {
-            ValidationReferenceStep::ValidateValue {
-                path,
-                owner_path,
-                value,
-            } => {
-                validate_value_reference(
-                    value,
-                    path,
-                    owner_path,
-                    all_targets,
-                    &seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
-            }
-            ValidationReferenceStep::VisibleTarget(path) => {
-                let _ = seen_base.insert(path.clone());
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CompactReferenceStep {
     Claim {
@@ -369,6 +338,27 @@ fn collect_compact_value_references(
     }
 }
 
+pub(crate) fn append_compact_value_references(
+    value: &Value,
+    current_path: &str,
+    owner_path: &str,
+    shallow_value: bool,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    if shallow_value
+        && matches!(
+            value,
+            Value::ObjectNode { .. }
+                | Value::ListNode { .. }
+                | Value::TupleLiteral { .. }
+                | Value::NodeLiteral { .. }
+        )
+    {
+        return;
+    }
+    collect_compact_value_references(value, current_path, owner_path, compact);
+}
+
 fn collect_compact_attribute_references(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
@@ -394,83 +384,6 @@ fn collect_compact_attribute_references(
         if let Some(value) = &entry.value {
             collect_compact_value_references(value, current_path, current_path, compact);
         }
-    }
-}
-
-fn validate_value_reference(
-    value: &Value,
-    current_path: &str,
-    owner_path: &str,
-    all_targets: &HashSet<String>,
-    seen_base: &HashSet<String>,
-    max_attribute_depth: usize,
-    errors: &mut Vec<Diagnostic>,
-) {
-    match value {
-        Value::CloneReference { segments, span } | Value::PointerReference { segments, span } => {
-            let attr_depth = segments
-                .iter()
-                .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
-                .count();
-            let target = format_reference_target(segments);
-            let base = format_reference_base(segments);
-            validate_reference_claim(
-                current_path,
-                owner_path,
-                &target,
-                &base,
-                attr_depth,
-                *span,
-                all_targets,
-                seen_base,
-                max_attribute_depth,
-                errors,
-            );
-        }
-        Value::ObjectNode { bindings } => {
-            for binding in bindings {
-                validate_attribute_reference_map(
-                    &binding.attributes,
-                    &binding.attribute_order,
-                    current_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
-            }
-        }
-        Value::ListNode { .. } | Value::TupleLiteral { .. } => {}
-        Value::NodeLiteral {
-            attributes,
-            children,
-            ..
-        } => {
-            for attribute in attributes {
-                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
-                validate_attribute_reference_map(
-                    attribute,
-                    &attribute_order,
-                    current_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
-            }
-            for child in children {
-                validate_value_reference(
-                    child,
-                    current_path,
-                    owner_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
-            }
-        }
-        _ => {}
     }
 }
 
@@ -546,51 +459,6 @@ fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bo
     current_path
         .split_once(".@")
         .is_some_and(|(binding_path, _)| target == binding_path)
-}
-
-fn validate_attribute_reference_map(
-    attributes: &BTreeMap<String, AttributeValue>,
-    attribute_order: &[String],
-    current_path: &str,
-    all_targets: &HashSet<String>,
-    seen_base: &HashSet<String>,
-    max_attribute_depth: usize,
-    errors: &mut Vec<Diagnostic>,
-) {
-    for key in attribute_order {
-        let Some(entry) = attributes.get(key) else {
-            continue;
-        };
-        validate_attribute_reference_map(
-            &entry.object_members,
-            &entry.object_member_order,
-            current_path,
-            all_targets,
-            seen_base,
-            max_attribute_depth,
-            errors,
-        );
-        validate_attribute_reference_map(
-            &entry.nested_attrs,
-            &entry.nested_attr_order,
-            current_path,
-            all_targets,
-            seen_base,
-            max_attribute_depth,
-            errors,
-        );
-        if let Some(value) = &entry.value {
-            validate_value_reference(
-                value,
-                current_path,
-                current_path,
-                all_targets,
-                seen_base,
-                max_attribute_depth,
-                errors,
-            );
-        }
-    }
 }
 
 pub(crate) fn validate_datatypes(

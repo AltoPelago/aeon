@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::pathing::{
     format_path, render_child_index_path, render_child_member_path, render_member_segment,
 };
+use crate::validation::{CompactReferenceStep, append_compact_value_references};
 use crate::{
     AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, Span, Value,
 };
@@ -15,14 +16,14 @@ pub(crate) struct FlattenedDocument {
     pub(crate) rendered_event_paths: Vec<String>,
     pub(crate) bindings: Vec<BindingProjection>,
     pub(crate) reference_targets: HashSet<String>,
-    pub(crate) reference_steps: Vec<ValidationReferenceStep>,
+    pub(crate) reference_steps: Vec<CompactReferenceStep>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct FlattenedValidationDocument {
     pub(crate) events: Vec<ValidationEvent>,
     pub(crate) reference_targets: HashSet<String>,
-    pub(crate) reference_steps: Vec<ValidationReferenceStep>,
+    pub(crate) reference_steps: Vec<CompactReferenceStep>,
 }
 
 #[derive(Debug)]
@@ -621,19 +622,76 @@ fn track_reference_sequence_item(
     reference_steps.push(ValidationReferenceStep::VisibleTarget(item_target));
 }
 
+fn track_compact_reference_binding(
+    reference_targets: &mut HashSet<String>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
+    parent_path: &str,
+    key: &str,
+    path_text: &str,
+    attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
+    value: &Value,
+    shallow_event_values: bool,
+) {
+    let _ = reference_targets.insert(render_child_member_path(parent_path, key));
+    collect_attribute_targets(
+        path_text,
+        attributes,
+        attribute_order,
+        reference_targets,
+        String::new(),
+    );
+    reference_steps.push(CompactReferenceStep::VisibleTarget(String::from(path_text)));
+    append_compact_value_references(
+        unwrap_typed_value(value),
+        path_text,
+        path_text,
+        shallow_event_values,
+        reference_steps,
+    );
+    collect_compact_attribute_reference_steps(
+        path_text,
+        attributes,
+        attribute_order,
+        reference_steps,
+        shallow_event_values,
+        String::new(),
+    );
+}
+
+fn track_compact_reference_sequence_item(
+    reference_targets: &mut HashSet<String>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
+    parent_path: &str,
+    index: usize,
+    value: &Value,
+    shallow_event_values: bool,
+) {
+    let item_target = render_child_index_path(parent_path, index);
+    append_compact_value_references(
+        unwrap_typed_value(value),
+        &item_target,
+        parent_path,
+        shallow_event_values,
+        reference_steps,
+    );
+    let _ = reference_targets.insert(item_target.clone());
+    reference_steps.push(CompactReferenceStep::VisibleTarget(item_target));
+}
+
 fn flatten_validation_bindings(
     bindings: &[Binding],
     parent: &CanonicalPath,
     shallow_event_values: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
-    reference_steps: &mut Vec<ValidationReferenceStep>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
     let parent_path = format_path(parent);
     for binding in bindings {
         let path = parent.member(binding.key.clone());
         let path_text = format_path(&path);
-        track_reference_binding(
+        track_compact_reference_binding(
             reference_targets,
             reference_steps,
             &parent_path,
@@ -659,7 +717,7 @@ fn flatten_validation_bindings(
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -694,7 +752,7 @@ fn flatten_validation_bindings(
                 let path_parent = format_path(&path);
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -739,7 +797,7 @@ fn flatten_validation_bindings(
                 let path_parent = format_path(&path);
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -780,7 +838,7 @@ fn flatten_validation_value(
     shallow_event_values: bool,
     events: &mut Vec<ValidationEvent>,
     reference_targets: &mut HashSet<String>,
-    reference_steps: &mut Vec<ValidationReferenceStep>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
     match unwrap_typed_value(value) {
         Value::ObjectNode { bindings } => flatten_validation_bindings(
@@ -795,7 +853,7 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_reference_sequence_item(
+                track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
                     &parent_path,
@@ -830,7 +888,7 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
-                track_reference_sequence_item(
+                track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
                     &parent_path,
@@ -860,7 +918,7 @@ fn flatten_validation_value(
             let parent_path = format_path(parent);
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
-                track_reference_sequence_item(
+                track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
                     &parent_path,
@@ -906,7 +964,7 @@ fn flatten_bindings(
     rendered_event_paths: &mut Vec<String>,
     bindings_out: &mut Vec<BindingProjection>,
     reference_targets: &mut HashSet<String>,
-    reference_steps: &mut Vec<ValidationReferenceStep>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
 ) {
     let parent_path = format_path(parent);
     for binding in bindings {
@@ -917,7 +975,7 @@ fn flatten_bindings(
         };
         let path = parent.member(binding.key.clone());
         let path_text = format_path(&path);
-        track_reference_binding(
+        track_compact_reference_binding(
             reference_targets,
             reference_steps,
             &parent_path,
@@ -965,7 +1023,7 @@ fn flatten_bindings(
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     let item_text = format_path(&item_path);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -1013,7 +1071,7 @@ fn flatten_bindings(
                 for (index, item) in items.iter().enumerate() {
                     let item_path = path.index(index);
                     let item_text = format_path(&item_path);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -1076,7 +1134,7 @@ fn flatten_bindings(
                 for (index, child) in children.iter().enumerate() {
                     let child_path = path.index(index);
                     let child_text = format_path(&child_path);
-                    track_reference_sequence_item(
+                    track_compact_reference_sequence_item(
                         reference_targets,
                         reference_steps,
                         &path_parent,
@@ -1135,7 +1193,7 @@ fn flatten_container_item(
     rendered_event_paths: &mut Vec<String>,
     bindings_out: &mut Vec<BindingProjection>,
     reference_targets: &mut HashSet<String>,
-    reference_steps: &mut Vec<ValidationReferenceStep>,
+    reference_steps: &mut Vec<CompactReferenceStep>,
     span: Span,
 ) {
     match unwrap_typed_value(value) {
@@ -1157,7 +1215,7 @@ fn flatten_container_item(
             for (index, item) in items.iter().enumerate() {
                 let item_path = parent.index(index);
                 let item_text = format_path(&item_path);
-                track_reference_sequence_item(
+                track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
                     &parent_path,
@@ -1205,7 +1263,7 @@ fn flatten_container_item(
             for (index, child) in children.iter().enumerate() {
                 let child_path = parent.index(index);
                 let child_text = format_path(&child_path);
-                track_reference_sequence_item(
+                track_compact_reference_sequence_item(
                     reference_targets,
                     reference_steps,
                     &parent_path,
@@ -1517,5 +1575,186 @@ fn collect_attribute_object_reference_steps(
             next_prefix.clone(),
         );
         steps.push(ValidationReferenceStep::VisibleTarget(current_path));
+    }
+}
+
+fn collect_compact_attribute_reference_steps(
+    base: &str,
+    attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
+    steps: &mut Vec<CompactReferenceStep>,
+    shallow_event_values: bool,
+    prefix: String,
+) {
+    for key in attribute_order {
+        let Some(value) = attributes.get(key) else {
+            continue;
+        };
+        let attr_segment = format!(".@{}", render_member_segment(key));
+        let next_prefix = if prefix.is_empty() {
+            attr_segment
+        } else {
+            format!("{prefix}{attr_segment}")
+        };
+        let current_path = format!("{base}{next_prefix}");
+        if let Some(entry_value) = &value.value {
+            append_compact_value_references(
+                unwrap_typed_value(entry_value),
+                &current_path,
+                &current_path,
+                shallow_event_values,
+                steps,
+            );
+        }
+        collect_compact_attribute_object_reference_steps(
+            base,
+            &value.object_members,
+            &value.object_member_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        collect_compact_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        steps.push(CompactReferenceStep::VisibleTarget(current_path));
+    }
+}
+
+fn collect_compact_attribute_object_reference_steps(
+    base: &str,
+    members: &BTreeMap<String, AttributeValue>,
+    member_order: &[String],
+    steps: &mut Vec<CompactReferenceStep>,
+    shallow_event_values: bool,
+    prefix: String,
+) {
+    for key in member_order {
+        let Some(value) = members.get(key) else {
+            continue;
+        };
+        let next_prefix = format!("{prefix}{}", render_member_segment(key));
+        let current_path = format!("{base}{next_prefix}");
+        if let Some(entry_value) = &value.value {
+            append_compact_value_references(
+                unwrap_typed_value(entry_value),
+                &current_path,
+                &current_path,
+                shallow_event_values,
+                steps,
+            );
+        }
+        collect_compact_attribute_object_reference_steps(
+            base,
+            &value.object_members,
+            &value.object_member_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        collect_compact_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        steps.push(CompactReferenceStep::VisibleTarget(current_path));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token_parser::parse_document_from_tokens;
+    use crate::validation::compact_reference_steps;
+
+    #[test]
+    fn direct_compact_reference_tracking_matches_legacy_compaction() {
+        let bindings = parse_document_from_tokens(
+            "anchor = 1\n\
+             payload@{back = ~anchor, nested = { leaf = ~anchor }} = ~anchor\n\
+             items = [~anchor, ~items[0]]\n\
+             widget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
+            256,
+            256,
+            256,
+            256,
+            256,
+            256,
+        )
+        .expect("representative reference document should parse");
+
+        for shallow_event_values in [false, true] {
+            for binding in &bindings {
+                let parent_path = "$";
+                let path_text = render_child_member_path(parent_path, &binding.key);
+                let mut legacy_targets = HashSet::new();
+                let mut legacy_steps = Vec::new();
+                track_reference_binding(
+                    &mut legacy_targets,
+                    &mut legacy_steps,
+                    parent_path,
+                    &binding.key,
+                    &path_text,
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    &binding.value,
+                    shallow_event_values,
+                );
+
+                let mut compact_targets = HashSet::new();
+                let mut compact_steps = Vec::new();
+                track_compact_reference_binding(
+                    &mut compact_targets,
+                    &mut compact_steps,
+                    parent_path,
+                    &binding.key,
+                    &path_text,
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    &binding.value,
+                    shallow_event_values,
+                );
+
+                assert_eq!(compact_targets, legacy_targets);
+                assert_eq!(compact_steps, compact_reference_steps(&legacy_steps));
+
+                if let Value::ListNode { items } = unwrap_typed_value(&binding.value) {
+                    for (index, item) in items.iter().enumerate() {
+                        let mut legacy_targets = HashSet::new();
+                        let mut legacy_steps = Vec::new();
+                        track_reference_sequence_item(
+                            &mut legacy_targets,
+                            &mut legacy_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+
+                        let mut compact_targets = HashSet::new();
+                        let mut compact_steps = Vec::new();
+                        track_compact_reference_sequence_item(
+                            &mut compact_targets,
+                            &mut compact_steps,
+                            &path_text,
+                            index,
+                            item,
+                            shallow_event_values,
+                        );
+
+                        assert_eq!(compact_targets, legacy_targets);
+                        assert_eq!(compact_steps, compact_reference_steps(&legacy_steps));
+                    }
+                }
+            }
+        }
     }
 }
