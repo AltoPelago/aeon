@@ -238,15 +238,16 @@ impl ProgressiveValidationState {
     }
 
     fn observe_events(&mut self, events: &[crate::AssignmentEvent]) {
-        if self.event_path_error.is_none() {
-            self.event_path_error = validate_event_path_limits(events, &self.options);
-        }
-        let first_event_ordinal = self.event_count;
-        self.event_count = self.event_count.saturating_add(events.len());
         let rendered_paths = events
             .iter()
             .map(|event| format_path(&event.path))
             .collect::<Vec<_>>();
+        if self.event_path_error.is_none() {
+            self.event_path_error =
+                validate_event_path_limits(events, &rendered_paths, &self.options);
+        }
+        let first_event_ordinal = self.event_count;
+        self.event_count = self.event_count.saturating_add(events.len());
         for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
             if !self
                 .seen_event_paths

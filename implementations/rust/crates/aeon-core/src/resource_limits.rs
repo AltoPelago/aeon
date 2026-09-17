@@ -1,7 +1,7 @@
 use crate::pathing::format_reference_target;
 use crate::{
     AssignmentEvent, AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, Span,
-    TokenKind, Value, format_path, tokenize,
+    TokenKind, Value, tokenize,
 };
 
 pub(crate) fn validate_source_resource_limits(
@@ -86,9 +86,11 @@ pub(crate) fn structured_comment_limit_diagnostic(
 
 pub(crate) fn validate_event_path_limits(
     events: &[AssignmentEvent],
+    rendered_paths: &[String],
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
-    for event in events {
+    debug_assert_eq!(events.len(), rendered_paths.len());
+    for (event, rendered_path) in events.iter().zip(rendered_paths) {
         let depth = event.path.segments.len().saturating_sub(1);
         if depth > options.max_path_depth {
             return Some(exhausted(
@@ -98,7 +100,7 @@ pub(crate) fn validate_event_path_limits(
                 event.span,
             ));
         }
-        let characters = format_path(&event.path).chars().count();
+        let characters = rendered_path.chars().count();
         if characters > options.max_path_characters {
             return Some(exhausted(
                 "max_path_characters",

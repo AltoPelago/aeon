@@ -1039,7 +1039,9 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
-    if let Some(error) = validate_event_path_limits(&flattened.events, &options) {
+    if let Some(error) =
+        validate_event_path_limits(&flattened.events, &flattened.rendered_event_paths, &options)
+    {
         errors.push(error);
     }
     if let Some(max_events) = options.max_events
