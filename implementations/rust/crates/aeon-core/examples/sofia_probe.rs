@@ -3,7 +3,8 @@ use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "sofia-bench")]
 use aeon_core::benchmark_compile_sofia;
@@ -16,6 +17,7 @@ struct Args {
     parser: Parser,
     expected_valid: bool,
     max_value_nesting_depth: Option<usize>,
+    hold_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -101,6 +103,9 @@ fn run() -> Result<(), String> {
     }
 
     black_box(&result);
+    if args.hold_ms > 0 {
+        thread::sleep(Duration::from_millis(args.hold_ms));
+    }
     let mut error_codes = result
         .errors
         .iter()
@@ -117,6 +122,7 @@ fn run() -> Result<(), String> {
             "bytes": source.len(),
             "expected": if args.expected_valid { "valid" } else { "invalid" },
             "max_value_nesting_depth": args.max_value_nesting_depth,
+            "hold_ms": args.hold_ms,
             "elapsed_ns": elapsed_ns,
             "result": {
                 "valid": valid,
@@ -137,6 +143,7 @@ fn parse_args() -> Result<Args, String> {
     let mut parser = Parser::Baseline;
     let mut expected_valid = true;
     let mut max_value_nesting_depth = None;
+    let mut hold_ms = 0;
     let mut raw = env::args().skip(1);
     while let Some(arg) = raw.next() {
         match arg.as_str() {
@@ -161,6 +168,11 @@ fn parse_args() -> Result<Args, String> {
                         .map_err(|error| format!("invalid nesting-depth limit: {error}"))?,
                 );
             }
+            "--hold-ms" => {
+                hold_ms = required_value(&mut raw, "--hold-ms")?
+                    .parse::<u64>()
+                    .map_err(|error| format!("invalid hold duration: {error}"))?;
+            }
             value if value.starts_with('-') => return Err(format!("unknown option: {value}")),
             value => {
                 if input.replace(PathBuf::from(value)).is_some() {
@@ -174,6 +186,7 @@ fn parse_args() -> Result<Args, String> {
         parser,
         expected_valid,
         max_value_nesting_depth,
+        hold_ms,
     })
 }
 
@@ -184,6 +197,6 @@ fn required_value(args: &mut impl Iterator<Item = String>, option: &str) -> Resu
 
 fn usage() -> String {
     String::from(
-        "usage: sofia_probe [--parser baseline|sofia] [--expected valid|invalid] [--max-value-nesting-depth N] <input>",
+        "usage: sofia_probe [--parser baseline|sofia] [--expected valid|invalid] [--max-value-nesting-depth N] [--hold-ms N] <input>",
     )
 }
