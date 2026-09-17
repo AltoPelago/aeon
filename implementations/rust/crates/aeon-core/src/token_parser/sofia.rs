@@ -398,7 +398,9 @@ impl<'a> ParserSession<'a> {
                     let mut document = None;
                     let mut unwound = Vec::new();
                     while let Some(parent) = self.frames.pop() {
-                        unwound.push(parent.clone());
+                        if !final_input {
+                            unwound.push(parent.clone());
+                        }
                         if let Frame::Document(frame) = parent {
                             document = Some(frame);
                             break;
