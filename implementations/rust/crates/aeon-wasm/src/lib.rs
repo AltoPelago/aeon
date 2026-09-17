@@ -17,7 +17,7 @@ use aes_telex::{
     Diagnostic as TelexDiagnostic, TelexLimits, TelexSyntaxError, canonicalize_telex_with_limits,
     check_prefix_completeness, parse_telex_with_limits, validate_telex_with_limits,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use wasm_bindgen::prelude::*;
 
@@ -46,6 +46,27 @@ struct ProcessOptions {
     finalize_scope: String,
     #[serde(default)]
     include_paths: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProcessResponse {
+    canonical: String,
+    finalized: JsonValue,
+    annotations: Vec<JsonValue>,
+    events: Vec<ProcessEvent>,
+    warnings: Vec<JsonValue>,
+    errors: Vec<JsonValue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessEvent {
+    path: String,
+    key: String,
+    datatype: Option<String>,
+    value_type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structural_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -119,10 +140,8 @@ pub fn benchmark_process_aeon_wasm(source: &str, options_json: &str) -> Result<u
 pub fn benchmark_process_aeon(source: &str, options_json: &str) -> Result<u32, String> {
     let options = parse_process_options(options_json)?;
     let result = process(source, &options);
-    let top_level_fields = u32::try_from(result.as_object().map_or(0, serde_json::Map::len))
-        .map_err(|_| String::from("response field count exceeds u32"))?;
     black_box(&result);
-    Ok(top_level_fields)
+    Ok(6)
 }
 
 fn parse_process_options(options_json: &str) -> Result<ProcessOptions, String> {
@@ -455,15 +474,15 @@ fn telex_diagnostic_json(diagnostic: &TelexDiagnostic) -> JsonValue {
     })
 }
 
-fn process(source: &str, options: &ProcessOptions) -> JsonValue {
+fn process(source: &str, options: &ProcessOptions) -> ProcessResponse {
     if source.len() > options.max_input_bytes {
-        return json!({
-            "canonical": "",
-            "finalized": null,
-            "annotations": [],
-            "events": [],
-            "warnings": [],
-            "errors": [{
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations: Vec::new(),
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: vec![json!({
                 "code": "INPUT_SIZE_EXCEEDED",
                 "path": "$",
                 "span": {
@@ -476,52 +495,52 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
                     source.len(),
                     options.max_input_bytes
                 ),
-            }],
-        });
+            })],
+        };
     }
 
     let canonical = canonicalize(source);
     let annotations = annotations_json(source);
 
     if !canonical.errors.is_empty() {
-        return json!({
-            "canonical": "",
-            "finalized": null,
-            "annotations": annotations,
-            "events": [],
-            "warnings": [],
-            "errors": diagnostics_json(&canonical.errors),
-        });
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations,
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: diagnostics_json(&canonical.errors),
+        };
     }
 
     if options.validation_mode == "none" {
-        return json!({
-            "canonical": canonical.text,
-            "finalized": null,
-            "annotations": annotations,
-            "events": [],
-            "warnings": [],
-            "errors": [],
-        });
+        return ProcessResponse {
+            canonical: canonical.text,
+            finalized: JsonValue::Null,
+            annotations,
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
     }
 
     let compile_result = compile_sofia(source, compile_options(options));
 
-    let events = events_json(
+    let events = process_events(
         &compile_result.events,
         compile_result.header.as_ref(),
         &options.finalize_scope,
     );
 
     if !compile_result.errors.is_empty() {
-        return json!({
-            "canonical": canonical.text,
-            "finalized": null,
-            "annotations": annotations,
-            "events": events,
-            "warnings": diagnostics_json(&compile_result.warnings),
-            "errors": diagnostics_json(&compile_result.errors),
-        });
+        return ProcessResponse {
+            canonical: canonical.text,
+            finalized: JsonValue::Null,
+            annotations,
+            events,
+            warnings: diagnostics_json(&compile_result.warnings),
+            errors: diagnostics_json(&compile_result.errors),
+        };
     }
 
     let finalized = finalize_json(
@@ -535,14 +554,14 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         .cloned()
         .collect::<Vec<_>>();
 
-    json!({
-        "canonical": canonical.text,
-        "finalized": finalized.document,
-        "annotations": annotations,
-        "events": events,
-        "warnings": diagnostics_json(&warnings),
-        "errors": diagnostics_json(&finalized.meta.errors),
-    })
+    ProcessResponse {
+        canonical: canonical.text,
+        finalized: finalized.document,
+        annotations,
+        events,
+        warnings: diagnostics_json(&warnings),
+        errors: diagnostics_json(&finalized.meta.errors),
+    }
 }
 
 fn compile_options(options: &ProcessOptions) -> CompileOptions {
@@ -663,11 +682,11 @@ fn annotation_json(record: &AnnotationRecord) -> JsonValue {
     payload
 }
 
-fn events_json(
+fn process_events(
     events: &[AssignmentEvent],
     header: Option<&HeaderFields>,
     scope: &str,
-) -> Vec<JsonValue> {
+) -> Vec<ProcessEvent> {
     let mut output = Vec::new();
 
     if matches!(scope, "header" | "full")
@@ -681,27 +700,23 @@ fn events_json(
             let Some(value) = header.fields.get(key) else {
                 continue;
             };
-            output.push(json!({
-                "path": format!("$.[\"aeon:{key}\"]"),
-                "key": format!("aeon:{key}"),
-                "datatype": null,
-                "valueType": value_type_name(value),
-            }));
+            output.push(ProcessEvent {
+                path: format!("$.[\"aeon:{key}\"]"),
+                key: format!("aeon:{key}"),
+                datatype: None,
+                value_type: value_type_name(value),
+                structural_id: None,
+            });
         }
     }
 
     if scope != "header" {
-        output.extend(events.iter().map(|event| {
-            let mut event_json = json!({
-                "path": format_path(&event.path),
-                "key": event.key,
-                "datatype": event.datatype,
-                "valueType": value_type_name(&event.value),
-            });
-            if let Some(structural_id) = &event.structural_id {
-                event_json["structuralId"] = json!(structural_id);
-            }
-            event_json
+        output.extend(events.iter().map(|event| ProcessEvent {
+            path: format_path(&event.path),
+            key: event.key.clone(),
+            datatype: event.datatype.clone(),
+            value_type: value_type_name(&event.value),
+            structural_id: event.structural_id.clone(),
         }));
     }
 
@@ -870,6 +885,19 @@ mod tests {
             benchmark_process_aeon("a:string = \"ok\"\n", "{}").expect("benchmark process aeon");
 
         assert_eq!(fields, 6);
+    }
+
+    #[test]
+    fn typed_event_response_preserves_public_field_names_and_optional_identity() {
+        let output = process_aeon_json("age\\A1\\:int32 = 42\n", "{}").expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+        let event = &parsed["events"][0];
+
+        assert_eq!(event["path"], "$.age");
+        assert_eq!(event["key"], "age");
+        assert_eq!(event["datatype"], "int32");
+        assert_eq!(event["valueType"], "NumberLiteral");
+        assert_eq!(event["structuralId"], "A1");
     }
 
     #[test]
