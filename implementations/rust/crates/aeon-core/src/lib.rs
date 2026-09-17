@@ -62,7 +62,8 @@ pub use limits::{
 #[cfg(feature = "sofia-bench")]
 #[doc(hidden)]
 pub use progressive::{
-    ProgressiveBenchmarkReport, ProgressiveRetentionSnapshot, benchmark_compact_progressive_sofia,
+    ProgressiveBenchmarkReport, ProgressiveRetentionBounds, ProgressiveRetentionSnapshot,
+    benchmark_compact_progressive_sofia,
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::{

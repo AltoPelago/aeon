@@ -125,6 +125,17 @@ fn report_json(args: &Args, elapsed_ns: u128, report: &ProgressiveBenchmarkRepor
             "terminal_has_header": report.result.header.is_some(),
         },
         "retention": {
+            "bounds": {
+                "verified": true,
+                "max_lexer_active_bytes": report.retention_bounds.max_lexer_active_bytes,
+                "max_ready_batch_count": report.retention_bounds.max_ready_batch_count,
+                "max_ready_event_count": report.retention_bounds.max_ready_event_count,
+                "max_ready_event_slot_bytes": report.retention_bounds.max_ready_event_slot_bytes,
+                "completed_binding_count": 0,
+                "completed_binding_storage_bytes": 0,
+                "staged_event_slot_bytes": 0,
+                "compact_source_and_terminal_storage_bytes": 0,
+            },
             "peak_accounted_shallow_bytes": report.peak_accounted_shallow_bytes,
             "peaks": retention_json(report.retention_peaks),
         },

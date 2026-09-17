@@ -1682,7 +1682,7 @@ fn bounded_char_boundary(input: &str, allowance: usize) -> usize {
     }
 }
 
-fn retained_token_byte_limit(options: &CompileOptions) -> usize {
+pub(crate) fn retained_token_byte_limit(options: &CompileOptions) -> usize {
     // A valid quoted scalar may use the ten-byte `\u{10ffff}` spelling. A
     // single string token can later become a value, key, or quoted path
     // segment, so retain enough for the largest applicable semantic limit.

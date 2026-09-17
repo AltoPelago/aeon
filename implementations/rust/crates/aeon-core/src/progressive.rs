@@ -7,6 +7,7 @@ use std::num::NonZeroUsize;
 
 use crate::flatten::{FlattenEventCursor, FlattenValidationCursor, ValidationReferenceStep};
 use crate::header::IncrementalHeaderState;
+use crate::lexer::retained_token_byte_limit;
 use crate::resource_limits::{validate_binding_resource_limits, validate_event_path_limits};
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
@@ -900,6 +901,90 @@ pub struct ProgressiveRetentionSnapshot {
     pub terminal_event_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgressiveRetentionBounds {
+    pub max_lexer_active_bytes: usize,
+    pub max_ready_batch_count: usize,
+    pub max_ready_event_count: usize,
+    pub max_ready_event_slot_bytes: usize,
+}
+
+impl ProgressiveRetentionBounds {
+    fn new(
+        options: &CompileOptions,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+    ) -> Self {
+        let max_ready_event_count = max_batch_events
+            .get()
+            .saturating_mul(max_pending_batches.get());
+        Self {
+            max_lexer_active_bytes: retained_token_byte_limit(options),
+            max_ready_batch_count: max_pending_batches.get(),
+            max_ready_event_count,
+            max_ready_event_slot_bytes: max_ready_event_count
+                .saturating_mul(std::mem::size_of::<crate::AssignmentEvent>()),
+        }
+    }
+
+    fn validate(self, retention: ProgressiveRetentionSnapshot) -> Result<(), String> {
+        let mut violations = Vec::new();
+        if retention.lexer_active_bytes > self.max_lexer_active_bytes {
+            violations.push(format!(
+                "lexer active bytes {} exceed {}",
+                retention.lexer_active_bytes, self.max_lexer_active_bytes
+            ));
+        }
+        if retention.ready_batch_count > self.max_ready_batch_count {
+            violations.push(format!(
+                "ready batches {} exceed {}",
+                retention.ready_batch_count, self.max_ready_batch_count
+            ));
+        }
+        if retention.ready_event_count > self.max_ready_event_count {
+            violations.push(format!(
+                "ready events {} exceed {}",
+                retention.ready_event_count, self.max_ready_event_count
+            ));
+        }
+        if retention.ready_event_slot_bytes > self.max_ready_event_slot_bytes {
+            violations.push(format!(
+                "ready event slots {} bytes exceed {} bytes",
+                retention.ready_event_slot_bytes, self.max_ready_event_slot_bytes
+            ));
+        }
+        if retention.staged_event_slot_bytes != 0 {
+            violations.push(format!(
+                "staged events retain {} materialized slot bytes",
+                retention.staged_event_slot_bytes
+            ));
+        }
+        if retention.completed_binding_count != 0 || retention.completed_binding_storage_bytes != 0
+        {
+            violations.push(format!(
+                "parser retains {} completed bindings in {} bytes of slots",
+                retention.completed_binding_count, retention.completed_binding_storage_bytes
+            ));
+        }
+        if retention.compact_output
+            && (retention.source_retained
+                || retention.source_bytes != 0
+                || retention.source_capacity_bytes != 0
+                || retention.terminal_source_capacity_bytes != 0
+                || retention.terminal_event_count != 0)
+        {
+            violations.push(String::from(
+                "compact output retains source or terminal result storage",
+            ));
+        }
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations.join("; "))
+        }
+    }
+}
+
 impl ProgressiveRetentionSnapshot {
     pub(crate) fn accounted_shallow_bytes(&self) -> usize {
         self.source_capacity_bytes
@@ -987,6 +1072,7 @@ pub struct ProgressiveBenchmarkReport {
     pub accepted_event_count: Option<usize>,
     pub delivered_event_count: usize,
     pub exposed_event_count: usize,
+    pub retention_bounds: ProgressiveRetentionBounds,
     pub peak_accounted_shallow_bytes: usize,
     pub retention_peaks: ProgressiveRetentionSnapshot,
 }
@@ -998,6 +1084,7 @@ pub(crate) struct ProgressiveCompiler {
     source: Option<String>,
     accepted_input_bytes: usize,
     terminal_validation_retention: Option<ProgressiveValidationRetention>,
+    retention_bounds: ProgressiveRetentionBounds,
     max_pending_batches: NonZeroUsize,
     pending: VecDeque<ProvisionalEventBatch>,
     terminal_output: Option<ProgressivePendingOutput>,
@@ -1061,6 +1148,8 @@ impl ProgressiveCompiler {
         max_pending_batches: NonZeroUsize,
         output_mode: ProgressiveOutputMode,
     ) -> Self {
+        let retention_bounds =
+            ProgressiveRetentionBounds::new(&options, max_batch_events, max_pending_batches);
         Self {
             frontend: Some(ProgressiveSofiaFrontend::new(&options, max_batch_events)),
             options: Some(options),
@@ -1068,6 +1157,7 @@ impl ProgressiveCompiler {
             source: matches!(output_mode, ProgressiveOutputMode::Rich(_)).then(String::new),
             accepted_input_bytes: 0,
             terminal_validation_retention: None,
+            retention_bounds,
             max_pending_batches,
             pending: VecDeque::new(),
             terminal_output: None,
@@ -1188,6 +1278,10 @@ impl ProgressiveCompiler {
             terminal_source_capacity_bytes,
             terminal_event_count,
         }
+    }
+
+    fn validate_retention_bounds(&self) -> Result<(), String> {
+        self.retention_bounds.validate(self.retention())
     }
 
     pub(crate) fn is_backpressured(&self) -> bool {
@@ -1449,11 +1543,13 @@ fn observe_benchmark_retention(
     compiler: &ProgressiveCompiler,
     peaks: &mut ProgressiveRetentionSnapshot,
     peak_accounted_shallow_bytes: &mut usize,
-) {
+) -> Result<(), String> {
     let current = compiler.retention();
+    compiler.retention_bounds.validate(current)?;
     *peak_accounted_shallow_bytes =
         (*peak_accounted_shallow_bytes).max(current.accounted_shallow_bytes());
     peaks.observe_peak(current);
+    Ok(())
 }
 
 #[cfg(feature = "sofia-bench")]
@@ -1466,6 +1562,7 @@ fn drain_benchmark_backpressure(
             .pull_batch()
             .ok_or_else(|| String::from("progressive backpressure had no pending batch"))?;
         *delivered_event_count = delivered_event_count.saturating_add(batch.events().len());
+        compiler.validate_retention_bounds()?;
     }
     Ok(())
 }
@@ -1494,7 +1591,7 @@ pub fn benchmark_compact_progressive_sofia(
     let mut delivered_event_count = 0usize;
     let mut peaks = ProgressiveRetentionSnapshot::default();
     let mut peak_accounted_shallow_bytes = 0usize;
-    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes)?;
 
     loop {
         let read = reader
@@ -1520,11 +1617,13 @@ pub fn benchmark_compact_progressive_sofia(
                     lifecycle_error = Some(format!("progressive push failed: {error:?}"));
                     return;
                 }
-                observe_benchmark_retention(
+                if let Err(error) = observe_benchmark_retention(
                     &compiler,
                     &mut peaks,
                     &mut peak_accounted_shallow_bytes,
-                );
+                ) {
+                    lifecycle_error = Some(error);
+                }
             })
             .map_err(|error| {
                 format!(
@@ -1549,7 +1648,7 @@ pub fn benchmark_compact_progressive_sofia(
         let progress = compiler
             .finish()
             .map_err(|error| format!("progressive finish failed: {error:?}"))?;
-        observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+        observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes)?;
         match progress {
             ProgressiveLifecycleProgress::Backpressured { .. } => {}
             ProgressiveLifecycleProgress::Draining { .. }
@@ -1560,7 +1659,7 @@ pub fn benchmark_compact_progressive_sofia(
     while let Some(batch) = compiler.pull_batch() {
         delivered_event_count = delivered_event_count.saturating_add(batch.events().len());
     }
-    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes);
+    observe_benchmark_retention(&compiler, &mut peaks, &mut peak_accounted_shallow_bytes)?;
 
     let terminal = compiler
         .take_terminal()
@@ -1581,6 +1680,7 @@ pub fn benchmark_compact_progressive_sofia(
         accepted_event_count,
         delivered_event_count,
         exposed_event_count,
+        retention_bounds: compiler.retention_bounds,
         peak_accounted_shallow_bytes,
         retention_peaks: peaks,
     })
@@ -2235,6 +2335,17 @@ mod tests {
         assert_eq!(report.accepted_event_count, Some(2));
         assert_eq!(report.delivered_event_count, 2);
         assert_eq!(report.exposed_event_count, 2);
+        assert_eq!(report.retention_bounds.max_lexer_active_bytes, 1_024);
+        assert_eq!(report.retention_bounds.max_ready_batch_count, 2);
+        assert_eq!(report.retention_bounds.max_ready_event_count, 2);
+        assert_eq!(
+            report.retention_bounds.max_ready_event_slot_bytes,
+            2 * std::mem::size_of::<crate::AssignmentEvent>()
+        );
+        report
+            .retention_bounds
+            .validate(report.retention_peaks)
+            .expect("reported compact retention must satisfy its bounds");
         assert_eq!(report.retention_peaks.accepted_input_bytes, source.len());
         assert!(report.retention_peaks.compact_output);
         assert!(!report.retention_peaks.source_retained);
@@ -2242,6 +2353,43 @@ mod tests {
         assert_eq!(report.retention_peaks.source_capacity_bytes, 0);
         assert_eq!(report.retention_peaks.terminal_source_capacity_bytes, 0);
         assert_eq!(report.retention_peaks.terminal_event_count, 0);
+    }
+
+    #[test]
+    fn compact_retention_bounds_reject_every_constant_bound_violation() {
+        let bounds = ProgressiveRetentionBounds::new(
+            &CompileOptions::default(),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+            NonZeroUsize::new(3).expect("three is non-zero"),
+        );
+        let retention = ProgressiveRetentionSnapshot {
+            compact_output: true,
+            source_retained: true,
+            lexer_active_bytes: bounds.max_lexer_active_bytes + 1,
+            completed_binding_count: 1,
+            completed_binding_storage_bytes: 1,
+            ready_batch_count: bounds.max_ready_batch_count + 1,
+            ready_event_count: bounds.max_ready_event_count + 1,
+            ready_event_slot_bytes: bounds.max_ready_event_slot_bytes + 1,
+            staged_event_slot_bytes: 1,
+            terminal_event_count: 1,
+            ..ProgressiveRetentionSnapshot::default()
+        };
+
+        let error = bounds
+            .validate(retention)
+            .expect_err("every configured compact retention bound is exceeded");
+        for category in [
+            "lexer active bytes",
+            "ready batches",
+            "ready events",
+            "ready event slots",
+            "staged events",
+            "completed bindings",
+            "compact output",
+        ] {
+            assert!(error.contains(category), "missing {category}: {error}");
+        }
     }
 
     #[test]
