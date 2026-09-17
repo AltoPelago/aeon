@@ -663,6 +663,18 @@ pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
 #[doc(hidden)]
 #[must_use]
 pub fn benchmark_compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
+    compile_sofia(input, options)
+}
+
+/// Compiles through the Sofia engine for feature-gated runtime adapters.
+///
+/// This is an internal integration boundary rather than a stable public
+/// parser-selection API. Runtime packages opt in at build time so applications
+/// cannot switch semantic engines per call.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[must_use]
+pub fn compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
     let source = String::from_utf8(input.as_bytes().to_vec())
         .expect("a borrowed Rust string must remain valid UTF-8 after copying");
     compile_owned_with_implementation(source, options, ParserImplementation::Sofia)

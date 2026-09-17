@@ -11,7 +11,8 @@ aes-telex.workspace = true
 sha2.workspace = true
 
 [features]
-sofia-bench = []
+sofia = []
+sofia-bench = ["sofia"]
 sofia-fuzz = []
 
 [dev-dependencies]

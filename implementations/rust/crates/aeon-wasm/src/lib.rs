@@ -6,7 +6,7 @@ use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment, Span, Value,
-    compile, effective_telex_configuration, format_path, load_aeonic_limits,
+    compile_sofia, effective_telex_configuration, format_path, load_aeonic_limits,
     normalize_number_literal,
 };
 use aeon_finalize::{
@@ -505,7 +505,7 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         });
     }
 
-    let compile_result = compile(source, compile_options(options));
+    let compile_result = compile_sofia(source, compile_options(options));
 
     let events = events_json(
         &compile_result.events,
@@ -629,6 +629,9 @@ fn span_json(span: &Span) -> JsonValue {
 }
 
 fn annotations_json(source: &str) -> Vec<JsonValue> {
+    if !source.as_bytes().contains(&b'/') {
+        return Vec::new();
+    }
     sort_annotations(extract_annotations(source))
         .iter()
         .map(annotation_json)
