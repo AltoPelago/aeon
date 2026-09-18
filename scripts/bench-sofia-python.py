@@ -176,18 +176,28 @@ def measure_case(
 ) -> dict[str, Any]:
     import altopelago.aeon as aeon  # pylint: disable=import-outside-toplevel
     from altopelago.aeon import _native  # pylint: disable=import-outside-toplevel
-    from altopelago.aeon._api import _compile_result  # pylint: disable=import-outside-toplevel
+    from altopelago.aeon._api import (  # pylint: disable=import-outside-toplevel
+        _compile_result,
+        _compile_result_packed,
+    )
 
     source = case["path"].read_text()
     raw_preflight = _native.compile_json(source)
     decoded_preflight = json.loads(raw_preflight)
     result_preflight = _compile_result(decoded_preflight)
+    packed_preflight = _native.compile_packed(source)
+    packed_result_preflight = _compile_result_packed(packed_preflight)
+    native_object_preflight = _native.compile_native(source)
     public_preflight = aeon.compile(source)
     expected_valid = case["expected"] == "valid"
     if result_preflight.ok != expected_valid or public_preflight.ok != expected_valid:
         raise RuntimeError(f"installed wheel misclassified {case['id']}")
-    if result_preflight != public_preflight:
-        raise RuntimeError(f"private and public compile results differ for {case['id']}")
+    if (
+        result_preflight != packed_result_preflight
+        or packed_result_preflight != native_object_preflight
+        or native_object_preflight != public_preflight
+    ):
+        raise RuntimeError(f"private protocols and public compile result differ for {case['id']}")
 
     event_count = len(public_preflight.events)
     native = native_measurement(case, native_binary, iterations, warmup)
@@ -195,8 +205,13 @@ def measure_case(
         raise RuntimeError(f"native and Python event counts differ for {case['id']}")
 
     native_json = measure(lambda: _native.compile_json(source), iterations, warmup)
-    conversion = measure(
+    native_packed = measure(lambda: _native.compile_packed(source), iterations, warmup)
+    native_object = measure(lambda: _native.compile_native(source), iterations, warmup)
+    json_conversion = measure(
         lambda: _compile_result(json.loads(raw_preflight)), iterations, warmup
+    )
+    conversion = measure(
+        lambda: _compile_result_packed(packed_preflight), iterations, warmup
     )
     ergonomic = measure(lambda: aeon.compile(source), iterations, warmup)
     encoded = (
@@ -207,6 +222,9 @@ def measure_case(
 
     native_median = native["compile"]["median_ns"]
     raw_median = native_json["median_ns"]
+    packed_median = native_packed["median_ns"]
+    native_object_median = native_object["median_ns"]
+    json_conversion_median = json_conversion["median_ns"]
     conversion_median = conversion["median_ns"]
     ergonomic_median = ergonomic["median_ns"]
     encoded_median = encoded["median_ns"] if encoded is not None else None
@@ -233,8 +251,29 @@ def measure_case(
             "median_over_native_ratio": raw_median / native_median,
             "throughput_mib_per_second": throughput_mib_per_second(case["bytes"], raw_median),
         },
+        "native_packed_envelope": {
+            **native_packed,
+            "median_over_native_ratio": packed_median / native_median,
+            "throughput_mib_per_second": throughput_mib_per_second(
+                case["bytes"], packed_median
+            ),
+        },
+        "native_object_result": {
+            **native_object,
+            "median_over_native_ratio": native_object_median / native_median,
+            "throughput_mib_per_second": throughput_mib_per_second(
+                case["bytes"], native_object_median
+            ),
+        },
+        "python_json_result_conversion": {
+            **json_conversion,
+            "median_ns_per_event": (
+                json_conversion_median / event_count if event_count else None
+            ),
+        },
         "python_result_conversion": {
             **conversion,
+            "method": "cached-packed-python-constructor-upper-bound",
             "median_ns_per_event": conversion_median / event_count if event_count else None,
         },
         "ergonomic_compile": {
@@ -319,8 +358,12 @@ def main() -> int:
         )
 
     package = distribution("altopelago-aeon")
+    from altopelago.aeon import _native  # pylint: disable=import-outside-toplevel
+
+    if _native.ENGINE != "sofia":
+        raise RuntimeError(f"installed wheel uses unexpected engine: {_native.ENGINE}")
     output = {
-        "schema": "aeon.sofia.python-boundary.v1",
+        "schema": "aeon.sofia.python-boundary.v3",
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "variant": args.variant,
         "aeon_revision": command_output(["git", "rev-parse", "HEAD"]),
@@ -333,6 +376,8 @@ def main() -> int:
         "package": {
             "name": package.metadata["Name"],
             "version": package.version,
+            "engine": _native.ENGINE,
+            "ergonomic_protocol": "native-objects-v1",
             "wheel": args.wheel.name,
             "wheel_bytes": args.wheel.stat().st_size,
             "wheel_sha256": file_sha256(args.wheel),

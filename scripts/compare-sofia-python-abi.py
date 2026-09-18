@@ -12,7 +12,23 @@ from pathlib import Path
 from typing import Any
 
 
-METRICS = ("native_json_envelope", "ergonomic_compile", "encoded_telex")
+METRICS_BY_SCHEMA = {
+    "aeon.sofia.python-boundary.v1": (
+        "native_json_envelope",
+        "ergonomic_compile",
+        "encoded_telex",
+    ),
+    "aeon.sofia.python-boundary.v2": (
+        "native_packed_envelope",
+        "ergonomic_compile",
+        "encoded_telex",
+    ),
+    "aeon.sofia.python-boundary.v3": (
+        "native_object_result",
+        "ergonomic_compile",
+        "encoded_telex",
+    ),
+}
 MINIMUM_CAPTURES = 3
 
 
@@ -26,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 def load(paths: list[Path], expected_variant: str) -> list[dict[str, Any]]:
     captures = [json.loads(path.read_text()) for path in paths]
-    if any(capture["schema"] != "aeon.sofia.python-boundary.v1" for capture in captures):
+    if any(capture["schema"] not in METRICS_BY_SCHEMA for capture in captures):
         raise RuntimeError("unexpected capture schema")
     if any(capture["variant"] != expected_variant for capture in captures):
         raise RuntimeError(f"capture variant does not match {expected_variant}")
@@ -87,6 +103,10 @@ def main() -> int:
         raise RuntimeError("exact and abi3 captures use different AEON revisions")
     if exact[0]["environment"] != abi3[0]["environment"]:
         raise RuntimeError("exact and abi3 captures use different environments")
+    if exact[0]["schema"] != abi3[0]["schema"]:
+        raise RuntimeError("exact and abi3 captures use different schemas")
+
+    metrics_to_compare = METRICS_BY_SCHEMA[exact[0]["schema"]]
 
     exact_cases = case_map(exact[0])
     abi3_cases = case_map(abi3[0])
@@ -97,12 +117,12 @@ def main() -> int:
             raise RuntimeError(f"corpus digest differs for {case_id}")
 
     comparisons = []
-    metric_ratios: dict[str, list[float]] = {metric: [] for metric in METRICS}
-    large_ratios: dict[str, list[float]] = {metric: [] for metric in METRICS}
+    metric_ratios: dict[str, list[float]] = {metric: [] for metric in metrics_to_compare}
+    large_ratios: dict[str, list[float]] = {metric: [] for metric in metrics_to_compare}
     for case_id, exact_case in exact_cases.items():
         metrics = {}
         is_large = "large" in exact_case["categories"]
-        for metric in METRICS:
+        for metric in metrics_to_compare:
             exact_ns = aggregate_metric(exact, case_id, metric)
             abi3_ns = aggregate_metric(abi3, case_id, metric)
             ratio = abi3_ns / exact_ns if exact_ns is not None and abi3_ns is not None else None
@@ -120,7 +140,7 @@ def main() -> int:
         )
 
     summary = {}
-    for metric in METRICS:
+    for metric in metrics_to_compare:
         geomean = geometric_mean(metric_ratios[metric])
         maximum_large = max(large_ratios[metric]) if large_ratios[metric] else None
         summary[metric] = {

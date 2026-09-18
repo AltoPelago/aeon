@@ -29,8 +29,9 @@ python -m unittest discover -s tests
 ```
 
 `compile()` copies the input into Rust before releasing Python's interpreter
-lock. Its returned dataclasses and strings are Python-owned and do not borrow
-Rust storage. `compile_to_telex()` follows the same input-copy rule and returns
+lock. Its returned frozen, slotted native value objects own their Rust strings
+and create Python scalar values on property access; nothing borrows compiler
+storage. `compile_to_telex()` follows the same input-copy rule and returns
 Python-owned `bytes`; on its successful path it does not materialize an object
 for every AES event.
 

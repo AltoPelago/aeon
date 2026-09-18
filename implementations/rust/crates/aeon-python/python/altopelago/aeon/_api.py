@@ -12,10 +12,10 @@ def compile(source: str) -> CompileResult:
     """Compile one complete AEON source string with the native Rust engine."""
 
     try:
-        payload = json.loads(_native.compile_json(source))
+        result = _native.compile_native(source)
     except RuntimeError as error:
         raise NativeError(str(error)) from error
-    return _compile_result(payload)
+    return result
 
 
 def compile_to_telex(source: str) -> bytes:
@@ -36,6 +36,47 @@ def _compile_result(payload: dict[str, Any]) -> CompileResult:
         events=tuple(_event(item) for item in payload["events"]),
         warnings=tuple(_diagnostic(item) for item in payload["warnings"]),
         errors=tuple(_diagnostic(item) for item in payload["errors"]),
+    )
+
+
+def _compile_result_packed(payload: tuple[Any, Any, Any]) -> CompileResult:
+    events, warnings, errors = payload
+    return CompileResult(
+        events=tuple(_event_packed(item) for item in events),
+        warnings=tuple(_diagnostic_packed(item) for item in warnings),
+        errors=tuple(_diagnostic_packed(item) for item in errors),
+    )
+
+
+def _event_packed(payload: tuple[Any, ...]) -> Event:
+    path, key, source_plane, datatype, value_type, structural_id, span = payload
+    return Event(
+        path=path,
+        key=key,
+        source_plane=source_plane,
+        datatype=datatype,
+        value_type=value_type,
+        structural_id=structural_id,
+        span=_span_packed(span),
+    )
+
+
+def _diagnostic_packed(payload: tuple[Any, ...]) -> Diagnostic:
+    code, message, path, span, phase = payload
+    return Diagnostic(
+        code=code,
+        message=message,
+        path=path,
+        span=_span_packed(span) if span is not None else None,
+        phase=phase,
+    )
+
+
+def _span_packed(payload: tuple[int, int, int, int, int, int]) -> Span:
+    start_line, start_column, start_offset, end_line, end_column, end_offset = payload
+    return Span(
+        start=Position(line=start_line, column=start_column, offset=start_offset),
+        end=Position(line=end_line, column=end_column, offset=end_offset),
     )
 
 
