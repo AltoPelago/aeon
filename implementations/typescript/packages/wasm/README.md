@@ -148,6 +148,21 @@ If a worker receives `accepted: false`, its owner must resend the same message
 after the reported batches have been pulled. The worker should not apply
 provisional effects irreversibly before the accepted terminal result.
 
+## Browser smoke test
+
+From the repository root, start the deterministic same-origin fixture:
+
+```sh
+npm run test:sofia:wasm:browser:serve
+```
+
+Open the printed localhost URL in a browser. The page reports `PASS` only after
+the committed generated WASM succeeds on the main thread and in a module Web
+Worker. The worker case transfers byte chunks, uses one-event bounded batches,
+checks contiguous sequencing, and requires an accepted terminal result. The
+server sends cross-origin isolation headers so this fixture also matches the
+deployment prerequisites for future threaded-WASM experiments.
+
 ## Build
 
 Build the TypeScript wrapper:
