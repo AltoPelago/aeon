@@ -12,7 +12,7 @@ use crate::resource_limits::{validate_binding_resource_limits, validate_event_pa
 use crate::token_parser::{
     IncrementalSofiaFrontend, IncrementalSofiaRetention, ParserImplementation,
 };
-#[cfg(feature = "sofia-bench")]
+#[cfg(feature = "sofia")]
 use crate::utf8_decoder::Utf8Decoder;
 use crate::validation::{
     CompactDatatypeValue, CompactReferenceStep, compact_reference_steps,
@@ -1113,6 +1113,118 @@ pub(crate) enum ProgressiveOutputMode {
     Rich(SourceRetention),
 }
 
+/// Feature-gated streaming state used by runtime adapters.
+///
+/// This is an integration boundary for the WASM and future Python packages,
+/// not a stable parser-selection API.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SofiaStreamState {
+    Accepting,
+    Draining,
+    TerminalReady,
+    Complete,
+}
+
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SofiaStreamProgress {
+    NeedMoreInput {
+        pending_batches: usize,
+    },
+    BatchAvailable {
+        pending_batches: usize,
+        backpressured: bool,
+    },
+    /// The attempted input or finish operation was not consumed.
+    Backpressured {
+        pending_batches: usize,
+    },
+    Draining {
+        pending_batches: usize,
+    },
+    TerminalReady,
+}
+
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SofiaStreamBatch {
+    sequence: usize,
+    first_event_index: usize,
+    events: Vec<AssignmentEvent>,
+}
+
+#[cfg(feature = "sofia")]
+impl SofiaStreamBatch {
+    #[must_use]
+    pub const fn sequence(&self) -> usize {
+        self.sequence
+    }
+
+    #[must_use]
+    pub const fn first_event_index(&self) -> usize {
+        self.first_event_index
+    }
+
+    #[must_use]
+    pub fn events(&self) -> &[AssignmentEvent] {
+        &self.events
+    }
+
+    #[must_use]
+    pub fn into_events(self) -> Vec<AssignmentEvent> {
+        self.events
+    }
+}
+
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SofiaStreamTerminal {
+    Accepted {
+        event_count: usize,
+    },
+    Invalidated {
+        errors: Vec<Diagnostic>,
+        warnings: Vec<Diagnostic>,
+        exposed_event_count: usize,
+    },
+    Cancelled {
+        exposed_event_count: usize,
+    },
+}
+
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SofiaStreamError {
+    operation: &'static str,
+    state: SofiaStreamState,
+}
+
+#[cfg(feature = "sofia")]
+impl std::fmt::Display for SofiaStreamError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "cannot {} Sofia stream in {} state",
+            self.operation,
+            match self.state {
+                SofiaStreamState::Accepting => "accepting",
+                SofiaStreamState::Draining => "draining",
+                SofiaStreamState::TerminalReady => "terminal-ready",
+                SofiaStreamState::Complete => "complete",
+            }
+        )
+    }
+}
+
+#[cfg(feature = "sofia")]
+impl std::error::Error for SofiaStreamError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProgressiveRetentionSnapshot {
     pub accepted_input_bytes: usize,
@@ -1792,6 +1904,280 @@ impl ProgressiveCompiler {
             Ok(())
         } else {
             Err(ProgressiveLifecycleError {
+                operation,
+                state: self.state,
+            })
+        }
+    }
+}
+
+/// Compact incremental Sofia compiler used by cross-runtime adapters.
+///
+/// Input is accepted as raw bytes so UTF-8 scalars may cross chunk boundaries.
+/// Event batches are caller-pulled and final acceptance remains distinct from
+/// provisional delivery.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+pub struct SofiaStreamCompiler {
+    compiler: Option<ProgressiveCompiler>,
+    decoder: Utf8Decoder,
+    state: SofiaStreamState,
+    terminal_override: Option<SofiaStreamTerminal>,
+}
+
+#[cfg(feature = "sofia")]
+impl SofiaStreamCompiler {
+    #[must_use]
+    pub fn new(
+        mut options: CompileOptions,
+        max_batch_events: NonZeroUsize,
+        max_pending_batches: NonZeroUsize,
+    ) -> Self {
+        options.recovery = false;
+        Self {
+            compiler: Some(ProgressiveCompiler::new_compact(
+                options,
+                max_batch_events,
+                max_pending_batches,
+            )),
+            decoder: Utf8Decoder::default(),
+            state: SofiaStreamState::Accepting,
+            terminal_override: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> SofiaStreamState {
+        self.state
+    }
+
+    pub fn push(&mut self, chunk: &[u8]) -> Result<SofiaStreamProgress, SofiaStreamError> {
+        self.require_state("push", SofiaStreamState::Accepting)?;
+        if self
+            .compiler
+            .as_ref()
+            .expect("accepting Sofia stream must retain its compiler")
+            .is_backpressured()
+        {
+            return Ok(self.backpressured_progress());
+        }
+
+        let mut decoded = String::new();
+        if let Err(error) = self.decoder.push(chunk, |_, text| decoded.push_str(text)) {
+            return Ok(self.invalidate_utf8(error.valid_up_to, error.error_len));
+        }
+        let progress = self
+            .compiler
+            .as_mut()
+            .expect("accepting Sofia stream must retain its compiler")
+            .push_str(&decoded)
+            .expect("accepting facade and progressive compiler states must agree");
+        Ok(self.observe_progress(progress))
+    }
+
+    pub fn push_str(&mut self, chunk: &str) -> Result<SofiaStreamProgress, SofiaStreamError> {
+        self.require_state("push", SofiaStreamState::Accepting)?;
+        if self
+            .compiler
+            .as_ref()
+            .expect("accepting Sofia stream must retain its compiler")
+            .is_backpressured()
+        {
+            return Ok(self.backpressured_progress());
+        }
+
+        let mut decoded = String::new();
+        if let Err(error) = self
+            .decoder
+            .push_str(chunk, |_, text| decoded.push_str(text))
+        {
+            return Ok(self.invalidate_utf8(error.valid_up_to, error.error_len));
+        }
+        let progress = self
+            .compiler
+            .as_mut()
+            .expect("accepting Sofia stream must retain its compiler")
+            .push_str(&decoded)
+            .expect("accepting facade and progressive compiler states must agree");
+        Ok(self.observe_progress(progress))
+    }
+
+    pub fn finish(&mut self) -> Result<SofiaStreamProgress, SofiaStreamError> {
+        self.require_state("finish", SofiaStreamState::Accepting)?;
+        if self
+            .compiler
+            .as_ref()
+            .expect("accepting Sofia stream must retain its compiler")
+            .is_backpressured()
+        {
+            return Ok(self.backpressured_progress());
+        }
+        if let Err(error) = self.decoder.finish() {
+            return Ok(self.invalidate_utf8(error.valid_up_to, error.error_len));
+        }
+        let progress = self
+            .compiler
+            .as_mut()
+            .expect("accepting Sofia stream must retain its compiler")
+            .finish()
+            .expect("accepting facade and progressive compiler states must agree");
+        Ok(self.observe_progress(progress))
+    }
+
+    pub fn pull_batch(&mut self) -> Result<Option<SofiaStreamBatch>, SofiaStreamError> {
+        if self.state == SofiaStreamState::Complete {
+            return Err(SofiaStreamError {
+                operation: "pull a batch from",
+                state: self.state,
+            });
+        }
+        let Some(batch) = self
+            .compiler
+            .as_mut()
+            .and_then(ProgressiveCompiler::pull_batch)
+        else {
+            return Ok(None);
+        };
+        if self
+            .compiler
+            .as_ref()
+            .is_some_and(|compiler| compiler.state() == ProgressiveLifecycleState::TerminalReady)
+        {
+            self.state = SofiaStreamState::TerminalReady;
+        }
+        Ok(Some(SofiaStreamBatch {
+            sequence: batch.sequence(),
+            first_event_index: batch.first_event_index(),
+            events: batch.into_events(),
+        }))
+    }
+
+    pub fn cancel(&mut self) -> Result<SofiaStreamProgress, SofiaStreamError> {
+        if self.state == SofiaStreamState::Complete {
+            return Err(SofiaStreamError {
+                operation: "cancel",
+                state: self.state,
+            });
+        }
+        let exposed_event_count = self
+            .compiler
+            .as_ref()
+            .map_or(0, |compiler| compiler.exposed_event_count);
+        self.compiler = None;
+        self.decoder = Utf8Decoder::default();
+        self.terminal_override = Some(SofiaStreamTerminal::Cancelled {
+            exposed_event_count,
+        });
+        self.state = SofiaStreamState::TerminalReady;
+        Ok(SofiaStreamProgress::TerminalReady)
+    }
+
+    pub fn take_terminal(&mut self) -> Result<SofiaStreamTerminal, SofiaStreamError> {
+        self.require_state(
+            "take the terminal result from",
+            SofiaStreamState::TerminalReady,
+        )?;
+        let terminal = if let Some(terminal) = self.terminal_override.take() {
+            terminal
+        } else {
+            match self
+                .compiler
+                .as_mut()
+                .expect("terminal-ready Sofia stream must retain a compiler or override")
+                .take_terminal()
+                .expect("terminal-ready facade and progressive compiler states must agree")
+            {
+                ProgressiveDisposition::Accepted { event_count, .. } => {
+                    SofiaStreamTerminal::Accepted { event_count }
+                }
+                ProgressiveDisposition::Invalidated {
+                    result,
+                    exposed_event_count,
+                } => SofiaStreamTerminal::Invalidated {
+                    errors: result.errors,
+                    warnings: result.warnings,
+                    exposed_event_count,
+                },
+            }
+        };
+        self.compiler = None;
+        self.decoder = Utf8Decoder::default();
+        self.state = SofiaStreamState::Complete;
+        Ok(terminal)
+    }
+
+    fn observe_progress(&mut self, progress: ProgressiveLifecycleProgress) -> SofiaStreamProgress {
+        match progress {
+            ProgressiveLifecycleProgress::NeedMoreInput { pending_batches } => {
+                SofiaStreamProgress::NeedMoreInput { pending_batches }
+            }
+            ProgressiveLifecycleProgress::BatchAvailable {
+                pending_batches,
+                backpressured,
+            } => SofiaStreamProgress::BatchAvailable {
+                pending_batches,
+                backpressured,
+            },
+            ProgressiveLifecycleProgress::Backpressured { pending_batches } => {
+                SofiaStreamProgress::Backpressured { pending_batches }
+            }
+            ProgressiveLifecycleProgress::Draining { pending_batches } => {
+                self.state = SofiaStreamState::Draining;
+                SofiaStreamProgress::Draining { pending_batches }
+            }
+            ProgressiveLifecycleProgress::TerminalReady => {
+                self.state = SofiaStreamState::TerminalReady;
+                SofiaStreamProgress::TerminalReady
+            }
+        }
+    }
+
+    fn backpressured_progress(&self) -> SofiaStreamProgress {
+        SofiaStreamProgress::Backpressured {
+            pending_batches: self
+                .compiler
+                .as_ref()
+                .map_or(0, ProgressiveCompiler::pending_batches),
+        }
+    }
+
+    fn invalidate_utf8(
+        &mut self,
+        valid_up_to: usize,
+        error_len: Option<usize>,
+    ) -> SofiaStreamProgress {
+        let exposed_event_count = self
+            .compiler
+            .as_ref()
+            .map_or(0, |compiler| compiler.exposed_event_count);
+        let message = error_len.map_or_else(
+            || format!("Input ends with an incomplete UTF-8 sequence at byte {valid_up_to}"),
+            |length| {
+                format!(
+                    "Input is not valid UTF-8 at byte {valid_up_to} (invalid sequence length {length})"
+                )
+            },
+        );
+        self.compiler = None;
+        self.decoder = Utf8Decoder::default();
+        self.terminal_override = Some(SofiaStreamTerminal::Invalidated {
+            errors: vec![Diagnostic::new("INVALID_UTF8", message).at_path("$")],
+            warnings: Vec::new(),
+            exposed_event_count,
+        });
+        self.state = SofiaStreamState::TerminalReady;
+        SofiaStreamProgress::TerminalReady
+    }
+
+    fn require_state(
+        &self,
+        operation: &'static str,
+        expected: SofiaStreamState,
+    ) -> Result<(), SofiaStreamError> {
+        if self.state == expected {
+            Ok(())
+        } else {
+            Err(SofiaStreamError {
                 operation,
                 state: self.state,
             })

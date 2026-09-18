@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 use std::hint::black_box;
+use std::num::NonZeroUsize;
 
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment, Span, Value,
+    EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
+    SofiaStreamCompiler, SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal, Span, Value,
     compile_sofia, effective_telex_configuration, format_path, load_aeonic_limits,
     normalize_number_literal,
 };
@@ -48,6 +50,17 @@ struct ProcessOptions {
     include_paths: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamOptions {
+    #[serde(flatten)]
+    process: ProcessOptions,
+    #[serde(default = "default_stream_batch_events")]
+    max_batch_events: usize,
+    #[serde(default = "default_stream_pending_batches")]
+    max_pending_batches: usize,
+}
+
 #[derive(Debug, Serialize)]
 struct ProcessResponse {
     canonical: String,
@@ -67,6 +80,34 @@ struct ProcessEvent {
     value_type: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     structural_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamProgressResponse {
+    state: &'static str,
+    accepted: bool,
+    pending_batches: usize,
+    backpressured: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamBatchResponse {
+    sequence: usize,
+    first_event_index: usize,
+    events: Vec<ProcessEvent>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamTerminalResponse {
+    status: &'static str,
+    reason: Option<&'static str>,
+    event_count: Option<usize>,
+    exposed_event_count: usize,
+    warnings: Vec<JsonValue>,
+    errors: Vec<JsonValue>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -121,6 +162,14 @@ const fn default_max_input_bytes() -> usize {
     1 << 20
 }
 
+const fn default_stream_batch_events() -> usize {
+    256
+}
+
+const fn default_stream_pending_batches() -> usize {
+    2
+}
+
 #[wasm_bindgen]
 pub fn process_aeon(source: &str, options_json: &str) -> Result<String, JsValue> {
     process_aeon_json(source, options_json).map_err(|error| JsValue::from_str(&error))
@@ -142,6 +191,197 @@ pub fn benchmark_process_aeon(source: &str, options_json: &str) -> Result<u32, S
     let result = process(source, &options);
     black_box(&result);
     Ok(6)
+}
+
+/// Bounded progressive AEON stream exposed through the generated WASM module.
+///
+/// Each method returns one JSON envelope so the JavaScript adapter performs one
+/// boundary crossing per input chunk, output batch, or lifecycle operation.
+#[wasm_bindgen(js_name = AeonStream)]
+pub struct AeonStreamWasm {
+    compiler: SofiaStreamCompiler,
+}
+
+#[wasm_bindgen(js_class = AeonStream)]
+impl AeonStreamWasm {
+    #[wasm_bindgen(constructor)]
+    pub fn new(options_json: &str) -> Result<AeonStreamWasm, JsValue> {
+        let options =
+            parse_stream_options(options_json).map_err(|error| JsValue::from_str(&error))?;
+        if !matches!(
+            options.process.validation_mode.as_str(),
+            "strict" | "custom" | "loose"
+        ) {
+            return Err(JsValue::from_str(
+                "streaming requires strict, custom, or loose validation",
+            ));
+        }
+        let max_batch_events = NonZeroUsize::new(options.max_batch_events)
+            .ok_or_else(|| JsValue::from_str("maxBatchEvents must be greater than zero"))?;
+        let max_pending_batches = NonZeroUsize::new(options.max_pending_batches)
+            .ok_or_else(|| JsValue::from_str("maxPendingBatches must be greater than zero"))?;
+        let mut compile = compile_options(&options.process);
+        compile.recovery = false;
+        Ok(Self {
+            compiler: SofiaStreamCompiler::new(compile, max_batch_events, max_pending_batches),
+        })
+    }
+
+    pub fn state(&self) -> String {
+        stream_state_name(self.compiler.state()).to_owned()
+    }
+
+    pub fn push(&mut self, chunk: &[u8]) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .push(chunk)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = pushString)]
+    pub fn push_string(&mut self, chunk: &str) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .push_str(chunk)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    pub fn finish(&mut self) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .finish()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = pullBatch)]
+    pub fn pull_batch(&mut self) -> Result<String, JsValue> {
+        let batch = self
+            .compiler
+            .pull_batch()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?
+            .map(|batch| StreamBatchResponse {
+                sequence: batch.sequence(),
+                first_event_index: batch.first_event_index(),
+                events: batch.into_events().into_iter().map(process_event).collect(),
+            });
+        serde_json::to_string(&batch).map_err(|error| {
+            JsValue::from_str(&format!("failed to serialize stream batch: {error}"))
+        })
+    }
+
+    pub fn cancel(&mut self) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .cancel()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = takeTerminal)]
+    pub fn take_terminal(&mut self) -> Result<String, JsValue> {
+        let terminal = self
+            .compiler
+            .take_terminal()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let response = match terminal {
+            SofiaStreamTerminal::Accepted { event_count } => StreamTerminalResponse {
+                status: "accepted",
+                reason: None,
+                event_count: Some(event_count),
+                exposed_event_count: event_count,
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            },
+            SofiaStreamTerminal::Invalidated {
+                errors,
+                warnings,
+                exposed_event_count,
+            } => StreamTerminalResponse {
+                status: "invalidated",
+                reason: Some("diagnostics"),
+                event_count: None,
+                exposed_event_count,
+                warnings: diagnostics_json(&warnings),
+                errors: diagnostics_json(&errors),
+            },
+            SofiaStreamTerminal::Cancelled {
+                exposed_event_count,
+            } => StreamTerminalResponse {
+                status: "invalidated",
+                reason: Some("cancelled"),
+                event_count: None,
+                exposed_event_count,
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            },
+        };
+        serde_json::to_string(&response).map_err(|error| {
+            JsValue::from_str(&format!(
+                "failed to serialize stream terminal result: {error}"
+            ))
+        })
+    }
+}
+
+fn parse_stream_options(options_json: &str) -> Result<StreamOptions, String> {
+    let source = if options_json.trim().is_empty() {
+        "{}"
+    } else {
+        options_json
+    };
+    serde_json::from_str(source).map_err(|error| format!("invalid stream options JSON: {error}"))
+}
+
+fn stream_progress_json(progress: SofiaStreamProgress) -> Result<String, String> {
+    let response = match progress {
+        SofiaStreamProgress::NeedMoreInput { pending_batches } => StreamProgressResponse {
+            state: "accepting",
+            accepted: true,
+            pending_batches,
+            backpressured: false,
+        },
+        SofiaStreamProgress::BatchAvailable {
+            pending_batches,
+            backpressured,
+        } => StreamProgressResponse {
+            state: "accepting",
+            accepted: true,
+            pending_batches,
+            backpressured,
+        },
+        SofiaStreamProgress::Backpressured { pending_batches } => StreamProgressResponse {
+            state: "accepting",
+            accepted: false,
+            pending_batches,
+            backpressured: true,
+        },
+        SofiaStreamProgress::Draining { pending_batches } => StreamProgressResponse {
+            state: "draining",
+            accepted: true,
+            pending_batches,
+            backpressured: true,
+        },
+        SofiaStreamProgress::TerminalReady => StreamProgressResponse {
+            state: "terminal-ready",
+            accepted: true,
+            pending_batches: 0,
+            backpressured: false,
+        },
+    };
+    serde_json::to_string(&response)
+        .map_err(|error| format!("failed to serialize stream progress: {error}"))
+}
+
+const fn stream_state_name(state: SofiaStreamState) -> &'static str {
+    match state {
+        SofiaStreamState::Accepting => "accepting",
+        SofiaStreamState::Draining => "draining",
+        SofiaStreamState::TerminalReady => "terminal-ready",
+        SofiaStreamState::Complete => "complete",
+    }
 }
 
 fn parse_process_options(options_json: &str) -> Result<ProcessOptions, String> {
@@ -711,16 +951,20 @@ fn process_events(
     }
 
     if scope != "header" {
-        output.extend(events.iter().map(|event| ProcessEvent {
-            path: format_path(&event.path),
-            key: event.key.clone(),
-            datatype: event.datatype.clone(),
-            value_type: value_type_name(&event.value),
-            structural_id: event.structural_id.clone(),
-        }));
+        output.extend(events.iter().cloned().map(process_event));
     }
 
     output
+}
+
+fn process_event(event: AssignmentEvent) -> ProcessEvent {
+    ProcessEvent {
+        path: format_path(&event.path),
+        key: event.key,
+        datatype: event.datatype,
+        value_type: value_type_name(&event.value),
+        structural_id: event.structural_id,
+    }
 }
 
 fn value_type_name(value: &Value) -> &'static str {
@@ -860,8 +1104,9 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 #[cfg(test)]
 mod tests {
     use super::{
-        benchmark_process_aeon, canonicalize_telex_text, check_telex_completeness_json,
-        materialize_telex_json, process_aeon_json, validate_telex_json,
+        AeonStreamWasm, benchmark_process_aeon, canonicalize_telex_text,
+        check_telex_completeness_json, materialize_telex_json, process_aeon_json,
+        validate_telex_json,
     };
     use serde_json::Value as JsonValue;
 
@@ -898,6 +1143,102 @@ mod tests {
         assert_eq!(event["datatype"], "int32");
         assert_eq!(event["valueType"], "NumberLiteral");
         assert_eq!(event["structuralId"], "A1");
+    }
+
+    #[test]
+    fn progressive_stream_uses_bounded_batches_and_terminal_acceptance() {
+        let mut stream = AeonStreamWasm::new(
+            r#"{"validationMode":"strict","maxBatchEvents":1,"maxPendingBatches":1}"#,
+        )
+        .expect("create stream");
+        let source = b"alpha:int32 = 1\nbeta:int32 = 2\ngamma:int32 = 3\n";
+        let progress: JsonValue =
+            serde_json::from_str(&stream.push(source).expect("push complete source"))
+                .expect("progress JSON");
+        assert_eq!(progress["accepted"], true);
+        assert_eq!(progress["backpressured"], true);
+
+        let mut events = Vec::new();
+        loop {
+            let batch: JsonValue = serde_json::from_str(&stream.pull_batch().expect("pull batch"))
+                .expect("batch JSON");
+            if batch.is_null() {
+                break;
+            }
+            assert_eq!(batch["sequence"], events.len());
+            assert_eq!(batch["firstEventIndex"], events.len());
+            events.push(
+                batch["events"][0]["path"]
+                    .as_str()
+                    .expect("event path")
+                    .to_owned(),
+            );
+        }
+
+        let finish: JsonValue =
+            serde_json::from_str(&stream.finish().expect("finish stream")).expect("finish JSON");
+        assert_eq!(finish["state"], "draining");
+        loop {
+            let batch: JsonValue = serde_json::from_str(&stream.pull_batch().expect("drain batch"))
+                .expect("batch JSON");
+            if batch.is_null() {
+                break;
+            }
+            events.push(
+                batch["events"][0]["path"]
+                    .as_str()
+                    .expect("event path")
+                    .to_owned(),
+            );
+        }
+        assert_eq!(stream.state(), "terminal-ready");
+        let terminal: JsonValue =
+            serde_json::from_str(&stream.take_terminal().expect("take terminal result"))
+                .expect("terminal JSON");
+        assert_eq!(terminal["status"], "accepted");
+        assert_eq!(terminal["eventCount"], 3);
+        assert_eq!(events, ["$.alpha", "$.beta", "$.gamma"]);
+        assert_eq!(stream.state(), "complete");
+    }
+
+    #[test]
+    fn progressive_stream_decodes_utf8_across_every_byte_boundary() {
+        let source = "message:string = \"Sofía 🌊\"\n";
+        for split in 0..=source.len() {
+            let mut stream = AeonStreamWasm::new("{}").expect("create stream");
+            stream
+                .push(&source.as_bytes()[..split])
+                .expect("push prefix");
+            stream
+                .push(&source.as_bytes()[split..])
+                .expect("push suffix");
+            stream.finish().expect("finish stream");
+            let batch: JsonValue =
+                serde_json::from_str(&stream.pull_batch().expect("pull final batch"))
+                    .expect("batch JSON");
+            assert_eq!(batch["events"][0]["path"], "$.message", "split {split}");
+            let terminal: JsonValue =
+                serde_json::from_str(&stream.take_terminal().expect("take terminal result"))
+                    .expect("terminal JSON");
+            assert_eq!(terminal["status"], "accepted", "split {split}");
+        }
+    }
+
+    #[test]
+    fn progressive_stream_cancellation_invalidates_exposed_output() {
+        let mut stream = AeonStreamWasm::new(r#"{"maxBatchEvents":1,"maxPendingBatches":1}"#)
+            .expect("create stream");
+        stream.push(b"alpha = 1\nbeta = 2\n").expect("push source");
+        let batch: JsonValue =
+            serde_json::from_str(&stream.pull_batch().expect("pull batch")).expect("batch JSON");
+        assert_eq!(batch["events"][0]["path"], "$.alpha");
+        stream.cancel().expect("cancel stream");
+        let terminal: JsonValue =
+            serde_json::from_str(&stream.take_terminal().expect("take cancellation"))
+                .expect("terminal JSON");
+        assert_eq!(terminal["status"], "invalidated");
+        assert_eq!(terminal["reason"], "cancelled");
+        assert_eq!(terminal["exposedEventCount"], 1);
     }
 
     #[test]

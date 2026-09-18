@@ -4,7 +4,12 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { loadAeonWasm, TelexWasmError } from './index.js';
+import {
+  loadAeonWasm,
+  TelexWasmError,
+  type AeonStreamBatch,
+  type EventSummary,
+} from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -72,6 +77,15 @@ test('reports toggle literal naming from wasm events', async () => {
   assert.deepEqual(result.finalized.document, { state: true });
 });
 
+test('preserves structural identity in normalized wasm event summaries', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const result = runtime.processAeon('age\\A1\\:int32 = 42\n');
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.events[0]?.structuralId, 'A1');
+});
+
 test('binds block comments between equals and value to the current field', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);
@@ -120,4 +134,140 @@ test('binds comments inside node values to owning and descendant paths determini
   assert.deepEqual(result.annotations[30]?.placement, { after: 'node-tag', before: 'node-children-open' });
   assert.equal(result.annotations[32]?.target.path, '$.page[0][1][0]');
   assert.deepEqual(result.annotations[32]?.placement, { after: 'value' });
+});
+
+test('streams byte chunks through bounded batches with one-shot event parity', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const source = 'alpha:int32 = 1\nbeta:string = "Sofía 🌊"\ngamma:boolean = true\n';
+  const expected = runtime.processAeon(source, { validationMode: 'strict' }).events;
+  const stream = runtime.createAeonStream({
+    validationMode: 'strict',
+    maxBatchEvents: 1,
+    maxPendingBatches: 1,
+  });
+  const events: EventSummary[] = [];
+  const batches: AeonStreamBatch[] = [];
+  const encoded = new TextEncoder().encode(source);
+
+  for (const byte of encoded) {
+    while (true) {
+      const progress = stream.push(Uint8Array.of(byte));
+      if (progress.accepted) break;
+      const batch = stream.pullBatch();
+      assert.ok(batch);
+      batches.push(batch);
+      events.push(...batch.events);
+    }
+    while (true) {
+      const batch = stream.pullBatch();
+      if (batch === null) break;
+      batches.push(batch);
+      events.push(...batch.events);
+    }
+  }
+
+  while (true) {
+    const progress = stream.finish();
+    if (progress.accepted) break;
+    const batch = stream.pullBatch();
+    assert.ok(batch);
+    batches.push(batch);
+    events.push(...batch.events);
+  }
+  while (true) {
+    const batch = stream.pullBatch();
+    if (batch === null) break;
+    batches.push(batch);
+    events.push(...batch.events);
+  }
+
+  assert.deepEqual(events, expected);
+  assert.deepEqual(batches.map((batch) => batch.sequence), [0, 1, 2]);
+  assert.deepEqual(batches.map((batch) => batch.firstEventIndex), [0, 1, 2]);
+  assert.ok(batches.every((batch) => batch.streamId === stream.id));
+  assert.equal(stream.state(), 'terminal-ready');
+  assert.deepEqual(stream.takeTerminal(), {
+    streamId: stream.id,
+    status: 'accepted',
+    reason: null,
+    eventCount: 3,
+    exposedEventCount: 3,
+    diagnostics: { errors: [], warnings: [] },
+    errors: [],
+    warnings: [],
+  });
+  assert.equal(stream.state(), 'complete');
+  assert.throws(() => stream.finish());
+});
+
+test('refuses backpressured chunks until their predecessor batch is pulled', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const stream = runtime.createAeonStream({ maxBatchEvents: 1, maxPendingBatches: 1 });
+
+  const first = stream.push('alpha:int32 = 1\nbeta:int32 = 2\n');
+  assert.equal(first.accepted, true);
+  assert.equal(first.backpressured, true);
+  const refused = stream.push('gamma:int32 = 3\n');
+  assert.equal(refused.accepted, false);
+  assert.equal(refused.backpressured, true);
+  assert.equal(stream.pullBatch()?.events[0]?.path, '$.alpha');
+  const retried = stream.push('gamma:int32 = 3\n');
+  assert.equal(retried.accepted, true);
+  assert.equal(stream.pullBatch()?.events[0]?.path, '$.beta');
+  stream.finish();
+  assert.equal(stream.pullBatch()?.events[0]?.path, '$.gamma');
+  assert.equal(stream.takeTerminal().status, 'accepted');
+});
+
+test('cancellation invalidates exposed batches and releases the stream lifecycle', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const stream = runtime.createAeonStream({ maxBatchEvents: 1, maxPendingBatches: 1 });
+
+  stream.push('alpha:int32 = 1\nbeta:int32 = 2\n');
+  assert.equal(stream.pullBatch()?.events[0]?.path, '$.alpha');
+  assert.equal(stream.cancel().state, 'terminal-ready');
+  const terminal = stream.takeTerminal();
+  assert.equal(terminal.status, 'invalidated');
+  assert.equal(terminal.reason, 'cancelled');
+  assert.equal(terminal.exposedEventCount, 1);
+  assert.throws(() => stream.push('gamma:int32 = 3\n'));
+});
+
+test('late syntax failure explicitly invalidates already exposed batches', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const stream = runtime.createAeonStream({ maxBatchEvents: 1, maxPendingBatches: 1 });
+
+  stream.push('good:int32 = 1\nbad = [\n');
+  assert.equal(stream.pullBatch()?.events[0]?.path, '$.good');
+  assert.equal(stream.finish().state, 'terminal-ready');
+  const terminal = stream.takeTerminal();
+  assert.equal(terminal.status, 'invalidated');
+  assert.equal(terminal.reason, 'diagnostics');
+  assert.equal(terminal.exposedEventCount, 1);
+  assert.ok(terminal.errors.length > 0);
+});
+
+test('incomplete UTF-8 becomes an explicit terminal invalidation', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const stream = runtime.createAeonStream();
+
+  assert.equal(stream.push(Uint8Array.of(0xf0, 0x9f)).accepted, true);
+  assert.equal(stream.finish().state, 'terminal-ready');
+  const terminal = stream.takeTerminal();
+  assert.equal(terminal.status, 'invalidated');
+  assert.equal(terminal.reason, 'diagnostics');
+  assert.equal(terminal.errors[0]?.code, 'INVALID_UTF8');
+});
+
+test('streaming rejects non-validating and unknown validation modes', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+
+  assert.throws(() => runtime.createAeonStream({ validationMode: 'none' as never }));
+  assert.throws(() => runtime.createAeonStream({ validationMode: 'mystery' as never }));
 });
