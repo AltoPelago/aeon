@@ -147,6 +147,46 @@ def measure(operation: Callable[[], Any], iterations: int, warmup: int) -> dict[
     return timing_summary(samples)
 
 
+def telex_phase_profile(
+    operation: Callable[[], tuple[int, int, int, int, int]],
+    iterations: int,
+    warmup: int,
+) -> dict[str, Any]:
+    for _ in range(warmup):
+        operation()
+
+    compile_samples = []
+    projection_samples = []
+    export_samples = []
+    record_count = None
+    encoded_bytes = None
+    for _ in range(iterations):
+        compile_ns, projection_ns, export_ns, records, byte_count = operation()
+        compile_samples.append(compile_ns)
+        projection_samples.append(projection_ns)
+        export_samples.append(export_ns)
+        if record_count is not None and record_count != records:
+            raise RuntimeError("Telex phase profiler returned inconsistent record counts")
+        if encoded_bytes is not None and encoded_bytes != byte_count:
+            raise RuntimeError("Telex phase profiler returned inconsistent byte counts")
+        record_count = records
+        encoded_bytes = byte_count
+
+    projection = timing_summary(projection_samples)
+    export = timing_summary(export_samples)
+    return {
+        "method": "rust-internal-export-includes-independent-projection-pass",
+        "compile": timing_summary(compile_samples),
+        "projection": projection,
+        "export": export,
+        "approximate_encoder_and_validation_ns": max(
+            0, export["median_ns"] - projection["median_ns"]
+        ),
+        "records": record_count,
+        "encoded_bytes": encoded_bytes,
+    }
+
+
 def native_measurement(
     case: dict[str, Any], binary: Path, iterations: int, warmup: int
 ) -> dict[str, Any]:
@@ -216,6 +256,13 @@ def measure_case(
     ergonomic = measure(lambda: aeon.compile(source), iterations, warmup)
     encoded = (
         measure(lambda: aeon.compile_to_telex(source), iterations, warmup)
+        if expected_valid
+        else None
+    )
+    telex_phases = (
+        telex_phase_profile(
+            lambda: _native.compile_telex_profile(source), iterations, warmup
+        )
         if expected_valid
         else None
     )
@@ -294,6 +341,7 @@ def measure_case(
             if encoded is not None and encoded_median is not None
             else None
         ),
+        "telex_phase_profile": telex_phases,
     }
 
 
@@ -363,7 +411,7 @@ def main() -> int:
     if _native.ENGINE != "sofia":
         raise RuntimeError(f"installed wheel uses unexpected engine: {_native.ENGINE}")
     output = {
-        "schema": "aeon.sofia.python-boundary.v3",
+        "schema": "aeon.sofia.python-boundary.v4",
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "variant": args.variant,
         "aeon_revision": command_output(["git", "rev-parse", "HEAD"]),

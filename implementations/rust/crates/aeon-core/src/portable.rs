@@ -317,6 +317,28 @@ pub fn project_telex_records(
     events: &[AssignmentEvent],
     options: &ExportTelexOptions,
 ) -> Result<Vec<TelexRecord>, TelexEncodeError> {
+    // The common body-only export needs neither the compatibility report nor
+    // provenance fields. Project it directly so large streams do not clone the
+    // complete assignment-event tree and then materialize a second event model.
+    if !options.include_headers
+        && options.source_bytes.is_none()
+        && events
+            .iter()
+            .all(|event| event.source_plane == crate::SourcePlane::Body)
+    {
+        return Ok(project_portable_events(events)
+            .into_iter()
+            .map(portable_body_event_to_telex)
+            .collect());
+    }
+
+    project_telex_records_via_compatibility(events, options)
+}
+
+fn project_telex_records_via_compatibility(
+    events: &[AssignmentEvent],
+    options: &ExportTelexOptions,
+) -> Result<Vec<TelexRecord>, TelexEncodeError> {
     let converted = adapt_rust_assignment_events_to_portable_aes(
         events,
         &PortableAesCompatibilityOptions {
@@ -331,6 +353,31 @@ pub fn project_telex_records(
         .iter()
         .map(compatibility_event_to_telex)
         .collect()
+}
+
+fn portable_body_event_to_telex(event: PortableAesEvent) -> TelexRecord {
+    let mut fields = vec![
+        ("path".to_owned(), event.path),
+        ("kind".to_owned(), event.kind.to_owned()),
+    ];
+    let datatype = event.datatype.map(|datatype| DatatypeDescriptor {
+        datatype,
+        generics: event.generics,
+        clarifiers: event.clarifiers,
+    });
+    if datatype.is_some() {
+        fields.push(("datatype".to_owned(), String::new()));
+    }
+    if let Some(identity) = event.identity {
+        fields.push(("identity".to_owned(), identity));
+    }
+    if let Some(value) = event.value {
+        fields.push(("value".to_owned(), value));
+    }
+    match datatype {
+        Some(datatype) => TelexRecord::with_datatype(fields, datatype),
+        None => TelexRecord::new(fields),
+    }
 }
 
 fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> {
@@ -443,11 +490,14 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
         .map(|event| format_path(&event.path))
         .collect::<HashSet<_>>();
-    let mut projected = Vec::new();
+    let mut projected = Vec::with_capacity(events.len());
 
     for event in events {
-        let translated_path = translate_node_path(&event.path, &node_source_paths);
-        let translated_path_text = format_path(&translated_path);
+        let translated_path_text = if node_source_paths.is_empty() {
+            format_path(&event.path)
+        } else {
+            format_path(&translate_node_path(&event.path, &node_source_paths))
+        };
         let value = unwrap_typed_value(&event.value);
         projected.push(project_event(
             event,
@@ -1600,6 +1650,29 @@ mod tests {
             telex.contains("path=$.a\nkind=ListNode\ndatatype=list<int>"),
             "{telex}"
         );
+    }
+
+    #[test]
+    fn direct_body_telex_projection_matches_the_named_compatibility_adapter() {
+        let source = concat!(
+            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>\n",
+            "copy = ~a[0]\n",
+            "items:list<int> = [1, 2]\n",
+            "metadata = { enabled = true }",
+        );
+        let result = compile(
+            source,
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let options = ExportTelexOptions::default();
+        let direct = project_telex_records(&result.events, &options).expect("direct projection");
+        let compatibility = project_telex_records_via_compatibility(&result.events, &options)
+            .expect("compatibility projection");
+        assert_eq!(direct, compatibility);
     }
 
     #[test]

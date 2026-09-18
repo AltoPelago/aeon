@@ -1,9 +1,10 @@
 use std::borrow::Cow;
+use std::time::Instant;
 
 use aeon_core::{
     CompileOptions, CompileResult as CoreCompileResult, Diagnostic as CoreDiagnostic,
     ExportTelexOptions, SourcePlane, Span as CoreSpan, Value, compile_sofia, export_telex,
-    format_path,
+    format_path, project_telex_records,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -432,6 +433,48 @@ fn compile_telex(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> 
     Ok((ok, PyBytes::new(py, &encoded).unbind()))
 }
 
+/// Attribute the valid-input Telex path without including Python call overhead.
+///
+/// The export measurement includes its own projection pass, matching the public
+/// path. Subtracting the separately measured projection duration therefore gives
+/// an approximate encoder/validation remainder rather than a separately timed
+/// encoder invocation.
+#[pyfunction]
+fn compile_telex_profile(
+    py: Python<'_>,
+    source: &str,
+) -> PyResult<(u128, u128, u128, usize, usize)> {
+    let source = source.to_owned();
+    py.detach(move || {
+        let started = Instant::now();
+        let result = compile_sofia(&source, CompileOptions::default());
+        let compile_ns = started.elapsed().as_nanos();
+        if !result.errors.is_empty() {
+            return Err("cannot profile Telex export for invalid AEON input".to_owned());
+        }
+
+        let options = ExportTelexOptions::default();
+        let started = Instant::now();
+        let records = project_telex_records(&result.events, &options)
+            .map_err(|error| format!("failed to project Telex records: {error}"))?;
+        let project_ns = started.elapsed().as_nanos();
+
+        let started = Instant::now();
+        let encoded = export_telex(&result.events, &options)
+            .map_err(|error| format!("failed to encode Telex: {error}"))?;
+        let export_ns = started.elapsed().as_nanos();
+
+        Ok((
+            compile_ns,
+            project_ns,
+            export_ns,
+            records.len(),
+            encoded.len(),
+        ))
+    })
+    .map_err(PyRuntimeError::new_err)
+}
+
 #[pymodule]
 #[pyo3(name = "_native")]
 fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -445,6 +488,7 @@ fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(compile_packed, module)?)?;
     module.add_function(wrap_pyfunction!(compile_native, module)?)?;
     module.add_function(wrap_pyfunction!(compile_telex, module)?)?;
+    module.add_function(wrap_pyfunction!(compile_telex_profile, module)?)?;
     Ok(())
 }
 
