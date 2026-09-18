@@ -28,8 +28,12 @@ use wasm_bindgen::prelude::*;
 struct ProcessOptions {
     #[serde(default = "default_validation_mode")]
     validation_mode: String,
+    #[serde(default)]
+    datatype_policy: Option<String>,
     #[serde(default = "default_max_input_bytes")]
     max_input_bytes: usize,
+    #[serde(default)]
+    max_events: Option<usize>,
     #[serde(default = "default_depth")]
     max_separator_depth: usize,
     #[serde(default)]
@@ -42,6 +46,28 @@ struct ProcessOptions {
     max_generic_arguments: usize,
     #[serde(default = "default_max_datatype_components")]
     max_datatype_components: usize,
+    #[serde(default)]
+    max_value_nesting_depth: Option<usize>,
+    #[serde(default = "default_max_nesting_depth")]
+    max_nesting_depth: usize,
+    #[serde(default = "default_max_path_depth")]
+    max_path_depth: usize,
+    #[serde(default = "default_max_string_codepoints")]
+    max_string_codepoints: usize,
+    #[serde(default = "default_max_key_segment_codepoints")]
+    max_key_segment_codepoints: usize,
+    #[serde(default = "default_max_collection_items")]
+    max_list_items: usize,
+    #[serde(default = "default_max_collection_items")]
+    max_tuple_items: usize,
+    #[serde(default = "default_max_path_characters")]
+    max_path_characters: usize,
+    #[serde(default = "default_max_numeric_literal_characters")]
+    max_numeric_literal_characters: usize,
+    #[serde(default = "default_max_structured_comment_characters")]
+    max_structured_comment_characters: usize,
+    #[serde(default = "default_finalize")]
+    finalize: bool,
     #[serde(default)]
     materialization_mode: String,
     #[serde(default = "default_finalize_scope")]
@@ -158,6 +184,42 @@ const fn default_max_datatype_components() -> usize {
     64
 }
 
+const fn default_max_nesting_depth() -> usize {
+    256
+}
+
+const fn default_max_path_depth() -> usize {
+    1024
+}
+
+const fn default_max_string_codepoints() -> usize {
+    1_048_576
+}
+
+const fn default_max_key_segment_codepoints() -> usize {
+    1024
+}
+
+const fn default_max_collection_items() -> usize {
+    65_536
+}
+
+const fn default_max_path_characters() -> usize {
+    8192
+}
+
+const fn default_max_numeric_literal_characters() -> usize {
+    1024
+}
+
+const fn default_max_structured_comment_characters() -> usize {
+    1_048_576
+}
+
+const fn default_finalize() -> bool {
+    true
+}
+
 const fn default_max_input_bytes() -> usize {
     1 << 20
 }
@@ -210,10 +272,10 @@ impl AeonStreamWasm {
             parse_stream_options(options_json).map_err(|error| JsValue::from_str(&error))?;
         if !matches!(
             options.process.validation_mode.as_str(),
-            "strict" | "custom" | "loose"
+            "declared" | "strict" | "custom" | "loose"
         ) {
             return Err(JsValue::from_str(
-                "streaming requires strict, custom, or loose validation",
+                "streaming requires declared, strict, custom, or loose validation",
             ));
         }
         let max_batch_events = NonZeroUsize::new(options.max_batch_events)
@@ -332,7 +394,10 @@ fn parse_stream_options(options_json: &str) -> Result<StreamOptions, String> {
     } else {
         options_json
     };
-    serde_json::from_str(source).map_err(|error| format!("invalid stream options JSON: {error}"))
+    let options: StreamOptions = serde_json::from_str(source)
+        .map_err(|error| format!("invalid stream options JSON: {error}"))?;
+    validate_process_options(&options.process)?;
+    Ok(options)
 }
 
 fn stream_progress_json(progress: SofiaStreamProgress) -> Result<String, String> {
@@ -385,23 +450,61 @@ const fn stream_state_name(state: SofiaStreamState) -> &'static str {
 }
 
 fn parse_process_options(options_json: &str) -> Result<ProcessOptions, String> {
-    if options_json.trim().is_empty() {
-        Ok(ProcessOptions {
+    let options = if options_json.trim().is_empty() {
+        ProcessOptions {
             validation_mode: default_validation_mode(),
+            datatype_policy: None,
             max_input_bytes: default_max_input_bytes(),
+            max_events: None,
             max_separator_depth: default_depth(),
             max_clarifier_values: None,
             max_attribute_depth: default_depth(),
             max_generic_depth: default_depth(),
             max_generic_arguments: default_max_generic_arguments(),
             max_datatype_components: default_max_datatype_components(),
+            max_value_nesting_depth: None,
+            max_nesting_depth: default_max_nesting_depth(),
+            max_path_depth: default_max_path_depth(),
+            max_string_codepoints: default_max_string_codepoints(),
+            max_key_segment_codepoints: default_max_key_segment_codepoints(),
+            max_list_items: default_max_collection_items(),
+            max_tuple_items: default_max_collection_items(),
+            max_path_characters: default_max_path_characters(),
+            max_numeric_literal_characters: default_max_numeric_literal_characters(),
+            max_structured_comment_characters: default_max_structured_comment_characters(),
+            finalize: true,
             materialization_mode: String::from("all"),
             finalize_scope: default_finalize_scope(),
             include_paths: Vec::new(),
-        })
+        }
     } else {
-        serde_json::from_str(options_json).map_err(|error| format!("invalid options JSON: {error}"))
+        serde_json::from_str(options_json)
+            .map_err(|error| format!("invalid options JSON: {error}"))?
+    };
+    validate_process_options(&options)?;
+    Ok(options)
+}
+
+fn validate_process_options(options: &ProcessOptions) -> Result<(), String> {
+    if !matches!(
+        options.validation_mode.as_str(),
+        "declared" | "strict" | "custom" | "loose" | "none"
+    ) {
+        return Err(format!(
+            "unsupported validationMode {:?}",
+            options.validation_mode
+        ));
     }
+    if !matches!(
+        options.datatype_policy.as_deref(),
+        None | Some("reserved_only" | "allow_custom")
+    ) {
+        return Err(format!(
+            "unsupported datatypePolicy {:?}",
+            options.datatype_policy.as_deref().unwrap_or_default()
+        ));
+    }
+    Ok(())
 }
 
 #[wasm_bindgen(js_name = validate_telex)]
@@ -729,13 +832,29 @@ fn process(source: &str, options: &ProcessOptions) -> ProcessResponse {
                     "start": { "line": 1, "column": 1, "offset": 0 },
                     "end": { "line": 1, "column": 1, "offset": 0 },
                 },
-                "phase": 0,
+                "phase": "Input Validation",
                 "message": format!(
                     "Input size {} bytes exceeds configured limit of {} bytes",
                     source.len(),
                     options.max_input_bytes
                 ),
             })],
+        };
+    }
+
+    if !options.finalize && options.validation_mode != "none" {
+        let compile_result = compile_sofia(source, compile_options(options));
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations: annotations_json(source),
+            events: process_events(
+                &compile_result.events,
+                compile_result.header.as_ref(),
+                &options.finalize_scope,
+            ),
+            warnings: diagnostics_json(&compile_result.warnings),
+            errors: diagnostics_json(&compile_result.errors),
         };
     }
 
@@ -808,19 +927,40 @@ fn compile_options(options: &ProcessOptions) -> CompileOptions {
     CompileOptions {
         recovery: true,
         max_input_bytes: Some(options.max_input_bytes),
+        max_events: options.max_events,
         max_separator_depth: options.max_separator_depth,
         max_clarifier_values: options.max_clarifier_values,
         max_attribute_depth: options.max_attribute_depth,
         max_generic_depth: options.max_generic_depth,
         max_generic_arguments: options.max_generic_arguments,
         max_datatype_components: options.max_datatype_components,
-        datatype_policy: match options.validation_mode.as_str() {
-            "strict" => Some(DatatypePolicy::ReservedOnly),
-            "custom" => Some(DatatypePolicy::AllowCustom),
-            _ => None,
-        },
+        max_value_nesting_depth: options.max_value_nesting_depth,
+        max_nesting_depth: options.max_nesting_depth,
+        max_path_depth: options.max_path_depth,
+        max_string_codepoints: options.max_string_codepoints,
+        max_key_segment_codepoints: options.max_key_segment_codepoints,
+        max_list_items: options.max_list_items,
+        max_tuple_items: options.max_tuple_items,
+        max_path_characters: options.max_path_characters,
+        max_numeric_literal_characters: options.max_numeric_literal_characters,
+        max_structured_comment_characters: options.max_structured_comment_characters,
+        datatype_policy: explicit_datatype_policy(options).or({
+            match options.validation_mode.as_str() {
+                "strict" => Some(DatatypePolicy::ReservedOnly),
+                "custom" => Some(DatatypePolicy::AllowCustom),
+                _ => None,
+            }
+        }),
         mode: effective_mode(options),
         ..CompileOptions::default()
+    }
+}
+
+fn explicit_datatype_policy(options: &ProcessOptions) -> Option<DatatypePolicy> {
+    match options.datatype_policy.as_deref() {
+        Some("reserved_only") => Some(DatatypePolicy::ReservedOnly),
+        Some("allow_custom") => Some(DatatypePolicy::AllowCustom),
+        _ => None,
     }
 }
 
@@ -865,11 +1005,65 @@ fn diagnostics_json(diagnostics: &[Diagnostic]) -> Vec<JsonValue> {
                 "code": diagnostic.code,
                 "path": diagnostic.path,
                 "span": diagnostic.span.as_ref().map(span_json),
-                "phase": diagnostic.phase,
+                "phase": diagnostic_phase_label(diagnostic),
                 "message": diagnostic.message,
             })
         })
         .collect()
+}
+
+fn diagnostic_phase_label(diagnostic: &Diagnostic) -> Option<&'static str> {
+    diagnostic
+        .phase
+        .and_then(phase_label_from_number)
+        .or_else(|| match diagnostic.code.as_str() {
+            "INPUT_SIZE_EXCEEDED" => Some("Input Validation"),
+            "UNEXPECTED_CHARACTER"
+            | "UNTERMINATED_BLOCK_COMMENT"
+            | "UNTERMINATED_STRING"
+            | "UNTERMINATED_TRIMTICK"
+            | "INVALID_STRUCTURAL_IDENTITY" => Some("Lexical Analysis"),
+            "SYNTAX_ERROR"
+            | "INVALID_NUMBER"
+            | "INVALID_DATE"
+            | "INVALID_TIME"
+            | "INVALID_DATETIME"
+            | "INVALID_SEPARATOR_CHAR"
+            | "CLARIFIER_VALUES_EXCEEDED"
+            | "GENERIC_ARGUMENTS_EXCEEDED"
+            | "DATATYPE_COMPONENTS_EXCEEDED"
+            | "SEPARATOR_DEPTH_EXCEEDED"
+            | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
+            "HEADER_CONFLICT"
+            | "DUPLICATE_KEY"
+            | "DUPLICATE_CANONICAL_PATH"
+            | "DUPLICATE_STRUCTURAL_IDENTITY"
+            | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
+            "MISSING_REFERENCE_TARGET"
+            | "FORWARD_REFERENCE"
+            | "SELF_REFERENCE"
+            | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
+            "UNTYPED_TOGGLE_LITERAL"
+            | "UNTYPED_VALUE_IN_STRICT_MODE"
+            | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
+            | "CUSTOM_DATATYPE_NOT_ALLOWED"
+            | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+            "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
+            "TYPE_GUARD_FAILED" => Some("Finalization"),
+            code if code.starts_with("FINALIZE_") => Some("Finalization"),
+            _ => None,
+        })
+}
+
+const fn phase_label_from_number(phase: u8) -> Option<&'static str> {
+    match phase {
+        0 => Some("Input Validation"),
+        5 => Some("Profile Compilation"),
+        6 => Some("Schema Validation"),
+        7 => Some("Reference Resolution"),
+        8 => Some("Finalization"),
+        _ => None,
+    }
 }
 
 fn span_json(span: &Span) -> JsonValue {
@@ -1327,7 +1521,42 @@ mod tests {
         assert_eq!(parsed["canonical"], "");
         assert_eq!(parsed["annotations"], serde_json::json!([]));
         assert_eq!(parsed["errors"][0]["code"], "INPUT_SIZE_EXCEEDED");
-        assert_eq!(parsed["errors"][0]["phase"], 0);
+        assert_eq!(parsed["errors"][0]["phase"], "Input Validation");
+    }
+
+    #[test]
+    fn process_options_expose_core_limits_and_independent_datatype_policy() {
+        let custom = process_aeon_json(
+            "color:stroke = #ff00ff\n",
+            r#"{"validationMode":"strict","datatypePolicy":"allow_custom"}"#,
+        )
+        .expect("process custom datatype under strict behavior");
+        let custom: JsonValue = serde_json::from_str(&custom).expect("valid custom JSON");
+        assert_eq!(custom["errors"], serde_json::json!([]));
+
+        let limited = process_aeon_json(
+            "first:int32 = 1\nsecond:int32 = 2\n",
+            r#"{"validationMode":"strict","maxEvents":1}"#,
+        )
+        .expect("process event-limited source");
+        let limited: JsonValue = serde_json::from_str(&limited).expect("valid limit JSON");
+        assert_eq!(limited["errors"][0]["code"], "EVENT_COUNT_EXCEEDED");
+
+        let compile_only = process_aeon_json(
+            "notJson:nan = NaN\n",
+            r#"{"validationMode":"strict","finalize":false}"#,
+        )
+        .expect("process without finalization");
+        let compile_only: JsonValue =
+            serde_json::from_str(&compile_only).expect("valid compile-only JSON");
+        assert_eq!(compile_only["errors"], serde_json::json!([]));
+        assert_eq!(compile_only["finalized"], serde_json::json!(null));
+
+        assert!(
+            process_aeon_json("value:int32 = 1\n", r#"{"datatypePolicy":"not-a-policy"}"#,)
+                .expect_err("reject unknown datatype policy")
+                .contains("unsupported datatypePolicy")
+        );
     }
 
     #[test]

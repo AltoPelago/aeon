@@ -1,6 +1,8 @@
 export interface ProcessOptions {
-  validationMode?: 'strict' | 'custom' | 'loose' | 'none';
+  validationMode?: 'declared' | 'strict' | 'custom' | 'loose' | 'none';
+  datatypePolicy?: 'reserved_only' | 'allow_custom';
   maxInputBytes?: number;
+  maxEvents?: number;
   maxClarifierValues?: number;
   /** @deprecated Use maxClarifierValues. */
   maxSeparatorDepth?: number;
@@ -8,6 +10,19 @@ export interface ProcessOptions {
   maxGenericDepth?: number;
   maxGenericArguments?: number;
   maxDatatypeComponents?: number;
+  maxValueNestingDepth?: number;
+  /** @deprecated Use maxValueNestingDepth. */
+  maxNestingDepth?: number;
+  maxPathDepth?: number;
+  maxStringCodepoints?: number;
+  maxKeySegmentCodepoints?: number;
+  maxListItems?: number;
+  maxTupleItems?: number;
+  maxPathCharacters?: number;
+  maxNumericLiteralCharacters?: number;
+  maxStructuredCommentCharacters?: number;
+  /** Skip JSON materialization and return Core compile events and diagnostics only. */
+  finalize?: boolean;
   materializationMode?: 'all' | 'projected';
   finalizeScope?: 'payload' | 'header' | 'full';
   includePaths?: string[];
@@ -160,16 +175,11 @@ export interface EventSummary {
   structuralId?: string;
 }
 
-export interface AeonStreamOptions {
-  validationMode?: 'strict' | 'custom' | 'loose';
-  maxInputBytes?: number;
-  maxClarifierValues?: number;
-  /** @deprecated Use maxClarifierValues. */
-  maxSeparatorDepth?: number;
-  maxAttributeDepth?: number;
-  maxGenericDepth?: number;
-  maxGenericArguments?: number;
-  maxDatatypeComponents?: number;
+export interface AeonStreamOptions extends Omit<
+  ProcessOptions,
+  'validationMode' | 'finalize' | 'materializationMode' | 'finalizeScope' | 'includePaths'
+> {
+  validationMode?: 'declared' | 'strict' | 'custom' | 'loose';
   /** Maximum events returned by one caller-pulled batch. Defaults to 256. */
   maxBatchEvents?: number;
   /** Maximum ready batches retained by WASM. Defaults to 2. */

@@ -53,6 +53,15 @@ tools:
 For compatibility, `errors` and `warnings` are also exposed as top-level aliases
 of `diagnostics.errors` and `diagnostics.warnings`.
 
+For Core conformance or event-processing workloads that do not need a JSON
+document, pass `finalize: false`. This compiles Sofia directly and returns Core
+events and diagnostics with `canonical.text` empty and
+`finalized.document: null`, avoiding canonicalization and materialization work.
+The one-shot API also accepts the Core resource limits as camel-case options,
+plus `datatypePolicy: 'reserved_only' | 'allow_custom'`. Use
+`validationMode: 'declared'` to honor a document's declared mode without a host
+override.
+
 ## Progressive streams
 
 `createAeonStream` is the bounded-throughput API. It accepts `Uint8Array`

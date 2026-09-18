@@ -30,6 +30,22 @@ test('processes a basic document through the generated wasm artifact', async () 
   assert.equal(result.events[0]?.path, '$.a');
 });
 
+test('exposes Core compilation without JSON finalization through generated wasm', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const result = runtime.processAeon('notJson:nan = NaN\n', {
+    validationMode: 'strict',
+    datatypePolicy: 'allow_custom',
+    finalize: false,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.canonical.text, '');
+  assert.equal(result.finalized.document, null);
+  assert.equal(result.events[0]?.path, '$.notJson');
+  assert.equal(result.events[0]?.valueType, 'NaNLiteral');
+});
+
 test('validates, canonicalizes, and checks Telex inside wasm', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);
