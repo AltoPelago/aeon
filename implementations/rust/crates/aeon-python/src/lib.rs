@@ -6,6 +6,9 @@ use aeon_core::{
     ExportTelexOptions, SourcePlane, Span as CoreSpan, Value, compile_sofia, export_telex,
     format_path, project_telex_records,
 };
+use aes_telex::{
+    encode_telex_with_projection_and_limits, validate_telex_records_with_projection_and_limits,
+};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyModule, PyTuple};
@@ -435,15 +438,15 @@ fn compile_telex(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> 
 
 /// Attribute the valid-input Telex path without including Python call overhead.
 ///
-/// The export measurement includes its own projection pass, matching the public
-/// path. Subtracting the separately measured projection duration therefore gives
-/// an approximate encoder/validation remainder rather than a separately timed
-/// encoder invocation.
+/// Validation and encoding operate on the same resident records. Encoding uses
+/// the public AES entry point and therefore includes its own validation pass;
+/// subtracting the independent validation median in the harness gives an
+/// approximate wire-emission remainder.
 #[pyfunction]
 fn compile_telex_profile(
     py: Python<'_>,
     source: &str,
-) -> PyResult<(u128, u128, u128, usize, usize)> {
+) -> PyResult<(u128, u128, u128, u128, usize, usize)> {
     let source = source.to_owned();
     py.detach(move || {
         let started = Instant::now();
@@ -460,14 +463,33 @@ fn compile_telex_profile(
         let project_ns = started.elapsed().as_nanos();
 
         let started = Instant::now();
-        let encoded = export_telex(&result.events, &options)
-            .map_err(|error| format!("failed to encode Telex: {error}"))?;
-        let export_ns = started.elapsed().as_nanos();
+        let validation = validate_telex_records_with_projection_and_limits(
+            &records,
+            options.profile.as_deref().unwrap_or("aes.complete.v1"),
+            options.projection.as_deref(),
+            &[],
+            &options.limits,
+        );
+        let validation_ns = started.elapsed().as_nanos();
+        if !validation.valid {
+            return Err("projected Telex records failed AES validation".to_owned());
+        }
+
+        let started = Instant::now();
+        let encoded = encode_telex_with_projection_and_limits(
+            &records,
+            options.profile.as_deref(),
+            options.projection.as_deref(),
+            &options.limits,
+        )
+        .map_err(|error| format!("failed to encode Telex: {error}"))?;
+        let encode_ns = started.elapsed().as_nanos();
 
         Ok((
             compile_ns,
             project_ns,
-            export_ns,
+            validation_ns,
+            encode_ns,
             records.len(),
             encoded.len(),
         ))

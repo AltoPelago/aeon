@@ -70,6 +70,7 @@ name = "aeon-python"
 version = "0.13.0"
 dependencies = [
  "aeon-core",
+ "aes-telex",
  "pyo3",
  "serde",
  "serde_json",
@@ -104,7 +105,7 @@ dependencies = [
 [[package]]
 name = "aes-telex"
 version = "0.0.0"
-source = "git+https://github.com/AltoPelago/aes.git?rev=8816c403e698f2a6fd1dd47b08cfc44b099f4740#8816c403e698f2a6fd1dd47b08cfc44b099f4740"
+source = "git+https://github.com/AltoPelago/aes.git?rev=3bd3c8e6b85c76ca23785da526d7841e6ee4d1b1#3bd3c8e6b85c76ca23785da526d7841e6ee4d1b1"
 dependencies = [
  "sha2",
 ]

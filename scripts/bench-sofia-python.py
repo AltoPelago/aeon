@@ -148,7 +148,7 @@ def measure(operation: Callable[[], Any], iterations: int, warmup: int) -> dict[
 
 
 def telex_phase_profile(
-    operation: Callable[[], tuple[int, int, int, int, int]],
+    operation: Callable[[], tuple[int, int, int, int, int, int]],
     iterations: int,
     warmup: int,
 ) -> dict[str, Any]:
@@ -157,14 +157,18 @@ def telex_phase_profile(
 
     compile_samples = []
     projection_samples = []
-    export_samples = []
+    validation_samples = []
+    encode_samples = []
     record_count = None
     encoded_bytes = None
     for _ in range(iterations):
-        compile_ns, projection_ns, export_ns, records, byte_count = operation()
+        compile_ns, projection_ns, validation_ns, encode_ns, records, byte_count = (
+            operation()
+        )
         compile_samples.append(compile_ns)
         projection_samples.append(projection_ns)
-        export_samples.append(export_ns)
+        validation_samples.append(validation_ns)
+        encode_samples.append(encode_ns)
         if record_count is not None and record_count != records:
             raise RuntimeError("Telex phase profiler returned inconsistent record counts")
         if encoded_bytes is not None and encoded_bytes != byte_count:
@@ -173,14 +177,16 @@ def telex_phase_profile(
         encoded_bytes = byte_count
 
     projection = timing_summary(projection_samples)
-    export = timing_summary(export_samples)
+    validation = timing_summary(validation_samples)
+    encode = timing_summary(encode_samples)
     return {
-        "method": "rust-internal-export-includes-independent-projection-pass",
+        "method": "rust-internal-resident-record-phases",
         "compile": timing_summary(compile_samples),
         "projection": projection,
-        "export": export,
-        "approximate_encoder_and_validation_ns": max(
-            0, export["median_ns"] - projection["median_ns"]
+        "resident_validation": validation,
+        "resident_encode_including_validation": encode,
+        "approximate_wire_emission_ns": max(
+            0, encode["median_ns"] - validation["median_ns"]
         ),
         "records": record_count,
         "encoded_bytes": encoded_bytes,
@@ -411,7 +417,7 @@ def main() -> int:
     if _native.ENGINE != "sofia":
         raise RuntimeError(f"installed wheel uses unexpected engine: {_native.ENGINE}")
     output = {
-        "schema": "aeon.sofia.python-boundary.v4",
+        "schema": "aeon.sofia.python-boundary.v5",
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "variant": args.variant,
         "aeon_revision": command_output(["git", "rev-parse", "HEAD"]),

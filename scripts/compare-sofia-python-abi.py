@@ -33,6 +33,11 @@ METRICS_BY_SCHEMA = {
         "ergonomic_compile",
         "encoded_telex",
     ),
+    "aeon.sofia.python-boundary.v5": (
+        "native_object_result",
+        "ergonomic_compile",
+        "encoded_telex",
+    ),
 }
 MINIMUM_CAPTURES = 3
 
