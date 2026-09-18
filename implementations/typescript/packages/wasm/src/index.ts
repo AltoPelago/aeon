@@ -442,7 +442,7 @@ class WasmAeonStream implements AeonStream {
       streamId: this.id,
       sequence: batch.sequence,
       firstEventIndex: batch.firstEventIndex,
-      events: batch.events.map(normalizeEvent),
+      events: batch.events,
     };
   }
 
@@ -503,7 +503,7 @@ function normalizeProcessResult(raw: RustWasmProcessResult): ProcessResult {
     canonical: { text: raw.canonical },
     finalized: { document: raw.finalized },
     annotations: raw.annotations.map(normalizeAnnotation),
-    events: raw.events.map(normalizeEvent),
+    events: raw.events,
     diagnostics: { errors, warnings },
     errors,
     warnings,
@@ -530,17 +530,4 @@ function normalizeAnnotation(annotation: AnnotationRecord): AnnotationRecord {
     target: annotation.target,
     placement: annotation.placement ?? null,
   };
-}
-
-function normalizeEvent(event: EventSummary): EventSummary {
-  const normalized: EventSummary = {
-    path: event.path,
-    key: event.key,
-    datatype: event.datatype ?? null,
-    valueType: event.valueType,
-  };
-  if (event.structuralId !== undefined) {
-    normalized.structuralId = event.structuralId;
-  }
-  return normalized;
 }

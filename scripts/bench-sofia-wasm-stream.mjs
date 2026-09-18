@@ -83,7 +83,7 @@ process.stdout.write(`${JSON.stringify({
         parser: 'push calls include Rust parsing/validation, progress-envelope serialization, and the WASM string return',
         serialization_and_transfer: 'pull calls include Rust batch materialization, JSON serialization, and the WASM string return',
         javascript_deserialization: 'JSON.parse is timed separately for progress, batch, and terminal envelopes',
-        javascript_adaptation: 'event-summary normalization is timed separately after JSON.parse',
+        javascript_adaptation: 'the already normalized typed event-summary array is passed through after JSON.parse',
         retention_probe: 'one additional untimed stream samples live Rust state and linear-memory capacity after each operation; diagnostic calls are excluded from timing samples',
     },
     memory_after_initialization_bytes: memoryAfterInitialization,
@@ -183,13 +183,7 @@ function pullOne(stream, counters, observeRetention) {
     counters.events += batch.events.length;
     counters.batchJsonBytes += Buffer.byteLength(raw, 'utf8');
     const adaptationStarted = performance.now();
-    const normalized = batch.events.map((event) => ({
-        path: event.path,
-        key: event.key,
-        datatype: event.datatype ?? null,
-        valueType: event.valueType,
-        ...(event.structuralId === undefined ? {} : { structuralId: event.structuralId }),
-    }));
+    const normalized = batch.events;
     counters.adaptationNs += elapsedNanoseconds(adaptationStarted);
     counters.sink += normalized.length + (normalized[0]?.path.length ?? 0);
     return true;
