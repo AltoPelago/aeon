@@ -20,13 +20,19 @@ const memoryAfterInitialization = exports.memory.buffer.byteLength;
 
 const cases = [];
 for (const batchEvents of args.batchEvents) {
+    const memoryBeforeCase = exports.memory.buffer.byteLength;
     for (let index = 0; index < args.warmup; index += 1) {
         runStream(batchEvents);
     }
+    const memoryAfterWarmup = exports.memory.buffer.byteLength;
     const samples = [];
     for (let index = 0; index < args.iterations; index += 1) {
         samples.push(runStream(batchEvents));
     }
+    const memoryAfterMeasurements = exports.memory.buffer.byteLength;
+    const retentionProbe = createRetentionProbe();
+    runStream(batchEvents, retentionProbe.observe);
+    const retention = retentionProbe.report();
     cases.push({
         batch_events: batchEvents,
         max_pending_batches: args.pendingBatches,
@@ -53,27 +59,44 @@ for (const batchEvents of args.batchEvents) {
             ),
             finish_and_terminal: summarize(samples.map((sample) => sample.terminalNs)),
         },
-        final_linear_memory_bytes: exports.memory.buffer.byteLength,
+        linear_memory_bytes: {
+            before_case: memoryBeforeCase,
+            after_warmup: memoryAfterWarmup,
+            after_measurements: memoryAfterMeasurements,
+            peak_during_retention_probe: retention.peak_linear_memory_bytes,
+            after_retention_probe: exports.memory.buffer.byteLength,
+            growth_from_initialization: exports.memory.buffer.byteLength
+                - memoryAfterInitialization,
+        },
+        retention,
     });
 }
 
 process.stdout.write(`${JSON.stringify({
-    schema: 'aeon.sofia.wasm-stream-boundary.v1',
+    schema: 'aeon.sofia.wasm-stream-boundary.v2',
     input: args.input,
     input_bytes: input.byteLength,
     wasm_bytes: wasmBytes.byteLength,
     representation: 'bounded JSON event-summary batches',
     timing: 'median wall-clock nanoseconds after warmup',
+    phase_model: {
+        parser: 'push calls include Rust parsing/validation, progress-envelope serialization, and the WASM string return',
+        serialization_and_transfer: 'pull calls include Rust batch materialization, JSON serialization, and the WASM string return',
+        javascript_deserialization: 'JSON.parse is timed separately for progress, batch, and terminal envelopes',
+        javascript_adaptation: 'event-summary normalization is timed separately after JSON.parse',
+        retention_probe: 'one additional untimed stream samples live Rust state and linear-memory capacity after each operation; diagnostic calls are excluded from timing samples',
+    },
     memory_after_initialization_bytes: memoryAfterInitialization,
     cases,
 }, null, 2)}\n`);
 
-function runStream(batchEvents) {
+function runStream(batchEvents, observeRetention = undefined) {
     const stream = new AeonStream(JSON.stringify({
         validationMode: 'strict',
         maxBatchEvents: batchEvents,
         maxPendingBatches: args.pendingBatches,
     }));
+    observeRetention?.('after-construction', stream);
     const counters = {
         pushNs: 0,
         pullNs: 0,
@@ -96,13 +119,14 @@ function runStream(batchEvents) {
             const raw = stream.push(chunk);
             counters.pushNs += elapsedNanoseconds(callStarted);
             counters.boundaryCrossings += 1;
+            observeRetention?.('after-push', stream);
             const parseStarted = performance.now();
             const progress = JSON.parse(raw);
             counters.jsonParseNs += elapsedNanoseconds(parseStarted);
             accepted = progress.accepted;
-            if (!accepted) pullOne(stream, counters);
+            if (!accepted) pullOne(stream, counters, observeRetention);
         }
-        pullAll(stream, counters);
+        pullAll(stream, counters, observeRetention);
     }
 
     let acceptedFinish = false;
@@ -111,18 +135,20 @@ function runStream(batchEvents) {
         const raw = stream.finish();
         counters.terminalNs += elapsedNanoseconds(finishStarted);
         counters.boundaryCrossings += 1;
+        observeRetention?.('after-finish', stream);
         const parseStarted = performance.now();
         const progress = JSON.parse(raw);
         counters.jsonParseNs += elapsedNanoseconds(parseStarted);
         acceptedFinish = progress.accepted;
-        if (!acceptedFinish) pullOne(stream, counters);
+        if (!acceptedFinish) pullOne(stream, counters, observeRetention);
     }
-    pullAll(stream, counters);
+    pullAll(stream, counters, observeRetention);
 
     const terminalStarted = performance.now();
     const rawTerminal = stream.takeTerminal();
     counters.terminalNs += elapsedNanoseconds(terminalStarted);
     counters.boundaryCrossings += 1;
+    observeRetention?.('after-terminal', stream);
     const terminalParseStarted = performance.now();
     const terminal = JSON.parse(rawTerminal);
     counters.jsonParseNs += elapsedNanoseconds(terminalParseStarted);
@@ -136,17 +162,18 @@ function runStream(batchEvents) {
     return { ...counters, totalNs };
 }
 
-function pullAll(stream, counters) {
-    while (pullOne(stream, counters)) {
+function pullAll(stream, counters, observeRetention) {
+    while (pullOne(stream, counters, observeRetention)) {
         // Pulling until empty is the consumer-side backpressure release.
     }
 }
 
-function pullOne(stream, counters) {
+function pullOne(stream, counters, observeRetention) {
     const pullStarted = performance.now();
     const raw = stream.pullBatch();
     counters.pullNs += elapsedNanoseconds(pullStarted);
     counters.boundaryCrossings += 1;
+    observeRetention?.('after-pull', stream);
     const parseStarted = performance.now();
     const batch = JSON.parse(raw);
     counters.jsonParseNs += elapsedNanoseconds(parseStarted);
@@ -166,6 +193,57 @@ function pullOne(stream, counters) {
     counters.adaptationNs += elapsedNanoseconds(adaptationStarted);
     counters.sink += normalized.length + (normalized[0]?.path.length ?? 0);
     return true;
+}
+
+function createRetentionProbe() {
+    let observations = 0;
+    let peakLinearMemoryBytes = exports.memory.buffer.byteLength;
+    let peakPoint;
+    let peakSnapshot;
+    let afterCompletion;
+    const fieldPeaks = {};
+
+    return {
+        observe(point, stream) {
+            const snapshot = JSON.parse(stream.retentionSnapshot());
+            observations += 1;
+            peakLinearMemoryBytes = Math.max(
+                peakLinearMemoryBytes,
+                exports.memory.buffer.byteLength,
+            );
+            for (const [field, value] of Object.entries(snapshot)) {
+                if (typeof value === 'number') {
+                    fieldPeaks[field] = Math.max(fieldPeaks[field] ?? 0, value);
+                }
+            }
+            if (
+                peakSnapshot === undefined
+                || snapshot.accountedShallowBytes > peakSnapshot.accountedShallowBytes
+            ) {
+                peakPoint = point;
+                peakSnapshot = snapshot;
+            }
+            if (point === 'after-terminal') afterCompletion = snapshot;
+        },
+        report() {
+            assert.notEqual(peakSnapshot, undefined);
+            assert.notEqual(afterCompletion, undefined);
+            assert.equal(afterCompletion.accountedShallowBytes, 0);
+            assert.equal(afterCompletion.readyEventCount, 0);
+            assert.equal(afterCompletion.stagedEventCount, 0);
+            return {
+                method: 'operation-boundary snapshots from the live Rust compiler; accounted shallow bytes exclude allocator overhead and unobservable nested capacity',
+                observations,
+                peak_linear_memory_bytes: peakLinearMemoryBytes,
+                peak_live_retention: {
+                    point: peakPoint,
+                    snapshot: peakSnapshot,
+                },
+                numeric_field_peaks: fieldPeaks,
+                after_completion: afterCompletion,
+            };
+        },
+    };
 }
 
 function parseArgs(raw) {

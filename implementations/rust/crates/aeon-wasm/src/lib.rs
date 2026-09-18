@@ -136,6 +136,53 @@ struct StreamTerminalResponse {
     errors: Vec<JsonValue>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamRetentionResponse {
+    accepted_input_bytes: usize,
+    accounted_shallow_bytes: usize,
+    compact_output: bool,
+    source_retained: bool,
+    source_bytes: usize,
+    source_capacity_bytes: usize,
+    lexer_active_bytes: usize,
+    parser_token_count: usize,
+    parser_token_storage_bytes: usize,
+    parser_frame_count: usize,
+    structural_identity_count: usize,
+    structural_identity_storage_bytes: usize,
+    completed_binding_count: usize,
+    completed_binding_storage_bytes: usize,
+    released_completed_binding_count: usize,
+    validation_header_field_count: usize,
+    validation_header_string_bytes: usize,
+    validation_structured_comment_count: usize,
+    validation_reference_datatype_claim_count: usize,
+    validation_datatype_target_count: usize,
+    validation_datatype_target_string_bytes: usize,
+    validation_reference_datatype_claim_string_bytes: usize,
+    validation_reference_target_count: usize,
+    validation_reference_target_string_bytes: usize,
+    validation_reference_step_count: usize,
+    validation_reference_claim_count: usize,
+    validation_reference_step_string_bytes: usize,
+    validation_retained_candidate_error_count: usize,
+    validation_event_count: usize,
+    validation_seen_path_count: usize,
+    validation_seen_path_string_bytes: usize,
+    prevalidation_error_count: usize,
+    ready_batch_count: usize,
+    ready_event_count: usize,
+    ready_event_slot_bytes: usize,
+    staged_batch_count: usize,
+    staged_cursor_count: usize,
+    staged_event_count: usize,
+    staged_event_slot_bytes: usize,
+    staged_ast_slot_bytes: usize,
+    terminal_source_capacity_bytes: usize,
+    terminal_event_count: usize,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct TelexOptions {
@@ -293,6 +340,21 @@ impl AeonStreamWasm {
         stream_state_name(self.compiler.state()).to_owned()
     }
 
+    /// Diagnostic live-retention telemetry for benchmarks and profiling.
+    ///
+    /// The returned JSON deliberately stays on the generated low-level
+    /// binding rather than the stable TypeScript facade.
+    #[wasm_bindgen(js_name = retentionSnapshot)]
+    pub fn retention_snapshot(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&stream_retention_response(self.compiler.retention())).map_err(
+            |error| {
+                JsValue::from_str(&format!(
+                    "failed to serialize stream retention snapshot: {error}"
+                ))
+            },
+        )
+    }
+
     pub fn push(&mut self, chunk: &[u8]) -> Result<String, JsValue> {
         let progress = self
             .compiler
@@ -438,6 +500,59 @@ fn stream_progress_json(progress: SofiaStreamProgress) -> Result<String, String>
     };
     serde_json::to_string(&response)
         .map_err(|error| format!("failed to serialize stream progress: {error}"))
+}
+
+fn stream_retention_response(
+    retention: aeon_core::ProgressiveRetentionSnapshot,
+) -> StreamRetentionResponse {
+    StreamRetentionResponse {
+        accepted_input_bytes: retention.accepted_input_bytes,
+        accounted_shallow_bytes: retention.accounted_shallow_bytes(),
+        compact_output: retention.compact_output,
+        source_retained: retention.source_retained,
+        source_bytes: retention.source_bytes,
+        source_capacity_bytes: retention.source_capacity_bytes,
+        lexer_active_bytes: retention.lexer_active_bytes,
+        parser_token_count: retention.parser_token_count,
+        parser_token_storage_bytes: retention.parser_token_storage_bytes,
+        parser_frame_count: retention.parser_frame_count,
+        structural_identity_count: retention.structural_identity_count,
+        structural_identity_storage_bytes: retention.structural_identity_storage_bytes,
+        completed_binding_count: retention.completed_binding_count,
+        completed_binding_storage_bytes: retention.completed_binding_storage_bytes,
+        released_completed_binding_count: retention.released_completed_binding_count,
+        validation_header_field_count: retention.validation_header_field_count,
+        validation_header_string_bytes: retention.validation_header_string_bytes,
+        validation_structured_comment_count: retention.validation_structured_comment_count,
+        validation_reference_datatype_claim_count: retention
+            .validation_reference_datatype_claim_count,
+        validation_datatype_target_count: retention.validation_datatype_target_count,
+        validation_datatype_target_string_bytes: retention.validation_datatype_target_string_bytes,
+        validation_reference_datatype_claim_string_bytes: retention
+            .validation_reference_datatype_claim_string_bytes,
+        validation_reference_target_count: retention.validation_reference_target_count,
+        validation_reference_target_string_bytes: retention
+            .validation_reference_target_string_bytes,
+        validation_reference_step_count: retention.validation_reference_step_count,
+        validation_reference_claim_count: retention.validation_reference_claim_count,
+        validation_reference_step_string_bytes: retention.validation_reference_step_string_bytes,
+        validation_retained_candidate_error_count: retention
+            .validation_retained_candidate_error_count,
+        validation_event_count: retention.validation_event_count,
+        validation_seen_path_count: retention.validation_seen_path_count,
+        validation_seen_path_string_bytes: retention.validation_seen_path_string_bytes,
+        prevalidation_error_count: retention.prevalidation_error_count,
+        ready_batch_count: retention.ready_batch_count,
+        ready_event_count: retention.ready_event_count,
+        ready_event_slot_bytes: retention.ready_event_slot_bytes,
+        staged_batch_count: retention.staged_batch_count,
+        staged_cursor_count: retention.staged_cursor_count,
+        staged_event_count: retention.staged_event_count,
+        staged_event_slot_bytes: retention.staged_event_slot_bytes,
+        staged_ast_slot_bytes: retention.staged_ast_slot_bytes,
+        terminal_source_capacity_bytes: retention.terminal_source_capacity_bytes,
+        terminal_event_count: retention.terminal_event_count,
+    }
 }
 
 const fn stream_state_name(state: SofiaStreamState) -> &'static str {
@@ -1351,6 +1466,16 @@ mod tests {
                 .expect("progress JSON");
         assert_eq!(progress["accepted"], true);
         assert_eq!(progress["backpressured"], true);
+        let retained: JsonValue = serde_json::from_str(
+            &stream
+                .retention_snapshot()
+                .expect("read retention snapshot"),
+        )
+        .expect("retention JSON");
+        assert_eq!(retained["acceptedInputBytes"], source.len());
+        assert_eq!(retained["compactOutput"], true);
+        assert_eq!(retained["sourceRetained"], false);
+        assert!(retained["accountedShallowBytes"].as_u64().unwrap_or(0) > 0);
 
         let mut events = Vec::new();
         loop {
@@ -1393,6 +1518,15 @@ mod tests {
         assert_eq!(terminal["eventCount"], 3);
         assert_eq!(events, ["$.alpha", "$.beta", "$.gamma"]);
         assert_eq!(stream.state(), "complete");
+        let released: JsonValue = serde_json::from_str(
+            &stream
+                .retention_snapshot()
+                .expect("read released retention snapshot"),
+        )
+        .expect("released retention JSON");
+        assert_eq!(released["accountedShallowBytes"], 0);
+        assert_eq!(released["readyEventCount"], 0);
+        assert_eq!(released["stagedEventCount"], 0);
     }
 
     #[test]

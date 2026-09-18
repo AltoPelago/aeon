@@ -143,6 +143,31 @@ export class AeonStream {
         }
     }
     /**
+     * Diagnostic live-retention telemetry for benchmarks and profiling.
+     *
+     * The returned JSON deliberately stays on the generated low-level
+     * binding rather than the stable TypeScript facade.
+     * @returns {string}
+     */
+    retentionSnapshot() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.aeonstream_retentionSnapshot(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * @returns {string}
      */
     state() {

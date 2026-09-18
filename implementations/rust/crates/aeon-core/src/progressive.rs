@@ -1359,7 +1359,13 @@ impl ProgressiveRetentionBounds {
 }
 
 impl ProgressiveRetentionSnapshot {
-    pub(crate) fn accounted_shallow_bytes(&self) -> usize {
+    /// Sum of directly accounted retained capacities and slot storage.
+    ///
+    /// This intentionally excludes allocator overhead and nested allocations
+    /// that do not expose capacity. It is diagnostic telemetry rather than a
+    /// claim about total process memory.
+    #[doc(hidden)]
+    pub fn accounted_shallow_bytes(&self) -> usize {
         self.source_capacity_bytes
             .saturating_add(self.lexer_active_bytes)
             .saturating_add(self.parser_token_storage_bytes)
@@ -1949,6 +1955,21 @@ impl SofiaStreamCompiler {
     #[must_use]
     pub const fn state(&self) -> SofiaStreamState {
         self.state
+    }
+
+    /// Return diagnostic retention telemetry for the live compiler state.
+    ///
+    /// Completed and cancelled streams have released the compiler and report
+    /// an empty snapshot. This is intentionally separate from allocator or
+    /// WebAssembly linear-memory capacity, which may remain at its high-water
+    /// mark after live objects are released.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn retention(&self) -> ProgressiveRetentionSnapshot {
+        self.compiler.as_ref().map_or_else(
+            ProgressiveRetentionSnapshot::default,
+            ProgressiveCompiler::retention,
+        )
     }
 
     pub fn push(&mut self, chunk: &[u8]) -> Result<SofiaStreamProgress, SofiaStreamError> {

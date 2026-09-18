@@ -8,6 +8,7 @@ export const aeonstream_new: (a: number, b: number) => [number, number, number];
 export const aeonstream_pullBatch: (a: number) => [number, number, number, number];
 export const aeonstream_push: (a: number, b: number, c: number) => [number, number, number, number];
 export const aeonstream_pushString: (a: number, b: number, c: number) => [number, number, number, number];
+export const aeonstream_retentionSnapshot: (a: number) => [number, number, number, number];
 export const aeonstream_state: (a: number) => [number, number];
 export const aeonstream_takeTerminal: (a: number) => [number, number, number, number];
 export const benchmark_process_aeon: (a: number, b: number, c: number, d: number) => [number, number, number];

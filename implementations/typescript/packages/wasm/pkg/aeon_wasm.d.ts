@@ -16,6 +16,13 @@ export class AeonStream {
     pullBatch(): string;
     pushString(chunk: string): string;
     push(chunk: Uint8Array): string;
+    /**
+     * Diagnostic live-retention telemetry for benchmarks and profiling.
+     *
+     * The returned JSON deliberately stays on the generated low-level
+     * binding rather than the stable TypeScript facade.
+     */
+    retentionSnapshot(): string;
     state(): string;
     takeTerminal(): string;
 }
@@ -43,6 +50,7 @@ export interface InitOutput {
     readonly aeonstream_pullBatch: (a: number) => [number, number, number, number];
     readonly aeonstream_push: (a: number, b: number, c: number) => [number, number, number, number];
     readonly aeonstream_pushString: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly aeonstream_retentionSnapshot: (a: number) => [number, number, number, number];
     readonly aeonstream_state: (a: number) => [number, number];
     readonly aeonstream_takeTerminal: (a: number) => [number, number, number, number];
     readonly benchmark_process_aeon: (a: number, b: number, c: number, d: number) => [number, number, number];

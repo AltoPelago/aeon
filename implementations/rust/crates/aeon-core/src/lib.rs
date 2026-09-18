@@ -62,14 +62,13 @@ pub use limits::{
 #[cfg(feature = "sofia-bench")]
 #[doc(hidden)]
 pub use progressive::{
-    ProgressiveBenchmarkReport, ProgressiveRetentionBounds, ProgressiveRetentionSnapshot,
-    benchmark_compact_progressive_sofia,
+    ProgressiveBenchmarkReport, ProgressiveRetentionBounds, benchmark_compact_progressive_sofia,
 };
 #[cfg(feature = "sofia")]
 #[doc(hidden)]
 pub use progressive::{
-    SofiaStreamBatch, SofiaStreamCompiler, SofiaStreamError, SofiaStreamProgress, SofiaStreamState,
-    SofiaStreamTerminal,
+    ProgressiveRetentionSnapshot, SofiaStreamBatch, SofiaStreamCompiler, SofiaStreamError,
+    SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal,
 };
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
 use token_parser::{
