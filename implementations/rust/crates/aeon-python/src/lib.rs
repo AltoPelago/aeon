@@ -472,7 +472,10 @@ fn compile_telex_profile(
         );
         let validation_ns = started.elapsed().as_nanos();
         if !validation.valid {
-            return Err("projected Telex records failed AES validation".to_owned());
+            return Err(format!(
+                "projected Telex records failed AES validation: {:?}",
+                validation.diagnostics
+            ));
         }
 
         let started = Instant::now();

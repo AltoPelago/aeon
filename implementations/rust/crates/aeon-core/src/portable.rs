@@ -845,7 +845,16 @@ fn project_value(
         Value::NullLiteral { value, .. } => ("NullLiteral", Some(value.clone())),
         Value::BooleanLiteral { raw } => ("BooleanLiteral", Some(raw.clone())),
         Value::ToggleLiteral { raw } => ("ToggleLiteral", Some(raw.clone())),
-        Value::HexLiteral { raw } => ("HexLiteral", Some(raw.trim_start_matches('#').to_owned())),
+        Value::HexLiteral { raw } => (
+            "HexLiteral",
+            Some(
+                raw.trim_start_matches('#')
+                    .bytes()
+                    .filter(|byte| *byte != b'_')
+                    .map(|byte| char::from(byte.to_ascii_lowercase()))
+                    .collect(),
+            ),
+        ),
         Value::RadixLiteral { raw } => {
             ("RadixLiteral", Some(raw.trim_start_matches('%').to_owned()))
         }
@@ -1741,6 +1750,24 @@ mod tests {
             separator.clarifiers.as_slice(),
             [DatatypeClarifier { kind: aes_telex::ClarifierKind::StringLiteral, value }] if value == "."
         ));
+    }
+
+    #[test]
+    fn canonicalizes_hex_values_for_portable_aes() {
+        let result = compile("color:hex = #FF_00_aA", CompileOptions::default());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let records = project_telex_records(&result.events, &ExportTelexOptions::default())
+            .expect("Telex projection");
+        assert_eq!(records[0].get("kind"), Some("HexLiteral"));
+        assert_eq!(records[0].get("value"), Some("ff00aa"));
+        let validation = aes_telex::validate_telex_records_with_projection_and_limits(
+            &records,
+            "aes.complete.v1",
+            None,
+            &[],
+            &TelexLimits::default(),
+        );
+        assert!(validation.valid, "{:?}", validation.diagnostics);
     }
 
     #[test]
