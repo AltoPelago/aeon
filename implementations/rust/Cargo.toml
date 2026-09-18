@@ -7,6 +7,7 @@ members = [
     "crates/aeon-cli",
     "crates/aeon-core",
     "crates/aeon-finalize",
+    "crates/aeon-python",
     "crates/aeon-wasm",
 ]
 resolver = "2"

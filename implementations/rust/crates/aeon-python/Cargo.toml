@@ -1,0 +1,25 @@
+[package]
+name = "aeon-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native CPython adapter for the Rust AEON implementation."
+publish = false
+
+[dependencies]
+aeon-core.workspace = true
+pyo3 = "0.29.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+
+[lib]
+name = "_native"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+test = false
+doctest = false
+
+[lints]
+workspace = true

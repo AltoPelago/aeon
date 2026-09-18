@@ -59,6 +59,7 @@ The current crates include:
 - `aeon-canonical`
 - `aeon-finalize`
 - `aeon-cli`
+- `aeon-python`
 - `aeon-wasm`
 
 Current verified status:
@@ -148,6 +149,12 @@ Run the starter test suite with:
 cd implementations/rust
 cargo test
 ```
+
+The native Python package lives in `crates/aeon-python`. It is a mixed
+PyO3/maturin project whose public import is `altopelago.aeon`; the generated
+`altopelago.aeon._native` module is private. Its behavioral suite runs through
+an installed wheel rather than an embedded-Python Cargo test harness. See the
+crate README for local build and ownership details.
 
 ## CTS
 
