@@ -3,10 +3,10 @@ use std::error::Error;
 use std::fmt;
 
 use aes_telex::{
-    AEON_DOCUMENT_PROJECTION, AesEventAddress, AesEventRecord, AesValueKind, DatatypeClarifier,
-    DatatypeDescriptor, GenericArgument, TelexEncodeError, TelexLimits, TelexRecord,
-    encode_aes_event_records_with_projection_and_limits, encode_telex_with_projection_and_limits,
-    parse_datatype_descriptor,
+    AEON_DOCUMENT_PROJECTION, AesCanonicalPath, AesEventAddress, AesEventRecord, AesValueKind,
+    DatatypeClarifier, DatatypeDescriptor, GenericArgument, TelexEncodeError, TelexLimits,
+    TelexRecord, encode_aes_event_records_with_projection_and_limits,
+    encode_telex_with_projection_and_limits, parse_datatype_descriptor,
 };
 use sha2::{Digest, Sha256};
 
@@ -27,6 +27,32 @@ pub struct PortableAesEvent {
     pub clarifiers: Vec<DatatypeClarifier>,
     pub value: Option<String>,
     pub span: Option<Span>,
+}
+
+struct ProjectedAesEvent {
+    path: AesCanonicalPath,
+    kind: &'static str,
+    identity: Option<String>,
+    datatype: Option<String>,
+    generics: Vec<GenericArgument>,
+    clarifiers: Vec<DatatypeClarifier>,
+    value: Option<String>,
+    span: Option<Span>,
+}
+
+impl ProjectedAesEvent {
+    fn into_portable(self) -> PortableAesEvent {
+        PortableAesEvent {
+            path: self.path.as_str().to_owned(),
+            kind: self.kind,
+            identity: self.identity,
+            datatype: self.datatype,
+            generics: self.generics,
+            clarifiers: self.clarifiers,
+            value: self.value,
+            span: self.span,
+        }
+    }
 }
 
 pub const RUST_ASSIGNMENT_EVENTS_CONTRACT_V0: &str = "aeon.rust.assignment-events.v0";
@@ -418,8 +444,11 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
         let Some(value) = header.fields.get(key) else {
             continue;
         };
+        let mut path = AesCanonicalPath::root();
+        path.push_member(&format!("aeon:{key}"))
+            .expect("header names produce nonempty canonical members");
         project_value_tree(
-            append_member("$", &format!("aeon:{key}")),
+            path,
             value,
             ValueTreeMetadata {
                 identity: None,
@@ -520,7 +549,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
 
 trait PortableEventSink {
     fn reserve(&mut self, additional: usize);
-    fn push(&mut self, event: PortableAesEvent);
+    fn push(&mut self, event: ProjectedAesEvent);
 }
 
 impl PortableEventSink for Vec<PortableAesEvent> {
@@ -528,8 +557,8 @@ impl PortableEventSink for Vec<PortableAesEvent> {
         Vec::reserve(self, additional);
     }
 
-    fn push(&mut self, event: PortableAesEvent) {
-        Vec::push(self, event);
+    fn push(&mut self, event: ProjectedAesEvent) {
+        Vec::push(self, event.into_portable());
     }
 }
 
@@ -540,7 +569,8 @@ impl PortableEventSink for TelexRecordSink<'_> {
         self.0.reserve(additional);
     }
 
-    fn push(&mut self, mut event: PortableAesEvent) {
+    fn push(&mut self, event: ProjectedAesEvent) {
+        let mut event = event.into_portable();
         split_projected_datatype(&mut event);
         self.0.push(portable_body_event_to_telex(event));
     }
@@ -553,12 +583,13 @@ impl PortableEventSink for AesEventRecordSink<'_> {
         self.0.reserve(additional);
     }
 
-    fn push(&mut self, mut event: PortableAesEvent) {
-        split_projected_datatype(&mut event);
-        let datatype = event.datatype.map(|datatype| DatatypeDescriptor {
-            datatype,
-            generics: event.generics,
-            clarifiers: event.clarifiers,
+    fn push(&mut self, event: ProjectedAesEvent) {
+        let datatype = event.datatype.map(|raw| {
+            parse_datatype_descriptor(&raw, &TelexLimits::default()).unwrap_or(DatatypeDescriptor {
+                datatype: raw,
+                generics: event.generics,
+                clarifiers: event.clarifiers,
+            })
         });
         self.0.push(AesEventRecord {
             address: AesEventAddress::Path(event.path),
@@ -613,22 +644,23 @@ where
     emit.reserve(events.len());
 
     for event in events {
-        let translated_path_text = if node_source_paths.is_empty() {
-            format_path(&event.path)
+        let translated_path = if node_source_paths.is_empty() {
+            event.path.clone()
         } else {
-            format_path(&translate_node_path(&event.path, &node_source_paths))
+            translate_node_path(&event.path, &node_source_paths)
         };
+        let translated_path = aes_canonical_path(&translated_path);
         let value = unwrap_typed_value(&event.value);
         emit.push(project_event(
             event,
-            translated_path_text.clone(),
+            translated_path.clone(),
             value,
             &node_source_paths,
         ));
         project_attributes(
             &event.annotations,
             &event.annotation_order,
-            &translated_path_text,
+            &translated_path,
             emit,
             &node_source_paths,
         );
@@ -643,8 +675,8 @@ where
             ..
         } = value
         {
-            let head_path = format!("{translated_path_text}[0]");
-            emit.push(PortableAesEvent {
+            let head_path = append_index(&translated_path, 0);
+            emit.push(ProjectedAesEvent {
                 path: head_path.clone(),
                 kind: "NodeHead",
                 identity: structural_id.clone(),
@@ -684,16 +716,16 @@ fn split_projected_datatype(event: &mut PortableAesEvent) {
 
 fn project_event(
     event: &AssignmentEvent,
-    path: String,
+    path: AesCanonicalPath,
     value: &Value,
     node_source_paths: &HashSet<String>,
-) -> PortableAesEvent {
+) -> ProjectedAesEvent {
     let (kind, projected_value) = project_value(value, node_source_paths);
     // Rust v0 assignment events inherit their owner's span for anonymous
     // sequence occurrences. That range is not occurrence-exact provenance.
     let span =
         (!matches!(event.path.segments.last(), Some(PathSegment::Index(_)))).then_some(event.span);
-    PortableAesEvent {
+    ProjectedAesEvent {
         path,
         kind,
         identity: event.structural_id.clone(),
@@ -708,7 +740,7 @@ fn project_event(
 fn project_attributes<S>(
     attributes: &BTreeMap<String, AttributeValue>,
     order: &[String],
-    owner_path: &str,
+    owner_path: &AesCanonicalPath,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
 ) where
@@ -727,7 +759,7 @@ fn project_attributes<S>(
 fn project_node_attributes<S>(
     attribute_blocks: &[BTreeMap<String, AttributeValue>],
     order: &[String],
-    owner_path: &str,
+    owner_path: &AesCanonicalPath,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
 ) where
@@ -745,7 +777,7 @@ fn project_node_attributes<S>(
 }
 
 fn project_attribute_value<S>(
-    path: String,
+    path: AesCanonicalPath,
     entry: &AttributeValue,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
@@ -758,7 +790,7 @@ fn project_attribute_value<S>(
         .map_or(("ObjectNode", None), |raw_value| {
             project_value(unwrap_typed_value(raw_value), node_source_paths)
         });
-    emit.push(PortableAesEvent {
+    emit.push(ProjectedAesEvent {
         path: path.clone(),
         kind,
         identity: entry.structural_id.clone(),
@@ -801,7 +833,7 @@ struct ValueTreeMetadata<'a> {
 }
 
 fn project_value_tree<S>(
-    path: String,
+    path: AesCanonicalPath,
     raw_value: &Value,
     metadata: ValueTreeMetadata<'_>,
     emit: &mut S,
@@ -811,7 +843,7 @@ fn project_value_tree<S>(
 {
     let value = unwrap_typed_value(raw_value);
     let (kind, projected_value) = project_value(value, node_source_paths);
-    emit.push(PortableAesEvent {
+    emit.push(ProjectedAesEvent {
         path: path.clone(),
         kind,
         identity: metadata.identity.cloned(),
@@ -828,7 +860,7 @@ fn project_value_tree<S>(
 }
 
 fn project_value_children<S>(
-    path: &str,
+    path: &AesCanonicalPath,
     value: &Value,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
@@ -850,7 +882,7 @@ fn project_value_children<S>(
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             emit.reserve(items.len());
             for (index, item) in items.iter().enumerate() {
-                project_anonymous_tree(format!("{path}[{index}]"), item, emit, node_source_paths);
+                project_anonymous_tree(append_index(path, index), item, emit, node_source_paths);
             }
         }
         Value::NodeLiteral {
@@ -864,8 +896,8 @@ fn project_value_children<S>(
             ..
         } => {
             emit.reserve(children.len().saturating_add(1));
-            let head_path = format!("{path}[0]");
-            emit.push(PortableAesEvent {
+            let head_path = append_index(path, 0);
+            emit.push(ProjectedAesEvent {
                 path: head_path.clone(),
                 kind: "NodeHead",
                 identity: structural_id.clone(),
@@ -884,7 +916,7 @@ fn project_value_children<S>(
             );
             for (index, child) in children.iter().enumerate() {
                 project_anonymous_tree(
-                    format!("{head_path}[{index}]"),
+                    append_index(&head_path, index),
                     child,
                     emit,
                     node_source_paths,
@@ -896,7 +928,7 @@ fn project_value_children<S>(
 }
 
 fn project_binding_tree<S>(
-    path: String,
+    path: AesCanonicalPath,
     binding: &Binding,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
@@ -918,7 +950,7 @@ fn project_binding_tree<S>(
 }
 
 fn project_anonymous_tree<S>(
-    path: String,
+    path: AesCanonicalPath,
     raw_value: &Value,
     emit: &mut S,
     node_source_paths: &HashSet<String>,
@@ -1041,12 +1073,38 @@ fn ordered_keys<'a>(
     keys
 }
 
-fn append_member(owner_path: &str, key: &str) -> String {
-    format!("{owner_path}{}", render_member_segment(key))
+fn aes_canonical_path(path: &CanonicalPath) -> AesCanonicalPath {
+    let mut rendered = AesCanonicalPath::root();
+    for segment in &path.segments {
+        match segment {
+            PathSegment::Root => {}
+            PathSegment::Member(member) => rendered
+                .push_member(member)
+                .expect("validated AEON paths have nonempty members"),
+            PathSegment::Index(index) => rendered.push_index(*index),
+        }
+    }
+    rendered
 }
 
-fn append_attribute(owner_path: &str, key: &str) -> String {
-    format!("{owner_path}.@{}", render_member_segment(key))
+fn append_member(owner_path: &AesCanonicalPath, key: &str) -> AesCanonicalPath {
+    let mut path = owner_path.clone();
+    path.push_member(key)
+        .expect("validated AEON paths have nonempty members");
+    path
+}
+
+fn append_attribute(owner_path: &AesCanonicalPath, key: &str) -> AesCanonicalPath {
+    let mut path = owner_path.clone();
+    path.push_attribute(key)
+        .expect("validated AEON paths have nonempty attributes");
+    path
+}
+
+fn append_index(owner_path: &AesCanonicalPath, index: usize) -> AesCanonicalPath {
+    let mut path = owner_path.clone();
+    path.push_index(index);
+    path
 }
 
 fn unwrap_typed_value(value: &Value) -> &Value {
