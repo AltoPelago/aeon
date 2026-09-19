@@ -326,10 +326,9 @@ pub fn project_telex_records(
             .iter()
             .all(|event| event.source_plane == crate::SourcePlane::Body)
     {
-        return Ok(project_portable_events(events)
-            .into_iter()
-            .map(portable_body_event_to_telex)
-            .collect());
+        let mut records = Vec::with_capacity(events.len());
+        project_portable_events_into(events, &mut TelexRecordSink(&mut records));
+        return Ok(records);
     }
 
     project_telex_records_via_compatibility(events, options)
@@ -485,12 +484,50 @@ fn compatibility_event_to_telex(
 /// in source preorder beneath their owner's `.@` address space.
 #[must_use]
 pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEvent> {
+    let mut projected = Vec::with_capacity(events.len());
+    project_portable_events_into(events, &mut projected);
+    split_projected_datatypes(&mut projected);
+    projected
+}
+
+trait PortableEventSink {
+    fn reserve(&mut self, additional: usize);
+    fn push(&mut self, event: PortableAesEvent);
+}
+
+impl PortableEventSink for Vec<PortableAesEvent> {
+    fn reserve(&mut self, additional: usize) {
+        Vec::reserve(self, additional);
+    }
+
+    fn push(&mut self, event: PortableAesEvent) {
+        Vec::push(self, event);
+    }
+}
+
+struct TelexRecordSink<'a>(&'a mut Vec<TelexRecord>);
+
+impl PortableEventSink for TelexRecordSink<'_> {
+    fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional);
+    }
+
+    fn push(&mut self, mut event: PortableAesEvent) {
+        split_projected_datatype(&mut event);
+        self.0.push(portable_body_event_to_telex(event));
+    }
+}
+
+fn project_portable_events_into<S>(events: &[AssignmentEvent], emit: &mut S)
+where
+    S: PortableEventSink + ?Sized,
+{
     let node_source_paths = events
         .iter()
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
         .map(|event| format_path(&event.path))
         .collect::<HashSet<_>>();
-    let mut projected = Vec::with_capacity(events.len());
+    emit.reserve(events.len());
 
     for event in events {
         let translated_path_text = if node_source_paths.is_empty() {
@@ -499,7 +536,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
             format_path(&translate_node_path(&event.path, &node_source_paths))
         };
         let value = unwrap_typed_value(&event.value);
-        projected.push(project_event(
+        emit.push(project_event(
             event,
             translated_path_text.clone(),
             value,
@@ -509,7 +546,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
             &event.annotations,
             &event.annotation_order,
             &translated_path_text,
-            &mut projected,
+            emit,
             &node_source_paths,
         );
 
@@ -524,7 +561,7 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
         } = value
         {
             let head_path = format!("{translated_path_text}[0]");
-            projected.push(PortableAesEvent {
+            emit.push(PortableAesEvent {
                 path: head_path.clone(),
                 kind: "NodeHead",
                 identity: structural_id.clone(),
@@ -538,26 +575,27 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
                 attributes,
                 attribute_order,
                 &head_path,
-                &mut projected,
+                emit,
                 &node_source_paths,
             );
         }
     }
-
-    split_projected_datatypes(&mut projected);
-    projected
 }
 
 fn split_projected_datatypes(events: &mut [PortableAesEvent]) {
     for event in events {
-        let Some(raw) = event.datatype.clone() else {
-            continue;
-        };
-        if let Ok(descriptor) = parse_datatype_descriptor(&raw, &TelexLimits::default()) {
-            event.datatype = Some(descriptor.datatype);
-            event.generics = descriptor.generics;
-            event.clarifiers = descriptor.clarifiers;
-        }
+        split_projected_datatype(event);
+    }
+}
+
+fn split_projected_datatype(event: &mut PortableAesEvent) {
+    let Some(raw) = event.datatype.clone() else {
+        return;
+    };
+    if let Ok(descriptor) = parse_datatype_descriptor(&raw, &TelexLimits::default()) {
+        event.datatype = Some(descriptor.datatype);
+        event.generics = descriptor.generics;
+        event.clarifiers = descriptor.clarifiers;
     }
 }
 
@@ -584,53 +622,60 @@ fn project_event(
     }
 }
 
-fn project_attributes(
+fn project_attributes<S>(
     attributes: &BTreeMap<String, AttributeValue>,
     order: &[String],
     owner_path: &str,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
+    emit.reserve(attributes.len());
     for key in ordered_keys(attributes, order) {
         let Some(entry) = attributes.get(key) else {
             continue;
         };
         let path = append_attribute(owner_path, key);
-        project_attribute_value(path, entry, projected, node_source_paths);
+        project_attribute_value(path, entry, emit, node_source_paths);
     }
 }
 
-fn project_node_attributes(
+fn project_node_attributes<S>(
     attribute_blocks: &[BTreeMap<String, AttributeValue>],
     order: &[String],
     owner_path: &str,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     for (index, attributes) in attribute_blocks.iter().enumerate() {
         project_attributes(
             attributes,
             if index == 0 { order } else { &[] },
             owner_path,
-            projected,
+            emit,
             node_source_paths,
         );
     }
 }
 
-fn project_attribute_value(
+fn project_attribute_value<S>(
     path: String,
     entry: &AttributeValue,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     let (kind, value) = entry
         .value
         .as_ref()
         .map_or(("ObjectNode", None), |raw_value| {
             project_value(unwrap_typed_value(raw_value), node_source_paths)
         });
-    projected.push(PortableAesEvent {
+    emit.push(PortableAesEvent {
         path: path.clone(),
         kind,
         identity: entry.structural_id.clone(),
@@ -644,7 +689,7 @@ fn project_attribute_value(
         &entry.nested_attrs,
         &entry.nested_attr_order,
         &path,
-        projected,
+        emit,
         node_source_paths,
     );
 
@@ -652,7 +697,7 @@ fn project_attribute_value(
         project_value_children(
             &path,
             unwrap_typed_value(raw_value),
-            projected,
+            emit,
             node_source_paths,
         );
     } else {
@@ -660,12 +705,7 @@ fn project_attribute_value(
             let Some(member) = entry.object_members.get(key) else {
                 continue;
             };
-            project_attribute_value(
-                append_member(&path, key),
-                member,
-                projected,
-                node_source_paths,
-            );
+            project_attribute_value(append_member(&path, key), member, emit, node_source_paths);
         }
     }
 }
@@ -677,16 +717,18 @@ struct ValueTreeMetadata<'a> {
     span: Option<Span>,
 }
 
-fn project_value_tree(
+fn project_value_tree<S>(
     path: String,
     raw_value: &Value,
     metadata: ValueTreeMetadata<'_>,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     let value = unwrap_typed_value(raw_value);
     let (kind, projected_value) = project_value(value, node_source_paths);
-    projected.push(PortableAesEvent {
+    emit.push(PortableAesEvent {
         path: path.clone(),
         kind,
         identity: metadata.identity.cloned(),
@@ -697,36 +739,35 @@ fn project_value_tree(
         span: metadata.span,
     });
     if let Some((mapped, order)) = metadata.attributes {
-        project_attributes(mapped, order, &path, projected, node_source_paths);
+        project_attributes(mapped, order, &path, emit, node_source_paths);
     }
-    project_value_children(&path, value, projected, node_source_paths);
+    project_value_children(&path, value, emit, node_source_paths);
 }
 
-fn project_value_children(
+fn project_value_children<S>(
     path: &str,
     value: &Value,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     match value {
         Value::ObjectNode { bindings } => {
+            emit.reserve(bindings.len());
             for binding in bindings {
                 project_binding_tree(
                     append_member(path, &binding.key),
                     binding,
-                    projected,
+                    emit,
                     node_source_paths,
                 );
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
+            emit.reserve(items.len());
             for (index, item) in items.iter().enumerate() {
-                project_anonymous_tree(
-                    format!("{path}[{index}]"),
-                    item,
-                    projected,
-                    node_source_paths,
-                );
+                project_anonymous_tree(format!("{path}[{index}]"), item, emit, node_source_paths);
             }
         }
         Value::NodeLiteral {
@@ -739,8 +780,9 @@ fn project_value_children(
             head_span,
             ..
         } => {
+            emit.reserve(children.len().saturating_add(1));
             let head_path = format!("{path}[0]");
-            projected.push(PortableAesEvent {
+            emit.push(PortableAesEvent {
                 path: head_path.clone(),
                 kind: "NodeHead",
                 identity: structural_id.clone(),
@@ -754,14 +796,14 @@ fn project_value_children(
                 attributes,
                 attribute_order,
                 &head_path,
-                projected,
+                emit,
                 node_source_paths,
             );
             for (index, child) in children.iter().enumerate() {
                 project_anonymous_tree(
                     format!("{head_path}[{index}]"),
                     child,
-                    projected,
+                    emit,
                     node_source_paths,
                 );
             }
@@ -770,12 +812,14 @@ fn project_value_children(
     }
 }
 
-fn project_binding_tree(
+fn project_binding_tree<S>(
     path: String,
     binding: &Binding,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     project_value_tree(
         path,
         &binding.value,
@@ -785,17 +829,19 @@ fn project_binding_tree(
             attributes: Some((&binding.attributes, &binding.attribute_order)),
             span: Some(binding.span),
         },
-        projected,
+        emit,
         node_source_paths,
     );
 }
 
-fn project_anonymous_tree(
+fn project_anonymous_tree<S>(
     path: String,
     raw_value: &Value,
-    projected: &mut Vec<PortableAesEvent>,
+    emit: &mut S,
     node_source_paths: &HashSet<String>,
-) {
+) where
+    S: PortableEventSink + ?Sized,
+{
     if let Value::TypedValue {
         structural_id,
         datatype,
@@ -813,7 +859,7 @@ fn project_anonymous_tree(
                 attributes: Some((attributes, attribute_order)),
                 span: None,
             },
-            projected,
+            emit,
             node_source_paths,
         );
     } else {
@@ -826,7 +872,7 @@ fn project_anonymous_tree(
                 attributes: None,
                 span: None,
             },
-            projected,
+            emit,
             node_source_paths,
         );
     }
