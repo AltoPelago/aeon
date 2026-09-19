@@ -3,8 +3,9 @@ use std::error::Error;
 use std::fmt;
 
 use aes_telex::{
-    AEON_DOCUMENT_PROJECTION, DatatypeClarifier, DatatypeDescriptor, GenericArgument,
-    TelexEncodeError, TelexLimits, TelexRecord, encode_telex_with_projection_and_limits,
+    AEON_DOCUMENT_PROJECTION, AesEventAddress, AesEventRecord, AesValueKind, DatatypeClarifier,
+    DatatypeDescriptor, GenericArgument, TelexEncodeError, TelexLimits, TelexRecord,
+    encode_aes_event_records_with_projection_and_limits, encode_telex_with_projection_and_limits,
     parse_datatype_descriptor,
 };
 use sha2::{Digest, Sha256};
@@ -299,6 +300,15 @@ pub fn export_telex(
     events: &[AssignmentEvent],
     options: &ExportTelexOptions,
 ) -> Result<String, TelexEncodeError> {
+    if supports_typed_body_projection(events, options) {
+        let records = project_aes_event_records(events);
+        return encode_aes_event_records_with_projection_and_limits(
+            &records,
+            options.profile.as_deref(),
+            options.projection.as_deref(),
+            &options.limits,
+        );
+    }
     let records = project_telex_records(events, options)?;
     let projection = if options.include_headers {
         Some(AEON_DOCUMENT_PROJECTION)
@@ -320,18 +330,36 @@ pub fn project_telex_records(
     // The common body-only export needs neither the compatibility report nor
     // provenance fields. Project it directly so large streams do not clone the
     // complete assignment-event tree and then materialize a second event model.
-    if !options.include_headers
-        && options.source_bytes.is_none()
-        && events
-            .iter()
-            .all(|event| event.source_plane == crate::SourcePlane::Body)
-    {
+    if supports_typed_body_projection(events, options) {
         let mut records = Vec::with_capacity(events.len());
         project_portable_events_into(events, &mut TelexRecordSink(&mut records));
         return Ok(records);
     }
 
     project_telex_records_via_compatibility(events, options)
+}
+
+fn supports_typed_body_projection(
+    events: &[AssignmentEvent],
+    options: &ExportTelexOptions,
+) -> bool {
+    !options.include_headers
+        && options.source_bytes.is_none()
+        && events
+            .iter()
+            .all(|event| event.source_plane == crate::SourcePlane::Body)
+}
+
+/// Project body-plane assignments into AES's fixed-field producer model.
+///
+/// This is exposed for repository benchmark instrumentation; ordinary callers
+/// should use [`export_telex`].
+#[doc(hidden)]
+#[must_use]
+pub fn project_aes_event_records(events: &[AssignmentEvent]) -> Vec<AesEventRecord> {
+    let mut records = Vec::with_capacity(events.len());
+    project_portable_events_into(events, &mut AesEventRecordSink(&mut records));
+    records
 }
 
 fn project_telex_records_via_compatibility(
@@ -515,6 +543,61 @@ impl PortableEventSink for TelexRecordSink<'_> {
     fn push(&mut self, mut event: PortableAesEvent) {
         split_projected_datatype(&mut event);
         self.0.push(portable_body_event_to_telex(event));
+    }
+}
+
+struct AesEventRecordSink<'a>(&'a mut Vec<AesEventRecord>);
+
+impl PortableEventSink for AesEventRecordSink<'_> {
+    fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional);
+    }
+
+    fn push(&mut self, mut event: PortableAesEvent) {
+        split_projected_datatype(&mut event);
+        let datatype = event.datatype.map(|datatype| DatatypeDescriptor {
+            datatype,
+            generics: event.generics,
+            clarifiers: event.clarifiers,
+        });
+        self.0.push(AesEventRecord {
+            address: AesEventAddress::Path(event.path),
+            kind: aes_value_kind(event.kind),
+            datatype,
+            identity: event.identity,
+            value: event.value,
+            origin: None,
+            span: None,
+        });
+    }
+}
+
+fn aes_value_kind(kind: &str) -> AesValueKind {
+    match kind {
+        "StringLiteral" => AesValueKind::StringLiteral,
+        "NumberLiteral" => AesValueKind::NumberLiteral,
+        "InfinityLiteral" => AesValueKind::InfinityLiteral,
+        "NaNLiteral" => AesValueKind::NaNLiteral,
+        "NullLiteral" => AesValueKind::NullLiteral,
+        "BooleanLiteral" => AesValueKind::BooleanLiteral,
+        "ToggleLiteral" => AesValueKind::ToggleLiteral,
+        "HexLiteral" => AesValueKind::HexLiteral,
+        "RadixLiteral" => AesValueKind::RadixLiteral,
+        "EncodingLiteral" => AesValueKind::EncodingLiteral,
+        "SeparatorLiteral" => AesValueKind::SeparatorLiteral,
+        "SansaAddressLiteral" => AesValueKind::SansaAddressLiteral,
+        "DateLiteral" => AesValueKind::DateLiteral,
+        "TimeLiteral" => AesValueKind::TimeLiteral,
+        "DateTimeLiteral" => AesValueKind::DateTimeLiteral,
+        "WTCDateTimeLiteral" => AesValueKind::WtcDateTimeLiteral,
+        "ObjectNode" => AesValueKind::ObjectNode,
+        "ListNode" => AesValueKind::ListNode,
+        "TupleLiteral" => AesValueKind::TupleLiteral,
+        "NodeLiteral" => AesValueKind::NodeLiteral,
+        "NodeHead" => AesValueKind::NodeHead,
+        "CloneReference" => AesValueKind::CloneReference,
+        "PointerReference" => AesValueKind::PointerReference,
+        _ => unreachable!("Sofia projected an unknown AES value kind"),
     }
 }
 
@@ -1728,6 +1811,37 @@ mod tests {
         let compatibility = project_telex_records_via_compatibility(&result.events, &options)
             .expect("compatibility projection");
         assert_eq!(direct, compatibility);
+    }
+
+    #[test]
+    fn typed_body_export_matches_extensible_telex_record_encoding() {
+        let source = concat!(
+            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>\n",
+            "copy = ~a[0]\n",
+            "items:list<int> = [1, 2]\n",
+            "metadata = { enabled = true }",
+        );
+        let result = compile(
+            source,
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let options = ExportTelexOptions::default();
+        let typed = export_telex(&result.events, &options).expect("typed AES export");
+        let extensible = project_telex_records(&result.events, &options)
+            .and_then(|records| {
+                encode_telex_with_projection_and_limits(
+                    &records,
+                    options.profile.as_deref(),
+                    options.projection.as_deref(),
+                    &options.limits,
+                )
+            })
+            .expect("extensible Telex record export");
+        assert_eq!(typed, extensible);
     }
 
     #[test]

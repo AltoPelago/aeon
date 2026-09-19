@@ -105,7 +105,7 @@ dependencies = [
 [[package]]
 name = "aes-telex"
 version = "0.0.0"
-source = "git+https://github.com/AltoPelago/aes.git?rev=3383663ec65496dcd985e9af63b5cf90e1718b75#3383663ec65496dcd985e9af63b5cf90e1718b75"
+source = "git+https://github.com/AltoPelago/aes.git?rev=ae0834a5e068d728ca082d7d3df0921326c04b54#ae0834a5e068d728ca082d7d3df0921326c04b54"
 dependencies = [
  "sha2",
 ]

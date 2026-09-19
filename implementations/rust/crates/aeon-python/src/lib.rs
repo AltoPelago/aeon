@@ -4,10 +4,11 @@ use std::time::Instant;
 use aeon_core::{
     CompileOptions, CompileResult as CoreCompileResult, Diagnostic as CoreDiagnostic,
     ExportTelexOptions, SourcePlane, Span as CoreSpan, Value, compile_sofia, export_telex,
-    format_path, project_telex_records,
+    format_path, project_aes_event_records,
 };
 use aes_telex::{
-    encode_telex_with_projection_and_limits, validate_telex_records_with_projection_and_limits,
+    encode_aes_event_records_with_projection_and_limits,
+    validate_aes_event_records_with_projection_and_limits,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -458,16 +459,14 @@ fn compile_telex_profile(
 
         let options = ExportTelexOptions::default();
         let started = Instant::now();
-        let records = project_telex_records(&result.events, &options)
-            .map_err(|error| format!("failed to project Telex records: {error}"))?;
+        let records = project_aes_event_records(&result.events);
         let project_ns = started.elapsed().as_nanos();
 
         let started = Instant::now();
-        let validation = validate_telex_records_with_projection_and_limits(
+        let validation = validate_aes_event_records_with_projection_and_limits(
             &records,
             options.profile.as_deref().unwrap_or("aes.complete.v1"),
             options.projection.as_deref(),
-            &[],
             &options.limits,
         );
         let validation_ns = started.elapsed().as_nanos();
@@ -479,7 +478,7 @@ fn compile_telex_profile(
         }
 
         let started = Instant::now();
-        let encoded = encode_telex_with_projection_and_limits(
+        let encoded = encode_aes_event_records_with_projection_and_limits(
             &records,
             options.profile.as_deref(),
             options.projection.as_deref(),
