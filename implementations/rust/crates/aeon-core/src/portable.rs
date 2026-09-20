@@ -648,6 +648,15 @@ where
     for event in events {
         let translated_path = aes_canonical_path(&event.path, &node_source_paths);
         let value = unwrap_typed_value(&event.value);
+        if event.annotations.is_empty() && !matches!(value, Value::NodeLiteral { .. }) {
+            emit.push(project_event(
+                event,
+                translated_path,
+                value,
+                &node_source_paths,
+            ));
+            continue;
+        }
         emit.push(project_event(
             event,
             translated_path.clone(),
