@@ -547,6 +547,8 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
     projected
 }
 
+type NodeSourcePaths = HashSet<Vec<PathSegment>>;
+
 trait PortableEventSink {
     fn reserve(&mut self, additional: usize);
     fn push(&mut self, event: ProjectedAesEvent);
@@ -639,7 +641,7 @@ where
     let node_source_paths = events
         .iter()
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| format_path(&event.path))
+        .map(|event| event.path.segments.clone())
         .collect::<HashSet<_>>();
     emit.reserve(events.len());
 
@@ -718,7 +720,7 @@ fn project_event(
     event: &AssignmentEvent,
     path: AesCanonicalPath,
     value: &Value,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) -> ProjectedAesEvent {
     let (kind, projected_value) = project_value(value, node_source_paths);
     // Rust v0 assignment events inherit their owner's span for anonymous
@@ -742,7 +744,7 @@ fn project_attributes<S>(
     order: &[String],
     owner_path: &AesCanonicalPath,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -761,7 +763,7 @@ fn project_node_attributes<S>(
     order: &[String],
     owner_path: &AesCanonicalPath,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -780,7 +782,7 @@ fn project_attribute_value<S>(
     path: AesCanonicalPath,
     entry: &AttributeValue,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -837,7 +839,7 @@ fn project_value_tree<S>(
     raw_value: &Value,
     metadata: ValueTreeMetadata<'_>,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -863,7 +865,7 @@ fn project_value_children<S>(
     path: &AesCanonicalPath,
     value: &Value,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -931,7 +933,7 @@ fn project_binding_tree<S>(
     path: AesCanonicalPath,
     binding: &Binding,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -953,7 +955,7 @@ fn project_anonymous_tree<S>(
     path: AesCanonicalPath,
     raw_value: &Value,
     emit: &mut S,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -995,7 +997,7 @@ fn project_anonymous_tree<S>(
 
 fn project_value(
     value: &Value,
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) -> (&'static str, Option<String>) {
     match value {
         Value::TypedValue { value, .. } => project_value(value, node_source_paths),
@@ -1114,16 +1116,14 @@ fn unwrap_typed_value(value: &Value) -> &Value {
     }
 }
 
-fn translate_node_path(path: &CanonicalPath, node_source_paths: &HashSet<String>) -> CanonicalPath {
+fn translate_node_path(path: &CanonicalPath, node_source_paths: &NodeSourcePaths) -> CanonicalPath {
     let mut source_segments = Vec::new();
     let mut target_segments = Vec::new();
 
     for segment in &path.segments {
         if matches!(segment, PathSegment::Index(_))
             && !source_segments.is_empty()
-            && node_source_paths.contains(&format_path(&CanonicalPath {
-                segments: source_segments.clone(),
-            }))
+            && node_source_paths.contains(&source_segments)
         {
             target_segments.push(PathSegment::Index(0));
         }
@@ -1138,7 +1138,7 @@ fn translate_node_path(path: &CanonicalPath, node_source_paths: &HashSet<String>
 
 fn translate_reference_target(
     segments: &[ReferenceSegment],
-    node_source_paths: &HashSet<String>,
+    node_source_paths: &NodeSourcePaths,
 ) -> String {
     let mut source_segments = vec![PathSegment::Root];
     let mut source_path_is_trackable = true;
@@ -1153,11 +1153,7 @@ fn translate_reference_target(
                 }
             }
             ReferenceSegment::Index(index) => {
-                if source_path_is_trackable
-                    && node_source_paths.contains(&format_path(&CanonicalPath {
-                        segments: source_segments.clone(),
-                    }))
-                {
+                if source_path_is_trackable && node_source_paths.contains(&source_segments) {
                     output.push_str("[0]");
                 }
                 output.push_str(&format!("[{index}]"));
@@ -1294,7 +1290,7 @@ fn compatibility_changes(
     let node_source_paths = body_events
         .iter()
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| format_path(&event.path))
+        .map(|event| event.path.segments.clone())
         .collect::<HashSet<_>>();
     let path_map = body_events
         .iter()

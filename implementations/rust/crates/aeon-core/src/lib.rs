@@ -129,7 +129,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PathSegment {
     Root,
     Member(String),
