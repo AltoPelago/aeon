@@ -416,6 +416,13 @@ pub struct TrimtickMetadata {
 
 #[must_use]
 pub fn normalize_number_literal(raw: &str) -> String {
+    if !raw
+        .bytes()
+        .any(|byte| matches!(byte, b'_' | b'E' | b'e' | b'.' | b'+'))
+    {
+        return raw.to_owned();
+    }
+
     let mut value = raw.replace('_', "").replace('E', "e");
     if value.starts_with('.') {
         value = format!("0{value}");
