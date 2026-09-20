@@ -4,7 +4,7 @@ use std::time::Instant;
 use aeon_core::{
     BehaviorMode, CompileOptions, CompileResult as CoreCompileResult, DatatypePolicy,
     Diagnostic as CoreDiagnostic, ExportTelexOptions, SourcePlane, Span as CoreSpan, Value,
-    aeon_compile_limits, compile_sofia, export_telex, format_path, load_aeonic_limits,
+    aeon_compile_limits, compile_sofia_owned, export_telex, format_path, load_aeonic_limits,
     project_aes_event_records,
 };
 use aes_telex::{
@@ -406,7 +406,7 @@ struct PositionRecord {
 fn compile_json(py: Python<'_>, source: &str) -> PyResult<Py<PyBytes>> {
     let source = source.to_owned();
     let encoded = py
-        .detach(move || encode_compile_result(&source))
+        .detach(move || encode_compile_result(source))
         .map_err(PyRuntimeError::new_err)?;
     Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
 }
@@ -451,7 +451,7 @@ fn compile_cts_json(
                 max_generic_depth,
                 max_events,
             )?;
-            let result = compile_sofia(&source, options);
+            let result = compile_sofia_owned(source, options);
             serde_json::to_string(&compile_envelope(&result))
                 .map_err(|error| format!("failed to serialize CTS compile result: {error}"))
         })
@@ -462,7 +462,7 @@ fn compile_cts_json(
 #[pyfunction]
 fn compile_packed(py: Python<'_>, source: &str) -> PackedCompileResult {
     let source = source.to_owned();
-    let result = py.detach(move || compile_sofia(&source, CompileOptions::default()));
+    let result = py.detach(move || compile_sofia_owned(source, CompileOptions::default()));
     (
         result.events.into_iter().map(packed_event).collect(),
         result.warnings.into_iter().map(packed_diagnostic).collect(),
@@ -473,7 +473,7 @@ fn compile_packed(py: Python<'_>, source: &str) -> PackedCompileResult {
 #[pyfunction]
 fn compile_native(py: Python<'_>, source: &str) -> PyResult<Py<PyCompileResult>> {
     let source = source.to_owned();
-    let result = py.detach(move || compile_sofia(&source, CompileOptions::default()));
+    let result = py.detach(move || compile_sofia_owned(source, CompileOptions::default()));
     python_compile_result(py, result)
 }
 
@@ -481,7 +481,7 @@ fn compile_native(py: Python<'_>, source: &str) -> PyResult<Py<PyCompileResult>>
 fn compile_telex(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> {
     let source = source.to_owned();
     let (ok, encoded) = py
-        .detach(move || encode_telex_result(&source))
+        .detach(move || encode_telex_result(source))
         .map_err(PyRuntimeError::new_err)?;
     Ok((ok, PyBytes::new(py, &encoded).unbind()))
 }
@@ -500,7 +500,7 @@ fn compile_telex_profile(
     let source = source.to_owned();
     py.detach(move || {
         let started = Instant::now();
-        let result = compile_sofia(&source, telex_compile_options());
+        let result = compile_sofia_owned(source, telex_compile_options());
         let compile_ns = started.elapsed().as_nanos();
         if !result.errors.is_empty() {
             return Err("cannot profile Telex export for invalid AEON input".to_owned());
@@ -646,14 +646,14 @@ fn cts_compile_options(
     Ok(options)
 }
 
-fn encode_compile_result(source: &str) -> Result<String, String> {
-    let result = compile_sofia(source, CompileOptions::default());
+fn encode_compile_result(source: String) -> Result<String, String> {
+    let result = compile_sofia_owned(source, CompileOptions::default());
     serde_json::to_string(&compile_envelope(&result))
         .map_err(|error| format!("failed to serialize compile result: {error}"))
 }
 
-fn encode_telex_result(source: &str) -> Result<(bool, Vec<u8>), String> {
-    let result = compile_sofia(source, telex_compile_options());
+fn encode_telex_result(source: String) -> Result<(bool, Vec<u8>), String> {
+    let result = compile_sofia_owned(source, telex_compile_options());
     if !result.errors.is_empty() {
         let diagnostics = result
             .errors

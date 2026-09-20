@@ -688,9 +688,18 @@ pub fn benchmark_compile_sofia(input: &str, options: CompileOptions) -> CompileR
 #[doc(hidden)]
 #[must_use]
 pub fn compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
-    let source = String::from_utf8(input.as_bytes().to_vec())
-        .expect("a borrowed Rust string must remain valid UTF-8 after copying");
-    compile_owned_with_implementation(source, options, ParserImplementation::Sofia)
+    compile_sofia_owned(input.to_owned(), options)
+}
+
+/// Compiles an owned source string through Sofia without copying it first.
+///
+/// This is an internal runtime-adapter boundary, not a stable public parser
+/// selection API.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[must_use]
+pub fn compile_sofia_owned(input: String, options: CompileOptions) -> CompileResult {
+    compile_owned_with_implementation(input, options, ParserImplementation::Sofia)
 }
 
 fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
@@ -1782,6 +1791,16 @@ fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagno
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sofia")]
+    #[test]
+    fn owned_sofia_entrypoint_matches_borrowed_source() {
+        let source = "first:int32 = 1\nitems = [2, 3]\ncopy = ~first\n";
+        assert_eq!(
+            compile_sofia(source, CompileOptions::default()),
+            compile_sofia_owned(source.to_owned(), CompileOptions::default()),
+        );
+    }
 
     #[cfg(feature = "sofia-bench")]
     #[test]
