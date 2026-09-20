@@ -1117,17 +1117,15 @@ fn unwrap_typed_value(value: &Value) -> &Value {
 }
 
 fn translate_node_path(path: &CanonicalPath, node_source_paths: &NodeSourcePaths) -> CanonicalPath {
-    let mut source_segments = Vec::new();
-    let mut target_segments = Vec::new();
+    let mut target_segments = Vec::with_capacity(path.segments.len().saturating_add(1));
 
-    for segment in &path.segments {
+    for (index, segment) in path.segments.iter().enumerate() {
         if matches!(segment, PathSegment::Index(_))
-            && !source_segments.is_empty()
-            && node_source_paths.contains(&source_segments)
+            && index > 0
+            && node_source_paths.contains(&path.segments[..index])
         {
             target_segments.push(PathSegment::Index(0));
         }
-        source_segments.push(segment.clone());
         target_segments.push(segment.clone());
     }
 
