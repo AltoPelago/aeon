@@ -82,6 +82,8 @@ jobs:
     name: Installed wheel / Core CTS differential
     needs: build-and-smoke
     runs-on: ubuntu-24.04
+    env:
+      AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
 
     steps:
       - name: Checkout
