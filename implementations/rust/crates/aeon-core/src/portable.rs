@@ -435,7 +435,7 @@ fn portable_body_event_to_telex(event: PortableAesEvent) -> TelexRecord {
 
 fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> {
     let mut projected = Vec::new();
-    let node_source_paths = HashSet::new();
+    let node_source_paths = NodeSourcePaths::default();
     let mut emitted = HashSet::new();
     for key in header.order.iter().chain(header.fields.keys()) {
         if !emitted.insert(key.as_str()) {
@@ -547,7 +547,38 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
     projected
 }
 
-type NodeSourcePaths = HashSet<Vec<PathSegment>>;
+#[derive(Default)]
+enum NodeSourcePaths {
+    #[default]
+    None,
+    One(Vec<PathSegment>),
+    Many(HashSet<Vec<PathSegment>>),
+}
+
+impl FromIterator<Vec<PathSegment>> for NodeSourcePaths {
+    fn from_iter<T: IntoIterator<Item = Vec<PathSegment>>>(iter: T) -> Self {
+        let mut paths = iter.into_iter();
+        let Some(first) = paths.next() else {
+            return Self::None;
+        };
+        let Some(second) = paths.next() else {
+            return Self::One(first);
+        };
+        let mut many = HashSet::from([first, second]);
+        many.extend(paths);
+        Self::Many(many)
+    }
+}
+
+impl NodeSourcePaths {
+    fn contains(&self, path: &[PathSegment]) -> bool {
+        match self {
+            Self::None => false,
+            Self::One(single) => single == path,
+            Self::Many(many) => many.contains(path),
+        }
+    }
+}
 const MIN_REUSABLE_AES_PATH_DEPTH: usize = 8;
 const MAX_REUSABLE_AES_PATH_EVENTS: usize = 1_024;
 
@@ -644,7 +675,7 @@ where
         .iter()
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
         .map(|event| event.path.segments.clone())
-        .collect::<HashSet<_>>();
+        .collect::<NodeSourcePaths>();
     emit.reserve(events.len());
     if events.len() > MAX_REUSABLE_AES_PATH_EVENTS
         || !events
@@ -1377,7 +1408,7 @@ fn compatibility_changes(
         .iter()
         .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
         .map(|event| event.path.segments.clone())
-        .collect::<HashSet<_>>();
+        .collect::<NodeSourcePaths>();
     let path_map = body_events
         .iter()
         .map(|event| {
@@ -1446,7 +1477,8 @@ fn compatibility_changes(
         }
         match unwrap_typed_value(&event.value) {
             Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-                let source_target = translate_reference_target(segments, &HashSet::new());
+                let source_target =
+                    translate_reference_target(segments, &NodeSourcePaths::default());
                 let portable_target = translate_reference_target(segments, &node_source_paths);
                 if source_target != portable_target {
                     changes.push(compatibility_change(
