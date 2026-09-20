@@ -51,7 +51,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Build wheel
-        uses: PyO3/maturin-action@12dee64e4a21f3a4a4fd4d34e05cc55f0eda098a # v1.49.4
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
           maturin-version: v1.14.1
