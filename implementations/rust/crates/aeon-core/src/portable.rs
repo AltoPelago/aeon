@@ -548,6 +548,8 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
 }
 
 type NodeSourcePaths = HashSet<Vec<PathSegment>>;
+const MIN_REUSABLE_AES_PATH_DEPTH: usize = 8;
+const MAX_REUSABLE_AES_PATH_EVENTS: usize = 1_024;
 
 trait PortableEventSink {
     fn reserve(&mut self, additional: usize);
@@ -644,62 +646,121 @@ where
         .map(|event| event.path.segments.clone())
         .collect::<HashSet<_>>();
     emit.reserve(events.len());
-
-    for event in events {
-        let translated_path = aes_canonical_path(&event.path, &node_source_paths);
-        let value = unwrap_typed_value(&event.value);
-        if event.annotations.is_empty() && !matches!(value, Value::NodeLiteral { .. }) {
-            emit.push(project_event(
-                event,
-                translated_path,
-                value,
-                &node_source_paths,
-            ));
-            continue;
+    if events.len() > MAX_REUSABLE_AES_PATH_EVENTS
+        || !events
+            .iter()
+            .any(|event| event.path.segments.len() >= MIN_REUSABLE_AES_PATH_DEPTH)
+    {
+        for event in events {
+            let translated_path = aes_canonical_path(&event.path, &node_source_paths);
+            emit_projected_assignment(event, translated_path, emit, &node_source_paths);
         }
+        return;
+    }
+
+    let mut reusable_source_path: Option<&[PathSegment]> = None;
+    let mut reusable_aes_path: Option<AesCanonicalPath> = None;
+
+    for (event_index, event) in events.iter().enumerate() {
+        let translated_path = match (&reusable_source_path, &reusable_aes_path) {
+            (Some(source_path), Some(aes_path))
+                if event.path.segments.len() == source_path.len().saturating_add(1)
+                    && event.path.segments.starts_with(source_path) =>
+            {
+                let mut path = aes_path.clone();
+                push_aes_path_segment(
+                    &mut path,
+                    event
+                        .path
+                        .segments
+                        .last()
+                        .expect("a direct child path has a final segment"),
+                    &event.path.segments[..source_path.len()],
+                    &node_source_paths,
+                );
+                path
+            }
+            _ => aes_canonical_path(&event.path, &node_source_paths),
+        };
+        let next_is_direct_child = event.path.segments.len() >= MIN_REUSABLE_AES_PATH_DEPTH
+            && events
+                .get(event_index.saturating_add(1))
+                .is_some_and(|next| {
+                    next.path.segments.len() == event.path.segments.len().saturating_add(1)
+                        && next.path.segments.starts_with(&event.path.segments)
+                });
+        if next_is_direct_child {
+            reusable_source_path = Some(&event.path.segments);
+            reusable_aes_path = Some(translated_path.clone());
+        } else {
+            reusable_source_path = None;
+            reusable_aes_path = None;
+        }
+        emit_projected_assignment(event, translated_path, emit, &node_source_paths);
+    }
+}
+
+#[inline]
+fn emit_projected_assignment<S>(
+    event: &AssignmentEvent,
+    translated_path: AesCanonicalPath,
+    emit: &mut S,
+    node_source_paths: &NodeSourcePaths,
+) where
+    S: PortableEventSink + ?Sized,
+{
+    let value = unwrap_typed_value(&event.value);
+    if event.annotations.is_empty() && !matches!(value, Value::NodeLiteral { .. }) {
         emit.push(project_event(
             event,
-            translated_path.clone(),
+            translated_path,
             value,
-            &node_source_paths,
+            node_source_paths,
         ));
-        project_attributes(
-            &event.annotations,
-            &event.annotation_order,
-            &translated_path,
-            emit,
-            &node_source_paths,
-        );
+        return;
+    }
+    emit.push(project_event(
+        event,
+        translated_path.clone(),
+        value,
+        node_source_paths,
+    ));
+    project_attributes(
+        &event.annotations,
+        &event.annotation_order,
+        &translated_path,
+        emit,
+        node_source_paths,
+    );
 
-        if let Value::NodeLiteral {
-            tag,
-            structural_id,
+    if let Value::NodeLiteral {
+        tag,
+        structural_id,
+        attributes,
+        attribute_order,
+        datatype,
+        head_span,
+        ..
+    } = value
+    {
+        let head_path = append_index(&translated_path, 0);
+        emit.push(ProjectedAesEvent {
+            path: head_path.clone(),
+            kind: "NodeHead",
+            identity: structural_id.clone(),
+            datatype: datatype.clone(),
+            generics: Vec::new(),
+            clarifiers: Vec::new(),
+            value: Some(tag.clone()),
+            span: Some(*head_span),
+        });
+        project_node_attributes(
             attributes,
             attribute_order,
-            datatype,
-            head_span,
-            ..
-        } = value
-        {
-            let head_path = append_index(&translated_path, 0);
-            emit.push(ProjectedAesEvent {
-                path: head_path.clone(),
-                kind: "NodeHead",
-                identity: structural_id.clone(),
-                datatype: datatype.clone(),
-                generics: Vec::new(),
-                clarifiers: Vec::new(),
-                value: Some(tag.clone()),
-                span: Some(*head_span),
-            });
-            project_node_attributes(
-                attributes,
-                attribute_order,
-                &head_path,
-                emit,
-                &node_source_paths,
-            );
-        }
+            &head_path,
+            emit,
+            node_source_paths,
+        );
     }
 }
 
@@ -1085,22 +1146,35 @@ fn aes_canonical_path(
 ) -> AesCanonicalPath {
     let mut rendered = AesCanonicalPath::root();
     for (index, segment) in path.segments.iter().enumerate() {
-        if !node_source_paths.is_empty()
-            && matches!(segment, PathSegment::Index(_))
-            && index > 0
-            && node_source_paths.contains(&path.segments[..index])
-        {
-            rendered.push_index(0);
-        }
-        match segment {
-            PathSegment::Root => {}
-            PathSegment::Member(member) => rendered
-                .push_member(member)
-                .expect("validated AEON paths have nonempty members"),
-            PathSegment::Index(index) => rendered.push_index(*index),
-        }
+        push_aes_path_segment(
+            &mut rendered,
+            segment,
+            &path.segments[..index],
+            node_source_paths,
+        );
     }
     rendered
+}
+
+fn push_aes_path_segment(
+    rendered: &mut AesCanonicalPath,
+    segment: &PathSegment,
+    parent_segments: &[PathSegment],
+    node_source_paths: &NodeSourcePaths,
+) {
+    if matches!(segment, PathSegment::Index(_))
+        && !parent_segments.is_empty()
+        && node_source_paths.contains(parent_segments)
+    {
+        rendered.push_index(0);
+    }
+    match segment {
+        PathSegment::Root => {}
+        PathSegment::Member(member) => rendered
+            .push_member(member)
+            .expect("validated AEON paths have nonempty members"),
+        PathSegment::Index(index) => rendered.push_index(*index),
+    }
 }
 
 fn append_member(owner_path: &AesCanonicalPath, key: &str) -> AesCanonicalPath {
