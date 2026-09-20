@@ -646,12 +646,7 @@ where
     emit.reserve(events.len());
 
     for event in events {
-        let translated_path = if node_source_paths.is_empty() {
-            event.path.clone()
-        } else {
-            translate_node_path(&event.path, &node_source_paths)
-        };
-        let translated_path = aes_canonical_path(&translated_path);
+        let translated_path = aes_canonical_path(&event.path, &node_source_paths);
         let value = unwrap_typed_value(&event.value);
         emit.push(project_event(
             event,
@@ -1075,9 +1070,19 @@ fn ordered_keys<'a>(
     keys
 }
 
-fn aes_canonical_path(path: &CanonicalPath) -> AesCanonicalPath {
+fn aes_canonical_path(
+    path: &CanonicalPath,
+    node_source_paths: &NodeSourcePaths,
+) -> AesCanonicalPath {
     let mut rendered = AesCanonicalPath::root();
-    for segment in &path.segments {
+    for (index, segment) in path.segments.iter().enumerate() {
+        if !node_source_paths.is_empty()
+            && matches!(segment, PathSegment::Index(_))
+            && index > 0
+            && node_source_paths.contains(&path.segments[..index])
+        {
+            rendered.push_index(0);
+        }
         match segment {
             PathSegment::Root => {}
             PathSegment::Member(member) => rendered
