@@ -61,12 +61,14 @@ jobs:
             --interpreter python${{ matrix.python }}
             --out wheelhouse
 
-      - name: Install built wheel
+      - name: Resolve and install binary-only package
         run: >-
-          python -c "import glob, subprocess, sys;
-          wheels = glob.glob('implementations/rust/crates/aeon-python/wheelhouse/*.whl');
-          assert len(wheels) == 1, wheels;
-          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
+          python -m pip install
+          --force-reinstall
+          --no-index
+          --only-binary=:all:
+          --find-links implementations/rust/crates/aeon-python/wheelhouse
+          altopelago-aeon==0.13.0
 
       - name: Installed-wheel smoke suite
         run: python -m unittest discover -s implementations/rust/crates/aeon-python/tests -p "test_*.py"
