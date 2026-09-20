@@ -500,7 +500,7 @@ fn compile_telex_profile(
     let source = source.to_owned();
     py.detach(move || {
         let started = Instant::now();
-        let result = compile_sofia(&source, CompileOptions::default());
+        let result = compile_sofia(&source, telex_compile_options());
         let compile_ns = started.elapsed().as_nanos();
         if !result.errors.is_empty() {
             return Err("cannot profile Telex export for invalid AEON input".to_owned());
@@ -653,7 +653,7 @@ fn encode_compile_result(source: &str) -> Result<String, String> {
 }
 
 fn encode_telex_result(source: &str) -> Result<(bool, Vec<u8>), String> {
-    let result = compile_sofia(source, CompileOptions::default());
+    let result = compile_sofia(source, telex_compile_options());
     if !result.errors.is_empty() {
         let diagnostics = result
             .errors
@@ -668,6 +668,15 @@ fn encode_telex_result(source: &str) -> Result<(bool, Vec<u8>), String> {
         .map(String::into_bytes)
         .map(|encoded| (true, encoded))
         .map_err(|error| format!("failed to encode Telex: {error}"))
+}
+
+fn telex_compile_options() -> CompileOptions {
+    CompileOptions {
+        // Binding projections are a separate compile-result view and are not
+        // part of the Telex event stream.
+        emit_binding_projections: false,
+        ..CompileOptions::default()
+    }
 }
 
 fn compile_envelope(result: &CoreCompileResult) -> CompileEnvelope {
