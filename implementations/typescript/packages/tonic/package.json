@@ -51,6 +51,6 @@
   "dependencies": {
     "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-annotation-stream": "workspace:*",
-    "@altopelago/sansa": "0.10.1"
+    "@altopelago/sansa": "0.11.1"
   }
 }
