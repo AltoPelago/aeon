@@ -1,11 +1,6 @@
 name: Python Wheels
 
 on:
-  push:
-    branches:
-      - rust/project-sofia
-    paths:
-      - .github/workflows/python-wheels.yml
   workflow_dispatch:
 
 permissions:
