@@ -77,3 +77,47 @@ jobs:
           name: aeon-python-${{ matrix.platform.name }}-cp${{ matrix.python }}
           path: implementations/rust/crates/aeon-python/wheelhouse/*.whl
           if-no-files-found: error
+
+  installed-conformance:
+    name: Installed wheel / Core CTS differential
+    needs: build-and-smoke
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout aeonite-cts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: aeonite-org/aeonite-cts
+          ref: 0c575b2493812f209dcbd86856d43a989324ae0e
+          path: aeonite-cts
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      - name: Download CPython 3.12 wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: aeon-python-linux-x86_64-cp3.12
+          path: wheelhouse
+
+      - name: Install wheel artifact
+        run: >-
+          python -c "import glob, subprocess, sys;
+          wheels = glob.glob('wheelhouse/*.whl');
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
+
+      - name: Installed-wheel Core CTS and pure-Python differential
+        run: >-
+          python scripts/check-installed-python-differential.py
+          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.3.json

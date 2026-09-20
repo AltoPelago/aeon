@@ -87,6 +87,17 @@ class CompileResult:
     def require_ok(self) -> CompileResult: ...
 
 def compile_json(source: str) -> bytes: ...
+def compile_cts_json(
+    source: str,
+    mode: str | None = None,
+    datatype_policy: str | None = None,
+    rich: bool = False,
+    limits_source: str | None = None,
+    max_attribute_depth: int | None = None,
+    max_separator_depth: int | None = None,
+    max_generic_depth: int | None = None,
+    max_events: int | None = None,
+) -> bytes: ...
 def compile_packed(
     source: str,
 ) -> tuple[

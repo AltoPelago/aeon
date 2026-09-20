@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 import altopelago.aeon as aeon
@@ -9,6 +10,20 @@ from altopelago.aeon import _native
 class CompileTests(unittest.TestCase):
     def test_private_extension_identifies_sofia_engine(self) -> None:
         self.assertEqual(_native.ENGINE, "sofia")
+
+    def test_private_cts_hook_accepts_conformance_options(self) -> None:
+        payload = json.loads(
+            _native.compile_cts_json(
+                'value:custom = "Sofia"\n',
+                mode="strict",
+                rich=True,
+                max_events=1,
+            )
+        )
+
+        self.assertEqual(payload["errors"], [])
+        self.assertEqual(len(payload["events"]), 1)
+        self.assertEqual(payload["events"][0]["datatype"], "custom")
 
     def test_compile_returns_typed_result(self) -> None:
         result = aeon.compile('name:string = "Sofia"\n')

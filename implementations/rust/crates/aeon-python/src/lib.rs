@@ -2,9 +2,10 @@ use std::borrow::Cow;
 use std::time::Instant;
 
 use aeon_core::{
-    CompileOptions, CompileResult as CoreCompileResult, Diagnostic as CoreDiagnostic,
-    ExportTelexOptions, SourcePlane, Span as CoreSpan, Value, compile_sofia, export_telex,
-    format_path, project_aes_event_records,
+    BehaviorMode, CompileOptions, CompileResult as CoreCompileResult, DatatypePolicy,
+    Diagnostic as CoreDiagnostic, ExportTelexOptions, SourcePlane, Span as CoreSpan, Value,
+    aeon_compile_limits, compile_sofia, export_telex, format_path, load_aeonic_limits,
+    project_aes_event_records,
 };
 use aes_telex::{
     encode_aes_event_records_with_projection_and_limits,
@@ -410,6 +411,54 @@ fn compile_json(py: Python<'_>, source: &str) -> PyResult<Py<PyBytes>> {
     Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
 }
 
+#[allow(clippy::too_many_arguments)]
+#[pyfunction(signature = (
+    source,
+    mode=None,
+    datatype_policy=None,
+    rich=false,
+    limits_source=None,
+    max_attribute_depth=None,
+    max_separator_depth=None,
+    max_generic_depth=None,
+    max_events=None
+))]
+fn compile_cts_json(
+    py: Python<'_>,
+    source: &str,
+    mode: Option<&str>,
+    datatype_policy: Option<&str>,
+    rich: bool,
+    limits_source: Option<&str>,
+    max_attribute_depth: Option<usize>,
+    max_separator_depth: Option<usize>,
+    max_generic_depth: Option<usize>,
+    max_events: Option<usize>,
+) -> PyResult<Py<PyBytes>> {
+    let source = source.to_owned();
+    let mode = mode.map(str::to_owned);
+    let datatype_policy = datatype_policy.map(str::to_owned);
+    let limits_source = limits_source.map(str::to_owned);
+    let encoded = py
+        .detach(move || {
+            let options = cts_compile_options(
+                mode.as_deref(),
+                datatype_policy.as_deref(),
+                rich,
+                limits_source.as_deref(),
+                max_attribute_depth,
+                max_separator_depth,
+                max_generic_depth,
+                max_events,
+            )?;
+            let result = compile_sofia(&source, options);
+            serde_json::to_string(&compile_envelope(&result))
+                .map_err(|error| format!("failed to serialize CTS compile result: {error}"))
+        })
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
+}
+
 #[pyfunction]
 fn compile_packed(py: Python<'_>, source: &str) -> PackedCompileResult {
     let source = source.to_owned();
@@ -509,11 +558,92 @@ fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyEvent>()?;
     module.add_class::<PyCompileResult>()?;
     module.add_function(wrap_pyfunction!(compile_json, module)?)?;
+    module.add_function(wrap_pyfunction!(compile_cts_json, module)?)?;
     module.add_function(wrap_pyfunction!(compile_packed, module)?)?;
     module.add_function(wrap_pyfunction!(compile_native, module)?)?;
     module.add_function(wrap_pyfunction!(compile_telex, module)?)?;
     module.add_function(wrap_pyfunction!(compile_telex_profile, module)?)?;
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cts_compile_options(
+    mode: Option<&str>,
+    datatype_policy: Option<&str>,
+    rich: bool,
+    limits_source: Option<&str>,
+    max_attribute_depth: Option<usize>,
+    max_separator_depth: Option<usize>,
+    max_generic_depth: Option<usize>,
+    max_events: Option<usize>,
+) -> Result<CompileOptions, String> {
+    let mut options = CompileOptions::default();
+    if let Some(limits_source) = limits_source {
+        let limits = load_aeonic_limits(limits_source).map_err(|diagnostics| {
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| {
+                    format!(
+                        "[{}] {}: {}",
+                        diagnostic.code, diagnostic.path, diagnostic.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        let limits = aeon_compile_limits(&limits).map_err(|diagnostic| {
+            format!(
+                "[{}] {}: {}",
+                diagnostic.code, diagnostic.path, diagnostic.message
+            )
+        })?;
+        options.max_input_bytes = limits.max_input_bytes;
+        options.max_events = limits.max_events;
+        options.max_attribute_depth = limits.max_attribute_depth;
+        options.max_clarifier_values = Some(limits.max_clarifier_values);
+        options.max_generic_depth = limits.max_generic_depth;
+        options.max_generic_arguments = limits.max_generic_arguments;
+        options.max_datatype_components = limits.max_datatype_components;
+        options.max_value_nesting_depth = Some(limits.max_value_nesting_depth);
+        options.max_path_depth = limits.max_path_depth;
+        options.max_string_codepoints = limits.max_string_codepoints;
+        options.max_key_segment_codepoints = limits.max_key_segment_codepoints;
+        options.max_list_items = limits.max_list_items;
+        options.max_tuple_items = limits.max_tuple_items;
+        options.max_path_characters = limits.max_path_characters;
+        options.max_numeric_literal_characters = limits.max_numeric_literal_characters;
+        options.max_structured_comment_characters = limits.max_structured_comment_characters;
+    }
+    options.mode = match mode {
+        None => None,
+        Some("strict") => Some(BehaviorMode::Strict),
+        Some("transport") => Some(BehaviorMode::Transport),
+        Some(value) => return Err(format!("unsupported CTS behavior mode: {value}")),
+    };
+    options.datatype_policy = match (rich, datatype_policy) {
+        (true, Some("reserved_only")) => {
+            return Err(String::from(
+                "rich mode cannot use the reserved_only datatype policy",
+            ));
+        }
+        (true, _) | (false, Some("allow_custom")) => Some(DatatypePolicy::AllowCustom),
+        (false, Some("reserved_only")) => Some(DatatypePolicy::ReservedOnly),
+        (false, None) => None,
+        (false, Some(value)) => return Err(format!("unsupported CTS datatype policy: {value}")),
+    };
+    if let Some(value) = max_attribute_depth {
+        options.max_attribute_depth = value;
+    }
+    if let Some(value) = max_separator_depth {
+        options.max_clarifier_values = Some(value);
+    }
+    if let Some(value) = max_generic_depth {
+        options.max_generic_depth = value;
+    }
+    if max_events.is_some() {
+        options.max_events = max_events;
+    }
+    Ok(options)
 }
 
 fn encode_compile_result(source: &str) -> Result<String, String> {
