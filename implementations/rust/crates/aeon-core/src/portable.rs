@@ -349,6 +349,29 @@ pub fn export_telex(
     )
 }
 
+/// Export an owned event stream while moving ordinary scalar payloads into
+/// AES records when the body-only projection does not need node expansion or
+/// annotation traversal.
+#[doc(hidden)]
+pub fn export_telex_owned(
+    mut events: Vec<AssignmentEvent>,
+    options: &ExportTelexOptions,
+) -> Result<String, TelexEncodeError> {
+    if events.len() < MIN_TAKEN_AES_EVENT_RECORDS {
+        return export_telex(&events, options);
+    }
+    if supports_typed_body_projection(&events, options) {
+        let records = project_aes_event_records_taken(&mut events);
+        return encode_aes_event_records_with_projection_and_limits(
+            &records,
+            options.profile.as_deref(),
+            options.projection.as_deref(),
+            &options.limits,
+        );
+    }
+    export_telex(&events, options)
+}
+
 pub fn project_telex_records(
     events: &[AssignmentEvent],
     options: &ExportTelexOptions,
@@ -385,6 +408,45 @@ fn supports_typed_body_projection(
 pub fn project_aes_event_records(events: &[AssignmentEvent]) -> Vec<AesEventRecord> {
     let mut records = Vec::with_capacity(events.len());
     project_portable_events_into(events, &mut AesEventRecordSink(&mut records));
+    records
+}
+
+/// Project a mutable body-plane event stream, taking scalar payload strings
+/// while its container remains alive through validation and encoding.
+#[doc(hidden)]
+#[must_use]
+pub fn project_aes_event_records_taken(events: &mut [AssignmentEvent]) -> Vec<AesEventRecord> {
+    if events.len() < MIN_TAKEN_AES_EVENT_RECORDS
+        || events.iter().any(|event| {
+            !event.annotations.is_empty()
+                || matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. })
+        })
+    {
+        return project_aes_event_records(events);
+    }
+
+    let node_source_paths = NodeSourcePaths::None;
+    let mut records = Vec::with_capacity(events.len());
+    for event in events {
+        let address = AesEventAddress::Path(aes_canonical_path(&event.path, &node_source_paths));
+        let (kind, value) = project_taken_value(&mut event.value, &node_source_paths);
+        let datatype = event.datatype.take().map(|raw| {
+            parse_datatype_descriptor(&raw, &TelexLimits::default()).unwrap_or(DatatypeDescriptor {
+                datatype: raw,
+                generics: Vec::new(),
+                clarifiers: Vec::new(),
+            })
+        });
+        records.push(AesEventRecord {
+            address,
+            kind,
+            datatype,
+            identity: event.structural_id.take(),
+            value,
+            origin: None,
+            span: None,
+        });
+    }
     records
 }
 
@@ -581,6 +643,7 @@ impl NodeSourcePaths {
 }
 const MIN_REUSABLE_AES_PATH_DEPTH: usize = 8;
 const MAX_REUSABLE_AES_PATH_EVENTS: usize = 1_024;
+const MIN_TAKEN_AES_EVENT_RECORDS: usize = 1_024;
 
 trait PortableEventSink {
     fn reserve(&mut self, additional: usize);
@@ -1150,6 +1213,105 @@ fn project_value(
             "PointerReference",
             Some(translate_reference_target(segments, node_source_paths)),
         ),
+    }
+}
+
+fn project_taken_value(
+    value: &mut Value,
+    node_source_paths: &NodeSourcePaths,
+) -> (AesValueKind, Option<String>) {
+    match value {
+        Value::TypedValue { value, .. } => project_taken_value(value, node_source_paths),
+        Value::StringLiteral { value, .. } => {
+            (AesValueKind::StringLiteral, Some(std::mem::take(value)))
+        }
+        Value::NumberLiteral { raw } => {
+            let raw = std::mem::take(raw);
+            let value = if raw
+                .bytes()
+                .any(|byte| matches!(byte, b'_' | b'E' | b'e' | b'.' | b'+'))
+            {
+                normalize_number_literal(&raw)
+            } else {
+                raw
+            };
+            (AesValueKind::NumberLiteral, Some(value))
+        }
+        Value::InfinityLiteral { raw, .. } => {
+            (AesValueKind::InfinityLiteral, Some(std::mem::take(raw)))
+        }
+        Value::NaNLiteral { raw, .. } => (AesValueKind::NaNLiteral, Some(std::mem::take(raw))),
+        Value::NullLiteral { value, .. } => {
+            (AesValueKind::NullLiteral, Some(std::mem::take(value)))
+        }
+        Value::BooleanLiteral { raw } => (AesValueKind::BooleanLiteral, Some(std::mem::take(raw))),
+        Value::ToggleLiteral { raw } => (AesValueKind::ToggleLiteral, Some(std::mem::take(raw))),
+        Value::HexLiteral { raw } => {
+            let raw = std::mem::take(raw);
+            (
+                AesValueKind::HexLiteral,
+                Some(
+                    raw.trim_start_matches('#')
+                        .bytes()
+                        .filter(|byte| *byte != b'_')
+                        .map(|byte| char::from(byte.to_ascii_lowercase()))
+                        .collect(),
+                ),
+            )
+        }
+        Value::RadixLiteral { raw } => {
+            let raw = std::mem::take(raw);
+            (
+                AesValueKind::RadixLiteral,
+                Some(raw.trim_start_matches('%').to_owned()),
+            )
+        }
+        Value::EncodingLiteral { raw } => {
+            let raw = std::mem::take(raw);
+            (
+                AesValueKind::EncodingLiteral,
+                Some(raw.trim_start_matches('&').to_owned()),
+            )
+        }
+        Value::SeparatorLiteral { raw } => {
+            let raw = std::mem::take(raw);
+            (
+                AesValueKind::SeparatorLiteral,
+                Some(raw.trim_start_matches('^').to_owned()),
+            )
+        }
+        Value::SansaAddressLiteral { canonical, .. } => (
+            AesValueKind::SansaAddressLiteral,
+            Some(std::mem::take(canonical)),
+        ),
+        Value::DateLiteral { raw } => (AesValueKind::DateLiteral, Some(std::mem::take(raw))),
+        Value::TimeLiteral { raw } => (AesValueKind::TimeLiteral, Some(std::mem::take(raw))),
+        Value::DateTimeLiteral { raw } => {
+            let kind = if raw.contains('&') {
+                AesValueKind::WtcDateTimeLiteral
+            } else {
+                AesValueKind::DateTimeLiteral
+            };
+            (kind, Some(std::mem::take(raw)))
+        }
+        Value::ObjectNode { .. } => (AesValueKind::ObjectNode, None),
+        Value::ListNode { .. } => (AesValueKind::ListNode, None),
+        Value::TupleLiteral { .. } => (AesValueKind::TupleLiteral, None),
+        Value::NodeLiteral { .. } => unreachable!("node streams use the borrowed projector"),
+        Value::CloneReference { segments, .. } => {
+            let segments = std::mem::take(segments);
+            (
+                AesValueKind::CloneReference,
+                Some(translate_reference_target(&segments, node_source_paths)),
+            )
+        }
+        Value::PointerReference { segments, .. } => {
+            let segments = std::mem::take(segments);
+            (
+                AesValueKind::PointerReference,
+                Some(translate_reference_target(&segments, node_source_paths)),
+            )
+        }
     }
 }
 
@@ -2014,6 +2176,34 @@ mod tests {
             })
             .expect("extensible Telex record export");
         assert_eq!(typed, extensible);
+    }
+
+    #[test]
+    fn owned_telex_export_matches_borrowed_fast_and_fallback_paths() {
+        let options = ExportTelexOptions::default();
+        let wide = format!(
+            "items:list<int> = [{}]",
+            (0..MIN_TAKEN_AES_EVENT_RECORDS)
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        for source in [
+            wide.as_str(),
+            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>",
+        ] {
+            let result = compile(
+                source,
+                CompileOptions {
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            );
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+            let borrowed = export_telex(&result.events, &options).expect("borrowed export");
+            let owned = export_telex_owned(result.events, &options).expect("owned export");
+            assert_eq!(owned, borrowed, "owned export drift for {source}");
+        }
     }
 
     #[test]

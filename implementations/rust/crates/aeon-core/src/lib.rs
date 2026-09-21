@@ -33,8 +33,8 @@ pub use portable::{
     PortableAesConversionReportV1, PortableAesEvent, PortableAesSourceError,
     RUST_ASSIGNMENT_EVENTS_CONTRACT_V0, RUST_PORTABLE_AES_ADAPTER_V0,
     RUST_PORTABLE_AES_ADAPTER_VERSION_V1, adapt_rust_assignment_events_to_portable_aes,
-    compile_to_telex, export_telex, project_aes_event_records, project_portable_events,
-    project_telex_records,
+    compile_to_telex, export_telex, export_telex_owned, project_aes_event_records,
+    project_aes_event_records_taken, project_portable_events, project_telex_records,
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,

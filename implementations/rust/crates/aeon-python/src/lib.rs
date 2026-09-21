@@ -4,8 +4,8 @@ use std::time::Instant;
 use aeon_core::{
     BehaviorMode, CompileOptions, CompileResult as CoreCompileResult, DatatypePolicy,
     Diagnostic as CoreDiagnostic, ExportTelexOptions, SourcePlane, Span as CoreSpan, Value,
-    aeon_compile_limits, compile_sofia_owned, export_telex, format_path, load_aeonic_limits,
-    project_aes_event_records,
+    aeon_compile_limits, compile_sofia_owned, export_telex_owned, format_path, load_aeonic_limits,
+    project_aes_event_records_taken,
 };
 use aes_telex::{
     encode_aes_event_records_with_projection_and_limits,
@@ -508,7 +508,8 @@ fn compile_telex_profile(
 
         let options = ExportTelexOptions::default();
         let started = Instant::now();
-        let records = project_aes_event_records(&result.events);
+        let mut events = result.events;
+        let records = project_aes_event_records_taken(&mut events);
         let project_ns = started.elapsed().as_nanos();
 
         let started = Instant::now();
@@ -664,7 +665,7 @@ fn encode_telex_result(source: String) -> Result<(bool, Vec<u8>), String> {
             .map(|encoded| (false, encoded))
             .map_err(|error| format!("failed to serialize compile diagnostics: {error}"));
     }
-    export_telex(&result.events, &ExportTelexOptions::default())
+    export_telex_owned(result.events, &ExportTelexOptions::default())
         .map(String::into_bytes)
         .map(|encoded| (true, encoded))
         .map_err(|error| format!("failed to encode Telex: {error}"))
