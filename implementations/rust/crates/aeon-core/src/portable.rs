@@ -1349,7 +1349,7 @@ fn aes_canonical_path(
     path: &CanonicalPath,
     node_source_paths: &NodeSourcePaths,
 ) -> AesCanonicalPath {
-    let mut rendered = AesCanonicalPath::root();
+    let mut rendered = AesCanonicalPath::root_with_capacity(estimated_aes_path_capacity(path));
     for (index, segment) in path.segments.iter().enumerate() {
         push_aes_path_segment(
             &mut rendered,
@@ -1359,6 +1359,26 @@ fn aes_canonical_path(
         );
     }
     rendered
+}
+
+fn estimated_aes_path_capacity(path: &CanonicalPath) -> usize {
+    path.segments.iter().fold(1usize, |capacity, segment| {
+        let additional = match segment {
+            PathSegment::Root => 0,
+            PathSegment::Member(member) => member.len().saturating_add(1),
+            // Leave room for the index punctuation, its decimal digits, and
+            // the optional synthetic node-head `[0]` segment.
+            PathSegment::Index(index) => {
+                let digits = if *index == 0 {
+                    1
+                } else {
+                    index.ilog10() as usize + 1
+                };
+                digits.saturating_add(5)
+            }
+        };
+        capacity.saturating_add(additional)
+    })
 }
 
 fn push_aes_path_segment(
