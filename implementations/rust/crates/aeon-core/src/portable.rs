@@ -350,8 +350,8 @@ pub fn export_telex(
 }
 
 /// Export an owned event stream while moving ordinary scalar payloads into
-/// AES records when the body-only projection does not need node expansion or
-/// annotation traversal.
+/// AES records. Node expansion keeps borrowing its richer value tree, while
+/// annotation traversal retains the fully borrowed fallback.
 #[doc(hidden)]
 pub fn export_telex_owned(
     mut events: Vec<AssignmentEvent>,
@@ -417,18 +417,30 @@ pub fn project_aes_event_records(events: &[AssignmentEvent]) -> Vec<AesEventReco
 #[must_use]
 pub fn project_aes_event_records_taken(events: &mut [AssignmentEvent]) -> Vec<AesEventRecord> {
     if events.len() < MIN_TAKEN_AES_EVENT_RECORDS
-        || events.iter().any(|event| {
-            !event.annotations.is_empty()
-                || matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. })
-        })
+        || events.iter().any(|event| !event.annotations.is_empty())
     {
         return project_aes_event_records(events);
     }
 
-    let node_source_paths = NodeSourcePaths::None;
+    let node_source_paths = events
+        .iter()
+        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
+        .map(|event| event.path.segments.clone())
+        .collect::<NodeSourcePaths>();
     let mut records = Vec::with_capacity(events.len());
     for event in events {
-        let address = AesEventAddress::Path(aes_canonical_path(&event.path, &node_source_paths));
+        let translated_path = aes_canonical_path(&event.path, &node_source_paths);
+        if matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }) {
+            emit_projected_assignment(
+                event,
+                translated_path,
+                &mut AesEventRecordSink(&mut records),
+                &node_source_paths,
+            );
+            continue;
+        }
+
+        let address = AesEventAddress::Path(translated_path);
         let (kind, value) = project_taken_value(&mut event.value, &node_source_paths);
         let datatype = event.datatype.take().map(|raw| {
             parse_datatype_descriptor(&raw, &TelexLimits::default()).unwrap_or(DatatypeDescriptor {
@@ -1297,7 +1309,7 @@ fn project_taken_value(
         Value::ObjectNode { .. } => (AesValueKind::ObjectNode, None),
         Value::ListNode { .. } => (AesValueKind::ListNode, None),
         Value::TupleLiteral { .. } => (AesValueKind::TupleLiteral, None),
-        Value::NodeLiteral { .. } => unreachable!("node streams use the borrowed projector"),
+        Value::NodeLiteral { .. } => unreachable!("node events use the borrowed projector"),
         Value::CloneReference { segments, .. } => {
             let segments = std::mem::take(segments);
             (
@@ -2188,8 +2200,16 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(",")
         );
+        let wide_node = format!(
+            "root:node = <row({})>",
+            (0..MIN_TAKEN_AES_EVENT_RECORDS)
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
         for source in [
             wide.as_str(),
+            wide_node.as_str(),
             "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>",
         ] {
             let result = compile(
@@ -2204,6 +2224,30 @@ mod tests {
             let owned = export_telex_owned(result.events, &options).expect("owned export");
             assert_eq!(owned, borrowed, "owned export drift for {source}");
         }
+    }
+
+    #[test]
+    fn taken_aes_projection_moves_scalar_children_beside_a_node() {
+        let source = format!(
+            "root:node = <row({})>",
+            (0..MIN_TAKEN_AES_EVENT_RECORDS)
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let mut events = compile(&source, CompileOptions::default()).events;
+        let borrowed = project_aes_event_records(&events);
+        let taken = project_aes_event_records_taken(&mut events);
+
+        assert_eq!(taken, borrowed);
+        assert!(matches!(
+            unwrap_typed_value(&events[0].value),
+            Value::NodeLiteral { .. }
+        ));
+        assert!(events.iter().skip(1).all(|event| matches!(
+            unwrap_typed_value(&event.value),
+            Value::NumberLiteral { raw } if raw.is_empty()
+        )));
     }
 
     #[test]
