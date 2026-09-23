@@ -31,3 +31,7 @@ bindings = "pyo3"
 module-name = "altopelago.aeon._native"
 python-source = "python"
 strip = true
+exclude = [
+  "python/**/__pycache__",
+  "python/**/*.pyc",
+]
