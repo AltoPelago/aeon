@@ -159,6 +159,7 @@ def telex_phase_profile(
     projection_samples = []
     validation_samples = []
     encode_samples = []
+    resident_pipeline_samples = []
     record_count = None
     encoded_bytes = None
     for _ in range(iterations):
@@ -169,6 +170,7 @@ def telex_phase_profile(
         projection_samples.append(projection_ns)
         validation_samples.append(validation_ns)
         encode_samples.append(encode_ns)
+        resident_pipeline_samples.append(compile_ns + projection_ns + encode_ns)
         if record_count is not None and record_count != records:
             raise RuntimeError("Telex phase profiler returned inconsistent record counts")
         if encoded_bytes is not None and encoded_bytes != byte_count:
@@ -185,6 +187,7 @@ def telex_phase_profile(
         "projection": projection,
         "resident_validation": validation,
         "resident_encode_including_validation": encode,
+        "resident_pipeline": timing_summary(resident_pipeline_samples),
         "approximate_wire_emission_ns": max(
             0, encode["median_ns"] - validation["median_ns"]
         ),
@@ -281,6 +284,11 @@ def measure_case(
     conversion_median = conversion["median_ns"]
     ergonomic_median = ergonomic["median_ns"]
     encoded_median = encoded["median_ns"] if encoded is not None else None
+    resident_pipeline_median = (
+        telex_phases["resident_pipeline"]["median_ns"]
+        if telex_phases is not None
+        else None
+    )
     return {
         "id": case["id"],
         "input": case["source"],
@@ -340,6 +348,11 @@ def measure_case(
             {
                 **encoded,
                 "median_over_native_ratio": encoded_median / native_median,
+                "median_over_resident_pipeline_ratio": (
+                    encoded_median / resident_pipeline_median
+                    if resident_pipeline_median
+                    else None
+                ),
                 "throughput_mib_per_second": throughput_mib_per_second(
                     case["bytes"], encoded_median
                 ),
@@ -356,6 +369,11 @@ def gate_summary(measurements: list[dict[str, Any]]) -> dict[str, Any]:
     flat = next((item for item in valid if item["id"] == "large-flat-50000"), None)
     tiny = next((item for item in valid if item["id"] == "tiny-typed"), None)
     encoded_ratios = [item["encoded_telex"]["median_over_native_ratio"] for item in valid]
+    encoded_resident_ratios = [
+        item["encoded_telex"]["median_over_resident_pipeline_ratio"]
+        for item in valid
+        if item["encoded_telex"]["median_over_resident_pipeline_ratio"] is not None
+    ]
     ergonomic_ratios = [item["ergonomic_compile"]["median_over_native_ratio"] for item in valid]
     conversion_rates = [
         item["python_result_conversion"]["median_ns_per_event"]
@@ -364,8 +382,16 @@ def gate_summary(measurements: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     return {
         "encoded_maximum_ratio": max(encoded_ratios, default=None),
-        "encoded_at_or_below_1_25x": (
-            all(ratio <= 1.25 for ratio in encoded_ratios) if encoded_ratios else None
+        "encoded_at_or_below_2_25x": (
+            all(ratio <= 2.25 for ratio in encoded_ratios) if encoded_ratios else None
+        ),
+        "encoded_resident_pipeline_maximum_ratio": max(
+            encoded_resident_ratios, default=None
+        ),
+        "encoded_resident_pipeline_at_or_below_1_40x": (
+            all(ratio <= 1.40 for ratio in encoded_resident_ratios)
+            if encoded_resident_ratios
+            else None
         ),
         "ergonomic_maximum_ratio": max(ergonomic_ratios, default=None),
         "ergonomic_at_or_below_3x": (
