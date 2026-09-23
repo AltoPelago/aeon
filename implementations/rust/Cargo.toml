@@ -20,7 +20,7 @@ rust-version = "1.93.1"
 version = "0.13.0"
 
 [workspace.dependencies]
-aes-telex = { git = "https://github.com/AltoPelago/aes.git", rev = "eed27fbe857f2df50a4fa5cb9883af9b666698d1", version = "0.0.0" }
+aes-telex = { git = "https://github.com/AltoPelago/aes.git", rev = "d415004a70577de63c8b93e109a8e3f052d6bc34", version = "0.0.0" }
 aeon-sdk = { path = "crates/aeon-sdk", version = "0.13.0" }
 aeon-aeos = { path = "crates/aeon-aeos", version = "0.13.0" }
 aeon-annotations = { path = "crates/aeon-annotations", version = "0.13.0" }
