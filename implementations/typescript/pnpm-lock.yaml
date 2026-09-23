@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: 0.10.1
-        version: 0.10.1
+        specifier: 0.11.1
+        version: 0.11.1
     devDependencies:
       '@altopelago/aeon-lexer':
         specifier: workspace:*
@@ -149,8 +149,8 @@ importers:
         specifier: workspace:*
         version: link:../lexer
       '@altopelago/sansa':
-        specifier: 0.10.1
-        version: 0.10.1
+        specifier: 0.11.1
+        version: 0.11.1
 
   packages/profiles:
     dependencies:
@@ -212,8 +212,8 @@ importers:
         specifier: workspace:*
         version: link:../annotation-stream
       '@altopelago/sansa':
-        specifier: 0.10.1
-        version: 0.10.1
+        specifier: 0.11.1
+        version: 0.11.1
 
   packages/transport: {}
 
@@ -293,8 +293,8 @@ importers:
   tools/sansa-resolve-cts-runner:
     dependencies:
       '@altopelago/sansa':
-        specifier: 0.10.1
-        version: 0.10.1
+        specifier: 0.11.1
+        version: 0.11.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.1
@@ -302,8 +302,8 @@ importers:
 
 packages:
 
-  '@altopelago/sansa@0.10.1':
-    resolution: {integrity: sha512-+azHv/BZiP+84OGO15FwbfUwIU1BhlKQC2DOoDHFajf2FVe8iB9GrviLJ+gW7C7cI/wj+xhBu14YyTT2Lr7Nog==}
+  '@altopelago/sansa@0.11.1':
+    resolution: {integrity: sha512-yVR3Pj2hM5+vuLCM70pvvAjR1sBoKylcmRgwq36zMtz0D2Yi5KoISCkLlqwexrnhvovad4VJmTPosmmJKacb2A==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -457,7 +457,7 @@ packages:
 
 snapshots:
 
-  '@altopelago/sansa@0.10.1': {}
+  '@altopelago/sansa@0.11.1': {}
 
   '@types/node@26.6.1':
     dependencies:
