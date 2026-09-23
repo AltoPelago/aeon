@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.aeon-core]
+package = "altopelago-aeon-core"
 path = "../crates/aeon-core"
 features = ["sofia-fuzz"]
 

@@ -21,15 +21,20 @@ import { fileURLToPath } from 'node:url';
 const sourceToolPath = fileURLToPath(new URL('../scripts/version.mjs', import.meta.url));
 const transactionDirectory = '.aeon-version-transaction';
 const rustPackages = [
-  'aeon-aeos',
-  'aeon-annotations',
-  'aeon-canonical',
-  'aeon-cli',
-  'aeon-core',
-  'aeon-finalize',
-  'aeon-sdk',
-  'aeon-wasm',
+  { dependency: 'aeon-aeos', package: 'altopelago-aeon-aeos' },
+  { dependency: 'aeon-annotations', package: 'aeon-annotations' },
+  { dependency: 'aeon-canonical', package: 'aeon-canonical' },
+  { dependency: 'aeon-cli', package: 'aeon-cli' },
+  { dependency: 'aeon-core', package: 'altopelago-aeon-core' },
+  { dependency: 'aeon-finalize', package: 'altopelago-aeon-finalize' },
+  { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
+  { dependency: 'aeon-wasm', package: 'aeon-wasm' },
 ];
+
+function rustDependencyLine({ dependency, package: packageName }, version) {
+  const packageClause = dependency === packageName ? '' : `package = "${packageName}", `;
+  return `${dependency} = { ${packageClause}path = "crates/${dependency}", version = "${version}" }`;
+}
 
 function fixtureSources(version = '1.2.3') {
   const sources = new Map();
@@ -99,15 +104,15 @@ function fixtureSources(version = '1.2.3') {
     `version = "${version}"`,
     '',
     '[workspace.dependencies]',
-    ...rustPackages.map((name) => `${name} = { path = "crates/${name}", version = "${version}" }`),
+    ...rustPackages.map((packageInfo) => rustDependencyLine(packageInfo, version)),
     '',
   ].join('\n'));
   put('implementations/rust/Cargo.lock', [
     '# generated',
-    ...rustPackages.flatMap((name) => [
+    ...rustPackages.flatMap(({ package: packageName }) => [
       '',
       '[[package]]',
-      `name = "${name}"`,
+      `name = "${packageName}"`,
       `version = "${version}"`,
     ]),
     '',
@@ -116,7 +121,7 @@ function fixtureSources(version = '1.2.3') {
     '# generated',
     '',
     '[[package]]',
-    'name = "aeon-core"',
+    'name = "altopelago-aeon-core"',
     `version = "${version}"`,
     '',
   ].join('\n'));

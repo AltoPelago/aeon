@@ -50,15 +50,20 @@ const pythonRelativePaths = [
   'implementations/python/src/aeon/cli.py',
 ];
 const rustWorkspacePackages = [
-  'aeon-aeos',
-  'aeon-annotations',
-  'aeon-canonical',
-  'aeon-cli',
-  'aeon-core',
-  'aeon-finalize',
-  'aeon-sdk',
-  'aeon-wasm',
+  { dependency: 'aeon-aeos', package: 'altopelago-aeon-aeos' },
+  { dependency: 'aeon-annotations', package: 'aeon-annotations' },
+  { dependency: 'aeon-canonical', package: 'aeon-canonical' },
+  { dependency: 'aeon-cli', package: 'aeon-cli' },
+  { dependency: 'aeon-core', package: 'altopelago-aeon-core' },
+  { dependency: 'aeon-finalize', package: 'altopelago-aeon-finalize' },
+  { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
+  { dependency: 'aeon-wasm', package: 'aeon-wasm' },
 ];
+
+function rustWorkspaceDependencyLine({ dependency, package: packageName }, version) {
+  const packageClause = dependency === packageName ? '' : `package = "${packageName}", `;
+  return `${dependency} = { ${packageClause}path = "crates/${dependency}", version = "${version}" }`;
+}
 
 function fail(message) {
   console.error(`Version validation failed: ${message}`);
@@ -527,26 +532,26 @@ function consistencyProblems(sources, versions, { requireReleaseHeadings = true 
   expectLiteral(problems, sources.get('implementations/typescript/packages/cli/README.md'), `@altopelago/aeon-cli@${versions.typescript}`, 'TypeScript CLI README pinned version');
 
   const rustToml = sources.get('implementations/rust/Cargo.toml');
-  for (const name of rustWorkspacePackages) {
+  for (const packageInfo of rustWorkspacePackages) {
     expectLiteral(
       problems,
       rustToml,
-      `${name} = { path = "crates/${name}", version = "${versions.rust}" }`,
-      `Rust workspace dependency ${name}`,
+      rustWorkspaceDependencyLine(packageInfo, versions.rust),
+      `Rust workspace dependency ${packageInfo.dependency}`,
     );
   }
   cargoLockVersionProblems(
     problems,
     sources.get('implementations/rust/Cargo.lock'),
     'implementations/rust/Cargo.lock',
-    rustWorkspacePackages,
+    rustWorkspacePackages.map(({ package: packageName }) => packageName),
     versions.rust,
   );
   cargoLockVersionProblems(
     problems,
     sources.get('implementations/rust/fuzz/Cargo.lock'),
     'implementations/rust/fuzz/Cargo.lock',
-    ['aeon-core'],
+    ['altopelago-aeon-core'],
     versions.rust,
   );
   expectLiteral(problems, sources.get('implementations/rust/README.md'), `Current crate/workspace line: \`${versions.rust}\`.`, 'Rust README current line');
@@ -623,18 +628,18 @@ function updateRust(updates, current, next) {
   updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'rust', current, next));
   updateSource(updates, 'implementations/rust/Cargo.toml', (source) => {
     let result = replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Rust workspace package version');
-    for (const name of rustWorkspacePackages) {
+    for (const packageInfo of rustWorkspacePackages) {
       result = replaceLiteral(
         result,
-        `${name} = { path = "crates/${name}", version = "${current}" }`,
-        `${name} = { path = "crates/${name}", version = "${next}" }`,
-        `Rust workspace dependency ${name}`,
+        rustWorkspaceDependencyLine(packageInfo, current),
+        rustWorkspaceDependencyLine(packageInfo, next),
+        `Rust workspace dependency ${packageInfo.dependency}`,
       );
     }
     return result;
   });
-  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustWorkspacePackages, current, next, 'implementations/rust/Cargo.lock'));
-  updateSource(updates, 'implementations/rust/fuzz/Cargo.lock', (source) => replaceCargoLockVersions(source, ['aeon-core'], current, next, 'implementations/rust/fuzz/Cargo.lock'));
+  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustWorkspacePackages.map(({ package: packageName }) => packageName), current, next, 'implementations/rust/Cargo.lock'));
+  updateSource(updates, 'implementations/rust/fuzz/Cargo.lock', (source) => replaceCargoLockVersions(source, ['altopelago-aeon-core'], current, next, 'implementations/rust/fuzz/Cargo.lock'));
   updateSource(updates, 'implementations/rust/README.md', (source) => replaceLiteral(source, `Current crate/workspace line: \`${current}\`.`, `Current crate/workspace line: \`${next}\`.`, 'Rust README current line'));
   updateSource(updates, 'VERSIONING.md', (source) => {
     let result = replaceLiteral(source, `- Rust: \`${current}\``, `- Rust: \`${next}\``, 'VERSIONING Rust line');
