@@ -3,41 +3,30 @@
 version = 4
 
 [[package]]
-name = "aeon-aeos"
-version = "0.13.0"
-dependencies = [
- "aeon-core",
- "aes-telex",
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "aeon-annotations"
 version = "0.13.0"
 dependencies = [
- "aeon-core",
+ "altopelago-aeon-core",
 ]
 
 [[package]]
 name = "aeon-canonical"
 version = "0.13.0"
 dependencies = [
- "aeon-core",
- "aes-telex",
+ "altopelago-aeon-core",
+ "altopelago-aes-telex",
 ]
 
 [[package]]
 name = "aeon-cli"
 version = "0.13.0"
 dependencies = [
- "aeon-aeos",
  "aeon-annotations",
  "aeon-canonical",
- "aeon-core",
- "aeon-finalize",
- "aes-telex",
+ "altopelago-aeon-aeos",
+ "altopelago-aeon-core",
+ "altopelago-aeon-finalize",
+ "altopelago-aes-telex",
  "ed25519-dalek",
  "pkcs8",
  "serde",
@@ -47,43 +36,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "aeon-core"
-version = "0.13.0"
-dependencies = [
- "aes-telex",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "aeon-finalize"
-version = "0.13.0"
-dependencies = [
- "aeon-core",
- "aes-telex",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "aeon-python"
 version = "0.13.0"
 dependencies = [
- "aeon-core",
- "aes-telex",
+ "altopelago-aeon-core",
+ "altopelago-aes-telex",
  "pyo3",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "aeon-sdk"
-version = "0.13.0"
-dependencies = [
- "aeon-aeos",
- "aeon-core",
- "aeon-finalize",
- "aes-telex",
  "serde",
  "serde_json",
 ]
@@ -94,20 +52,12 @@ version = "0.13.0"
 dependencies = [
  "aeon-annotations",
  "aeon-canonical",
- "aeon-core",
- "aeon-finalize",
- "aes-telex",
+ "altopelago-aeon-core",
+ "altopelago-aeon-finalize",
+ "altopelago-aes-telex",
  "serde",
  "serde_json",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "aes-telex"
-version = "0.0.0"
-source = "git+https://github.com/AltoPelago/aes.git?rev=d415004a70577de63c8b93e109a8e3f052d6bc34#d415004a70577de63c8b93e109a8e3f052d6bc34"
-dependencies = [
- "sha2",
 ]
 
 [[package]]
@@ -117,6 +67,56 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "altopelago-aeon"
+version = "0.13.0"
+dependencies = [
+ "altopelago-aeon-aeos",
+ "altopelago-aeon-core",
+ "altopelago-aeon-finalize",
+ "altopelago-aes-telex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "altopelago-aeon-aeos"
+version = "0.13.0"
+dependencies = [
+ "altopelago-aeon-core",
+ "altopelago-aes-telex",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "altopelago-aeon-core"
+version = "0.13.0"
+dependencies = [
+ "altopelago-aes-telex",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "altopelago-aeon-finalize"
+version = "0.13.0"
+dependencies = [
+ "altopelago-aeon-core",
+ "altopelago-aes-telex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "altopelago-aes-telex"
+version = "0.1.0"
+source = "git+https://github.com/AltoPelago/aes.git?rev=8842e10676c4c527e615811209cba9dd4d5b5555#8842e10676c4c527e615811209cba9dd4d5b5555"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Browser-friendly WebAssembly wrapper for the Rust AEON implementation."
+publish = false
 
 [dependencies]
 aes-telex.workspace = true
