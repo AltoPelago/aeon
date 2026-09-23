@@ -9,6 +9,7 @@ description = "Typed and JSON materialization for compiled AltoPelago AEON docum
 readme = "README.md"
 keywords = ["aeon", "deserialization", "configuration", "serialization"]
 categories = ["config", "encoding"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true

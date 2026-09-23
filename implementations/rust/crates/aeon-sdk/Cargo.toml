@@ -9,6 +9,7 @@ description = "Rust facade for compiling, validating, and loading AEON documents
 readme = "README.md"
 keywords = ["aeon", "configuration", "parser", "serialization"]
 categories = ["config", "parser-implementations"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true

@@ -9,6 +9,7 @@ description = "AEOS schema validation for AltoPelago AEON and AES event streams.
 readme = "README.md"
 keywords = ["aeon", "schema", "validation", "serialization"]
 categories = ["config", "parser-implementations"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true

@@ -9,6 +9,7 @@ description = "Sofia parser and core data model for AltoPelago AEON."
 readme = "README.md"
 keywords = ["aeon", "parser", "configuration", "serialization"]
 categories = ["config", "parser-implementations"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true
