@@ -77,6 +77,12 @@ def manifest_cases(generated_dir: Path) -> list[dict[str, Any]]:
             continue
         source = case["source"]
         path = REPO_ROOT / source["path"] if source["kind"] == "repository" else generated_dir / source["fixture"]
+        actual_digest = digest(path)
+        if actual_digest != case["sha256"]:
+            raise RuntimeError(
+                f"corpus digest mismatch for {case['id']}: "
+                f"expected {case['sha256']}, got {actual_digest}"
+            )
         selected.append({**case, "path": path})
     return selected
 
