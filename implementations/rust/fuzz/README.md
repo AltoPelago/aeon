@@ -82,7 +82,11 @@ cargo +nightly fuzz run compile corpus/compile
 
 ## Notes
 
-- All targets treat fuzz input as lossy UTF-8 because AEON source is text-oriented.
-- The compile target applies a 1 MiB compile input limit. The Sofia target
-  rejects raw fuzz inputs above 1 MiB before lossy conversion.
+- The `compile`, `token_parse`, and `sofia_token_parse` targets convert raw fuzz
+  input to lossy UTF-8 because their parser surfaces accept text. The
+  `sofia_incremental` target instead preserves raw bytes so it can exercise
+  invalid and truncated UTF-8 across chunk boundaries.
+- The compile target applies a 1 MiB compile input limit. The
+  `sofia_token_parse` target rejects raw fuzz inputs above 1 MiB before lossy
+  conversion.
 - As AEON grows, it is worth adding structure-aware fuzz targets for specific sub-surfaces such as references, trimticks, or header lowering.

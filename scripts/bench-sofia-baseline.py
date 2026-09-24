@@ -197,12 +197,19 @@ def load_cases(generated_dir: Path, selected: list[str] | None) -> list[dict[str
         else:
             path = generated_dir / source["fixture"]
         data = path.read_bytes()
+        actual_digest = hashlib.sha256(data).hexdigest()
+        expected_digest = case["sha256"]
+        if actual_digest != expected_digest:
+            raise RuntimeError(
+                f"corpus digest mismatch for {case['id']}: "
+                f"expected {expected_digest}, got {actual_digest}"
+            )
         result.append(
             {
                 **case,
                 "path": path,
                 "bytes": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
+                "sha256": actual_digest,
             }
         )
     return result
