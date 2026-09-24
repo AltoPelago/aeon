@@ -1,0 +1,126 @@
+{
+  "schema": "aeon.sofia.corpus.v1",
+  "generator_version": 1,
+  "description": "Stable correctness and performance corpus for the Sofia migration.",
+  "cases": [
+    {
+      "id": "tiny-typed",
+      "source": { "kind": "generated", "fixture": "tiny-typed.aeon" },
+      "sha256": "0005cc26d70cb6b3993e6d6c960c194aa3a82872295813f17dfd3147f29406c5",
+      "expected": "valid",
+      "categories": ["tiny", "startup", "editor-latency"]
+    },
+    {
+      "id": "ecosystem-spec",
+      "source": { "kind": "repository", "path": "stress-tests/canonical-corpus/specs/aeon-core-v1.aeon" },
+      "sha256": "342c67bf9233acb4dbc7751e8a84d917de606811dbffcbf32c6f089ee61b70ff",
+      "expected": "valid",
+      "categories": ["ecosystem", "specification", "mixed"]
+    },
+    {
+      "id": "ecosystem-site",
+      "source": { "kind": "repository", "path": "stress-tests/canonical-corpus/altopelago-website/ai.aeon" },
+      "sha256": "de488d42ef7042265716eb1e0edfb360aad2fe640aec79b3b2c55d755ae42831",
+      "expected": "valid",
+      "categories": ["ecosystem", "website", "mixed"]
+    },
+    {
+      "id": "full-feature",
+      "source": { "kind": "repository", "path": "stress-tests/full/full-feature-stress.aeon" },
+      "sha256": "ccff0a6848e5b63ab206a362cf179f68f95048e6895ca2f319a9f484fe19be1f",
+      "expected": "valid",
+      "categories": ["mixed", "literals", "references", "annotations"]
+    },
+    {
+      "id": "large-flat-50000",
+      "source": { "kind": "generated", "fixture": "large-flat-50000.aeon" },
+      "sha256": "25f40d336d1c89ad3659bd4e192590188617cf27776c529215af77b14e52ac98",
+      "expected": "valid",
+      "categories": ["large", "flat", "throughput", "memory"]
+    },
+    {
+      "id": "wide-object-20000",
+      "source": { "kind": "generated", "fixture": "wide-object-20000.aeon" },
+      "sha256": "dfd45313f3df9fcfb8bc2da39db23d1324a8ae69b972027cd5dfe14de756f981",
+      "expected": "valid",
+      "categories": ["large", "wide", "object", "memory"]
+    },
+    {
+      "id": "wide-list-50000",
+      "source": { "kind": "generated", "fixture": "wide-list-50000.aeon" },
+      "sha256": "140dad7af0d19fdbc63bf926e7a5e662f1769453d331faed16a9b1f4e4c0a1d8",
+      "expected": "valid",
+      "categories": ["large", "wide", "list", "memory"]
+    },
+    {
+      "id": "wide-tuple-20000",
+      "source": { "kind": "generated", "fixture": "wide-tuple-20000.aeon" },
+      "sha256": "7acd9fb142b91eb7e1783bca1d1cd5e7f244533a3362cd178a91023082f65c3f",
+      "expected": "valid",
+      "categories": ["large", "wide", "tuple", "memory"]
+    },
+    {
+      "id": "wide-node-20000",
+      "source": { "kind": "generated", "fixture": "wide-node-20000.aeon" },
+      "sha256": "df4d5e428107705985ea322ad55460c8995b975460aa09960b299af452a0f356",
+      "expected": "valid",
+      "categories": ["large", "wide", "node", "memory"]
+    },
+    {
+      "id": "deep-container-64",
+      "source": { "kind": "repository", "path": "stress-tests/edge/limits/nesting-depth-floor-64.aeon" },
+      "sha256": "81cacbf0e899896eaa16af93d697be0bf0882c8fd3fe2bf4ca96a0df96dca810",
+      "expected": "valid",
+      "categories": ["deep", "list", "stack", "limit-boundary"]
+    },
+    {
+      "id": "unicode-10000",
+      "source": { "kind": "generated", "fixture": "unicode-10000.aeon" },
+      "sha256": "ae8fcb22658e4dd1f494089403666a99e4d2d15b48cd33b002d0821a5eec6535",
+      "expected": "valid",
+      "categories": ["large", "unicode", "strings", "keys"]
+    },
+    {
+      "id": "references-10000",
+      "source": { "kind": "generated", "fixture": "references-10000.aeon" },
+      "sha256": "7678dd96c9ffae9bfe8ef69c2e309b254c8dc4b7221134b6093322cc7ef73e13",
+      "expected": "valid",
+      "categories": ["large", "references", "structural-identity"]
+    },
+    {
+      "id": "datatypes-10000",
+      "source": { "kind": "generated", "fixture": "datatypes-10000.aeon" },
+      "sha256": "54ad5f35595c7583f6f2cba02787b4072383ef7758f8fe818b48014511795160",
+      "expected": "valid",
+      "categories": ["large", "datatypes", "generics", "clarifiers"]
+    },
+    {
+      "id": "attributes-10000",
+      "source": { "kind": "generated", "fixture": "attributes-10000.aeon" },
+      "sha256": "d5092e6b9d5ae7d5e819b74e81ed73ee1f13d7598dedf603b1d0e770bbac7f6c",
+      "expected": "valid",
+      "categories": ["large", "attributes", "structural-identity"]
+    },
+    {
+      "id": "comments-10000",
+      "source": { "kind": "generated", "fixture": "comments-10000.aeon" },
+      "sha256": "dda1ad5b2775a7fefc869ceba6d52819bab77d859963004748009af736de7e55",
+      "expected": "valid",
+      "categories": ["large", "comments", "annotations"]
+    },
+    {
+      "id": "invalid-early",
+      "source": { "kind": "repository", "path": "stress-tests/edge/unicode-invalid-escape.aeon" },
+      "sha256": "e9c69a867953d8a68589727dc10f5d74038383cf7f2f1e059f99334e8ea72def",
+      "expected": "invalid",
+      "categories": ["invalid", "early-failure", "unicode"]
+    },
+    {
+      "id": "invalid-late-20000",
+      "source": { "kind": "generated", "fixture": "invalid-late-20000.aeon" },
+      "sha256": "341e2298b6b3d8113b7dbdb8327ba225008c1af6163628d1511679d2a37022fd",
+      "expected": "invalid",
+      "categories": ["invalid", "late-failure", "large", "hostile"]
+    }
+  ]
+}

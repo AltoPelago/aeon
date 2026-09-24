@@ -1,0 +1,110 @@
+from typing import final
+
+ENGINE: str
+
+@final
+class Position:
+    def __init__(self, line: int, column: int, offset: int) -> None: ...
+    @property
+    def line(self) -> int: ...
+    @property
+    def column(self) -> int: ...
+    @property
+    def offset(self) -> int: ...
+
+@final
+class Span:
+    def __init__(self, start: Position, end: Position) -> None: ...
+    @property
+    def start(self) -> Position: ...
+    @property
+    def end(self) -> Position: ...
+
+@final
+class Diagnostic:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        path: str | None = None,
+        span: Span | None = None,
+        phase: str | None = None,
+    ) -> None: ...
+    @property
+    def code(self) -> str: ...
+    @property
+    def message(self) -> str: ...
+    @property
+    def path(self) -> str | None: ...
+    @property
+    def span(self) -> Span | None: ...
+    @property
+    def phase(self) -> str | None: ...
+
+@final
+class Event:
+    def __init__(
+        self,
+        path: str,
+        key: str,
+        source_plane: str,
+        datatype: str | None,
+        value_type: str,
+        structural_id: str | None,
+        span: Span,
+    ) -> None: ...
+    @property
+    def path(self) -> str: ...
+    @property
+    def key(self) -> str: ...
+    @property
+    def source_plane(self) -> str: ...
+    @property
+    def datatype(self) -> str | None: ...
+    @property
+    def value_type(self) -> str: ...
+    @property
+    def structural_id(self) -> str | None: ...
+    @property
+    def span(self) -> Span: ...
+
+@final
+class CompileResult:
+    def __init__(
+        self,
+        events: tuple[Event, ...],
+        warnings: tuple[Diagnostic, ...],
+        errors: tuple[Diagnostic, ...],
+    ) -> None: ...
+    @property
+    def events(self) -> tuple[Event, ...]: ...
+    @property
+    def warnings(self) -> tuple[Diagnostic, ...]: ...
+    @property
+    def errors(self) -> tuple[Diagnostic, ...]: ...
+    @property
+    def ok(self) -> bool: ...
+    def require_ok(self) -> CompileResult: ...
+
+def compile_json(source: str) -> bytes: ...
+def compile_cts_json(
+    source: str,
+    mode: str | None = None,
+    datatype_policy: str | None = None,
+    rich: bool = False,
+    limits_source: str | None = None,
+    max_attribute_depth: int | None = None,
+    max_separator_depth: int | None = None,
+    max_generic_depth: int | None = None,
+    max_events: int | None = None,
+) -> bytes: ...
+def compile_packed(
+    source: str,
+) -> tuple[
+    list[tuple[object, ...]],
+    list[tuple[object, ...]],
+    list[tuple[object, ...]],
+]: ...
+def compile_native(source: str) -> CompileResult: ...
+def compile_telex(source: str) -> tuple[bool, bytes]: ...
+def compile_telex_profile(source: str) -> tuple[int, int, int, int, int, int]: ...

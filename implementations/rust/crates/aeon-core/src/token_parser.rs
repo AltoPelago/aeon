@@ -1,17 +1,64 @@
 #![allow(clippy::result_large_err)]
 
+mod sofia;
+
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 
 use crate::header::apply_trimticks;
+use crate::lexer::{LexerSession, tokenize_sofia};
+use crate::resource_limits::structured_comment_limit_diagnostic;
 use crate::sansa::parse_address as parse_sansa_address;
 use crate::temporal::{classify_temporal_literal, invalid_temporal_literal};
 use crate::validation::datatype_has_generic_args;
 use crate::{
-    AttributeValue, Binding, Diagnostic, LexerOptions, NullLiteralMode, ReferenceSegment, Span,
-    Token, TokenKind, TrimtickMetadata, Value, tokenize,
+    AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, NullLiteralMode,
+    ReferenceSegment, Span, Token, TokenKind, TrimtickMetadata, Value, tokenize,
 };
 
 const RESERVED_ATTRIBUTE_KEYS: &[&str] = &["@", "@items", "__proto__", "constructor", "prototype"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParserImplementation {
+    Baseline,
+    #[allow(dead_code)]
+    Sofia,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParserLimits {
+    max_value_nesting_depth: usize,
+    max_attribute_depth: usize,
+    max_clarifier_values: usize,
+    max_generic_depth: usize,
+    max_generic_arguments: usize,
+    max_datatype_components: usize,
+}
+
+impl ParserLimits {
+    pub(crate) const fn new(
+        max_value_nesting_depth: usize,
+        max_attribute_depth: usize,
+        max_clarifier_values: usize,
+        max_generic_depth: usize,
+        max_generic_arguments: usize,
+        max_datatype_components: usize,
+    ) -> Self {
+        Self {
+            max_value_nesting_depth,
+            max_attribute_depth,
+            max_clarifier_values,
+            max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+        }
+    }
+}
+
+#[cfg(feature = "sofia-fuzz")]
+pub(crate) fn fuzz_sofia_incremental_session(data: &[u8], limits: ParserLimits) {
+    sofia::fuzz_incremental_session(data, limits);
+}
 
 fn is_bare_key_kind(kind: TokenKind) -> bool {
     matches!(
@@ -35,13 +82,26 @@ pub(crate) fn parse_document_from_tokens(
     max_generic_arguments: usize,
     max_datatype_components: usize,
 ) -> Result<Vec<Binding>, Diagnostic> {
-    let lexed = tokenize(
+    parse_document_from_tokens_with_implementation(
         input,
-        LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
-        },
-    );
+        ParserLimits::new(
+            max_value_nesting_depth,
+            max_attribute_depth,
+            max_clarifier_values,
+            max_generic_depth,
+            max_generic_arguments,
+            max_datatype_components,
+        ),
+        ParserImplementation::Baseline,
+    )
+}
+
+pub(crate) fn parse_document_from_tokens_with_implementation(
+    input: &str,
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> Result<Vec<Binding>, Diagnostic> {
+    let lexed = tokenize_for_implementation(input, implementation);
     if let Some(error) = lexed.errors.first() {
         return Err(Diagnostic {
             code: error.code.clone(),
@@ -51,65 +111,357 @@ pub(crate) fn parse_document_from_tokens(
             message: error.message.clone(),
         });
     }
-    TokenParser::new(
-        &lexed.tokens,
-        max_value_nesting_depth,
-        max_attribute_depth,
-        max_clarifier_values,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
-    .parse_document()
+    parse_tokenized_document(&lexed.tokens, limits, implementation)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParseRecoveryResult {
     pub bindings: Vec<Binding>,
     pub errors: Vec<Diagnostic>,
 }
 
-pub(crate) fn parse_document_from_tokens_recovery(
-    input: &str,
-    max_value_nesting_depth: usize,
-    max_attribute_depth: usize,
-    max_clarifier_values: usize,
-    max_generic_depth: usize,
-    max_generic_arguments: usize,
-    max_datatype_components: usize,
-) -> ParseRecoveryResult {
-    let lexed = tokenize(
-        input,
-        LexerOptions {
-            include_newlines: true,
-            ..LexerOptions::default()
+pub(crate) struct IncrementalSofiaFrontend {
+    lexer: Option<LexerSession<'static>>,
+    parser: Option<sofia::ParserSession<'static>>,
+    limits: ParserLimits,
+    fallback_to_one_shot: bool,
+    retention_fallback: bool,
+    peak_retained_token_bytes: usize,
+    released_completed_binding_count: usize,
+    structured_comment_count: usize,
+    structured_comment_error: Option<Diagnostic>,
+}
+
+pub(crate) struct IncrementalSofiaResult {
+    pub parsed: ParseRecoveryResult,
+    pub retention_fallback: bool,
+    pub peak_retained_token_bytes: usize,
+    pub structured_comment_count: usize,
+    pub structured_comment_error: Option<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct IncrementalSofiaRetention {
+    pub lexer_active_bytes: usize,
+    pub parser_token_count: usize,
+    pub parser_token_storage_bytes: usize,
+    pub parser_frame_count: usize,
+    pub structural_identity_count: usize,
+    pub structural_identity_storage_bytes: usize,
+    pub completed_binding_count: usize,
+    pub completed_binding_storage_bytes: usize,
+    pub released_completed_binding_count: usize,
+}
+
+impl IncrementalSofiaFrontend {
+    pub(crate) fn new(options: &CompileOptions) -> Self {
+        let limits = ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        );
+        Self {
+            lexer: Some(LexerSession::with_compile_limits(
+                LexerOptions {
+                    include_newlines: true,
+                    ..LexerOptions::default()
+                },
+                options,
+            )),
+            parser: Some(sofia::ParserSession::new(limits, true)),
+            limits,
+            fallback_to_one_shot: false,
+            retention_fallback: false,
+            peak_retained_token_bytes: 0,
+            released_completed_binding_count: 0,
+            structured_comment_count: 0,
+            structured_comment_error: None,
+        }
+    }
+
+    pub(crate) fn push_str(&mut self, chunk: &str) -> &[Binding] {
+        if self.fallback_to_one_shot {
+            return &[];
+        }
+        let batch = self
+            .lexer
+            .as_mut()
+            .expect("active incremental front end must retain its lexer")
+            .push(Cow::Owned(chunk.to_owned()));
+        self.peak_retained_token_bytes = self.peak_retained_token_bytes.max(
+            self.lexer
+                .as_ref()
+                .expect("active incremental front end must retain its lexer")
+                .retained_input_bytes(),
+        );
+        self.sync_structured_comment_state();
+        if !batch.errors.is_empty() {
+            self.retention_fallback = batch
+                .errors
+                .iter()
+                .any(|error| error.code == "INCREMENTAL_TOKEN_RETENTION_EXCEEDED");
+            self.fallback_to_one_shot = true;
+            self.lexer = None;
+            self.parser = None;
+            return &[];
+        }
+
+        let progress = self
+            .parser
+            .as_mut()
+            .expect("active incremental front end must retain its parser")
+            .push_tokens(Cow::Owned(batch.tokens));
+        match progress {
+            Ok(sofia::ParserSessionProgress::NeedMoreInput) => self
+                .parser
+                .as_mut()
+                .expect("active incremental front end must retain its parser")
+                .newly_completed_bindings(),
+            Ok(sofia::ParserSessionProgress::Complete(_)) | Err(_) => {
+                // A terminal non-final parse is deterministic, but replaying
+                // the complete source keeps this migration surface fail-closed
+                // until the public compiler selects the incremental result
+                // directly.
+                self.fallback_to_one_shot = true;
+                self.lexer = None;
+                self.parser = None;
+                &[]
+            }
+        }
+    }
+
+    pub(crate) fn retention(&self) -> IncrementalSofiaRetention {
+        let parser = self.parser.as_ref();
+        IncrementalSofiaRetention {
+            lexer_active_bytes: self
+                .lexer
+                .as_ref()
+                .map_or(0, LexerSession::retained_input_bytes),
+            parser_token_count: parser.map_or(0, sofia::ParserSession::retained_token_count),
+            parser_token_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::retained_token_storage_bytes),
+            parser_frame_count: parser.map_or(0, sofia::ParserSession::active_frame_count),
+            structural_identity_count: parser
+                .map_or(0, sofia::ParserSession::structural_identity_count),
+            structural_identity_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::structural_identity_storage_bytes),
+            completed_binding_count: parser
+                .map_or(0, sofia::ParserSession::completed_binding_count),
+            completed_binding_storage_bytes: parser
+                .map_or(0, sofia::ParserSession::completed_binding_storage_bytes),
+            released_completed_binding_count: self.released_completed_binding_count,
+        }
+    }
+
+    pub(crate) fn structured_comment_state(&self) -> (usize, Option<Diagnostic>) {
+        (
+            self.structured_comment_count,
+            self.structured_comment_error.clone(),
+        )
+    }
+
+    fn sync_structured_comment_state(&mut self) {
+        let Some(lexer) = self.lexer.as_ref() else {
+            return;
+        };
+        self.structured_comment_count = lexer.structured_comment_count();
+        if self.structured_comment_error.is_none()
+            && let Some(violation) = lexer.structured_comment_limit_violation()
+        {
+            self.structured_comment_error = Some(structured_comment_limit_diagnostic(
+                violation.observed,
+                violation.limit,
+                violation.span,
+            ));
+        }
+    }
+
+    pub(crate) fn take_completed_bindings(&mut self) -> Vec<Binding> {
+        let completed = self
+            .parser
+            .as_mut()
+            .map_or_else(Vec::new, sofia::ParserSession::take_completed_bindings);
+        self.released_completed_binding_count = self
+            .released_completed_binding_count
+            .saturating_add(completed.len());
+        completed
+    }
+
+    pub(crate) fn finish(self, source: &str) -> IncrementalSofiaResult {
+        self.finish_inner(Some(source))
+    }
+
+    pub(crate) fn finish_without_replay(self) -> IncrementalSofiaResult {
+        self.finish_inner(None)
+    }
+
+    fn finish_inner(mut self, source: Option<&str>) -> IncrementalSofiaResult {
+        if self.fallback_to_one_shot {
+            let Some(source) = source else {
+                return IncrementalSofiaResult {
+                    parsed: ParseRecoveryResult {
+                        bindings: Vec::new(),
+                        errors: vec![Diagnostic::new(
+                            "SOFIA_INCREMENTAL_REPLAY_REQUIRED",
+                            "Incremental Sofia requires retained source to recover from an internal fallback",
+                        )
+                        .at_path("$")],
+                    },
+                    retention_fallback: true,
+                    peak_retained_token_bytes: self.peak_retained_token_bytes,
+                    structured_comment_count: self.structured_comment_count,
+                    structured_comment_error: self.structured_comment_error,
+                };
+            };
+            return IncrementalSofiaResult {
+                parsed: parse_document_from_tokens_recovery_with_implementation(
+                    source,
+                    self.limits,
+                    ParserImplementation::Sofia,
+                ),
+                retention_fallback: self.retention_fallback,
+                peak_retained_token_bytes: self.peak_retained_token_bytes,
+                structured_comment_count: self.structured_comment_count,
+                structured_comment_error: self.structured_comment_error,
+            };
+        }
+
+        let batch = self
+            .lexer
+            .as_mut()
+            .expect("active incremental front end must retain its lexer")
+            .finish();
+        self.sync_structured_comment_state();
+        if !batch.errors.is_empty() {
+            return IncrementalSofiaResult {
+                parsed: ParseRecoveryResult {
+                    bindings: Vec::new(),
+                    errors: batch.errors.into_iter().map(lex_error_diagnostic).collect(),
+                },
+                retention_fallback: false,
+                peak_retained_token_bytes: self.peak_retained_token_bytes,
+                structured_comment_count: self.structured_comment_count,
+                structured_comment_error: self.structured_comment_error,
+            };
+        }
+
+        let outcome = self
+            .parser
+            .as_mut()
+            .expect("active incremental front end must retain its parser")
+            .finish_tokens(Cow::Owned(batch.tokens))
+            .expect("lexer finish must provide one final EOF");
+        IncrementalSofiaResult {
+            parsed: recovery_result_from_sofia(outcome),
+            retention_fallback: false,
+            peak_retained_token_bytes: self.peak_retained_token_bytes,
+            structured_comment_count: self.structured_comment_count,
+            structured_comment_error: self.structured_comment_error,
+        }
+    }
+}
+
+fn lex_error_diagnostic(error: crate::LexError) -> Diagnostic {
+    Diagnostic {
+        code: error.code,
+        path: Some(String::from("$")),
+        span: Some(error.span),
+        phase: None,
+        message: error.message,
+    }
+}
+
+fn recovery_result_from_sofia(outcome: sofia::ParseOutcome) -> ParseRecoveryResult {
+    match outcome {
+        sofia::ParseOutcome::Recovered { bindings, errors } => {
+            ParseRecoveryResult { bindings, errors }
+        }
+        sofia::ParseOutcome::Failed(error) => ParseRecoveryResult {
+            bindings: Vec::new(),
+            errors: vec![error],
         },
-    );
+        sofia::ParseOutcome::Parsed(_) => {
+            unreachable!("recovery Sofia session returned a strict product")
+        }
+    }
+}
+
+pub(crate) fn parse_document_from_tokens_recovery_with_implementation(
+    input: &str,
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> ParseRecoveryResult {
+    let mut lexed = tokenize_for_implementation(input, implementation);
     if !lexed.errors.is_empty() {
         return ParseRecoveryResult {
             bindings: Vec::new(),
-            errors: lexed
-                .errors
-                .into_iter()
-                .map(|error| Diagnostic {
-                    code: error.code,
-                    path: Some(String::from("$")),
-                    span: Some(error.span),
-                    phase: None,
-                    message: error.message,
-                })
-                .collect(),
+            errors: lexed.errors.into_iter().map(lex_error_diagnostic).collect(),
         };
     }
-    TokenParser::new(
-        &lexed.tokens,
-        max_value_nesting_depth,
-        max_attribute_depth,
-        max_clarifier_values,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
-    .parse_document_recovery()
+    if implementation == ParserImplementation::Sofia
+        && lexed.tokens.capacity() > lexed.tokens.len().saturating_add(lexed.tokens.len() / 5)
+    {
+        lexed.tokens.shrink_to_fit();
+    }
+    parse_tokenized_document_recovery(&lexed.tokens, limits, implementation)
+}
+
+fn tokenize_for_implementation(
+    input: &str,
+    implementation: ParserImplementation,
+) -> crate::LexResult {
+    let options = LexerOptions {
+        include_newlines: true,
+        ..LexerOptions::default()
+    };
+    match implementation {
+        ParserImplementation::Baseline => tokenize(input, options),
+        ParserImplementation::Sofia => tokenize_sofia(input, options),
+    }
+}
+
+fn parse_tokenized_document(
+    tokens: &[Token],
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> Result<Vec<Binding>, Diagnostic> {
+    match implementation {
+        ParserImplementation::Baseline => TokenParser::new(tokens, limits).parse_document(),
+        ParserImplementation::Sofia => match sofia::parse_document(tokens, limits) {
+            sofia::ParseOutcome::Parsed(bindings) => Ok(bindings),
+            sofia::ParseOutcome::Failed(error) => Err(error),
+            sofia::ParseOutcome::Recovered { .. } => {
+                unreachable!("strict Sofia parsing returned a recovery product")
+            }
+        },
+    }
+}
+
+fn parse_tokenized_document_recovery(
+    tokens: &[Token],
+    limits: ParserLimits,
+    implementation: ParserImplementation,
+) -> ParseRecoveryResult {
+    match implementation {
+        ParserImplementation::Baseline => {
+            TokenParser::new(tokens, limits).parse_document_recovery()
+        }
+        ParserImplementation::Sofia => match sofia::parse_document_recovery(tokens, limits) {
+            sofia::ParseOutcome::Recovered { bindings, errors } => {
+                ParseRecoveryResult { bindings, errors }
+            }
+            sofia::ParseOutcome::Failed(error) => ParseRecoveryResult {
+                bindings: Vec::new(),
+                errors: vec![error],
+            },
+            sofia::ParseOutcome::Parsed(_) => {
+                unreachable!("recovery Sofia parsing returned a strict product")
+            }
+        },
+    }
 }
 
 struct TokenParser<'a> {
@@ -126,25 +478,17 @@ struct TokenParser<'a> {
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(
-        tokens: &'a [Token],
-        max_value_nesting_depth: usize,
-        max_attribute_depth: usize,
-        max_clarifier_values: usize,
-        max_generic_depth: usize,
-        max_generic_arguments: usize,
-        max_datatype_components: usize,
-    ) -> Self {
+    fn new(tokens: &'a [Token], limits: ParserLimits) -> Self {
         Self {
             tokens,
             current: 0,
-            max_value_nesting_depth,
+            max_value_nesting_depth: limits.max_value_nesting_depth,
             current_nesting_depth: 0,
-            max_attribute_depth,
-            max_clarifier_values,
-            max_generic_depth,
-            max_generic_arguments,
-            max_datatype_components,
+            max_attribute_depth: limits.max_attribute_depth,
+            max_clarifier_values: limits.max_clarifier_values,
+            max_generic_depth: limits.max_generic_depth,
+            max_generic_arguments: limits.max_generic_arguments,
+            max_datatype_components: limits.max_datatype_components,
             structural_identities: HashSet::new(),
         }
     }
@@ -1885,11 +2229,502 @@ fn is_valid_exponent_digits(raw: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_document_from_tokens;
-    use crate::{TrimtickMetadata, Value};
+    use std::borrow::Cow;
+
+    use super::{
+        IncrementalSofiaFrontend, ParserImplementation, ParserLimits, parse_document_from_tokens,
+        parse_document_from_tokens_recovery_with_implementation,
+        parse_document_from_tokens_with_implementation, parse_tokenized_document,
+    };
+    use crate::lexer::LexerSession;
+    use crate::{CompileOptions, LexerOptions, TrimtickMetadata, Value};
+
+    const TEST_LIMITS: ParserLimits = ParserLimits::new(256, 8, 8, 8, 32, 64);
 
     fn parse(input: &str) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
         parse_document_from_tokens(input, 256, 1, 1, 1, 32, 64)
+    }
+
+    #[test]
+    fn incremental_frontend_surfaces_completed_binding_prefixes() {
+        let source = concat!(
+            "aeon:mode = \"strict\"\n",
+            "first = 1\n",
+            "nested = { child = true }\n",
+            "pending = \"final\"",
+        );
+        let mut frontend = IncrementalSofiaFrontend::new(&CompileOptions::default());
+        let mut completed = Vec::new();
+        for chunk in [
+            "aeon:mode = \"strict\"\n",
+            "first = 1\n",
+            "nested = { child = true }\n",
+            "pending = \"final\"",
+        ] {
+            completed.extend(
+                frontend
+                    .push_str(chunk)
+                    .iter()
+                    .map(|binding| binding.key.clone()),
+            );
+        }
+
+        assert_eq!(completed, ["aeon:mode", "first", "nested"]);
+
+        let finished = frontend.finish(source);
+        assert!(!finished.retention_fallback);
+        assert!(finished.parsed.errors.is_empty());
+        assert_eq!(
+            finished
+                .parsed
+                .bindings
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            ["aeon:mode", "first", "nested", "pending"]
+        );
+    }
+
+    fn parse_chunks(
+        input: &str,
+        split: usize,
+        implementation: ParserImplementation,
+    ) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        });
+        let mut tokens = Vec::new();
+        let mut errors = Vec::new();
+        for chunk in [&input[..split], &input[split..]] {
+            let result = lexer.push(Cow::Owned(chunk.to_owned()));
+            tokens.extend(result.tokens);
+            errors.extend(result.errors);
+        }
+        let result = lexer.finish();
+        tokens.extend(result.tokens);
+        errors.extend(result.errors);
+        assert!(errors.is_empty(), "incremental lexer errors: {errors:#?}");
+        parse_tokenized_document(&tokens, TEST_LIMITS, implementation)
+    }
+
+    fn parse_with(
+        input: &str,
+        implementation: ParserImplementation,
+    ) -> Result<Vec<crate::Binding>, crate::Diagnostic> {
+        parse_document_from_tokens_with_implementation(input, TEST_LIMITS, implementation)
+    }
+
+    fn recover_with(
+        input: &str,
+        implementation: ParserImplementation,
+    ) -> super::ParseRecoveryResult {
+        parse_document_from_tokens_recovery_with_implementation(input, TEST_LIMITS, implementation)
+    }
+
+    fn assert_parser_parity(input: &str) {
+        assert_eq!(
+            parse_with(input, ParserImplementation::Sofia),
+            parse_with(input, ParserImplementation::Baseline),
+            "strict parser drift for input:\n{input}",
+        );
+        assert_eq!(
+            recover_with(input, ParserImplementation::Sofia),
+            recover_with(input, ParserImplementation::Baseline),
+            "recovery parser drift for input:\n{input}",
+        );
+    }
+
+    fn assert_parser_parity_with_limits(input: &str, limits: ParserLimits) {
+        assert_eq!(
+            parse_document_from_tokens_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Sofia,
+            ),
+            parse_document_from_tokens_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Baseline,
+            ),
+            "strict parser drift for input:\n{input}",
+        );
+        assert_eq!(
+            parse_document_from_tokens_recovery_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Sofia,
+            ),
+            parse_document_from_tokens_recovery_with_implementation(
+                input,
+                limits,
+                ParserImplementation::Baseline,
+            ),
+            "recovery parser drift for input:\n{input}",
+        );
+    }
+
+    #[test]
+    fn parser_selector_preserves_native_resource_diagnostics() {
+        let corpus = [
+            (
+                "nested = [[1]]\nlater = true",
+                ParserLimits::new(1, 8, 8, 8, 32, 64),
+            ),
+            (
+                "tree = <root(<leaf>)>\nlater = true",
+                ParserLimits::new(1, 8, 8, 8, 32, 64),
+            ),
+            (
+                "root@{outer@{inner = 1} = 2} = 3\nlater = true",
+                ParserLimits::new(256, 1, 8, 8, 32, 64),
+            ),
+            (
+                "value:outer<inner<value>> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 0, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 8, 1, 64),
+            ),
+            (
+                "value:custom[\"first\", \"second\"] = 1\nlater = true",
+                ParserLimits::new(256, 8, 1, 8, 32, 64),
+            ),
+            (
+                "value:outer<first, second> = 1\nlater = true",
+                ParserLimits::new(256, 8, 8, 8, 32, 2),
+            ),
+        ];
+
+        for (input, limits) in corpus {
+            assert_parser_parity_with_limits(input, limits);
+        }
+    }
+
+    #[test]
+    fn parser_selector_preserves_strict_and_recovery_results() {
+        let corpus = [
+            "",
+            "name = \"Pat\"\nage = 49",
+            "empty_list = []\nempty_tuple = ()\nempty_object = {}",
+            "lines = [1\n2\n3,]\npair = (true, false,)",
+            "record = { first = 1\nsecond = [2, 3], }",
+            "nested = [1, (true, { name = \"Pat\" })]",
+            r#"root\root\:list = [
+  \child\:string = "value"
+  :number = 1
+  { "nested key"\nested\:object = {} }
+]"#,
+            r#"payload:custom<
+  tuple<string, number>,
+  3
+>["x", 1_0] = 1"#,
+            r#"payload\root\@{
+  source\meta\:string = "user"
+  policy@{inherited:boolean = true}:object = {
+    enabled:boolean = true
+    nested = { count:number = 2 }
+  }
+}:object = { value = 1 }
+items = [@{note:string = "first"}:number = 1]"#,
+            "items:list<string> = [\"one\", \"two\"]",
+            "record:object = { nested@{flag = true}:string = \"value\" }",
+            r#"aeon
+:
+header = { mode:string = "strict", encoding = "utf-8" }
+aeon:profile = "core"
+"aeon:mode" = "body"
+aeon = "ordinary""#,
+            "aeon:header = { mode = \"strict\" }\naeon:mode = \"strict\"\nvalue = 1",
+            "aeon:true = 1\nlater = true",
+            "@ nonsense\nlater = true",
+            "broken hello\nlater = true",
+            "first = 1 garbage\nlater = true",
+            r#"positive = Infinity
+negative = -Infinity
+not_a_number = -NaN
+reserved = !notSet
+reason = !"postponed"
+absolute = $.inventory:csv[","]
+context = ?.name
+trim = >>`
+    one
+    two
+  `"#,
+            "bad = !missing\nlater = true",
+            "bad = !\"none\"\nlater = true",
+            "bad = >>>>>`value`\nlater = true",
+            "bad = > >`value`\nlater = true",
+            r#"source = { "quoted.key" = [1, 2] }
+clone = ~$.["source"].["quoted.key"][1]
+pointer = ~>source.@.meta.["x.y"][0]
+literal = ~true.off"#,
+            "bad = ~$[\"source\"]\nlater = true",
+            "bad = ~source.@.[\"\"]\nlater = true",
+            "bad = [1 2]\nlater = true",
+            "bad = [1)\nlater = true",
+            "bad = (1 2)\nlater = true",
+            "bad = (1]\nlater = true",
+            "bad = (1,,2)\nlater = true",
+            "bad = { first = 1 second = 2 }\nlater = true",
+            "bad = { first = 1 ]\nlater = true",
+            "bad = [^0,0,0,1]\nlater = true",
+            "bad = <root(1 2)>\nlater = true",
+            "bad = <root(1]>\nlater = true",
+            "bad = <root(1)\nlater = true",
+            "bad = <>\nlater = true",
+            "bad = <\"\">\nlater = true",
+            "bad = <`root`>\nlater = true",
+            "bad = <root garbage>\nlater = true",
+            "bad = <root@{first=1}@{second=2}>\nlater = true",
+            "bad = <root:pair<string>>\nlater = true",
+            "bad = <root:node[\"profile\"]>\nlater = true",
+            "bad = [@{first=1}@{second=2} = 3]\nlater = true",
+            "bad = [:number 1]\nlater = true",
+            "bad@{first=1}@{second=2} = 3\nlater = true",
+            "bad@{first=1 first=2} = 3\nlater = true",
+            "bad@{first=1, first=2} = 3\nlater = true",
+            "bad@{__proto__=1} = 3\nlater = true",
+            "bad@{first = { nested=1 other=2 }} = 3\nlater = true",
+            "bad@{first = ^0,0,0,1} = 3\nlater = true",
+            "bad:outer<> = 1\nlater = true",
+            "bad:outer<first second> = 1\nlater = true",
+            "bad:custom[] = 1\nlater = true",
+            "bad:custom[\"first\" \"second\"] = 1\nlater = true",
+            "bad:custom[\"first\"][\"second\"] = 1\nlater = true",
+            "bad:radix<10> = 1\nlater = true",
+            "bad:\"string\" = 1\nlater = true",
+            r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+  "text"
+  \child\:string = "typed"
+  <leaf>
+)>"#,
+            "empty:node = <glyph:node>\nexplicit:node = <br()>",
+            "words:node = <on(off, <true>)>",
+            "multiline:node = <span\n@\n{class = \"line-4\"}\n(\"world\")\n>",
+            "tree:node = <root(child, :string = \"typed\")>",
+            "broken:node = <span(\"hello\")\nnext = true",
+            "bad:node = <tag:pair<int32,string>(\"x\")>",
+            "bad:node = <tag@{first=1}@{second=2}>",
+            "broken = [1,,2]\nlater = true",
+            "quoted = \"unterminated",
+        ];
+
+        for input in corpus {
+            assert_parser_parity(input);
+        }
+    }
+
+    #[test]
+    fn parser_selector_preserves_utf8_offsets_scalar_columns_and_crlf() {
+        let source = "\u{feff}\"café😀\" = \"nai\u{308}ve\"\r\n\"次\" = <\"タグ\"(\"🙂\")>";
+        assert_parser_parity(source);
+
+        let bindings = parse_with(source, ParserImplementation::Sofia).expect("Sofia parse");
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].key, "café😀");
+        assert_eq!(bindings[0].span.start.offset, '\u{feff}'.len_utf8());
+        assert_eq!(bindings[0].span.start.line, 1);
+        assert_eq!(bindings[0].span.start.column, 2);
+        assert_eq!(
+            bindings[0].span.end.offset,
+            source.find("\r\n").expect("CRLF")
+        );
+        assert_eq!(bindings[0].span.end.line, 1);
+        assert_eq!(bindings[0].span.end.column, 20);
+
+        let second_offset = source.find("\"次\"").expect("second binding");
+        assert_eq!(bindings[1].key, "次");
+        assert_eq!(bindings[1].span.start.offset, second_offset);
+        assert_eq!(bindings[1].span.start.line, 2);
+        assert_eq!(bindings[1].span.start.column, 1);
+
+        let preamble = concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "//! format:aeon.test.v1\r\n",
+            "\"café😀\" = true",
+        );
+        assert_parser_parity(preamble);
+        let preamble_bindings =
+            parse_with(preamble, ParserImplementation::Sofia).expect("Sofia preamble parse");
+        assert_eq!(preamble_bindings.len(), 1);
+        assert_eq!(
+            preamble_bindings[0].span.start.offset,
+            preamble.find("\"café😀\"").expect("binding after preamble"),
+        );
+        assert_eq!(preamble_bindings[0].span.start.line, 3);
+        assert_eq!(preamble_bindings[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn parser_selector_preserves_unicode_diagnostic_spans_and_recovery_order() {
+        let source = concat!(
+            "\u{feff}\"café\u{301}😀\" = [1 2]\r\n",
+            "\"次\" = true\r\n",
+            "\"broken\" = <\"タグ\"(1 2)>\r\n",
+            "\"終\" = false",
+        );
+        assert_parser_parity(source);
+
+        let strict_error =
+            parse_with(source, ParserImplementation::Sofia).expect_err("strict Sofia failure");
+        assert_eq!(strict_error.message, "Expected list delimiter");
+        let strict_span = strict_error.span.expect("strict diagnostic span");
+        assert_eq!(
+            strict_span.start.offset,
+            source.find("2]").expect("list error")
+        );
+        assert_eq!(strict_span.start.line, 1);
+        assert_eq!(strict_span.start.column, 16);
+        assert_eq!(strict_span.end.offset, strict_span.start.offset + 1);
+        assert_eq!(strict_span.end.line, 1);
+        assert_eq!(strict_span.end.column, 17);
+
+        let recovered = recover_with(source, ParserImplementation::Sofia);
+        assert_eq!(
+            recovered
+                .bindings
+                .iter()
+                .map(|binding| binding.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["次", "終"],
+        );
+        assert_eq!(recovered.errors.len(), 2);
+        assert_eq!(recovered.errors[0], strict_error);
+        assert_eq!(recovered.errors[1].message, "Expected node child delimiter");
+        let node_span = recovered.errors[1]
+            .span
+            .expect("recovered node diagnostic span");
+        assert_eq!(
+            node_span.start.offset,
+            source.rfind("2)>").expect("node child error"),
+        );
+        assert_eq!(node_span.start.line, 3);
+        assert_eq!(node_span.start.column, 20);
+        assert_eq!(node_span.end.offset, node_span.start.offset + 1);
+        assert_eq!(node_span.end.line, 3);
+        assert_eq!(node_span.end.column, 21);
+    }
+
+    #[test]
+    #[ignore = "run with npm run test:sofia:differential"]
+    fn parser_selector_matches_full_baseline_corpus() {
+        use sha2::{Digest, Sha256};
+
+        let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(4)
+            .expect("AEON repository root");
+        let generated_root = std::path::PathBuf::from(
+            std::env::var_os("AEON_SOFIA_GENERATED_CORPUS")
+                .expect("AEON_SOFIA_GENERATED_CORPUS must name generated fixtures"),
+        );
+        let manifest_path = repository_root.join("benchmarks/sofia/corpus.json");
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&manifest_path).expect("read Sofia corpus manifest"),
+        )
+        .expect("parse Sofia corpus manifest");
+        let cases = manifest["cases"].as_array().expect("manifest cases array");
+        let limits = ParserLimits::new(256, 1, 1, 1, 32, 64);
+
+        for case in cases {
+            let id = case["id"].as_str().expect("case id");
+            let expected_valid = match case["expected"].as_str().expect("case expectation") {
+                "valid" => true,
+                "invalid" => false,
+                other => panic!("unsupported expectation for {id}: {other}"),
+            };
+            let source_descriptor = &case["source"];
+            let source_path = match source_descriptor["kind"].as_str().expect("source kind") {
+                "repository" => repository_root.join(
+                    source_descriptor["path"]
+                        .as_str()
+                        .expect("repository source path"),
+                ),
+                "generated" => generated_root.join(
+                    source_descriptor["fixture"]
+                        .as_str()
+                        .expect("generated fixture name"),
+                ),
+                other => panic!("unsupported source kind for {id}: {other}"),
+            };
+            let source =
+                std::fs::read_to_string(&source_path).expect("read Sofia corpus source as UTF-8");
+            let actual_hash = Sha256::digest(source.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(
+                actual_hash,
+                case["sha256"].as_str().expect("case SHA-256"),
+                "frozen corpus bytes drifted for case {id}",
+            );
+
+            let baseline = parse_document_from_tokens_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Baseline,
+            );
+            let sofia = parse_document_from_tokens_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(sofia, baseline, "strict parser drift for corpus case {id}");
+            assert_eq!(
+                baseline.is_ok(),
+                expected_valid,
+                "manifest acceptance drift for corpus case {id}",
+            );
+            drop(sofia);
+            drop(baseline);
+
+            let baseline_recovery = parse_document_from_tokens_recovery_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Baseline,
+            );
+            let sofia_recovery = parse_document_from_tokens_recovery_with_implementation(
+                &source,
+                limits,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(
+                sofia_recovery, baseline_recovery,
+                "recovery parser drift for corpus case {id}",
+            );
+            drop(sofia_recovery);
+            drop(baseline_recovery);
+
+            let options = crate::CompileOptions::default();
+            let baseline_compile = crate::compile_owned_with_implementation(
+                source.clone(),
+                options.clone(),
+                ParserImplementation::Baseline,
+            );
+            let sofia_compile = crate::compile_owned_with_implementation(
+                source.clone(),
+                options,
+                ParserImplementation::Sofia,
+            );
+            assert_eq!(
+                sofia_compile, baseline_compile,
+                "complete compile drift for corpus case {id}",
+            );
+            assert_eq!(
+                baseline_compile.errors.is_empty(),
+                expected_valid,
+                "manifest compile acceptance drift for corpus case {id}",
+            );
+
+            println!("Sofia differential parity: {id} ({} bytes)", source.len());
+        }
+
+        println!(
+            "Sofia full parser and compile differential passed: {} manifest cases",
+            cases.len(),
+        );
     }
 
     #[test]
@@ -2233,6 +3068,187 @@ group:object = {
     }
 
     #[test]
+    fn incremental_datatypes_match_both_parsers_at_every_scalar_split() {
+        let source = r#"payload:custom<
+  tuple<string, number>,
+  3
+>["x", 1_0] = 1
+items:list<string> = ["one", "two"]"#;
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect("one-shot datatype parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "datatype split at byte {split}");
+            }
+            assert_eq!(
+                expected[0].datatype.as_deref(),
+                Some(r#"custom<tuple<string,number>,3>["x",10]"#)
+            );
+            assert_eq!(expected[1].datatype.as_deref(), Some("list<string>"));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_datatypes_match_one_shot_errors() {
+        for source in ["value:custom[] = 1", "value:outer<inner = 1"] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("datatype must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental datatype must remain malformed");
+                    assert_eq!(actual, expected, "datatype split at byte {split}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_references_sansa_and_structural_identities_match_both_parsers() {
+        let source = r#"root\root-id\:object = { "root.key" = [1, 2] }
+clone = ~$.["root.key"][1].member
+pointer = ~>root.@.meta.["x.y"][0]
+literal = ~true.off
+absolute = $.inventory:string[",","."]
+context = ?.name"#;
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected =
+                parse_with(source, implementation).expect("one-shot reference and SANSA parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "reference/SANSA split at byte {split}");
+            }
+
+            assert_eq!(expected[0].structural_id.as_deref(), Some("root-id"));
+            assert!(matches!(expected[1].value, Value::CloneReference { .. }));
+            assert!(matches!(expected[2].value, Value::PointerReference { .. }));
+            assert!(matches!(expected[3].value, Value::CloneReference { .. }));
+            let Value::SansaAddressLiteral { raw, canonical, .. } = &expected[4].value else {
+                panic!("expected absolute SANSA address");
+            };
+            assert_eq!(raw, r#"$.inventory:string[",","."]"#);
+            assert_eq!(canonical, raw);
+            assert!(matches!(
+                expected[5].value,
+                Value::SansaAddressLiteral { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_references_and_sansa_match_one_shot_errors() {
+        for source in [
+            "bad = $.inventory:csv[,]\nlater = true",
+            "bad = ~$[\"source\"]\nlater = true",
+            "bad = ~source.@.[\"\"]\nlater = true",
+        ] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("source must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental source must remain malformed");
+                    assert_eq!(
+                        actual, expected,
+                        "malformed reference/SANSA split at byte {split}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_preambles_and_line_endings_match_both_parsers() {
+        let source = concat!(
+            "\u{feff}#!/usr/bin/env aeon\r\n",
+            "//! format:aeon.test.v1\r\n",
+            "\"café😀\" = true\r\n",
+            "second = [1, 2]\n",
+            "third = ?.name\r",
+            "pointer = ~>$.second[0]",
+        );
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected =
+                parse_with(source, implementation).expect("one-shot preamble and newline parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "preamble split at byte {split}");
+            }
+
+            assert_eq!(expected.len(), 4);
+            assert_eq!(expected[0].key, "café😀");
+            assert_eq!(
+                expected[0].span.start.offset,
+                source.find("\"café😀\"").expect("first binding")
+            );
+            assert_eq!(expected[0].span.start.line, 3);
+            assert_eq!(expected[0].span.start.column, 1);
+            assert!(matches!(expected[3].value, Value::PointerReference { .. }));
+        }
+    }
+
+    #[test]
+    fn malformed_incremental_preambles_match_one_shot_errors() {
+        for source in [
+            concat!(
+                "\u{feff}#!/usr/bin/env aeon\r\n",
+                "//! format:aeon.test.v1\r\n",
+                "bad = [1 2]\r\nlater = true",
+            ),
+            "value:number = 1\r\n#!/usr/bin/env aeon\r\n",
+        ] {
+            let mut splits = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            splits.push(source.len());
+
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let expected =
+                    parse_with(source, implementation).expect_err("source must be malformed");
+                for &split in &splits {
+                    let actual = parse_chunks(source, split, implementation)
+                        .expect_err("incremental source must remain malformed");
+                    assert_eq!(actual, expected, "malformed preamble split at byte {split}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_escaped_backticks_from_tokens() {
         let bindings = parse("value = `\\``\nquoted = \"a\\\"b\"\n").expect("token parse");
         assert_eq!(
@@ -2323,6 +3339,58 @@ group:object = {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn incremental_trimticks_preserve_metadata_at_every_scalar_split() {
+        let source = "note1:trimtick = >`\n  one\n  two\n`\nnote4:trimtick = >>>>`\n\talpha\n    beta 🌊\n`\n";
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect("one-shot trimticks parse");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .unwrap_or_else(|error| panic!("split {split} failed: {error:#?}"));
+                assert_eq!(actual, expected, "trimtick split at byte {split}");
+            }
+
+            let Value::StringLiteral {
+                raw,
+                delimiter,
+                trimticks: Some(metadata),
+                ..
+            } = &expected[1].value
+            else {
+                panic!("expected width-four trimtick metadata");
+            };
+            assert_eq!(*delimiter, '`');
+            assert_eq!(metadata.marker_width, 4);
+            assert_eq!(metadata.raw_value, *raw);
+            assert!(raw.contains("beta 🌊"));
+        }
+    }
+
+    #[test]
+    fn oversized_incremental_trimtick_marker_matches_one_shot_error() {
+        let source = "bad:trimtick = >>>>>`value`\n";
+        let mut splits = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        splits.push(source.len());
+
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect_err("marker is too wide");
+            for &split in &splits {
+                let actual = parse_chunks(source, split, implementation)
+                    .expect_err("incremental marker must remain too wide");
+                assert_eq!(actual, expected, "trimtick split at byte {split}");
+            }
+        }
     }
 
     #[test]

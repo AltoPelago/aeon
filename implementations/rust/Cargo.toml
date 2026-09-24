@@ -7,6 +7,7 @@ members = [
     "crates/aeon-cli",
     "crates/aeon-core",
     "crates/aeon-finalize",
+    "crates/aeon-python",
     "crates/aeon-wasm",
 ]
 resolver = "2"
@@ -14,19 +15,19 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/altopelago/Aeon"
+repository = "https://github.com/AltoPelago/aeon"
 rust-version = "1.93.1"
 version = "0.13.0"
 
 [workspace.dependencies]
-aes-telex = { git = "https://github.com/AltoPelago/aes.git", rev = "8816c403e698f2a6fd1dd47b08cfc44b099f4740", version = "0.0.0" }
-aeon-sdk = { path = "crates/aeon-sdk", version = "0.13.0" }
-aeon-aeos = { path = "crates/aeon-aeos", version = "0.13.0" }
+aes-telex = { package = "altopelago-aes-telex", version = "0.1.0" }
+aeon-sdk = { package = "altopelago-aeon", path = "crates/aeon-sdk", version = "0.13.0" }
+aeon-aeos = { package = "altopelago-aeon-aeos", path = "crates/aeon-aeos", version = "0.13.0" }
 aeon-annotations = { path = "crates/aeon-annotations", version = "0.13.0" }
 aeon-canonical = { path = "crates/aeon-canonical", version = "0.13.0" }
 aeon-cli = { path = "crates/aeon-cli", version = "0.13.0" }
-aeon-core = { path = "crates/aeon-core", version = "0.13.0" }
-aeon-finalize = { path = "crates/aeon-finalize", version = "0.13.0" }
+aeon-core = { package = "altopelago-aeon-core", path = "crates/aeon-core", version = "0.13.0" }
+aeon-finalize = { package = "altopelago-aeon-finalize", path = "crates/aeon-finalize", version = "0.13.0" }
 aeon-wasm = { path = "crates/aeon-wasm", version = "0.13.0" }
 sha2 = "0.11.0"
 

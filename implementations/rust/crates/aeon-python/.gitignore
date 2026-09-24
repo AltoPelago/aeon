@@ -1,0 +1,4 @@
+python/altopelago/aeon/_native*.dll
+python/altopelago/aeon/_native*.dylib
+python/altopelago/aeon/_native*.pyd
+python/altopelago/aeon/_native*.so

@@ -1,21 +1,28 @@
 #![allow(clippy::result_large_err)]
 
+mod engine;
 mod flatten;
 mod header;
 mod lexer;
 mod limits;
 mod pathing;
 mod portable;
+mod progressive;
 mod resource_limits;
 mod sansa;
 mod temporal;
 mod token_parser;
+mod utf8_decoder;
 mod validation;
 
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 
+pub use engine::{
+    Compiler, CompilerConfig, CompilerError, CompilerOperation, CompilerProgress, CompilerState,
+    EventBatch, EventBatches, SourceRetention,
+};
 use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
@@ -26,7 +33,8 @@ pub use portable::{
     PortableAesConversionReportV1, PortableAesEvent, PortableAesSourceError,
     RUST_ASSIGNMENT_EVENTS_CONTRACT_V0, RUST_PORTABLE_AES_ADAPTER_V0,
     RUST_PORTABLE_AES_ADAPTER_VERSION_V1, adapt_rust_assignment_events_to_portable_aes,
-    compile_to_telex, export_telex, project_portable_events, project_telex_records,
+    compile_to_telex, export_telex, export_telex_owned, project_aes_event_records,
+    project_aes_event_records_taken, project_portable_events, project_telex_records,
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
@@ -36,9 +44,9 @@ pub use sansa::{
     resolve_parsed_address as resolve_parsed_sansa_address,
 };
 use validation::{
-    build_validation_event_lookup, build_validation_indexes, validate_datatypes,
-    validate_datatypes_light, validate_duplicate_canonical_paths,
-    validate_duplicate_object_member_keys, validate_reference_steps, validate_typed_mode_rules,
+    build_validation_event_lookup, build_validation_indexes, validate_compact_reference_steps,
+    validate_datatypes, validate_datatypes_light, validate_duplicate_canonical_paths,
+    validate_duplicate_object_member_keys, validate_typed_mode_rules,
 };
 
 pub use lexer::{
@@ -52,8 +60,23 @@ pub use limits::{
     TransportLimits, aeon_compile_limits, effective_telex_configuration, finalization_limits,
     load_aeonic_limits, telex_limits,
 };
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+pub use progressive::{
+    ProgressiveBenchmarkReport, ProgressiveRetentionBounds, benchmark_compact_progressive_sofia,
+};
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+pub use progressive::{
+    ProgressiveRetentionSnapshot, SofiaStreamBatch, SofiaStreamCompiler, SofiaStreamError,
+    SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal,
+};
 use resource_limits::{validate_event_path_limits, validate_source_resource_limits};
-use token_parser::parse_document_from_tokens_recovery;
+use token_parser::{
+    IncrementalSofiaFrontend, ParserImplementation, ParserLimits,
+    parse_document_from_tokens_recovery_with_implementation,
+    parse_document_from_tokens_with_implementation,
+};
 #[cfg(test)]
 use validation::datatype_has_generic_args;
 
@@ -106,7 +129,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PathSegment {
     Root,
     Member(String),
@@ -128,15 +151,18 @@ impl CanonicalPath {
 
     #[must_use]
     pub fn member(&self, key: impl Into<String>) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push(PathSegment::Member(key.into()));
-        Self { segments }
+        self.with_segment(PathSegment::Member(key.into()))
     }
 
     #[must_use]
     pub fn index(&self, index: usize) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push(PathSegment::Index(index));
+        self.with_segment(PathSegment::Index(index))
+    }
+
+    fn with_segment(&self, segment: PathSegment) -> Self {
+        let mut segments = Vec::with_capacity(self.segments.len() + 1);
+        segments.extend(self.segments.iter().cloned());
+        segments.push(segment);
         Self { segments }
     }
 }
@@ -390,6 +416,13 @@ pub struct TrimtickMetadata {
 
 #[must_use]
 pub fn normalize_number_literal(raw: &str) -> String {
+    if !raw
+        .bytes()
+        .any(|byte| matches!(byte, b'_' | b'E' | b'e' | b'.' | b'+'))
+    {
+        return raw.to_owned();
+    }
+
     let mut value = raw.replace('_', "").replace('E', "e");
     if value.starts_with('.') {
         value = format!("0{value}");
@@ -591,6 +624,12 @@ pub struct BindingProjection {
     pub kind: &'static str,
 }
 
+impl AsRef<str> for BindingProjection {
+    fn as_ref(&self) -> &str {
+        &self.path
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
@@ -620,61 +659,173 @@ pub struct PhaseTiming {
 
 #[must_use]
 pub fn compile(input: &str, options: CompileOptions) -> CompileResult {
+    let mut compiler = Compiler::new(options);
+    compiler
+        .push_str(input)
+        .expect("a new compiler must accept its initial UTF-8 input");
+    compiler
+        .finish()
+        .expect("a compiler containing only validated UTF-8 must finish")
+}
+
+/// Compiles through the iterative Sofia parser for repository benchmarks.
+///
+/// This is not a stable parser-selection API. It is available only through the
+/// `sofia-bench` feature used by the repository's migration benchmark.
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+#[must_use]
+pub fn benchmark_compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
+    compile_sofia(input, options)
+}
+
+/// Compiles through the Sofia engine for feature-gated runtime adapters.
+///
+/// This is an internal integration boundary rather than a stable public
+/// parser-selection API. Runtime packages opt in at build time so applications
+/// cannot switch semantic engines per call.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[must_use]
+pub fn compile_sofia(input: &str, options: CompileOptions) -> CompileResult {
+    compile_sofia_owned(input.to_owned(), options)
+}
+
+/// Compiles an owned source string through Sofia without copying it first.
+///
+/// This is an internal runtime-adapter boundary, not a stable public parser
+/// selection API.
+#[cfg(feature = "sofia")]
+#[doc(hidden)]
+#[must_use]
+pub fn compile_sofia_owned(input: String, options: CompileOptions) -> CompileResult {
+    compile_owned_with_implementation(input, options, ParserImplementation::Sofia)
+}
+
+fn compile_owned(source: String, options: CompileOptions) -> CompileResult {
+    compile_owned_with_implementation(source, options, ParserImplementation::Baseline)
+}
+
+fn compile_owned_with_implementation(
+    source: String,
+    options: CompileOptions,
+    implementation: ParserImplementation,
+) -> CompileResult {
     trace_compile("compile:start");
     let warnings = compile_portability_warnings(&options);
-    if let Some(max_bytes) = options.max_input_bytes {
-        let actual_bytes = input.len();
-        if actual_bytes > max_bytes {
-            return CompileResult {
-                source: input.to_owned(),
-                events: Vec::new(),
-                errors: vec![Diagnostic {
-                    code: String::from("INPUT_SIZE_EXCEEDED"),
-                    path: Some(String::from("$")),
-                    span: Some(Span::zero()),
-                    phase: Some(0),
-                    message: format!(
-                        "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
-                    ),
-                }],
-                warnings,
-                bindings: Vec::new(),
-                header: None,
-            };
-        }
+    if let Some(error) = input_size_diagnostic(&source, &options) {
+        return failed_compile_result(source, warnings, vec![error]);
     }
 
-    let source = input.to_owned();
     trace_compile(format!("compile:normalized bytes={}", source.len()));
-
-    let parsed = parse_document_from_tokens_recovery(
-        &source,
-        options.effective_max_value_nesting_depth(),
-        options.max_attribute_depth,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        options.max_generic_arguments,
-        options.max_datatype_components,
-    );
-    if !parsed.errors.is_empty() {
-        return CompileResult {
-            source,
-            events: Vec::new(),
-            errors: parsed.errors,
-            warnings,
-            bindings: Vec::new(),
-            header: None,
-        };
+    if implementation == ParserImplementation::Sofia {
+        return progressive::compile_owned_sofia_streaming(source, options);
     }
-    if let Some(error) = validate_source_resource_limits(input, &parsed.bindings, &options) {
-        return CompileResult {
-            source,
-            events: Vec::new(),
-            errors: vec![error],
-            warnings,
-            bindings: Vec::new(),
-            header: None,
-        };
+    let parsed = parse_document_from_tokens_recovery_with_implementation(
+        &source,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        implementation,
+    );
+    compile_parsed(source, options, warnings, parsed)
+}
+
+pub(crate) fn compile_owned_sofia_whole(source: String, options: CompileOptions) -> CompileResult {
+    let warnings = compile_portability_warnings(&options);
+    let parsed = parse_document_from_tokens_recovery_with_implementation(
+        &source,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        ParserImplementation::Sofia,
+    );
+    compile_parsed(source, options, warnings, parsed)
+}
+
+#[allow(dead_code)]
+fn compile_owned_incremental_sofia(
+    source: String,
+    options: CompileOptions,
+) -> (CompileResult, bool, usize) {
+    trace_compile("compile:incremental_sofia:start");
+    let warnings = compile_portability_warnings(&options);
+    if let Some(error) = input_size_diagnostic(&source, &options) {
+        return (
+            failed_compile_result(source, warnings, vec![error]),
+            false,
+            0,
+        );
+    }
+
+    let mut frontend = IncrementalSofiaFrontend::new(&options);
+    for scalar in source.chars() {
+        frontend.push_str(scalar.encode_utf8(&mut [0; 4]));
+    }
+    let incremental = frontend.finish(&source);
+    (
+        compile_parsed(source, options, warnings, incremental.parsed),
+        incremental.retention_fallback,
+        incremental.peak_retained_token_bytes,
+    )
+}
+
+fn input_size_diagnostic(source: &str, options: &CompileOptions) -> Option<Diagnostic> {
+    input_size_diagnostic_for_len(source.len(), options)
+}
+
+pub(crate) fn input_size_diagnostic_for_len(
+    actual_bytes: usize,
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
+    let max_bytes = options.max_input_bytes?;
+    (actual_bytes > max_bytes).then(|| Diagnostic {
+        code: String::from("INPUT_SIZE_EXCEEDED"),
+        path: Some(String::from("$")),
+        span: Some(Span::zero()),
+        phase: Some(0),
+        message: format!(
+            "Input size {actual_bytes} bytes exceeds configured limit of {max_bytes} bytes"
+        ),
+    })
+}
+
+fn failed_compile_result(
+    source: String,
+    warnings: Vec<Diagnostic>,
+    errors: Vec<Diagnostic>,
+) -> CompileResult {
+    CompileResult {
+        source,
+        events: Vec::new(),
+        errors,
+        warnings,
+        bindings: Vec::new(),
+        header: None,
+    }
+}
+
+fn compile_parsed(
+    source: String,
+    options: CompileOptions,
+    warnings: Vec<Diagnostic>,
+    parsed: token_parser::ParseRecoveryResult,
+) -> CompileResult {
+    if !parsed.errors.is_empty() {
+        return failed_compile_result(source, warnings, parsed.errors);
+    }
+    if let Some(error) = validate_source_resource_limits(&source, &parsed.bindings, &options) {
+        return failed_compile_result(source, warnings, vec![error]);
     }
     trace_compile(format!("compile:parsed bindings={}", parsed.bindings.len()));
     finalize_compile(source, parsed.bindings, options)
@@ -684,16 +835,40 @@ pub fn benchmark_validation_phases(
     input: &str,
     options: CompileOptions,
 ) -> Result<PhaseTiming, Diagnostic> {
+    benchmark_validation_phases_with_implementation(input, options, ParserImplementation::Baseline)
+}
+
+/// Measures the iterative Sofia parser and shared validation phases.
+///
+/// This is diagnostic instrumentation rather than a stable parser-selection
+/// API. It is available only to the repository performance harness.
+#[cfg(feature = "sofia-bench")]
+#[doc(hidden)]
+pub fn benchmark_sofia_validation_phases(
+    input: &str,
+    options: CompileOptions,
+) -> Result<PhaseTiming, Diagnostic> {
+    benchmark_validation_phases_with_implementation(input, options, ParserImplementation::Sofia)
+}
+
+fn benchmark_validation_phases_with_implementation(
+    input: &str,
+    options: CompileOptions,
+    implementation: ParserImplementation,
+) -> Result<PhaseTiming, Diagnostic> {
     let source = strip_preamble(&strip_leading_bom(input));
     let parse_start = std::time::Instant::now();
-    let parsed = parse_document_tokens(
+    let parsed = parse_document_from_tokens_with_implementation(
         &source,
-        options.effective_max_value_nesting_depth(),
-        options.max_attribute_depth,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        options.max_generic_arguments,
-        options.max_datatype_components,
+        ParserLimits::new(
+            options.effective_max_value_nesting_depth(),
+            options.max_attribute_depth,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            options.max_generic_arguments,
+            options.max_datatype_components,
+        ),
+        implementation,
     )?;
     let parse_ns = parse_start.elapsed().as_nanos();
 
@@ -726,7 +901,7 @@ pub fn benchmark_validation_phases(
 
     let reference_start = std::time::Instant::now();
     let mut reference_errors = Vec::new();
-    validate_reference_steps(
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,
@@ -764,24 +939,122 @@ pub fn benchmark_token_parse(input: &str) -> Result<(), Diagnostic> {
     .map(|_| ())
 }
 
-fn parse_document_tokens(
-    source: &str,
-    max_nesting_depth: usize,
-    max_attribute_depth: usize,
-    max_separator_depth: usize,
-    max_generic_depth: usize,
-    max_generic_arguments: usize,
-    max_datatype_components: usize,
-) -> Result<Vec<Binding>, Diagnostic> {
-    token_parser::parse_document_from_tokens(
-        source,
-        max_nesting_depth,
-        max_attribute_depth,
-        max_separator_depth,
-        max_generic_depth,
-        max_generic_arguments,
-        max_datatype_components,
-    )
+#[cfg(any(test, feature = "sofia-fuzz"))]
+fn drop_parser_bindings_iteratively(bindings: Vec<Binding>) {
+    enum WorkItem {
+        Binding(Binding),
+        Value(Value),
+        Attribute(AttributeValue),
+    }
+
+    let mut work = bindings
+        .into_iter()
+        .map(WorkItem::Binding)
+        .collect::<Vec<_>>();
+    while let Some(item) = work.pop() {
+        match item {
+            WorkItem::Binding(Binding {
+                attributes, value, ..
+            }) => {
+                work.extend(attributes.into_values().map(WorkItem::Attribute));
+                work.push(WorkItem::Value(value));
+            }
+            WorkItem::Attribute(AttributeValue {
+                value,
+                nested_attrs,
+                object_members,
+                ..
+            }) => {
+                work.extend(nested_attrs.into_values().map(WorkItem::Attribute));
+                work.extend(object_members.into_values().map(WorkItem::Attribute));
+                if let Some(value) = value {
+                    work.push(WorkItem::Value(value));
+                }
+            }
+            WorkItem::Value(Value::TypedValue {
+                attributes, value, ..
+            }) => {
+                work.extend(attributes.into_values().map(WorkItem::Attribute));
+                work.push(WorkItem::Value(*value));
+            }
+            WorkItem::Value(Value::NodeLiteral {
+                attributes,
+                children,
+                ..
+            }) => {
+                for attributes in attributes {
+                    work.extend(attributes.into_values().map(WorkItem::Attribute));
+                }
+                work.extend(children.into_iter().map(WorkItem::Value));
+            }
+            WorkItem::Value(Value::ListNode { items })
+            | WorkItem::Value(Value::TupleLiteral { items }) => {
+                work.extend(items.into_iter().map(WorkItem::Value));
+            }
+            WorkItem::Value(Value::ObjectNode { bindings }) => {
+                work.extend(bindings.into_iter().map(WorkItem::Binding));
+            }
+            WorkItem::Value(_) => {}
+        }
+    }
+}
+
+/// Exercises the Sofia parser's strict and recovery paths for fuzzing.
+///
+/// This is not a stable parser-selection API. It is available only through the
+/// `sofia-fuzz` feature used by the repository's dedicated fuzz crate.
+#[cfg(feature = "sofia-fuzz")]
+#[doc(hidden)]
+pub fn fuzz_sofia_token_parse(input: &str) {
+    let source = strip_preamble(&strip_leading_bom(input));
+    let defaults = CompileOptions::default();
+    let limits = ParserLimits::new(
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
+    );
+
+    if let Ok(bindings) = token_parser::parse_document_from_tokens_with_implementation(
+        &source,
+        limits,
+        ParserImplementation::Sofia,
+    ) {
+        drop_parser_bindings_iteratively(bindings);
+    }
+
+    let recovery = parse_document_from_tokens_recovery_with_implementation(
+        &source,
+        limits,
+        ParserImplementation::Sofia,
+    );
+    drop_parser_bindings_iteratively(recovery.bindings);
+}
+
+/// Exercises incremental UTF-8, lexer, parser, and lifecycle schedules for fuzzing.
+///
+/// This is not a stable incremental API. It is available only through the
+/// `sofia-fuzz` feature used by the repository's dedicated fuzz crate.
+#[cfg(feature = "sofia-fuzz")]
+#[doc(hidden)]
+pub fn fuzz_sofia_incremental(data: &[u8]) {
+    const MAX_INPUT_BYTES: usize = 1 << 20;
+    if data.len() > MAX_INPUT_BYTES {
+        return;
+    }
+
+    let defaults = CompileOptions::default();
+    let limits = ParserLimits::new(
+        defaults.effective_max_value_nesting_depth(),
+        defaults.max_attribute_depth,
+        defaults.effective_max_clarifier_values(),
+        defaults.max_generic_depth,
+        defaults.max_generic_arguments,
+        defaults.max_datatype_components,
+    );
+    token_parser::fuzz_sofia_incremental_session(data, limits);
 }
 
 fn finalize_compile(
@@ -807,7 +1080,9 @@ fn finalize_compile(
     };
     let mut errors = Vec::new();
     let root = CanonicalPath::root();
-    validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let has_top_level_duplicate_paths =
+        validation::top_level_canonical_paths_have_duplicates(&bindings);
     let validation_only = options.shallow_event_values
         && !options.emit_binding_projections
         && !options.include_header
@@ -825,7 +1100,15 @@ fn finalize_compile(
         options.emit_binding_projections,
         options.include_event_annotations,
     );
-    if let Some(error) = validate_event_path_limits(&flattened.events, &options) {
+    if options.emit_binding_projections {
+        materialize_binding_projection_paths(&mut flattened);
+    }
+    let event_path_error = if options.emit_binding_projections {
+        validate_event_path_limits(&flattened.events, &flattened.bindings, &options)
+    } else {
+        validate_event_path_limits(&flattened.events, &flattened.rendered_event_paths, &options)
+    };
+    if let Some(error) = event_path_error {
         errors.push(error);
     }
     if let Some(max_events) = options.max_events
@@ -845,31 +1128,58 @@ fn finalize_compile(
                 .then(|| extract_header_fields(&bindings)),
         };
     }
-    validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
-    let indexes = build_validation_indexes(&flattened);
+    // Unique binding keys and generated sequence indexes imply unique
+    // canonical event paths. Preserve the full scan only when the earlier AST
+    // checks found a scope that recovery or diagnostics must reconcile.
+    if has_nested_duplicate_keys || has_top_level_duplicate_paths {
+        validate_duplicate_canonical_paths(&mut flattened, options.recovery, &mut errors);
+    }
+    let indexes = if flattened.reference_steps.is_empty() {
+        validation::ValidationIndexes::default()
+    } else {
+        build_validation_indexes(&flattened)
+    };
     let header = options
         .include_header
         .then(|| extract_header_fields(&bindings));
 
-    validate_datatypes(
-        &flattened.events,
-        &flattened.rendered_event_paths,
-        &indexes.event_lookup,
-        &bindings,
-        options.mode,
-        options.datatype_policy,
-        options.effective_max_clarifier_values(),
-        options.max_generic_depth,
-        &mut errors,
-    );
-    if uses_gp_profile(options.profile.as_deref(), &bindings) {
-        validate_gp_datatype_clarifiers(
+    if options.emit_binding_projections {
+        validate_datatypes(
+            &flattened.events,
+            &flattened.bindings,
+            &indexes.event_lookup,
+            &bindings,
+            options.mode,
+            options.datatype_policy,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
+            &mut errors,
+        );
+    } else {
+        validate_datatypes(
             &flattened.events,
             &flattened.rendered_event_paths,
+            &indexes.event_lookup,
+            &bindings,
+            options.mode,
+            options.datatype_policy,
+            options.effective_max_clarifier_values(),
+            options.max_generic_depth,
             &mut errors,
         );
     }
-    validate_reference_steps(
+    if uses_gp_profile(options.profile.as_deref(), &bindings) {
+        if options.emit_binding_projections {
+            validate_gp_datatype_clarifiers(&flattened.events, &flattened.bindings, &mut errors);
+        } else {
+            validate_gp_datatype_clarifiers(
+                &flattened.events,
+                &flattened.rendered_event_paths,
+                &mut errors,
+            );
+        }
+    }
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,
@@ -903,6 +1213,20 @@ fn finalize_compile(
     }
 }
 
+fn materialize_binding_projection_paths(flattened: &mut flatten::FlattenedDocument) {
+    if flattened.bindings.is_empty() {
+        return;
+    }
+    debug_assert_eq!(
+        flattened.bindings.len(),
+        flattened.rendered_event_paths.len()
+    );
+    let rendered_event_paths = std::mem::take(&mut flattened.rendered_event_paths);
+    for (binding, path) in flattened.bindings.iter_mut().zip(rendered_event_paths) {
+        binding.path = path;
+    }
+}
+
 fn validate_only_compile(
     source: String,
     bindings: Vec<Binding>,
@@ -912,7 +1236,7 @@ fn validate_only_compile(
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
     let mut errors = Vec::new();
-    validate_duplicate_object_member_keys(&bindings, &mut errors);
+    let _ = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
     if let Some(max_events) = options.max_events
         && flattened.events.len() > max_events
@@ -952,7 +1276,7 @@ fn validate_only_compile(
         validate_gp_validation_datatype_clarifiers(&flattened.events, &mut errors);
     }
     trace_compile("compile:validation_only:references");
-    validate_reference_steps(
+    validate_compact_reference_steps(
         &flattened.reference_steps,
         &flattened.reference_targets,
         options.max_attribute_depth,
@@ -975,7 +1299,7 @@ fn validate_only_compile(
     }
 }
 
-const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
+pub(crate) const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GpDatatypeClarifierRule {
@@ -1013,9 +1337,9 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
     })
 }
 
-fn validate_gp_datatype_clarifiers(
+pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
     events: &[AssignmentEvent],
-    rendered_paths: &[String],
+    rendered_paths: &[P],
     errors: &mut Vec<Diagnostic>,
 ) {
     for (index, event) in events.iter().enumerate() {
@@ -1027,7 +1351,7 @@ fn validate_gp_datatype_clarifiers(
         };
         let rendered_path = rendered_paths
             .get(index)
-            .cloned()
+            .map(|path| path.as_ref().to_owned())
             .unwrap_or_else(|| format_path(&event.path));
         validate_gp_datatype_surface(
             &surface,
@@ -1386,7 +1710,7 @@ fn skip_gp_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
-fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
+pub(crate) fn compile_portability_warnings(options: &CompileOptions) -> Vec<Diagnostic> {
     let defaults = CompileOptions::default();
     let mut warnings = Vec::new();
     warn_if_above(
@@ -1467,6 +1791,692 @@ fn event_count_exceeded_error(actual_events: usize, max_events: usize) -> Diagno
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sofia")]
+    #[test]
+    fn owned_sofia_entrypoint_matches_borrowed_source() {
+        let source = "first:int32 = 1\nitems = [2, 3]\ncopy = ~first\n";
+        assert_eq!(
+            compile_sofia(source, CompileOptions::default()),
+            compile_sofia_owned(source.to_owned(), CompileOptions::default()),
+        );
+    }
+
+    #[cfg(feature = "sofia-bench")]
+    #[test]
+    fn phase_benchmark_supports_sofia_parser_selection() {
+        let source = "first:int32 = 1\nsecond = [2, 3, 4]\ncopy = ~first\n";
+        let options = CompileOptions::default();
+        let timing = benchmark_sofia_validation_phases(source, options.clone())
+            .expect("valid input should produce Sofia phase timings");
+        assert_ne!(timing, PhaseTiming::default());
+
+        let malformed = "first = [1 2]";
+        let baseline_error = benchmark_validation_phases(malformed, options.clone())
+            .expect_err("malformed input should fail baseline phase timing");
+        let sofia_error = benchmark_sofia_validation_phases(malformed, options)
+            .expect_err("malformed input should fail Sofia phase timing");
+        assert_eq!(sofia_error, baseline_error);
+    }
+
+    #[derive(Clone, Copy)]
+    struct DiagnosticExpectation<'a> {
+        code: &'a str,
+        path: Option<&'a str>,
+        phase: Option<u8>,
+        has_span: bool,
+    }
+
+    fn assert_compile_diagnostic_parity(
+        name: &str,
+        source: &str,
+        options: CompileOptions,
+        expected: &[DiagnosticExpectation<'_>],
+    ) -> CompileResult {
+        let baseline = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia = compile_owned_with_implementation(
+            source.to_owned(),
+            options,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(sofia, baseline, "complete diagnostic drift for {name}");
+        assert_eq!(
+            baseline.errors.len(),
+            expected.len(),
+            "unexpected diagnostic count for {name}: {:?}",
+            baseline.errors,
+        );
+        for (diagnostic, expectation) in baseline.errors.iter().zip(expected) {
+            assert_eq!(diagnostic.code, expectation.code, "code drift for {name}");
+            assert_eq!(
+                diagnostic.path.as_deref(),
+                expectation.path,
+                "path drift for {name}",
+            );
+            assert_eq!(
+                diagnostic.phase, expectation.phase,
+                "phase drift for {name}",
+            );
+            assert_eq!(
+                diagnostic.span.is_some(),
+                expectation.has_span,
+                "span-presence drift for {name}",
+            );
+            assert!(
+                !diagnostic.message.is_empty(),
+                "diagnostic message must not be empty for {name}",
+            );
+        }
+        baseline
+    }
+
+    fn configured_options(configure: impl FnOnce(&mut CompileOptions)) -> CompileOptions {
+        let mut options = CompileOptions::default();
+        configure(&mut options);
+        options
+    }
+
+    fn assert_compile_resource_boundary(
+        name: &str,
+        source: &str,
+        at_boundary: CompileOptions,
+        beyond_boundary: CompileOptions,
+        expected_code: &str,
+        expected_phase: Option<u8>,
+    ) {
+        let baseline_at = compile_owned_with_implementation(
+            source.to_owned(),
+            at_boundary.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia_at = compile_owned_with_implementation(
+            source.to_owned(),
+            at_boundary,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(
+            sofia_at, baseline_at,
+            "at-boundary compile drift for {name}",
+        );
+        assert!(
+            baseline_at.errors.is_empty(),
+            "{name} must accept its boundary: {:?}",
+            baseline_at.errors,
+        );
+
+        let baseline_beyond = compile_owned_with_implementation(
+            source.to_owned(),
+            beyond_boundary.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia_beyond = compile_owned_with_implementation(
+            source.to_owned(),
+            beyond_boundary,
+            ParserImplementation::Sofia,
+        );
+        assert_eq!(
+            sofia_beyond, baseline_beyond,
+            "beyond-boundary compile drift for {name}",
+        );
+        let diagnostic = baseline_beyond
+            .errors
+            .first()
+            .unwrap_or_else(|| panic!("{name} must reject one unit beyond its boundary"));
+        assert_eq!(diagnostic.code, expected_code, "code drift for {name}");
+        assert_eq!(
+            diagnostic.path.as_deref(),
+            Some("$"),
+            "path drift for {name}"
+        );
+        assert_eq!(diagnostic.phase, expected_phase, "phase drift for {name}");
+        assert!(diagnostic.span.is_some(), "missing span for {name}");
+    }
+
+    #[test]
+    fn parser_selector_preserves_every_compile_resource_boundary() {
+        let input_source = "a = \"😀\"";
+        let cases = [
+            (
+                "max_input_bytes",
+                input_source,
+                configured_options(|options| {
+                    options.max_input_bytes = Some(input_source.len());
+                }),
+                configured_options(|options| {
+                    options.max_input_bytes = Some(input_source.len() - 1);
+                }),
+                "INPUT_SIZE_EXCEEDED",
+                Some(0),
+            ),
+            (
+                "max_events",
+                "a = [1]",
+                configured_options(|options| options.max_events = Some(2)),
+                configured_options(|options| options.max_events = Some(1)),
+                "EVENT_COUNT_EXCEEDED",
+                Some(4),
+            ),
+            (
+                "max_attribute_depth",
+                "a@{b@{c = 3} = 2} = 1",
+                configured_options(|options| options.max_attribute_depth = 2),
+                configured_options(|options| options.max_attribute_depth = 1),
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_clarifier_values canonical precedence",
+                "value:custom[\"first\", \"second\"] = 1",
+                configured_options(|options| {
+                    options.max_clarifier_values = Some(2);
+                    options.max_separator_depth = 1;
+                }),
+                configured_options(|options| {
+                    options.max_clarifier_values = Some(1);
+                    options.max_separator_depth = 2;
+                }),
+                "CLARIFIER_VALUES_EXCEEDED",
+                None,
+            ),
+            (
+                "max_separator_depth compatibility alias",
+                "value:custom[\"first\", \"second\"] = 1",
+                configured_options(|options| options.max_separator_depth = 2),
+                configured_options(|options| options.max_separator_depth = 1),
+                "CLARIFIER_VALUES_EXCEEDED",
+                None,
+            ),
+            (
+                "max_generic_depth",
+                "value:list<list<int32>> = [[1]]",
+                configured_options(|options| options.max_generic_depth = 1),
+                configured_options(|options| options.max_generic_depth = 0),
+                "GENERIC_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_generic_arguments",
+                "value:tuple<int32,string> = (1, \"x\")",
+                configured_options(|options| options.max_generic_arguments = 2),
+                configured_options(|options| options.max_generic_arguments = 1),
+                "GENERIC_ARGUMENTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_datatype_components",
+                "value:tuple<int32,string> = (1, \"x\")",
+                configured_options(|options| options.max_datatype_components = 3),
+                configured_options(|options| options.max_datatype_components = 2),
+                "DATATYPE_COMPONENTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_value_nesting_depth canonical precedence",
+                "a = [[1]]",
+                configured_options(|options| {
+                    options.max_value_nesting_depth = Some(2);
+                    options.max_nesting_depth = 1;
+                }),
+                configured_options(|options| {
+                    options.max_value_nesting_depth = Some(1);
+                    options.max_nesting_depth = 2;
+                }),
+                "NESTING_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_nesting_depth compatibility alias",
+                "a = [[1]]",
+                configured_options(|options| options.max_nesting_depth = 2),
+                configured_options(|options| options.max_nesting_depth = 1),
+                "NESTING_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_depth reference",
+                "source = 1\ncopy = ~$.source",
+                configured_options(|options| options.max_path_depth = 1),
+                configured_options(|options| options.max_path_depth = 0),
+                "MAX_PATH_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_depth event",
+                "a = { b = 1 }",
+                configured_options(|options| options.max_path_depth = 2),
+                configured_options(|options| options.max_path_depth = 1),
+                "MAX_PATH_DEPTH_EXCEEDED",
+                None,
+            ),
+            (
+                "max_string_codepoints",
+                "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_key_segment_codepoints",
+                "ab = 1",
+                configured_options(|options| options.max_key_segment_codepoints = 2),
+                configured_options(|options| options.max_key_segment_codepoints = 1),
+                "MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_list_items",
+                "a = [1, 2]",
+                configured_options(|options| options.max_list_items = 2),
+                configured_options(|options| options.max_list_items = 1),
+                "MAX_LIST_ITEMS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_tuple_items",
+                "a = (1, 2)",
+                configured_options(|options| options.max_tuple_items = 2),
+                configured_options(|options| options.max_tuple_items = 1),
+                "MAX_TUPLE_ITEMS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_characters reference",
+                "a = 1\nb = ~$.a",
+                configured_options(|options| options.max_path_characters = 3),
+                configured_options(|options| options.max_path_characters = 2),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_path_characters event",
+                "ab = 1",
+                configured_options(|options| options.max_path_characters = 4),
+                configured_options(|options| options.max_path_characters = 3),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_numeric_literal_characters",
+                "a = 1234",
+                configured_options(|options| options.max_numeric_literal_characters = 4),
+                configured_options(|options| options.max_numeric_literal_characters = 3),
+                "MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_structured_comment_characters",
+                "//@abc\na = 1",
+                configured_options(|options| options.max_structured_comment_characters = 3),
+                configured_options(|options| options.max_structured_comment_characters = 2),
+                "MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED",
+                None,
+            ),
+        ];
+
+        for (name, source, at_boundary, beyond_boundary, expected_code, expected_phase) in cases {
+            assert_compile_resource_boundary(
+                name,
+                source,
+                at_boundary,
+                beyond_boundary,
+                expected_code,
+                expected_phase,
+            );
+        }
+    }
+
+    #[test]
+    fn incremental_sofia_preserves_retained_token_limits_and_diagnostic_precedence() {
+        let numeric_source = "a = 1234";
+        let numeric_boundary = configured_options(|options| {
+            options.max_numeric_literal_characters = 4;
+        });
+        let expected = compile_owned_with_implementation(
+            numeric_source.to_owned(),
+            numeric_boundary.clone(),
+            ParserImplementation::Sofia,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(numeric_source.to_owned(), numeric_boundary);
+        assert_eq!(actual, expected);
+        assert!(!fallback, "numeric boundary should remain incremental");
+        assert_eq!(peak_retained, 4);
+
+        let numeric_beyond = configured_options(|options| {
+            options.max_numeric_literal_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            numeric_source.to_owned(),
+            numeric_beyond.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(numeric_source.to_owned(), numeric_beyond);
+        assert_eq!(actual, baseline);
+        assert!(
+            fallback,
+            "oversized numeric token should use exact fallback"
+        );
+        assert_eq!(peak_retained, 3);
+        assert_eq!(
+            actual.errors[0].code,
+            "MAX_NUMERIC_LITERAL_CHARACTERS_EXCEEDED"
+        );
+
+        let malformed = "a = 1234e";
+        let malformed_options = configured_options(|options| {
+            options.max_numeric_literal_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            malformed.to_owned(),
+            malformed_options.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(malformed.to_owned(), malformed_options);
+        assert_eq!(actual, baseline);
+        assert!(
+            fallback,
+            "oversized malformed token should use exact fallback"
+        );
+        assert_eq!(peak_retained, 3);
+        assert_eq!(actual.errors[0].code, "INVALID_NUMBER");
+
+        let comment_boundary_source = "//@🌊🌊🌊\na = 1";
+        let comment_boundary = configured_options(|options| {
+            options.max_numeric_literal_characters = 100;
+            options.max_string_codepoints = 100;
+            options.max_key_segment_codepoints = 100;
+            options.max_path_characters = 100;
+            options.max_structured_comment_characters = 3;
+        });
+        let expected = compile_owned_with_implementation(
+            comment_boundary_source.to_owned(),
+            comment_boundary.clone(),
+            ParserImplementation::Sofia,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(comment_boundary_source.to_owned(), comment_boundary);
+        assert_eq!(actual, expected);
+        assert!(
+            !fallback,
+            "structured-comment boundary should remain incremental"
+        );
+        assert_eq!(peak_retained, 1);
+
+        let comment_beyond_source = "//@🌊🌊🌊🌊\na = 1";
+        let comment_beyond = configured_options(|options| {
+            options.max_numeric_literal_characters = 100;
+            options.max_string_codepoints = 100;
+            options.max_key_segment_codepoints = 100;
+            options.max_path_characters = 100;
+            options.max_structured_comment_characters = 3;
+        });
+        let baseline = compile_owned_with_implementation(
+            comment_beyond_source.to_owned(),
+            comment_beyond.clone(),
+            ParserImplementation::Baseline,
+        );
+        let (actual, fallback, peak_retained) =
+            compile_owned_incremental_sofia(comment_beyond_source.to_owned(), comment_beyond);
+        assert_eq!(actual, baseline);
+        assert!(
+            !fallback,
+            "oversized structured comment should remain incrementally classified"
+        );
+        assert_eq!(peak_retained, 1);
+        assert_eq!(
+            actual.errors[0].code,
+            "MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED"
+        );
+
+        for (name, source, at_boundary, beyond_boundary, expected_code) in [
+            (
+                "string",
+                "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+            ),
+            (
+                "key",
+                "ab = 1",
+                configured_options(|options| options.max_key_segment_codepoints = 2),
+                configured_options(|options| options.max_key_segment_codepoints = 1),
+                "MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED",
+            ),
+            (
+                "path",
+                "a = 1\nb = ~$.a",
+                configured_options(|options| options.max_path_characters = 3),
+                configured_options(|options| options.max_path_characters = 2),
+                "MAX_PATH_CHARACTERS_EXCEEDED",
+            ),
+        ] {
+            let baseline_at = compile_owned_with_implementation(
+                source.to_owned(),
+                at_boundary.clone(),
+                ParserImplementation::Baseline,
+            );
+            let (incremental_at, _, _) =
+                compile_owned_incremental_sofia(source.to_owned(), at_boundary);
+            assert_eq!(incremental_at, baseline_at, "{name} boundary drift");
+            assert!(incremental_at.errors.is_empty());
+
+            let baseline_beyond = compile_owned_with_implementation(
+                source.to_owned(),
+                beyond_boundary.clone(),
+                ParserImplementation::Baseline,
+            );
+            let (incremental_beyond, _, _) =
+                compile_owned_incremental_sofia(source.to_owned(), beyond_boundary);
+            assert_eq!(
+                incremental_beyond, baseline_beyond,
+                "{name} beyond-boundary drift"
+            );
+            assert_eq!(incremental_beyond.errors[0].code, expected_code);
+        }
+    }
+
+    #[test]
+    fn parser_selector_preserves_complete_diagnostic_pipeline() {
+        let at_root = Some("$");
+        let no_phase = None;
+
+        assert_compile_diagnostic_parity(
+            "input byte limit",
+            "hello",
+            CompileOptions {
+                max_input_bytes: Some(4),
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "INPUT_SIZE_EXCEEDED",
+                path: at_root,
+                phase: Some(0),
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "lexer failure",
+            "\"unterminated",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "UNTERMINATED_STRING",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "ordered parser recovery",
+            "bad = [1 2]\nlater = true\ntree = <root(1 2)>\nend = false",
+            CompileOptions::default(),
+            &[
+                DiagnosticExpectation {
+                    code: "SYNTAX_ERROR",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "SYNTAX_ERROR",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+            ],
+        );
+        assert_compile_diagnostic_parity(
+            "header lowering",
+            "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "HEADER_CONFLICT",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "source resource limit",
+            "a = \"xy\"",
+            CompileOptions {
+                max_string_codepoints: 1,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "MAX_STRING_CODEPOINTS_EXCEEDED",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "event path limit",
+            "a = { b = 1 }",
+            CompileOptions {
+                max_path_depth: 1,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "MAX_PATH_DEPTH_EXCEEDED",
+                path: at_root,
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "event count limit",
+            "a = 1\nb = 2",
+            CompileOptions {
+                max_events: Some(1),
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "EVENT_COUNT_EXCEEDED",
+                path: at_root,
+                phase: Some(4),
+                has_span: true,
+            }],
+        );
+        let recovered_duplicate = assert_compile_diagnostic_parity(
+            "duplicate path recovery",
+            "a = 1\na = 2",
+            CompileOptions {
+                recovery: true,
+                ..CompileOptions::default()
+            },
+            &[DiagnosticExpectation {
+                code: "DUPLICATE_KEY",
+                path: Some("$.a"),
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_eq!(recovered_duplicate.events.len(), 1);
+        assert_eq!(format_path(&recovered_duplicate.events[0].path), "$.a");
+
+        assert_compile_diagnostic_parity(
+            "datatype validation",
+            "aeon:mode = \"strict\"\nstroke:myColor = #ff00ff",
+            CompileOptions::default(),
+            &[DiagnosticExpectation {
+                code: "CUSTOM_DATATYPE_NOT_ALLOWED",
+                path: Some("$.stroke"),
+                phase: no_phase,
+                has_span: true,
+            }],
+        );
+        assert_compile_diagnostic_parity(
+            "ordered reference and mode validation",
+            "aeon:mode = \"custom\"\nfirst = 1\nforward = ~later\nlater:int32 = 1",
+            CompileOptions::default(),
+            &[
+                DiagnosticExpectation {
+                    code: "FORWARD_REFERENCE",
+                    path: at_root,
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "UNTYPED_VALUE_IN_STRICT_MODE",
+                    path: Some("$.first"),
+                    phase: no_phase,
+                    has_span: true,
+                },
+                DiagnosticExpectation {
+                    code: "UNTYPED_VALUE_IN_STRICT_MODE",
+                    path: Some("$.forward"),
+                    phase: no_phase,
+                    has_span: true,
+                },
+            ],
+        );
+
+        let warnings = assert_compile_diagnostic_parity(
+            "portability warnings",
+            "a = 1",
+            CompileOptions {
+                max_attribute_depth: 9,
+                max_separator_depth: 9,
+                max_generic_depth: 9,
+                max_nesting_depth: 65,
+                max_events: Some(100_001),
+                ..CompileOptions::default()
+            },
+            &[],
+        )
+        .warnings;
+        assert_eq!(
+            warnings
+                .iter()
+                .map(|warning| (
+                    warning.code.as_str(),
+                    warning.path.as_deref(),
+                    warning.span,
+                    warning.phase,
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                ("AEON_NON_PORTABLE_POLICY_DEPTH", at_root, None, no_phase),
+                (
+                    "AEON_NON_PORTABLE_CONTAINER_NESTING_DEPTH",
+                    at_root,
+                    None,
+                    no_phase,
+                ),
+                ("AEON_NON_PORTABLE_EVENT_BUDGET", at_root, None, no_phase),
+            ],
+        );
+    }
 
     #[test]
     fn retains_leading_bom_in_exact_source_coordinates() {
@@ -3539,6 +4549,31 @@ mod tests {
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 5);
+    }
+
+    #[test]
+    fn validation_only_profile_accepts_raw_sensitive_literal_datatypes() {
+        let source = "aeon:mode = \"strict\"\n\
+                      h:hex = #ff_ff\n\
+                      r:radix = %10_10\n\
+                      e:encoding = &QmFzZTY0IQ==\n\
+                      dt:datetime = 2025-01-01T09:30:00Z\n\
+                      z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n";
+        let result = compile(
+            source,
+            CompileOptions {
+                shallow_event_values: true,
+                emit_binding_projections: false,
+                include_header: false,
+                include_event_annotations: false,
+                ..CompileOptions::default()
+            },
+        );
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.events.is_empty());
+        assert!(result.bindings.is_empty());
+        assert!(result.header.is_none());
     }
 
     #[test]

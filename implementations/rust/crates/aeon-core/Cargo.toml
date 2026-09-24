@@ -1,16 +1,30 @@
 [package]
-name = "aeon-core"
+name = "altopelago-aeon-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Sofia parser and core data model for AltoPelago AEON."
+readme = "README.md"
+keywords = ["aeon", "parser", "configuration", "serialization"]
+categories = ["config", "parser-implementations"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true
 sha2.workspace = true
 
+[features]
+sofia = []
+sofia-bench = ["sofia"]
+sofia-fuzz = []
+
+[dev-dependencies]
+serde_json = "1.0.150"
+
 [lib]
+name = "aeon_core"
 path = "src/lib.rs"
 
 [lints]

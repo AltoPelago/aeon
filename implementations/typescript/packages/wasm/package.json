@@ -47,7 +47,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:wasm": "node ./scripts/build-wasm.mjs",
-    "test": "node --test dist/*.test.js",
+    "test:browser:serve": "node ./scripts/serve-browser-smoke.mjs",
+    "test": "node --test dist/*.test.js test/browser/*.test.mjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean:wasm": "rm -rf pkg"

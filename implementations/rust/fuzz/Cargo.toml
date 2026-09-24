@@ -11,7 +11,9 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.aeon-core]
+package = "altopelago-aeon-core"
 path = "../crates/aeon-core"
+features = ["sofia-fuzz"]
 
 [[bin]]
 name = "compile"
@@ -23,6 +25,20 @@ bench = false
 [[bin]]
 name = "token_parse"
 path = "fuzz_targets/token_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sofia_token_parse"
+path = "fuzz_targets/sofia_token_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sofia_incremental"
+path = "fuzz_targets/sofia_incremental.rs"
 test = false
 doc = false
 bench = false

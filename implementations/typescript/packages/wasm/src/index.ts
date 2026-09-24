@@ -1,5 +1,8 @@
 export interface ProcessOptions {
-  validationMode?: 'strict' | 'custom' | 'loose' | 'none';
+  validationMode?: 'declared' | 'strict' | 'custom' | 'loose' | 'none';
+  datatypePolicy?: 'reserved_only' | 'allow_custom';
+  maxInputBytes?: number;
+  maxEvents?: number;
   maxClarifierValues?: number;
   /** @deprecated Use maxClarifierValues. */
   maxSeparatorDepth?: number;
@@ -7,6 +10,19 @@ export interface ProcessOptions {
   maxGenericDepth?: number;
   maxGenericArguments?: number;
   maxDatatypeComponents?: number;
+  maxValueNestingDepth?: number;
+  /** @deprecated Use maxValueNestingDepth. */
+  maxNestingDepth?: number;
+  maxPathDepth?: number;
+  maxStringCodepoints?: number;
+  maxKeySegmentCodepoints?: number;
+  maxListItems?: number;
+  maxTupleItems?: number;
+  maxPathCharacters?: number;
+  maxNumericLiteralCharacters?: number;
+  maxStructuredCommentCharacters?: number;
+  /** Skip JSON materialization and return Core compile events and diagnostics only. */
+  finalize?: boolean;
   materializationMode?: 'all' | 'projected';
   finalizeScope?: 'payload' | 'header' | 'full';
   includePaths?: string[];
@@ -156,6 +172,60 @@ export interface EventSummary {
   key: string;
   datatype: string | null;
   valueType: string;
+  structuralId?: string;
+}
+
+export interface AeonStreamOptions extends Omit<
+  ProcessOptions,
+  'validationMode' | 'finalize' | 'materializationMode' | 'finalizeScope' | 'includePaths'
+> {
+  validationMode?: 'declared' | 'strict' | 'custom' | 'loose';
+  /** Maximum events returned by one caller-pulled batch. Defaults to 256. */
+  maxBatchEvents?: number;
+  /** Maximum ready batches retained by WASM. Defaults to 2. */
+  maxPendingBatches?: number;
+}
+
+export type AeonStreamState = 'accepting' | 'draining' | 'terminal-ready' | 'complete';
+
+export interface AeonStreamProgress {
+  state: Exclude<AeonStreamState, 'complete'>;
+  /** False means the caller must pull output and retry the same operation. */
+  accepted: boolean;
+  pendingBatches: number;
+  backpressured: boolean;
+}
+
+export interface AeonStreamBatch {
+  /** Opaque identity local to this loaded JavaScript adapter. */
+  streamId: string;
+  sequence: number;
+  firstEventIndex: number;
+  events: EventSummary[];
+}
+
+export interface AeonStreamTerminal {
+  streamId: string;
+  status: 'accepted' | 'invalidated';
+  reason: 'diagnostics' | 'cancelled' | null;
+  eventCount: number | null;
+  exposedEventCount: number;
+  diagnostics: NormalizedDiagnostics;
+  /** Convenience alias for diagnostics.errors. */
+  errors: Diagnostic[];
+  /** Convenience alias for diagnostics.warnings. */
+  warnings: Diagnostic[];
+}
+
+export interface AeonStream {
+  readonly id: string;
+  state(): AeonStreamState;
+  /** Raw bytes are canonical and may split UTF-8 scalars across calls. */
+  push(chunk: Uint8Array | string): AeonStreamProgress;
+  finish(): AeonStreamProgress;
+  pullBatch(): AeonStreamBatch | null;
+  cancel(): AeonStreamProgress;
+  takeTerminal(): AeonStreamTerminal;
 }
 
 export interface NormalizedCanonical {
@@ -196,6 +266,7 @@ interface RustWasmProcessResult {
 
 export interface AeonWasmRuntime {
   processAeon(source: string, options?: ProcessOptions): ProcessResult;
+  createAeonStream(options?: AeonStreamOptions): AeonStream;
   validateTelex(source: string, options?: TelexOptions): TelexValidationResult;
   canonicalizeTelex(source: string, options?: TelexOptions): string;
   checkTelexCompleteness(source: string, options?: TelexOptions): TelexCompletenessResult;
@@ -204,6 +275,7 @@ export interface AeonWasmRuntime {
 
 interface GeneratedAeonWasmModule {
   default: (initInput?: unknown) => Promise<unknown>;
+  AeonStream: new (optionsJson: string) => GeneratedAeonStream;
   process_aeon(source: string, optionsJson: string): string;
   validate_telex(source: string, optionsJson: string): string;
   canonicalize_telex(source: string, optionsJson: string): string;
@@ -211,7 +283,33 @@ interface GeneratedAeonWasmModule {
   materialize_telex(source: string, optionsJson: string): string;
 }
 
+interface GeneratedAeonStream {
+  state(): string;
+  push(chunk: Uint8Array): string;
+  pushString(chunk: string): string;
+  finish(): string;
+  pullBatch(): string;
+  cancel(): string;
+  takeTerminal(): string;
+}
+
+interface RustStreamBatch {
+  sequence: number;
+  firstEventIndex: number;
+  events: EventSummary[];
+}
+
+interface RustStreamTerminal {
+  status: 'accepted' | 'invalidated';
+  reason: 'diagnostics' | 'cancelled' | null;
+  eventCount: number | null;
+  exposedEventCount: number;
+  warnings: Diagnostic[];
+  errors: Diagnostic[];
+}
+
 let runtimePromise: Promise<AeonWasmRuntime> | undefined;
+let nextStreamId = 0;
 
 export async function loadAeonWasm(initInput?: unknown): Promise<AeonWasmRuntime> {
   runtimePromise ??= loadGeneratedModule(initInput);
@@ -224,6 +322,13 @@ export async function processAeon(
 ): Promise<ProcessResult> {
   const runtime = await loadAeonWasm();
   return runtime.processAeon(source, options);
+}
+
+export async function createAeonStream(
+  options: AeonStreamOptions = {},
+): Promise<AeonStream> {
+  const runtime = await loadAeonWasm();
+  return runtime.createAeonStream(options);
 }
 
 export async function validateTelex(
@@ -278,6 +383,13 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
     processAeon(source: string, options: ProcessOptions = {}): ProcessResult {
       return parseProcessResult(module.process_aeon(source, JSON.stringify(options)));
     },
+    createAeonStream(options: AeonStreamOptions = {}): AeonStream {
+      nextStreamId += 1;
+      return new WasmAeonStream(
+        `aeon-stream-${nextStreamId}`,
+        new module.AeonStream(JSON.stringify(options)),
+      );
+    },
     validateTelex(source: string, options: TelexOptions = {}): TelexValidationResult {
       return parseTelexResult<TelexValidationResult>(
         invokeTelex(() => module.validate_telex(source, JSON.stringify(options))),
@@ -297,6 +409,62 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
       );
     },
   };
+}
+
+class WasmAeonStream implements AeonStream {
+  readonly id: string;
+  readonly #stream: GeneratedAeonStream;
+
+  constructor(id: string, stream: GeneratedAeonStream) {
+    this.id = id;
+    this.#stream = stream;
+  }
+
+  state(): AeonStreamState {
+    return this.#stream.state() as AeonStreamState;
+  }
+
+  push(chunk: Uint8Array | string): AeonStreamProgress {
+    const json = typeof chunk === 'string'
+      ? this.#stream.pushString(chunk)
+      : this.#stream.push(chunk);
+    return JSON.parse(json) as AeonStreamProgress;
+  }
+
+  finish(): AeonStreamProgress {
+    return JSON.parse(this.#stream.finish()) as AeonStreamProgress;
+  }
+
+  pullBatch(): AeonStreamBatch | null {
+    const batch = JSON.parse(this.#stream.pullBatch()) as RustStreamBatch | null;
+    if (batch === null) return null;
+    return {
+      streamId: this.id,
+      sequence: batch.sequence,
+      firstEventIndex: batch.firstEventIndex,
+      events: batch.events,
+    };
+  }
+
+  cancel(): AeonStreamProgress {
+    return JSON.parse(this.#stream.cancel()) as AeonStreamProgress;
+  }
+
+  takeTerminal(): AeonStreamTerminal {
+    const raw = JSON.parse(this.#stream.takeTerminal()) as RustStreamTerminal;
+    const errors = raw.errors.map(normalizeDiagnostic);
+    const warnings = raw.warnings.map(normalizeDiagnostic);
+    return {
+      streamId: this.id,
+      status: raw.status,
+      reason: raw.reason,
+      eventCount: raw.eventCount,
+      exposedEventCount: raw.exposedEventCount,
+      diagnostics: { errors, warnings },
+      errors,
+      warnings,
+    };
+  }
 }
 
 function invokeTelex(operation: () => string): string {
@@ -335,7 +503,7 @@ function normalizeProcessResult(raw: RustWasmProcessResult): ProcessResult {
     canonical: { text: raw.canonical },
     finalized: { document: raw.finalized },
     annotations: raw.annotations.map(normalizeAnnotation),
-    events: raw.events.map(normalizeEvent),
+    events: raw.events,
     diagnostics: { errors, warnings },
     errors,
     warnings,
@@ -361,14 +529,5 @@ function normalizeAnnotation(annotation: AnnotationRecord): AnnotationRecord {
     span: annotation.span,
     target: annotation.target,
     placement: annotation.placement ?? null,
-  };
-}
-
-function normalizeEvent(event: EventSummary): EventSummary {
-  return {
-    path: event.path,
-    key: event.key,
-    datatype: event.datatype ?? null,
-    valueType: event.valueType,
   };
 }

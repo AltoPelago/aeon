@@ -48,17 +48,27 @@ const pythonRelativePaths = [
   'implementations/python/pyproject.toml',
   'implementations/python/README.md',
   'implementations/python/src/aeon/cli.py',
+  'implementations/rust/crates/aeon-python/pyproject.toml',
 ];
 const rustWorkspacePackages = [
-  'aeon-aeos',
-  'aeon-annotations',
-  'aeon-canonical',
-  'aeon-cli',
-  'aeon-core',
-  'aeon-finalize',
-  'aeon-sdk',
-  'aeon-wasm',
+  { dependency: 'aeon-aeos', package: 'altopelago-aeon-aeos' },
+  { dependency: 'aeon-annotations', package: 'aeon-annotations' },
+  { dependency: 'aeon-canonical', package: 'aeon-canonical' },
+  { dependency: 'aeon-cli', package: 'aeon-cli' },
+  { dependency: 'aeon-core', package: 'altopelago-aeon-core' },
+  { dependency: 'aeon-finalize', package: 'altopelago-aeon-finalize' },
+  { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
+  { dependency: 'aeon-wasm', package: 'aeon-wasm' },
 ];
+const rustLockPackages = [
+  ...rustWorkspacePackages.map(({ package: packageName }) => packageName),
+  'aeon-python',
+];
+
+function rustWorkspaceDependencyLine({ dependency, package: packageName }, version) {
+  const packageClause = dependency === packageName ? '' : `package = "${packageName}", `;
+  return `${dependency} = { ${packageClause}path = "crates/${dependency}", version = "${version}" }`;
+}
 
 function fail(message) {
   console.error(`Version validation failed: ${message}`);
@@ -527,32 +537,44 @@ function consistencyProblems(sources, versions, { requireReleaseHeadings = true 
   expectLiteral(problems, sources.get('implementations/typescript/packages/cli/README.md'), `@altopelago/aeon-cli@${versions.typescript}`, 'TypeScript CLI README pinned version');
 
   const rustToml = sources.get('implementations/rust/Cargo.toml');
-  for (const name of rustWorkspacePackages) {
+  for (const packageInfo of rustWorkspacePackages) {
     expectLiteral(
       problems,
       rustToml,
-      `${name} = { path = "crates/${name}", version = "${versions.rust}" }`,
-      `Rust workspace dependency ${name}`,
+      rustWorkspaceDependencyLine(packageInfo, versions.rust),
+      `Rust workspace dependency ${packageInfo.dependency}`,
     );
   }
   cargoLockVersionProblems(
     problems,
     sources.get('implementations/rust/Cargo.lock'),
     'implementations/rust/Cargo.lock',
-    rustWorkspacePackages,
+    rustLockPackages,
     versions.rust,
   );
   cargoLockVersionProblems(
     problems,
     sources.get('implementations/rust/fuzz/Cargo.lock'),
     'implementations/rust/fuzz/Cargo.lock',
-    ['aeon-core'],
+    ['altopelago-aeon-core'],
     versions.rust,
   );
   expectLiteral(problems, sources.get('implementations/rust/README.md'), `Current crate/workspace line: \`${versions.rust}\`.`, 'Rust README current line');
 
   expectLiteral(problems, sources.get('implementations/python/README.md'), `Current package line: \`${versions.python}\`.`, 'Python README current line');
   expectLiteral(problems, sources.get('implementations/python/src/aeon/cli.py'), `print("aeon-python ${versions.python}")`, 'Python CLI version');
+  try {
+    const nativeVersion = singleCapturedValue(
+      sources.get('implementations/rust/crates/aeon-python/pyproject.toml'),
+      /^version = "([^"]+)"$/gm,
+      'native Python project version',
+    );
+    if (nativeVersion !== versions.python) {
+      problems.push(`native Python project version ${nativeVersion} does not match Python ${versions.python}`);
+    }
+  } catch (error) {
+    problems.push(errorMessage(error));
+  }
 
   const versioning = sources.get('VERSIONING.md');
   expectLiteral(problems, versioning, `- TypeScript: \`${versions.typescript}\``, 'VERSIONING TypeScript line');
@@ -623,18 +645,18 @@ function updateRust(updates, current, next) {
   updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'rust', current, next));
   updateSource(updates, 'implementations/rust/Cargo.toml', (source) => {
     let result = replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Rust workspace package version');
-    for (const name of rustWorkspacePackages) {
+    for (const packageInfo of rustWorkspacePackages) {
       result = replaceLiteral(
         result,
-        `${name} = { path = "crates/${name}", version = "${current}" }`,
-        `${name} = { path = "crates/${name}", version = "${next}" }`,
-        `Rust workspace dependency ${name}`,
+        rustWorkspaceDependencyLine(packageInfo, current),
+        rustWorkspaceDependencyLine(packageInfo, next),
+        `Rust workspace dependency ${packageInfo.dependency}`,
       );
     }
     return result;
   });
-  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustWorkspacePackages, current, next, 'implementations/rust/Cargo.lock'));
-  updateSource(updates, 'implementations/rust/fuzz/Cargo.lock', (source) => replaceCargoLockVersions(source, ['aeon-core'], current, next, 'implementations/rust/fuzz/Cargo.lock'));
+  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustLockPackages, current, next, 'implementations/rust/Cargo.lock'));
+  updateSource(updates, 'implementations/rust/fuzz/Cargo.lock', (source) => replaceCargoLockVersions(source, ['altopelago-aeon-core'], current, next, 'implementations/rust/fuzz/Cargo.lock'));
   updateSource(updates, 'implementations/rust/README.md', (source) => replaceLiteral(source, `Current crate/workspace line: \`${current}\`.`, `Current crate/workspace line: \`${next}\`.`, 'Rust README current line'));
   updateSource(updates, 'VERSIONING.md', (source) => {
     let result = replaceLiteral(source, `- Rust: \`${current}\``, `- Rust: \`${next}\``, 'VERSIONING Rust line');
@@ -651,6 +673,7 @@ function updatePython(updates, current, next) {
   updateSource(updates, 'implementations/python/pyproject.toml', (source) => replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Python project version'));
   updateSource(updates, 'implementations/python/README.md', (source) => replaceLiteral(source, `Current package line: \`${current}\`.`, `Current package line: \`${next}\`.`, 'Python README current line'));
   updateSource(updates, 'implementations/python/src/aeon/cli.py', (source) => replaceLiteral(source, `print("aeon-python ${current}")`, `print("aeon-python ${next}")`, 'Python CLI version'));
+  updateSource(updates, 'implementations/rust/crates/aeon-python/pyproject.toml', (source) => replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'native Python project version'));
   updateSource(updates, 'VERSIONING.md', (source) => {
     let result = replaceLiteral(source, `- Python: \`${current}\``, `- Python: \`${next}\``, 'VERSIONING Python line');
     return replaceLiteral(result, `- Python implementation/package line: \`${current}\``, `- Python implementation/package line: \`${next}\``, 'VERSIONING Python baseline');

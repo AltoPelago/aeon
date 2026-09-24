@@ -1,0 +1,37 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "altopelago-aeon"
+version = "0.13.0"
+description = "Native Rust implementation of the AEON parser for CPython"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "AEON maintainers" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Rust",
+]
+
+[project.urls]
+Repository = "https://github.com/AltoPelago/aeon"
+Issues = "https://github.com/AltoPelago/aeon/issues"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "altopelago.aeon._native"
+python-source = "python"
+strip = true
+exclude = [
+  "python/**/__pycache__",
+  "python/**/*.pyc",
+]

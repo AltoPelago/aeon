@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AEON WASM browser smoke</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        margin: 2rem auto;
+        max-width: 60rem;
+        padding: 0 1rem;
+      }
+      output {
+        display: inline-block;
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+      pre {
+        border: 1px solid currentColor;
+        border-radius: 0.5rem;
+        overflow: auto;
+        padding: 1rem;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AEON WASM browser smoke</h1>
+    <output data-testid="status" data-state="running">RUNNING</output>
+    <pre data-testid="report" aria-live="polite">Starting browser checks…</pre>
+    <script type="module" src="/test/browser/browser-smoke.mjs"></script>
+  </body>
+</html>

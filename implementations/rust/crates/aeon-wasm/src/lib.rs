@@ -1,11 +1,14 @@
 use std::collections::BTreeSet;
+use std::hint::black_box;
+use std::num::NonZeroUsize;
 
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::canonicalize;
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment, Span, Value,
-    compile, effective_telex_configuration, format_path, load_aeonic_limits,
+    EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
+    SofiaStreamCompiler, SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal, Span, Value,
+    compile_sofia, effective_telex_configuration, format_path, load_aeonic_limits,
     normalize_number_literal,
 };
 use aeon_finalize::{
@@ -16,7 +19,7 @@ use aes_telex::{
     Diagnostic as TelexDiagnostic, TelexLimits, TelexSyntaxError, canonicalize_telex_with_limits,
     check_prefix_completeness, parse_telex_with_limits, validate_telex_with_limits,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use wasm_bindgen::prelude::*;
 
@@ -25,8 +28,12 @@ use wasm_bindgen::prelude::*;
 struct ProcessOptions {
     #[serde(default = "default_validation_mode")]
     validation_mode: String,
+    #[serde(default)]
+    datatype_policy: Option<String>,
     #[serde(default = "default_max_input_bytes")]
     max_input_bytes: usize,
+    #[serde(default)]
+    max_events: Option<usize>,
     #[serde(default = "default_depth")]
     max_separator_depth: usize,
     #[serde(default)]
@@ -40,11 +47,140 @@ struct ProcessOptions {
     #[serde(default = "default_max_datatype_components")]
     max_datatype_components: usize,
     #[serde(default)]
+    max_value_nesting_depth: Option<usize>,
+    #[serde(default = "default_max_nesting_depth")]
+    max_nesting_depth: usize,
+    #[serde(default = "default_max_path_depth")]
+    max_path_depth: usize,
+    #[serde(default = "default_max_string_codepoints")]
+    max_string_codepoints: usize,
+    #[serde(default = "default_max_key_segment_codepoints")]
+    max_key_segment_codepoints: usize,
+    #[serde(default = "default_max_collection_items")]
+    max_list_items: usize,
+    #[serde(default = "default_max_collection_items")]
+    max_tuple_items: usize,
+    #[serde(default = "default_max_path_characters")]
+    max_path_characters: usize,
+    #[serde(default = "default_max_numeric_literal_characters")]
+    max_numeric_literal_characters: usize,
+    #[serde(default = "default_max_structured_comment_characters")]
+    max_structured_comment_characters: usize,
+    #[serde(default = "default_finalize")]
+    finalize: bool,
+    #[serde(default)]
     materialization_mode: String,
     #[serde(default = "default_finalize_scope")]
     finalize_scope: String,
     #[serde(default)]
     include_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamOptions {
+    #[serde(flatten)]
+    process: ProcessOptions,
+    #[serde(default = "default_stream_batch_events")]
+    max_batch_events: usize,
+    #[serde(default = "default_stream_pending_batches")]
+    max_pending_batches: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ProcessResponse {
+    canonical: String,
+    finalized: JsonValue,
+    annotations: Vec<JsonValue>,
+    events: Vec<ProcessEvent>,
+    warnings: Vec<JsonValue>,
+    errors: Vec<JsonValue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessEvent {
+    path: String,
+    key: String,
+    datatype: Option<String>,
+    value_type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structural_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamProgressResponse {
+    state: &'static str,
+    accepted: bool,
+    pending_batches: usize,
+    backpressured: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamBatchResponse {
+    sequence: usize,
+    first_event_index: usize,
+    events: Vec<ProcessEvent>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamTerminalResponse {
+    status: &'static str,
+    reason: Option<&'static str>,
+    event_count: Option<usize>,
+    exposed_event_count: usize,
+    warnings: Vec<JsonValue>,
+    errors: Vec<JsonValue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamRetentionResponse {
+    accepted_input_bytes: usize,
+    accounted_shallow_bytes: usize,
+    compact_output: bool,
+    source_retained: bool,
+    source_bytes: usize,
+    source_capacity_bytes: usize,
+    lexer_active_bytes: usize,
+    parser_token_count: usize,
+    parser_token_storage_bytes: usize,
+    parser_frame_count: usize,
+    structural_identity_count: usize,
+    structural_identity_storage_bytes: usize,
+    completed_binding_count: usize,
+    completed_binding_storage_bytes: usize,
+    released_completed_binding_count: usize,
+    validation_header_field_count: usize,
+    validation_header_string_bytes: usize,
+    validation_structured_comment_count: usize,
+    validation_reference_datatype_claim_count: usize,
+    validation_datatype_target_count: usize,
+    validation_datatype_target_string_bytes: usize,
+    validation_reference_datatype_claim_string_bytes: usize,
+    validation_reference_target_count: usize,
+    validation_reference_target_string_bytes: usize,
+    validation_reference_step_count: usize,
+    validation_reference_claim_count: usize,
+    validation_reference_step_string_bytes: usize,
+    validation_retained_candidate_error_count: usize,
+    validation_event_count: usize,
+    validation_seen_path_count: usize,
+    validation_seen_path_string_bytes: usize,
+    prevalidation_error_count: usize,
+    ready_batch_count: usize,
+    ready_event_count: usize,
+    ready_event_slot_bytes: usize,
+    staged_batch_count: usize,
+    staged_cursor_count: usize,
+    staged_event_count: usize,
+    staged_event_slot_bytes: usize,
+    staged_ast_slot_bytes: usize,
+    terminal_source_capacity_bytes: usize,
+    terminal_event_count: usize,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -95,8 +231,52 @@ const fn default_max_datatype_components() -> usize {
     64
 }
 
+const fn default_max_nesting_depth() -> usize {
+    256
+}
+
+const fn default_max_path_depth() -> usize {
+    1024
+}
+
+const fn default_max_string_codepoints() -> usize {
+    1_048_576
+}
+
+const fn default_max_key_segment_codepoints() -> usize {
+    1024
+}
+
+const fn default_max_collection_items() -> usize {
+    65_536
+}
+
+const fn default_max_path_characters() -> usize {
+    8192
+}
+
+const fn default_max_numeric_literal_characters() -> usize {
+    1024
+}
+
+const fn default_max_structured_comment_characters() -> usize {
+    1_048_576
+}
+
+const fn default_finalize() -> bool {
+    true
+}
+
 const fn default_max_input_bytes() -> usize {
     1 << 20
+}
+
+const fn default_stream_batch_events() -> usize {
+    256
+}
+
+const fn default_stream_pending_batches() -> usize {
+    2
 }
 
 #[wasm_bindgen]
@@ -105,16 +285,309 @@ pub fn process_aeon(source: &str, options_json: &str) -> Result<String, JsValue>
 }
 
 pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, String> {
-    let options: ProcessOptions = if options_json.trim().is_empty() {
+    let options = parse_process_options(options_json)?;
+    let result = process(source, &options);
+    serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+}
+
+#[wasm_bindgen(js_name = benchmark_process_aeon)]
+pub fn benchmark_process_aeon_wasm(source: &str, options_json: &str) -> Result<u32, JsValue> {
+    benchmark_process_aeon(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+pub fn benchmark_process_aeon(source: &str, options_json: &str) -> Result<u32, String> {
+    let options = parse_process_options(options_json)?;
+    let result = process(source, &options);
+    black_box(&result);
+    Ok(6)
+}
+
+/// Bounded progressive AEON stream exposed through the generated WASM module.
+///
+/// Each method returns one JSON envelope so the JavaScript adapter performs one
+/// boundary crossing per input chunk, output batch, or lifecycle operation.
+#[wasm_bindgen(js_name = AeonStream)]
+pub struct AeonStreamWasm {
+    compiler: SofiaStreamCompiler,
+}
+
+#[wasm_bindgen(js_class = AeonStream)]
+impl AeonStreamWasm {
+    #[wasm_bindgen(constructor)]
+    pub fn new(options_json: &str) -> Result<AeonStreamWasm, JsValue> {
+        let options =
+            parse_stream_options(options_json).map_err(|error| JsValue::from_str(&error))?;
+        if !matches!(
+            options.process.validation_mode.as_str(),
+            "declared" | "strict" | "custom" | "loose"
+        ) {
+            return Err(JsValue::from_str(
+                "streaming requires declared, strict, custom, or loose validation",
+            ));
+        }
+        let max_batch_events = NonZeroUsize::new(options.max_batch_events)
+            .ok_or_else(|| JsValue::from_str("maxBatchEvents must be greater than zero"))?;
+        let max_pending_batches = NonZeroUsize::new(options.max_pending_batches)
+            .ok_or_else(|| JsValue::from_str("maxPendingBatches must be greater than zero"))?;
+        let mut compile = compile_options(&options.process);
+        compile.recovery = false;
+        Ok(Self {
+            compiler: SofiaStreamCompiler::new(compile, max_batch_events, max_pending_batches),
+        })
+    }
+
+    pub fn state(&self) -> String {
+        stream_state_name(self.compiler.state()).to_owned()
+    }
+
+    /// Diagnostic live-retention telemetry for benchmarks and profiling.
+    ///
+    /// The returned JSON deliberately stays on the generated low-level
+    /// binding rather than the stable TypeScript facade.
+    #[wasm_bindgen(js_name = retentionSnapshot)]
+    pub fn retention_snapshot(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&stream_retention_response(self.compiler.retention())).map_err(
+            |error| {
+                JsValue::from_str(&format!(
+                    "failed to serialize stream retention snapshot: {error}"
+                ))
+            },
+        )
+    }
+
+    pub fn push(&mut self, chunk: &[u8]) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .push(chunk)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = pushString)]
+    pub fn push_string(&mut self, chunk: &str) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .push_str(chunk)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    pub fn finish(&mut self) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .finish()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = pullBatch)]
+    pub fn pull_batch(&mut self) -> Result<String, JsValue> {
+        let batch = self
+            .compiler
+            .pull_batch()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?
+            .map(|batch| StreamBatchResponse {
+                sequence: batch.sequence(),
+                first_event_index: batch.first_event_index(),
+                events: batch.into_events().into_iter().map(process_event).collect(),
+            });
+        serde_json::to_string(&batch).map_err(|error| {
+            JsValue::from_str(&format!("failed to serialize stream batch: {error}"))
+        })
+    }
+
+    pub fn cancel(&mut self) -> Result<String, JsValue> {
+        let progress = self
+            .compiler
+            .cancel()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        stream_progress_json(progress).map_err(|error| JsValue::from_str(&error))
+    }
+
+    #[wasm_bindgen(js_name = takeTerminal)]
+    pub fn take_terminal(&mut self) -> Result<String, JsValue> {
+        let terminal = self
+            .compiler
+            .take_terminal()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let response = match terminal {
+            SofiaStreamTerminal::Accepted { event_count } => StreamTerminalResponse {
+                status: "accepted",
+                reason: None,
+                event_count: Some(event_count),
+                exposed_event_count: event_count,
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            },
+            SofiaStreamTerminal::Invalidated {
+                errors,
+                warnings,
+                exposed_event_count,
+            } => StreamTerminalResponse {
+                status: "invalidated",
+                reason: Some("diagnostics"),
+                event_count: None,
+                exposed_event_count,
+                warnings: diagnostics_json(&warnings),
+                errors: diagnostics_json(&errors),
+            },
+            SofiaStreamTerminal::Cancelled {
+                exposed_event_count,
+            } => StreamTerminalResponse {
+                status: "invalidated",
+                reason: Some("cancelled"),
+                event_count: None,
+                exposed_event_count,
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            },
+        };
+        serde_json::to_string(&response).map_err(|error| {
+            JsValue::from_str(&format!(
+                "failed to serialize stream terminal result: {error}"
+            ))
+        })
+    }
+}
+
+fn parse_stream_options(options_json: &str) -> Result<StreamOptions, String> {
+    let source = if options_json.trim().is_empty() {
+        "{}"
+    } else {
+        options_json
+    };
+    let options: StreamOptions = serde_json::from_str(source)
+        .map_err(|error| format!("invalid stream options JSON: {error}"))?;
+    validate_process_options(&options.process)?;
+    Ok(options)
+}
+
+fn stream_progress_json(progress: SofiaStreamProgress) -> Result<String, String> {
+    let response = match progress {
+        SofiaStreamProgress::NeedMoreInput { pending_batches } => StreamProgressResponse {
+            state: "accepting",
+            accepted: true,
+            pending_batches,
+            backpressured: false,
+        },
+        SofiaStreamProgress::BatchAvailable {
+            pending_batches,
+            backpressured,
+        } => StreamProgressResponse {
+            state: "accepting",
+            accepted: true,
+            pending_batches,
+            backpressured,
+        },
+        SofiaStreamProgress::Backpressured { pending_batches } => StreamProgressResponse {
+            state: "accepting",
+            accepted: false,
+            pending_batches,
+            backpressured: true,
+        },
+        SofiaStreamProgress::Draining { pending_batches } => StreamProgressResponse {
+            state: "draining",
+            accepted: true,
+            pending_batches,
+            backpressured: true,
+        },
+        SofiaStreamProgress::TerminalReady => StreamProgressResponse {
+            state: "terminal-ready",
+            accepted: true,
+            pending_batches: 0,
+            backpressured: false,
+        },
+    };
+    serde_json::to_string(&response)
+        .map_err(|error| format!("failed to serialize stream progress: {error}"))
+}
+
+fn stream_retention_response(
+    retention: aeon_core::ProgressiveRetentionSnapshot,
+) -> StreamRetentionResponse {
+    StreamRetentionResponse {
+        accepted_input_bytes: retention.accepted_input_bytes,
+        accounted_shallow_bytes: retention.accounted_shallow_bytes(),
+        compact_output: retention.compact_output,
+        source_retained: retention.source_retained,
+        source_bytes: retention.source_bytes,
+        source_capacity_bytes: retention.source_capacity_bytes,
+        lexer_active_bytes: retention.lexer_active_bytes,
+        parser_token_count: retention.parser_token_count,
+        parser_token_storage_bytes: retention.parser_token_storage_bytes,
+        parser_frame_count: retention.parser_frame_count,
+        structural_identity_count: retention.structural_identity_count,
+        structural_identity_storage_bytes: retention.structural_identity_storage_bytes,
+        completed_binding_count: retention.completed_binding_count,
+        completed_binding_storage_bytes: retention.completed_binding_storage_bytes,
+        released_completed_binding_count: retention.released_completed_binding_count,
+        validation_header_field_count: retention.validation_header_field_count,
+        validation_header_string_bytes: retention.validation_header_string_bytes,
+        validation_structured_comment_count: retention.validation_structured_comment_count,
+        validation_reference_datatype_claim_count: retention
+            .validation_reference_datatype_claim_count,
+        validation_datatype_target_count: retention.validation_datatype_target_count,
+        validation_datatype_target_string_bytes: retention.validation_datatype_target_string_bytes,
+        validation_reference_datatype_claim_string_bytes: retention
+            .validation_reference_datatype_claim_string_bytes,
+        validation_reference_target_count: retention.validation_reference_target_count,
+        validation_reference_target_string_bytes: retention
+            .validation_reference_target_string_bytes,
+        validation_reference_step_count: retention.validation_reference_step_count,
+        validation_reference_claim_count: retention.validation_reference_claim_count,
+        validation_reference_step_string_bytes: retention.validation_reference_step_string_bytes,
+        validation_retained_candidate_error_count: retention
+            .validation_retained_candidate_error_count,
+        validation_event_count: retention.validation_event_count,
+        validation_seen_path_count: retention.validation_seen_path_count,
+        validation_seen_path_string_bytes: retention.validation_seen_path_string_bytes,
+        prevalidation_error_count: retention.prevalidation_error_count,
+        ready_batch_count: retention.ready_batch_count,
+        ready_event_count: retention.ready_event_count,
+        ready_event_slot_bytes: retention.ready_event_slot_bytes,
+        staged_batch_count: retention.staged_batch_count,
+        staged_cursor_count: retention.staged_cursor_count,
+        staged_event_count: retention.staged_event_count,
+        staged_event_slot_bytes: retention.staged_event_slot_bytes,
+        staged_ast_slot_bytes: retention.staged_ast_slot_bytes,
+        terminal_source_capacity_bytes: retention.terminal_source_capacity_bytes,
+        terminal_event_count: retention.terminal_event_count,
+    }
+}
+
+const fn stream_state_name(state: SofiaStreamState) -> &'static str {
+    match state {
+        SofiaStreamState::Accepting => "accepting",
+        SofiaStreamState::Draining => "draining",
+        SofiaStreamState::TerminalReady => "terminal-ready",
+        SofiaStreamState::Complete => "complete",
+    }
+}
+
+fn parse_process_options(options_json: &str) -> Result<ProcessOptions, String> {
+    let options = if options_json.trim().is_empty() {
         ProcessOptions {
             validation_mode: default_validation_mode(),
+            datatype_policy: None,
             max_input_bytes: default_max_input_bytes(),
+            max_events: None,
             max_separator_depth: default_depth(),
             max_clarifier_values: None,
             max_attribute_depth: default_depth(),
             max_generic_depth: default_depth(),
             max_generic_arguments: default_max_generic_arguments(),
             max_datatype_components: default_max_datatype_components(),
+            max_value_nesting_depth: None,
+            max_nesting_depth: default_max_nesting_depth(),
+            max_path_depth: default_max_path_depth(),
+            max_string_codepoints: default_max_string_codepoints(),
+            max_key_segment_codepoints: default_max_key_segment_codepoints(),
+            max_list_items: default_max_collection_items(),
+            max_tuple_items: default_max_collection_items(),
+            max_path_characters: default_max_path_characters(),
+            max_numeric_literal_characters: default_max_numeric_literal_characters(),
+            max_structured_comment_characters: default_max_structured_comment_characters(),
+            finalize: true,
             materialization_mode: String::from("all"),
             finalize_scope: default_finalize_scope(),
             include_paths: Vec::new(),
@@ -123,9 +596,30 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
         serde_json::from_str(options_json)
             .map_err(|error| format!("invalid options JSON: {error}"))?
     };
+    validate_process_options(&options)?;
+    Ok(options)
+}
 
-    let result = process(source, &options);
-    serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+fn validate_process_options(options: &ProcessOptions) -> Result<(), String> {
+    if !matches!(
+        options.validation_mode.as_str(),
+        "declared" | "strict" | "custom" | "loose" | "none"
+    ) {
+        return Err(format!(
+            "unsupported validationMode {:?}",
+            options.validation_mode
+        ));
+    }
+    if !matches!(
+        options.datatype_policy.as_deref(),
+        None | Some("reserved_only" | "allow_custom")
+    ) {
+        return Err(format!(
+            "unsupported datatypePolicy {:?}",
+            options.datatype_policy.as_deref().unwrap_or_default()
+        ));
+    }
+    Ok(())
 }
 
 #[wasm_bindgen(js_name = validate_telex)]
@@ -438,73 +932,89 @@ fn telex_diagnostic_json(diagnostic: &TelexDiagnostic) -> JsonValue {
     })
 }
 
-fn process(source: &str, options: &ProcessOptions) -> JsonValue {
+fn process(source: &str, options: &ProcessOptions) -> ProcessResponse {
     if source.len() > options.max_input_bytes {
-        return json!({
-            "canonical": "",
-            "finalized": null,
-            "annotations": [],
-            "events": [],
-            "warnings": [],
-            "errors": [{
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations: Vec::new(),
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: vec![json!({
                 "code": "INPUT_SIZE_EXCEEDED",
                 "path": "$",
                 "span": {
                     "start": { "line": 1, "column": 1, "offset": 0 },
                     "end": { "line": 1, "column": 1, "offset": 0 },
                 },
-                "phase": 0,
+                "phase": "Input Validation",
                 "message": format!(
                     "Input size {} bytes exceeds configured limit of {} bytes",
                     source.len(),
                     options.max_input_bytes
                 ),
-            }],
-        });
+            })],
+        };
+    }
+
+    if !options.finalize && options.validation_mode != "none" {
+        let compile_result = compile_sofia(source, compile_options(options));
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations: annotations_json(source),
+            events: process_events(
+                &compile_result.events,
+                compile_result.header.as_ref(),
+                &options.finalize_scope,
+            ),
+            warnings: diagnostics_json(&compile_result.warnings),
+            errors: diagnostics_json(&compile_result.errors),
+        };
     }
 
     let canonical = canonicalize(source);
     let annotations = annotations_json(source);
 
     if !canonical.errors.is_empty() {
-        return json!({
-            "canonical": "",
-            "finalized": null,
-            "annotations": annotations,
-            "events": [],
-            "warnings": [],
-            "errors": diagnostics_json(&canonical.errors),
-        });
+        return ProcessResponse {
+            canonical: String::new(),
+            finalized: JsonValue::Null,
+            annotations,
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: diagnostics_json(&canonical.errors),
+        };
     }
 
     if options.validation_mode == "none" {
-        return json!({
-            "canonical": canonical.text,
-            "finalized": null,
-            "annotations": annotations,
-            "events": [],
-            "warnings": [],
-            "errors": [],
-        });
+        return ProcessResponse {
+            canonical: canonical.text,
+            finalized: JsonValue::Null,
+            annotations,
+            events: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
     }
 
-    let compile_result = compile(source, compile_options(options));
+    let compile_result = compile_sofia(source, compile_options(options));
 
-    let events = events_json(
+    let events = process_events(
         &compile_result.events,
         compile_result.header.as_ref(),
         &options.finalize_scope,
     );
 
     if !compile_result.errors.is_empty() {
-        return json!({
-            "canonical": canonical.text,
-            "finalized": null,
-            "annotations": annotations,
-            "events": events,
-            "warnings": diagnostics_json(&compile_result.warnings),
-            "errors": diagnostics_json(&compile_result.errors),
-        });
+        return ProcessResponse {
+            canonical: canonical.text,
+            finalized: JsonValue::Null,
+            annotations,
+            events,
+            warnings: diagnostics_json(&compile_result.warnings),
+            errors: diagnostics_json(&compile_result.errors),
+        };
     }
 
     let finalized = finalize_json(
@@ -518,33 +1028,54 @@ fn process(source: &str, options: &ProcessOptions) -> JsonValue {
         .cloned()
         .collect::<Vec<_>>();
 
-    json!({
-        "canonical": canonical.text,
-        "finalized": finalized.document,
-        "annotations": annotations,
-        "events": events,
-        "warnings": diagnostics_json(&warnings),
-        "errors": diagnostics_json(&finalized.meta.errors),
-    })
+    ProcessResponse {
+        canonical: canonical.text,
+        finalized: finalized.document,
+        annotations,
+        events,
+        warnings: diagnostics_json(&warnings),
+        errors: diagnostics_json(&finalized.meta.errors),
+    }
 }
 
 fn compile_options(options: &ProcessOptions) -> CompileOptions {
     CompileOptions {
         recovery: true,
         max_input_bytes: Some(options.max_input_bytes),
+        max_events: options.max_events,
         max_separator_depth: options.max_separator_depth,
         max_clarifier_values: options.max_clarifier_values,
         max_attribute_depth: options.max_attribute_depth,
         max_generic_depth: options.max_generic_depth,
         max_generic_arguments: options.max_generic_arguments,
         max_datatype_components: options.max_datatype_components,
-        datatype_policy: match options.validation_mode.as_str() {
-            "strict" => Some(DatatypePolicy::ReservedOnly),
-            "custom" => Some(DatatypePolicy::AllowCustom),
-            _ => None,
-        },
+        max_value_nesting_depth: options.max_value_nesting_depth,
+        max_nesting_depth: options.max_nesting_depth,
+        max_path_depth: options.max_path_depth,
+        max_string_codepoints: options.max_string_codepoints,
+        max_key_segment_codepoints: options.max_key_segment_codepoints,
+        max_list_items: options.max_list_items,
+        max_tuple_items: options.max_tuple_items,
+        max_path_characters: options.max_path_characters,
+        max_numeric_literal_characters: options.max_numeric_literal_characters,
+        max_structured_comment_characters: options.max_structured_comment_characters,
+        datatype_policy: explicit_datatype_policy(options).or({
+            match options.validation_mode.as_str() {
+                "strict" => Some(DatatypePolicy::ReservedOnly),
+                "custom" => Some(DatatypePolicy::AllowCustom),
+                _ => None,
+            }
+        }),
         mode: effective_mode(options),
         ..CompileOptions::default()
+    }
+}
+
+fn explicit_datatype_policy(options: &ProcessOptions) -> Option<DatatypePolicy> {
+    match options.datatype_policy.as_deref() {
+        Some("reserved_only") => Some(DatatypePolicy::ReservedOnly),
+        Some("allow_custom") => Some(DatatypePolicy::AllowCustom),
+        _ => None,
     }
 }
 
@@ -589,11 +1120,65 @@ fn diagnostics_json(diagnostics: &[Diagnostic]) -> Vec<JsonValue> {
                 "code": diagnostic.code,
                 "path": diagnostic.path,
                 "span": diagnostic.span.as_ref().map(span_json),
-                "phase": diagnostic.phase,
+                "phase": diagnostic_phase_label(diagnostic),
                 "message": diagnostic.message,
             })
         })
         .collect()
+}
+
+fn diagnostic_phase_label(diagnostic: &Diagnostic) -> Option<&'static str> {
+    diagnostic
+        .phase
+        .and_then(phase_label_from_number)
+        .or_else(|| match diagnostic.code.as_str() {
+            "INPUT_SIZE_EXCEEDED" => Some("Input Validation"),
+            "UNEXPECTED_CHARACTER"
+            | "UNTERMINATED_BLOCK_COMMENT"
+            | "UNTERMINATED_STRING"
+            | "UNTERMINATED_TRIMTICK"
+            | "INVALID_STRUCTURAL_IDENTITY" => Some("Lexical Analysis"),
+            "SYNTAX_ERROR"
+            | "INVALID_NUMBER"
+            | "INVALID_DATE"
+            | "INVALID_TIME"
+            | "INVALID_DATETIME"
+            | "INVALID_SEPARATOR_CHAR"
+            | "CLARIFIER_VALUES_EXCEEDED"
+            | "GENERIC_ARGUMENTS_EXCEEDED"
+            | "DATATYPE_COMPONENTS_EXCEEDED"
+            | "SEPARATOR_DEPTH_EXCEEDED"
+            | "GENERIC_DEPTH_EXCEEDED" => Some("Parsing"),
+            "HEADER_CONFLICT"
+            | "DUPLICATE_KEY"
+            | "DUPLICATE_CANONICAL_PATH"
+            | "DUPLICATE_STRUCTURAL_IDENTITY"
+            | "DATATYPE_LITERAL_MISMATCH" => Some("Core Validation"),
+            "MISSING_REFERENCE_TARGET"
+            | "FORWARD_REFERENCE"
+            | "SELF_REFERENCE"
+            | "ATTRIBUTE_DEPTH_EXCEEDED" => Some("Reference Validation"),
+            "UNTYPED_TOGGLE_LITERAL"
+            | "UNTYPED_VALUE_IN_STRICT_MODE"
+            | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
+            | "CUSTOM_DATATYPE_NOT_ALLOWED"
+            | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+            "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
+            "TYPE_GUARD_FAILED" => Some("Finalization"),
+            code if code.starts_with("FINALIZE_") => Some("Finalization"),
+            _ => None,
+        })
+}
+
+const fn phase_label_from_number(phase: u8) -> Option<&'static str> {
+    match phase {
+        0 => Some("Input Validation"),
+        5 => Some("Profile Compilation"),
+        6 => Some("Schema Validation"),
+        7 => Some("Reference Resolution"),
+        8 => Some("Finalization"),
+        _ => None,
+    }
 }
 
 fn span_json(span: &Span) -> JsonValue {
@@ -612,6 +1197,9 @@ fn span_json(span: &Span) -> JsonValue {
 }
 
 fn annotations_json(source: &str) -> Vec<JsonValue> {
+    if !source.as_bytes().contains(&b'/') {
+        return Vec::new();
+    }
     sort_annotations(extract_annotations(source))
         .iter()
         .map(annotation_json)
@@ -643,11 +1231,11 @@ fn annotation_json(record: &AnnotationRecord) -> JsonValue {
     payload
 }
 
-fn events_json(
+fn process_events(
     events: &[AssignmentEvent],
     header: Option<&HeaderFields>,
     scope: &str,
-) -> Vec<JsonValue> {
+) -> Vec<ProcessEvent> {
     let mut output = Vec::new();
 
     if matches!(scope, "header" | "full")
@@ -661,31 +1249,31 @@ fn events_json(
             let Some(value) = header.fields.get(key) else {
                 continue;
             };
-            output.push(json!({
-                "path": format!("$.[\"aeon:{key}\"]"),
-                "key": format!("aeon:{key}"),
-                "datatype": null,
-                "valueType": value_type_name(value),
-            }));
+            output.push(ProcessEvent {
+                path: format!("$.[\"aeon:{key}\"]"),
+                key: format!("aeon:{key}"),
+                datatype: None,
+                value_type: value_type_name(value),
+                structural_id: None,
+            });
         }
     }
 
     if scope != "header" {
-        output.extend(events.iter().map(|event| {
-            let mut event_json = json!({
-                "path": format_path(&event.path),
-                "key": event.key,
-                "datatype": event.datatype,
-                "valueType": value_type_name(&event.value),
-            });
-            if let Some(structural_id) = &event.structural_id {
-                event_json["structuralId"] = json!(structural_id);
-            }
-            event_json
-        }));
+        output.extend(events.iter().cloned().map(process_event));
     }
 
     output
+}
+
+fn process_event(event: AssignmentEvent) -> ProcessEvent {
+    ProcessEvent {
+        path: format_path(&event.path),
+        key: event.key,
+        datatype: event.datatype,
+        value_type: value_type_name(&event.value),
+        structural_id: event.structural_id,
+    }
 }
 
 fn value_type_name(value: &Value) -> &'static str {
@@ -825,8 +1413,9 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_telex_text, check_telex_completeness_json, materialize_telex_json,
-        process_aeon_json, validate_telex_json,
+        AeonStreamWasm, benchmark_process_aeon, canonicalize_telex_text,
+        check_telex_completeness_json, materialize_telex_json, process_aeon_json,
+        validate_telex_json,
     };
     use serde_json::Value as JsonValue;
 
@@ -842,6 +1431,142 @@ mod tests {
         assert_eq!(parsed["errors"].as_array().expect("errors").len(), 0);
         assert_eq!(parsed["finalized"]["a"], "ok");
         assert_eq!(parsed["events"][0]["path"], "$.a");
+    }
+
+    #[test]
+    fn benchmark_process_retains_the_response_without_serializing_it() {
+        let fields =
+            benchmark_process_aeon("a:string = \"ok\"\n", "{}").expect("benchmark process aeon");
+
+        assert_eq!(fields, 6);
+    }
+
+    #[test]
+    fn typed_event_response_preserves_public_field_names_and_optional_identity() {
+        let output = process_aeon_json("age\\A1\\:int32 = 42\n", "{}").expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+        let event = &parsed["events"][0];
+
+        assert_eq!(event["path"], "$.age");
+        assert_eq!(event["key"], "age");
+        assert_eq!(event["datatype"], "int32");
+        assert_eq!(event["valueType"], "NumberLiteral");
+        assert_eq!(event["structuralId"], "A1");
+    }
+
+    #[test]
+    fn progressive_stream_uses_bounded_batches_and_terminal_acceptance() {
+        let mut stream = AeonStreamWasm::new(
+            r#"{"validationMode":"strict","maxBatchEvents":1,"maxPendingBatches":1}"#,
+        )
+        .expect("create stream");
+        let source = b"alpha:int32 = 1\nbeta:int32 = 2\ngamma:int32 = 3\n";
+        let progress: JsonValue =
+            serde_json::from_str(&stream.push(source).expect("push complete source"))
+                .expect("progress JSON");
+        assert_eq!(progress["accepted"], true);
+        assert_eq!(progress["backpressured"], true);
+        let retained: JsonValue = serde_json::from_str(
+            &stream
+                .retention_snapshot()
+                .expect("read retention snapshot"),
+        )
+        .expect("retention JSON");
+        assert_eq!(retained["acceptedInputBytes"], source.len());
+        assert_eq!(retained["compactOutput"], true);
+        assert_eq!(retained["sourceRetained"], false);
+        assert!(retained["accountedShallowBytes"].as_u64().unwrap_or(0) > 0);
+
+        let mut events = Vec::new();
+        loop {
+            let batch: JsonValue = serde_json::from_str(&stream.pull_batch().expect("pull batch"))
+                .expect("batch JSON");
+            if batch.is_null() {
+                break;
+            }
+            assert_eq!(batch["sequence"], events.len());
+            assert_eq!(batch["firstEventIndex"], events.len());
+            events.push(
+                batch["events"][0]["path"]
+                    .as_str()
+                    .expect("event path")
+                    .to_owned(),
+            );
+        }
+
+        let finish: JsonValue =
+            serde_json::from_str(&stream.finish().expect("finish stream")).expect("finish JSON");
+        assert_eq!(finish["state"], "draining");
+        loop {
+            let batch: JsonValue = serde_json::from_str(&stream.pull_batch().expect("drain batch"))
+                .expect("batch JSON");
+            if batch.is_null() {
+                break;
+            }
+            events.push(
+                batch["events"][0]["path"]
+                    .as_str()
+                    .expect("event path")
+                    .to_owned(),
+            );
+        }
+        assert_eq!(stream.state(), "terminal-ready");
+        let terminal: JsonValue =
+            serde_json::from_str(&stream.take_terminal().expect("take terminal result"))
+                .expect("terminal JSON");
+        assert_eq!(terminal["status"], "accepted");
+        assert_eq!(terminal["eventCount"], 3);
+        assert_eq!(events, ["$.alpha", "$.beta", "$.gamma"]);
+        assert_eq!(stream.state(), "complete");
+        let released: JsonValue = serde_json::from_str(
+            &stream
+                .retention_snapshot()
+                .expect("read released retention snapshot"),
+        )
+        .expect("released retention JSON");
+        assert_eq!(released["accountedShallowBytes"], 0);
+        assert_eq!(released["readyEventCount"], 0);
+        assert_eq!(released["stagedEventCount"], 0);
+    }
+
+    #[test]
+    fn progressive_stream_decodes_utf8_across_every_byte_boundary() {
+        let source = "message:string = \"Sofía 🌊\"\n";
+        for split in 0..=source.len() {
+            let mut stream = AeonStreamWasm::new("{}").expect("create stream");
+            stream
+                .push(&source.as_bytes()[..split])
+                .expect("push prefix");
+            stream
+                .push(&source.as_bytes()[split..])
+                .expect("push suffix");
+            stream.finish().expect("finish stream");
+            let batch: JsonValue =
+                serde_json::from_str(&stream.pull_batch().expect("pull final batch"))
+                    .expect("batch JSON");
+            assert_eq!(batch["events"][0]["path"], "$.message", "split {split}");
+            let terminal: JsonValue =
+                serde_json::from_str(&stream.take_terminal().expect("take terminal result"))
+                    .expect("terminal JSON");
+            assert_eq!(terminal["status"], "accepted", "split {split}");
+        }
+    }
+
+    #[test]
+    fn progressive_stream_cancellation_invalidates_exposed_output() {
+        let mut stream = AeonStreamWasm::new(r#"{"maxBatchEvents":1,"maxPendingBatches":1}"#)
+            .expect("create stream");
+        stream.push(b"alpha = 1\nbeta = 2\n").expect("push source");
+        let batch: JsonValue =
+            serde_json::from_str(&stream.pull_batch().expect("pull batch")).expect("batch JSON");
+        assert_eq!(batch["events"][0]["path"], "$.alpha");
+        stream.cancel().expect("cancel stream");
+        let terminal: JsonValue =
+            serde_json::from_str(&stream.take_terminal().expect("take cancellation"))
+                .expect("terminal JSON");
+        assert_eq!(terminal["status"], "invalidated");
+        assert_eq!(terminal["reason"], "cancelled");
+        assert_eq!(terminal["exposedEventCount"], 1);
     }
 
     #[test]
@@ -930,7 +1655,42 @@ mod tests {
         assert_eq!(parsed["canonical"], "");
         assert_eq!(parsed["annotations"], serde_json::json!([]));
         assert_eq!(parsed["errors"][0]["code"], "INPUT_SIZE_EXCEEDED");
-        assert_eq!(parsed["errors"][0]["phase"], 0);
+        assert_eq!(parsed["errors"][0]["phase"], "Input Validation");
+    }
+
+    #[test]
+    fn process_options_expose_core_limits_and_independent_datatype_policy() {
+        let custom = process_aeon_json(
+            "color:stroke = #ff00ff\n",
+            r#"{"validationMode":"strict","datatypePolicy":"allow_custom"}"#,
+        )
+        .expect("process custom datatype under strict behavior");
+        let custom: JsonValue = serde_json::from_str(&custom).expect("valid custom JSON");
+        assert_eq!(custom["errors"], serde_json::json!([]));
+
+        let limited = process_aeon_json(
+            "first:int32 = 1\nsecond:int32 = 2\n",
+            r#"{"validationMode":"strict","maxEvents":1}"#,
+        )
+        .expect("process event-limited source");
+        let limited: JsonValue = serde_json::from_str(&limited).expect("valid limit JSON");
+        assert_eq!(limited["errors"][0]["code"], "EVENT_COUNT_EXCEEDED");
+
+        let compile_only = process_aeon_json(
+            "notJson:nan = NaN\n",
+            r#"{"validationMode":"strict","finalize":false}"#,
+        )
+        .expect("process without finalization");
+        let compile_only: JsonValue =
+            serde_json::from_str(&compile_only).expect("valid compile-only JSON");
+        assert_eq!(compile_only["errors"], serde_json::json!([]));
+        assert_eq!(compile_only["finalized"], serde_json::json!(null));
+
+        assert!(
+            process_aeon_json("value:int32 = 1\n", r#"{"datatypePolicy":"not-a-policy"}"#,)
+                .expect_err("reject unknown datatype policy")
+                .contains("unsupported datatypePolicy")
+        );
     }
 
     #[test]

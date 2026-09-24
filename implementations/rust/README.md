@@ -59,6 +59,7 @@ The current crates include:
 - `aeon-canonical`
 - `aeon-finalize`
 - `aeon-cli`
+- `aeon-python`
 - `aeon-wasm`
 
 Current verified status:
@@ -149,6 +150,12 @@ cd implementations/rust
 cargo test
 ```
 
+The native Python package lives in `crates/aeon-python`. It is a mixed
+PyO3/maturin project whose public import is `altopelago.aeon`; the generated
+`altopelago.aeon._native` module is private. Its behavioral suite runs through
+an installed wheel rather than an embedded-Python Cargo test harness. See the
+crate README for local build and ownership details.
+
 ## CTS
 
 Run all supported CTS lanes:
@@ -179,6 +186,18 @@ For parser hardening work, a local `cargo-fuzz` workspace now lives under:
 - `implementations/rust/fuzz`
 
 See [`fuzz/README.md`](./fuzz/README.md) for the current fuzz targets and run instructions.
+
+Run Sofia's opt-in native-stack independence stress gate from the repository
+root with:
+
+```bash
+npm run test:sofia:deep-stack
+```
+
+The gate drives Sofia alone through 16,384 nested value-container,
+attribute-object, node, and datatype frames. It is intentionally excluded from
+the ordinary debug test suite and runs in an optimized, single-threaded test
+process.
 
 For direct CLI benchmarking, prefer the built release binary over `cargo run`.
 The repository benchmark helper is:

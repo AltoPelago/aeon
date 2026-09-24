@@ -19,6 +19,11 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package-version.outputs.version }}
+    environment:
+      name: npm
+      url: https://www.npmjs.com/org/altopelago
     defaults:
       run:
         working-directory: implementations/typescript
@@ -96,6 +101,10 @@ jobs:
       - name: Publish preflight
         run: pnpm publish:preflight
 
+      - name: Read package version
+        id: package-version
+        run: echo "version=$(node -p \"require('./packages/core/package.json').version\")" >> "$GITHUB_OUTPUT"
+
       - name: Publish packages to npm
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
         env:
@@ -105,3 +114,52 @@ jobs:
       - name: Dry-run npm publish
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: node ./tools/publish-npm-packages.mjs --dry-run --no-provenance
+
+  published-smoke:
+    name: Clean npm consumer
+    if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Install exact registry package and exercise public API
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          mkdir aeon-registry-smoke
+          cd aeon-registry-smoke
+          npm init --yes
+          for attempt in $(seq 1 12); do
+            if npm install --ignore-scripts --no-audit --fund=false \
+              "@altopelago/aeon-aes@${VERSION}" \
+              "@altopelago/aeon-annotation-stream@${VERSION}" \
+              "@altopelago/aeon-canonical@${VERSION}" \
+              "@altopelago/aeon-cli@${VERSION}" \
+              "@altopelago/aeon-core@${VERSION}" \
+              "@altopelago/aeon-finalize@${VERSION}" \
+              "@altopelago/aeon-integrity@${VERSION}" \
+              "@altopelago/aeon-lexer@${VERSION}" \
+              "@altopelago/aeon-parser@${VERSION}" \
+              "@altopelago/aeon-profiles@${VERSION}" \
+              "@altopelago/aeon-runtime@${VERSION}" \
+              "@altopelago/aeon-sdk@${VERSION}" \
+              "@altopelago/aeon-tonic@${VERSION}" \
+              "@altopelago/aeon-transport@${VERSION}" \
+              "@altopelago/aeon-typegen@${VERSION}" \
+              "@altopelago/aeon-wasm@${VERSION}" \
+              "@altopelago/aeos-core@${VERSION}"; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          node --input-type=module -e 'import { readAeonChecked } from "@altopelago/aeon-sdk"; const result = readAeonChecked("greeting:string = \"Hello\"\n"); if (result.finalized.document.greeting !== "Hello") process.exit(1)'

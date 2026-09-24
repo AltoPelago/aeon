@@ -10,17 +10,14 @@ use crate::{
     Diagnostic, ReferenceSegment, Span, Value, format_path,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ValidationIndexes {
     pub(crate) event_lookup: BTreeMap<String, usize>,
 }
 
 pub(crate) fn build_validation_indexes(flattened: &FlattenedDocument) -> ValidationIndexes {
-    let event_lookup = flattened
-        .rendered_event_paths
-        .iter()
-        .enumerate()
-        .map(|(index, path)| (path.clone(), index))
+    let event_lookup = (0..flattened.events.len())
+        .map(|index| (flattened.event_path(index).to_owned(), index))
         .collect();
     ValidationIndexes { event_lookup }
 }
@@ -30,11 +27,9 @@ pub(crate) fn build_validation_event_lookup(
     errors: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
-    let mut seen = HashSet::new();
     let mut duplicate_indexes = Vec::new();
     for (index, event) in events.iter().enumerate() {
-        let _ = event_lookup.insert(event.path.clone(), index);
-        if !seen.insert(event.path.clone()) {
+        if event_lookup.insert(event.path.clone(), index).is_some() {
             duplicate_indexes.push(index);
         }
     }
@@ -45,11 +40,18 @@ pub(crate) fn build_validation_event_lookup(
                 "DUPLICATE_KEY",
                 format!("Duplicate key: '{}'", key_from_path(path)),
             )
-            .at_path(path.clone())
+            .at_path(path)
             .with_span(events[index].span),
         );
     }
     event_lookup
+}
+
+pub(crate) fn top_level_canonical_paths_have_duplicates(bindings: &[Binding]) -> bool {
+    let mut seen = HashSet::with_capacity(bindings.len());
+    bindings
+        .iter()
+        .any(|binding| !seen.insert((binding.is_header, binding.key.as_str())))
 }
 
 pub(crate) fn validate_duplicate_canonical_paths(
@@ -57,52 +59,57 @@ pub(crate) fn validate_duplicate_canonical_paths(
     recovery: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mut seen = HashSet::new();
-    let mut duplicate_indexes = Vec::new();
-    for (index, (event, path)) in flattened
-        .events
-        .iter()
-        .zip(flattened.rendered_event_paths.iter())
-        .enumerate()
-    {
-        if !seen.insert((event.source_plane, path.clone())) {
-            duplicate_indexes.push(index);
+    let duplicate_indexes = {
+        let mut seen = HashSet::with_capacity(flattened.events.len());
+        let mut duplicate_indexes = Vec::new();
+        for (index, event) in flattened.events.iter().enumerate() {
+            if !seen.insert((event.source_plane, flattened.event_path(index))) {
+                duplicate_indexes.push(index);
+            }
         }
-    }
+        duplicate_indexes
+    };
     if duplicate_indexes.is_empty() {
         return;
     }
     for index in &duplicate_indexes {
-        let path = &flattened.rendered_event_paths[*index];
+        let path = flattened.event_path(*index);
         errors.push(
             Diagnostic::new(
                 "DUPLICATE_KEY",
                 format!("Duplicate key: '{}'", key_from_path(path)),
             )
-            .at_path(path.clone())
+            .at_path(path)
             .with_span(flattened.events[*index].span),
         );
     }
     if recovery {
         let mut retained = HashSet::new();
         let mut retained_events = Vec::with_capacity(flattened.events.len());
-        let mut retained_paths = Vec::with_capacity(flattened.rendered_event_paths.len());
-        for (event, path) in flattened
-            .events
-            .drain(..)
-            .zip(flattened.rendered_event_paths.drain(..))
-        {
-            if retained.insert((event.source_plane, path.clone())) {
-                retained_events.push(event);
-                retained_paths.push(path);
+        if flattened.paths_are_in_bindings() {
+            let mut retained_bindings = Vec::with_capacity(flattened.bindings.len());
+            for (event, binding) in flattened.events.drain(..).zip(flattened.bindings.drain(..)) {
+                if retained.insert((event.source_plane, binding.path.clone())) {
+                    retained_events.push(event);
+                    retained_bindings.push(binding);
+                }
             }
+            flattened.bindings = retained_bindings;
+        } else {
+            let mut retained_paths = Vec::with_capacity(flattened.rendered_event_paths.len());
+            for (event, path) in flattened
+                .events
+                .drain(..)
+                .zip(flattened.rendered_event_paths.drain(..))
+            {
+                if retained.insert((event.source_plane, path.clone())) {
+                    retained_events.push(event);
+                    retained_paths.push(path);
+                }
+            }
+            flattened.rendered_event_paths = retained_paths;
         }
         flattened.events = retained_events;
-        flattened.rendered_event_paths = retained_paths;
-        let mut retained_bindings = HashSet::new();
-        flattened
-            .bindings
-            .retain(|binding| retained_bindings.insert(binding.path.clone()));
     } else {
         flattened.events.clear();
         flattened.rendered_event_paths.clear();
@@ -113,28 +120,36 @@ pub(crate) fn validate_duplicate_canonical_paths(
 pub(crate) fn validate_duplicate_object_member_keys(
     bindings: &[Binding],
     errors: &mut Vec<Diagnostic>,
-) {
+) -> bool {
     let root = CanonicalPath::root();
+    let mut found_duplicate = false;
     for binding in bindings {
+        if !value_may_contain_object_bindings(&binding.value) {
+            continue;
+        }
         let path = root.member(binding.key.clone());
-        validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
+        found_duplicate |=
+            validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
     }
+    found_duplicate
 }
 
 fn validate_duplicate_object_member_keys_in_value(
     value: &Value,
     path: &CanonicalPath,
     errors: &mut Vec<Diagnostic>,
-) {
+) -> bool {
+    let mut found_duplicate = false;
     match value {
         Value::TypedValue { value, .. } => {
-            validate_duplicate_object_member_keys_in_value(value, path, errors);
+            found_duplicate |= validate_duplicate_object_member_keys_in_value(value, path, errors);
         }
         Value::ObjectNode { bindings } => {
             let mut seen = HashSet::new();
             for binding in bindings {
                 let member_path = path.member(binding.key.clone());
                 if !seen.insert(binding.key.clone()) {
+                    found_duplicate = true;
                     errors.push(
                         Diagnostic::new(
                             "DUPLICATE_KEY",
@@ -144,24 +159,50 @@ fn validate_duplicate_object_member_keys_in_value(
                         .with_span(binding.span),
                     );
                 }
-                validate_duplicate_object_member_keys_in_value(
-                    &binding.value,
-                    &member_path,
-                    errors,
-                );
+                if value_may_contain_object_bindings(&binding.value) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        &binding.value,
+                        &member_path,
+                        errors,
+                    );
+                }
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
-                validate_duplicate_object_member_keys_in_value(item, &path.index(index), errors);
+                if value_may_contain_object_bindings(item) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        item,
+                        &path.index(index),
+                        errors,
+                    );
+                }
             }
         }
         Value::NodeLiteral { children, .. } => {
             for (index, child) in children.iter().enumerate() {
-                validate_duplicate_object_member_keys_in_value(child, &path.index(index), errors);
+                if value_may_contain_object_bindings(child) {
+                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                        child,
+                        &path.index(index),
+                        errors,
+                    );
+                }
             }
         }
         _ => {}
+    }
+    found_duplicate
+}
+
+fn value_may_contain_object_bindings(value: &Value) -> bool {
+    match value {
+        Value::TypedValue { value, .. } => value_may_contain_object_bindings(value),
+        Value::ObjectNode { .. }
+        | Value::ListNode { .. }
+        | Value::TupleLiteral { .. }
+        | Value::NodeLiteral { .. } => true,
+        _ => false,
     }
 }
 
@@ -194,8 +235,64 @@ fn unescape_quoted_path_segment(segment: &str) -> String {
     result
 }
 
-pub(crate) fn validate_reference_steps(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CompactReferenceStep {
+    Claim {
+        current_path: String,
+        owner_path: String,
+        target: String,
+        base: String,
+        attribute_depth: usize,
+        span: Span,
+    },
+    VisibleTarget(String),
+}
+
+impl CompactReferenceStep {
+    pub(crate) fn is_claim(&self) -> bool {
+        matches!(self, Self::Claim { .. })
+    }
+
+    pub(crate) fn retained_string_bytes(&self) -> usize {
+        match self {
+            Self::Claim {
+                current_path,
+                owner_path,
+                target,
+                base,
+                ..
+            } => {
+                current_path.capacity()
+                    + owner_path.capacity()
+                    + target.capacity()
+                    + base.capacity()
+            }
+            Self::VisibleTarget(path) => path.capacity(),
+        }
+    }
+}
+
+pub(crate) fn compact_reference_steps(
     steps: &[ValidationReferenceStep],
+) -> Vec<CompactReferenceStep> {
+    let mut compact = Vec::new();
+    for step in steps {
+        match step {
+            ValidationReferenceStep::ValidateValue {
+                path,
+                owner_path,
+                value,
+            } => collect_compact_value_references(value, path, owner_path, &mut compact),
+            ValidationReferenceStep::VisibleTarget(path) => {
+                compact.push(CompactReferenceStep::VisibleTarget(path.clone()));
+            }
+        }
+    }
+    compact
+}
+
+pub(crate) fn validate_compact_reference_steps(
+    steps: &[CompactReferenceStep],
     all_targets: &HashSet<String>,
     max_attribute_depth: usize,
     errors: &mut Vec<Diagnostic>,
@@ -203,111 +300,59 @@ pub(crate) fn validate_reference_steps(
     let mut seen_base = HashSet::new();
     for step in steps {
         match step {
-            ValidationReferenceStep::ValidateValue {
-                path,
+            CompactReferenceStep::Claim {
+                current_path,
                 owner_path,
-                value,
-            } => {
-                validate_value_reference(
-                    value,
-                    path,
-                    owner_path,
-                    all_targets,
-                    &seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
-            }
-            ValidationReferenceStep::VisibleTarget(path) => {
+                target,
+                base,
+                attribute_depth,
+                span,
+            } => validate_reference_claim(
+                current_path,
+                owner_path,
+                target,
+                base,
+                *attribute_depth,
+                *span,
+                all_targets,
+                &seen_base,
+                max_attribute_depth,
+                errors,
+            ),
+            CompactReferenceStep::VisibleTarget(path) => {
                 let _ = seen_base.insert(path.clone());
             }
         }
     }
 }
 
-fn validate_value_reference(
+fn collect_compact_value_references(
     value: &Value,
     current_path: &str,
     owner_path: &str,
-    all_targets: &HashSet<String>,
-    seen_base: &HashSet<String>,
-    max_attribute_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    compact: &mut Vec<CompactReferenceStep>,
 ) {
     match value {
         Value::CloneReference { segments, span } | Value::PointerReference { segments, span } => {
-            let reference_span = *span;
-            let attr_depth = segments
-                .iter()
-                .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
-                .count();
-            if attr_depth > max_attribute_depth {
-                errors.push(
-                    Diagnostic::new(
-                        "ATTRIBUTE_DEPTH_EXCEEDED",
-                        format!("Reference at {current_path} exceeds max attribute depth"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
-            let target = format_reference_target(segments);
-            if target == current_path
-                || target == owner_path
-                || is_attribute_to_own_payload_reference(current_path, &target)
-            {
-                errors.push(
-                    Diagnostic::new(
-                        "SELF_REFERENCE",
-                        format!("Self reference: '{current_path}' references itself"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
-            if !all_targets.contains(&target) {
-                errors.push(
-                    Diagnostic::new(
-                        "MISSING_REFERENCE_TARGET",
-                        format!("Missing reference target: '{target}'"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-                return;
-            }
-            let requires_exact_attr_visibility = target.contains(".@")
-                && !(current_path == format_reference_base(segments)
-                    && target.starts_with(&format!("{current_path}.@")));
-            let is_visible = if requires_exact_attr_visibility {
-                seen_base.contains(&target)
-            } else {
-                let base = format_reference_base(segments);
-                seen_base.contains(&base)
-            };
-            if !is_visible {
-                errors.push(
-                    Diagnostic::new(
-                        "FORWARD_REFERENCE",
-                        format!("Forward reference: '{current_path}' references '{target}' defined later"),
-                    )
-                    .at_path("$")
-                    .with_span(reference_span),
-                );
-            }
+            compact.push(CompactReferenceStep::Claim {
+                current_path: current_path.to_owned(),
+                owner_path: owner_path.to_owned(),
+                target: format_reference_target(segments),
+                base: format_reference_base(segments),
+                attribute_depth: segments
+                    .iter()
+                    .filter(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+                    .count(),
+                span: *span,
+            });
         }
         Value::ObjectNode { bindings } => {
             for binding in bindings {
-                validate_attribute_reference_map(
+                collect_compact_attribute_references(
                     &binding.attributes,
                     &binding.attribute_order,
                     current_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
+                    compact,
                 );
             }
         }
@@ -319,29 +364,135 @@ fn validate_value_reference(
         } => {
             for attribute in attributes {
                 let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
-                validate_attribute_reference_map(
+                collect_compact_attribute_references(
                     attribute,
                     &attribute_order,
                     current_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
+                    compact,
                 );
             }
             for child in children {
-                validate_value_reference(
-                    child,
-                    current_path,
-                    owner_path,
-                    all_targets,
-                    seen_base,
-                    max_attribute_depth,
-                    errors,
-                );
+                collect_compact_value_references(child, current_path, owner_path, compact);
             }
         }
         _ => {}
+    }
+}
+
+pub(crate) fn append_compact_value_references(
+    value: &Value,
+    current_path: &str,
+    owner_path: &str,
+    shallow_value: bool,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    if shallow_value
+        && matches!(
+            value,
+            Value::ObjectNode { .. }
+                | Value::ListNode { .. }
+                | Value::TupleLiteral { .. }
+                | Value::NodeLiteral { .. }
+        )
+    {
+        return;
+    }
+    collect_compact_value_references(value, current_path, owner_path, compact);
+}
+
+fn collect_compact_attribute_references(
+    attributes: &BTreeMap<String, AttributeValue>,
+    attribute_order: &[String],
+    current_path: &str,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    for key in attribute_order {
+        let Some(entry) = attributes.get(key) else {
+            continue;
+        };
+        collect_compact_attribute_references(
+            &entry.object_members,
+            &entry.object_member_order,
+            current_path,
+            compact,
+        );
+        collect_compact_attribute_references(
+            &entry.nested_attrs,
+            &entry.nested_attr_order,
+            current_path,
+            compact,
+        );
+        if let Some(value) = &entry.value {
+            collect_compact_value_references(value, current_path, current_path, compact);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_reference_claim(
+    current_path: &str,
+    owner_path: &str,
+    target: &str,
+    base: &str,
+    attribute_depth: usize,
+    reference_span: Span,
+    all_targets: &HashSet<String>,
+    seen_base: &HashSet<String>,
+    max_attribute_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    if attribute_depth > max_attribute_depth {
+        errors.push(
+            Diagnostic::new(
+                "ATTRIBUTE_DEPTH_EXCEEDED",
+                format!("Reference at {current_path} exceeds max attribute depth"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    if target == current_path
+        || target == owner_path
+        || is_attribute_to_own_payload_reference(current_path, target)
+    {
+        errors.push(
+            Diagnostic::new(
+                "SELF_REFERENCE",
+                format!("Self reference: '{current_path}' references itself"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    if !all_targets.contains(target) {
+        errors.push(
+            Diagnostic::new(
+                "MISSING_REFERENCE_TARGET",
+                format!("Missing reference target: '{target}'"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
+        return;
+    }
+    let requires_exact_attr_visibility = target.contains(".@")
+        && !(current_path == base && target.starts_with(&format!("{current_path}.@")));
+    let is_visible = if requires_exact_attr_visibility {
+        seen_base.contains(target)
+    } else {
+        seen_base.contains(base)
+    };
+    if !is_visible {
+        errors.push(
+            Diagnostic::new(
+                "FORWARD_REFERENCE",
+                format!("Forward reference: '{current_path}' references '{target}' defined later"),
+            )
+            .at_path("$")
+            .with_span(reference_span),
+        );
     }
 }
 
@@ -351,54 +502,9 @@ fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bo
         .is_some_and(|(binding_path, _)| target == binding_path)
 }
 
-fn validate_attribute_reference_map(
-    attributes: &BTreeMap<String, AttributeValue>,
-    attribute_order: &[String],
-    current_path: &str,
-    all_targets: &HashSet<String>,
-    seen_base: &HashSet<String>,
-    max_attribute_depth: usize,
-    errors: &mut Vec<Diagnostic>,
-) {
-    for key in attribute_order {
-        let Some(entry) = attributes.get(key) else {
-            continue;
-        };
-        validate_attribute_reference_map(
-            &entry.object_members,
-            &entry.object_member_order,
-            current_path,
-            all_targets,
-            seen_base,
-            max_attribute_depth,
-            errors,
-        );
-        validate_attribute_reference_map(
-            &entry.nested_attrs,
-            &entry.nested_attr_order,
-            current_path,
-            all_targets,
-            seen_base,
-            max_attribute_depth,
-            errors,
-        );
-        if let Some(value) = &entry.value {
-            validate_value_reference(
-                value,
-                current_path,
-                current_path,
-                all_targets,
-                seen_base,
-                max_attribute_depth,
-                errors,
-            );
-        }
-    }
-}
-
-pub(crate) fn validate_datatypes(
+pub(crate) fn validate_datatypes<P: AsRef<str>>(
     events: &[AssignmentEvent],
-    rendered_event_paths: &[String],
+    rendered_event_paths: &[P],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
     effective_mode: Option<BehaviorMode>,
@@ -410,6 +516,7 @@ pub(crate) fn validate_datatypes(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
+        let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
             if let Some(error) =
                 validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
@@ -419,67 +526,22 @@ pub(crate) fn validate_datatypes(
                     | "INVALID_SEPARATOR_CHAR"
                     | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
-                    _ => path.as_str(),
+                    _ => path,
                 };
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
-            if !is_reserved_datatype(datatype) && datatype_policy == DatatypePolicy::ReservedOnly {
-                errors.push(
-                    Diagnostic::new(
-                        "CUSTOM_DATATYPE_NOT_ALLOWED",
-                        format!(
-                            "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                            path
-                        ),
-                    )
-                    .at_path(path.clone())
-                    .with_span(event.span),
-                );
-                continue;
-            }
             let resolved_value =
                 resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
-            if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
-            {
-                errors.push(
-                    Diagnostic::new(
-                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
-                        format!(
-                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
-                            path
-                        ),
-                    )
-                    .at_path(path.clone())
-                    .with_span(event.span),
-                );
-                continue;
-            }
-            if !is_reserved_datatype(datatype)
-                && mode == BehaviorMode::Strict
-                && resolved_value.value_kind() == "ToggleLiteral"
-            {
-                errors.push(
-                    Diagnostic::new(
-                        "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
-                        format!(
-                            "Custom toggle alias not allowed at '{}': use ':toggle' instead of ':{datatype}'",
-                            path
-                        ),
-                    )
-                    .at_path(path.clone())
-                    .with_span(event.span),
-                );
-                continue;
-            }
-            if !datatype_matches_value(datatype, resolved_value) {
-                let message =
-                    datatype_mismatch_message(path, datatype, resolved_value.value_kind());
-                errors.push(
-                    Diagnostic::new("DATATYPE_LITERAL_MISMATCH", message)
-                        .at_path(path.clone())
-                        .with_span(event.span),
-                );
+            if let Some(error) = datatype_value_error(
+                datatype,
+                &CompactDatatypeValue::from_value(resolved_value),
+                path,
+                event.span,
+                mode,
+                datatype_policy,
+            ) {
+                errors.push(error);
             }
         }
     }
@@ -487,6 +549,209 @@ pub(crate) fn validate_datatypes(
         bindings,
         &CanonicalPath::root(),
         mode,
+        datatype_policy,
+        max_separator_depth,
+        max_generic_depth,
+        errors,
+    );
+}
+
+pub(crate) fn validate_direct_event_datatype(
+    event: &AssignmentEvent,
+    path: &str,
+    mode: BehaviorMode,
+    datatype_policy: Option<DatatypePolicy>,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> Option<Diagnostic> {
+    let datatype = event.datatype.as_deref()?;
+    if matches!(
+        event.value,
+        Value::CloneReference { .. } | Value::PointerReference { .. }
+    ) {
+        return None;
+    }
+    if let Some(error) =
+        validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
+    {
+        let path_override = match error.code.as_str() {
+            "INVALID_NUMBER"
+            | "INVALID_SEPARATOR_CHAR"
+            | "CLARIFIER_VALUES_EXCEEDED"
+            | "GENERIC_DEPTH_EXCEEDED" => "$",
+            _ => path,
+        };
+        return Some(error.with_span(event.span).at_path(path_override));
+    }
+    datatype_value_error(
+        datatype,
+        &CompactDatatypeValue::from_value(&event.value),
+        path,
+        event.span,
+        mode,
+        effective_datatype_policy(mode, datatype_policy),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CompactDatatypeValue {
+    Number,
+    Infinity,
+    NaN,
+    Null,
+    String,
+    TrimtickString,
+    Toggle,
+    Boolean,
+    Hex(bool),
+    Separator,
+    Encoding(bool),
+    Radix(bool),
+    Date,
+    DateTime,
+    WtcDateTime,
+    Time,
+    Sansa,
+    Node,
+    List,
+    Tuple,
+    Object,
+    CloneReference(String),
+    PointerReference(String),
+}
+
+impl CompactDatatypeValue {
+    pub(crate) fn from_value(value: &Value) -> Self {
+        match value {
+            Value::TypedValue { value, .. } => Self::from_value(value),
+            Value::NumberLiteral { .. } => Self::Number,
+            Value::InfinityLiteral { .. } => Self::Infinity,
+            Value::NaNLiteral { .. } => Self::NaN,
+            Value::NullLiteral { .. } => Self::Null,
+            Value::StringLiteral { trimticks, .. } => {
+                if trimticks.is_some() {
+                    Self::TrimtickString
+                } else {
+                    Self::String
+                }
+            }
+            Value::ToggleLiteral { .. } => Self::Toggle,
+            Value::BooleanLiteral { .. } => Self::Boolean,
+            Value::HexLiteral { raw } => Self::Hex(has_valid_literal_underscores(raw)),
+            Value::SeparatorLiteral { .. } => Self::Separator,
+            Value::EncodingLiteral { raw } => Self::Encoding(has_valid_encoding_literal(raw)),
+            Value::RadixLiteral { raw } => Self::Radix(has_valid_radix_literal(raw)),
+            Value::DateLiteral { .. } => Self::Date,
+            Value::DateTimeLiteral { raw } => {
+                if raw.contains('&') {
+                    Self::WtcDateTime
+                } else {
+                    Self::DateTime
+                }
+            }
+            Value::TimeLiteral { .. } => Self::Time,
+            Value::SansaAddressLiteral { .. } => Self::Sansa,
+            Value::NodeLiteral { .. } => Self::Node,
+            Value::ListNode { .. } => Self::List,
+            Value::TupleLiteral { .. } => Self::Tuple,
+            Value::ObjectNode { .. } => Self::Object,
+            Value::CloneReference { segments, .. } => {
+                Self::CloneReference(format_reference_target(segments))
+            }
+            Value::PointerReference { segments, .. } => {
+                Self::PointerReference(format_reference_target(segments))
+            }
+        }
+    }
+
+    pub(crate) fn reference_target(&self) -> Option<&str> {
+        match self {
+            Self::CloneReference(target) | Self::PointerReference(target) => Some(target),
+            _ => None,
+        }
+    }
+
+    fn value_kind(&self) -> &'static str {
+        match self {
+            Self::Number => "NumberLiteral",
+            Self::Infinity => "InfinityLiteral",
+            Self::NaN => "NaNLiteral",
+            Self::Null => "NullLiteral",
+            Self::String => "StringLiteral",
+            Self::TrimtickString => "TrimtickStringLiteral",
+            Self::Toggle => "ToggleLiteral",
+            Self::Boolean => "BooleanLiteral",
+            Self::Hex(_) => "HexLiteral",
+            Self::Separator => "SeparatorLiteral",
+            Self::Encoding(_) => "EncodingLiteral",
+            Self::Radix(_) => "RadixLiteral",
+            Self::Date => "DateLiteral",
+            Self::DateTime => "DateTimeLiteral",
+            Self::WtcDateTime => "WTCDateTimeLiteral",
+            Self::Time => "TimeLiteral",
+            Self::Sansa => "SansaAddressLiteral",
+            Self::Node => "NodeLiteral",
+            Self::List => "ListNode",
+            Self::Tuple => "TupleLiteral",
+            Self::Object => "ObjectNode",
+            Self::CloneReference(_) => "CloneReference",
+            Self::PointerReference(_) => "PointerReference",
+        }
+    }
+
+    pub(crate) fn retained_string_bytes(&self) -> usize {
+        match self {
+            Self::CloneReference(target) | Self::PointerReference(target) => target.capacity(),
+            _ => 0,
+        }
+    }
+}
+
+pub(crate) fn validate_compact_reference_datatype(
+    datatype: &str,
+    resolved_value: &CompactDatatypeValue,
+    path: &str,
+    span: Span,
+    mode: BehaviorMode,
+    datatype_policy: Option<DatatypePolicy>,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> Option<Diagnostic> {
+    if let Some(error) =
+        validate_datatype_shape_without_literal(datatype, max_separator_depth, max_generic_depth)
+    {
+        let path_override = match error.code.as_str() {
+            "INVALID_SEPARATOR_CHAR" | "CLARIFIER_VALUES_EXCEEDED" | "GENERIC_DEPTH_EXCEEDED" => {
+                "$"
+            }
+            _ => path,
+        };
+        return Some(error.with_span(span).at_path(path_override));
+    }
+    datatype_value_error(
+        datatype,
+        resolved_value,
+        path,
+        span,
+        mode,
+        effective_datatype_policy(mode, datatype_policy),
+    )
+}
+
+pub(crate) fn validate_attribute_datatypes(
+    bindings: &[Binding],
+    mode: BehaviorMode,
+    datatype_policy: Option<DatatypePolicy>,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    validate_datatypes::<String>(
+        &[],
+        &[],
+        &BTreeMap::new(),
+        bindings,
+        Some(mode),
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
@@ -968,6 +1233,30 @@ fn validate_datatype_shape(
     max_separator_depth: usize,
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
+    if let Some(error) =
+        validate_datatype_shape_without_literal(datatype, max_separator_depth, max_generic_depth)
+    {
+        return Some(error);
+    }
+    if let Value::NumberLiteral { raw } = &event.value
+        && !is_valid_number_literal(raw)
+    {
+        if let Some((code, message)) = invalid_temporal_literal(raw) {
+            return Some(Diagnostic::new(code, message));
+        }
+        return Some(Diagnostic::new(
+            "INVALID_NUMBER",
+            format!("Number literal `{raw}` is not valid"),
+        ));
+    }
+    None
+}
+
+fn validate_datatype_shape_without_literal(
+    datatype: &str,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> Option<Diagnostic> {
     if datatype.contains("[,]") {
         return Some(Diagnostic::new(
             "INVALID_SEPARATOR_CHAR",
@@ -987,17 +1276,6 @@ fn validate_datatype_shape(
             format!(
                 "Generic depth {observed_generic_depth} exceeds max_generic_depth {max_generic_depth}"
             ),
-        ));
-    }
-    if let Value::NumberLiteral { raw } = &event.value
-        && !is_valid_number_literal(raw)
-    {
-        if let Some((code, message)) = invalid_temporal_literal(raw) {
-            return Some(Diagnostic::new(code, message));
-        }
-        return Some(Diagnostic::new(
-            "INVALID_NUMBER",
-            format!("Number literal `{raw}` is not valid"),
         ));
     }
     None
@@ -1170,6 +1448,66 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
     )
 }
 
+fn datatype_value_error(
+    datatype: &str,
+    value: &CompactDatatypeValue,
+    path: &str,
+    span: Span,
+    mode: BehaviorMode,
+    datatype_policy: DatatypePolicy,
+) -> Option<Diagnostic> {
+    if !is_reserved_datatype(datatype) && datatype_policy == DatatypePolicy::ReservedOnly {
+        return Some(
+            Diagnostic::new(
+                "CUSTOM_DATATYPE_NOT_ALLOWED",
+                format!(
+                    "Custom datatype not allowed in typed mode at '{path}': ':{datatype}' requires --datatype-policy allow_custom"
+                ),
+            )
+            .at_path(path.to_owned())
+            .with_span(span),
+        );
+    }
+    if datatype_base(datatype) == "switch" && matches!(value, CompactDatatypeValue::Toggle) {
+        return Some(
+            Diagnostic::new(
+                "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
+                format!(
+                    "Custom toggle alias not allowed at '{path}': use ':toggle' instead of ':{datatype}'"
+                ),
+            )
+            .at_path(path.to_owned())
+            .with_span(span),
+        );
+    }
+    if !is_reserved_datatype(datatype)
+        && mode == BehaviorMode::Strict
+        && matches!(value, CompactDatatypeValue::Toggle)
+    {
+        return Some(
+            Diagnostic::new(
+                "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
+                format!(
+                    "Custom toggle alias not allowed at '{path}': use ':toggle' instead of ':{datatype}'"
+                ),
+            )
+            .at_path(path.to_owned())
+            .with_span(span),
+        );
+    }
+    if !datatype_matches_compact_value(datatype, value) {
+        return Some(
+            Diagnostic::new(
+                "DATATYPE_LITERAL_MISMATCH",
+                datatype_mismatch_message(path, datatype, value.value_kind()),
+            )
+            .at_path(path.to_owned())
+            .with_span(span),
+        );
+    }
+    None
+}
+
 fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
     if datatype_has_generic_args(datatype) {
         Some(vec!["ListNode", "TupleLiteral"])
@@ -1197,49 +1535,40 @@ pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
 }
 
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
+    datatype_matches_compact_value(datatype, &CompactDatatypeValue::from_value(value))
+}
+
+fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) -> bool {
     let custom_expected = expected_kinds_for_custom_datatype(datatype);
     match datatype_base(datatype) {
         "number" | "n" | "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8"
         | "uint16" | "uint32" | "uint64" | "float" | "float32" | "float64" => {
-            matches!(value, Value::NumberLiteral { .. })
+            matches!(value, CompactDatatypeValue::Number)
         }
-        "infinity" => matches!(value, Value::InfinityLiteral { .. }),
-        "nan" => matches!(value, Value::NaNLiteral { .. }),
-        "string" => matches!(
-            value,
-            Value::StringLiteral {
-                trimticks: None,
-                ..
-            }
-        ),
-        "trimtick" => matches!(
-            value,
-            Value::StringLiteral {
-                trimticks: Some(_),
-                ..
-            }
-        ),
-        "boolean" | "bool" => matches!(value, Value::BooleanLiteral { .. }),
-        "toggle" => matches!(value, Value::ToggleLiteral { .. }),
-        "hex" => matches!(value, Value::HexLiteral { raw } if has_valid_literal_underscores(raw)),
+        "infinity" => matches!(value, CompactDatatypeValue::Infinity),
+        "nan" => matches!(value, CompactDatatypeValue::NaN),
+        "string" => matches!(value, CompactDatatypeValue::String),
+        "trimtick" => matches!(value, CompactDatatypeValue::TrimtickString),
+        "boolean" | "bool" => matches!(value, CompactDatatypeValue::Boolean),
+        "toggle" => matches!(value, CompactDatatypeValue::Toggle),
+        "hex" => matches!(value, CompactDatatypeValue::Hex(true)),
         "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
-            matches!(value, Value::RadixLiteral { raw } if has_valid_radix_literal(raw))
+            matches!(value, CompactDatatypeValue::Radix(true))
         }
         "encoding" | "base64" | "embed" | "inline" => {
-            matches!(value, Value::EncodingLiteral { raw } if has_valid_encoding_literal(raw))
+            matches!(value, CompactDatatypeValue::Encoding(true))
         }
-        "date" => matches!(value, Value::DateLiteral { .. }),
-        "time" => matches!(value, Value::TimeLiteral { .. }),
-        "datetime" => matches!(value, Value::DateTimeLiteral { raw } if !raw.contains('&')),
-        "wtc" => matches!(value, Value::DateTimeLiteral { raw } if raw.contains('&')),
-        "sep" => matches!(value, Value::SeparatorLiteral { .. }),
-        "kadot" => matches!(value, Value::SeparatorLiteral { .. }),
-        "tuple" | "triple" => matches!(value, Value::TupleLiteral { .. }),
-        "list" => matches!(value, Value::ListNode { .. }),
-        "object" | "obj" | "envelope" | "o" => matches!(value, Value::ObjectNode { .. }),
-        "node" => matches!(value, Value::NodeLiteral { .. }),
-        "sansa" => matches!(value, Value::SansaAddressLiteral { .. }),
-        "null" => matches!(value, Value::NullLiteral { .. }),
+        "date" => matches!(value, CompactDatatypeValue::Date),
+        "time" => matches!(value, CompactDatatypeValue::Time),
+        "datetime" => matches!(value, CompactDatatypeValue::DateTime),
+        "wtc" => matches!(value, CompactDatatypeValue::WtcDateTime),
+        "sep" | "kadot" => matches!(value, CompactDatatypeValue::Separator),
+        "tuple" | "triple" => matches!(value, CompactDatatypeValue::Tuple),
+        "list" => matches!(value, CompactDatatypeValue::List),
+        "object" | "obj" | "envelope" | "o" => matches!(value, CompactDatatypeValue::Object),
+        "node" => matches!(value, CompactDatatypeValue::Node),
+        "sansa" => matches!(value, CompactDatatypeValue::Sansa),
+        "null" => matches!(value, CompactDatatypeValue::Null),
         _ if custom_expected.is_some() => {
             let expected = custom_expected.as_ref().expect("checked is_some");
             expected.contains(&value.value_kind())

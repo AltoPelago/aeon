@@ -1,11 +1,23 @@
+use std::borrow::Cow;
+
+use crate::lexer::LexerSession;
 use crate::pathing::format_reference_target;
 use crate::{
-    AssignmentEvent, AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, Span,
-    TokenKind, Value, format_path, tokenize,
+    AssignmentEvent, AttributeValue, Binding, CompileOptions, Diagnostic, LexerOptions, Span, Value,
 };
 
 pub(crate) fn validate_source_resource_limits(
     source: &str,
+    bindings: &[Binding],
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
+    if let Some(error) = validate_binding_resource_limits(bindings, options) {
+        return Some(error);
+    }
+    validate_structured_comment_limits(source, options)
+}
+
+pub(crate) fn validate_binding_resource_limits(
     bindings: &[Binding],
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
@@ -14,57 +26,56 @@ pub(crate) fn validate_source_resource_limits(
             return Some(error);
         }
     }
-    let lexed = tokenize(
-        source,
-        LexerOptions {
-            include_comments: true,
-            ..LexerOptions::default()
-        },
-    );
-    for token in lexed.tokens {
-        if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
-            continue;
-        }
-        let structured_line =
-            token.kind == TokenKind::LineComment
-                && token.text.chars().nth(2).is_some_and(|marker| {
-                    matches!(marker, '#' | '@' | '?' | '!' | '{' | '[' | '(')
-                });
-        let structured_block =
-            token.kind == TokenKind::BlockComment
-                && token.text.chars().nth(1).is_some_and(|marker| {
-                    matches!(marker, '#' | '@' | '?' | '!' | '{' | '[' | '(')
-                });
-        if !structured_line && !structured_block {
-            continue;
-        }
-        let payload_chars =
-            token
-                .text
-                .chars()
-                .count()
-                .saturating_sub(if token.kind == TokenKind::LineComment {
-                    3
-                } else {
-                    4
-                });
-        if payload_chars > options.max_structured_comment_characters {
-            return Some(exhausted(
-                "max_structured_comment_characters",
-                payload_chars,
-                options.max_structured_comment_characters,
-                token.span,
-            ));
-        }
-    }
     None
 }
 
-pub(crate) fn validate_event_path_limits(
-    events: &[AssignmentEvent],
+fn validate_structured_comment_limits(
+    source: &str,
     options: &CompileOptions,
 ) -> Option<Diagnostic> {
-    for event in events {
+    const CHUNK_BYTES: usize = 8 * 1024;
+
+    if !source.as_bytes().contains(&b'/') {
+        return None;
+    }
+
+    let mut lexer = LexerSession::with_structured_comment_limit(
+        LexerOptions {
+            include_comments: false,
+            ..LexerOptions::default()
+        },
+        options.max_structured_comment_characters,
+    );
+    let mut start = 0;
+    while start < source.len() {
+        let mut end = (start + CHUNK_BYTES).min(source.len());
+        while !source.is_char_boundary(end) {
+            end -= 1;
+        }
+        drop(lexer.push(Cow::Borrowed(&source[start..end])));
+        start = end;
+    }
+    drop(lexer.finish());
+    lexer.structured_comment_limit_violation().map(|violation| {
+        structured_comment_limit_diagnostic(violation.observed, violation.limit, violation.span)
+    })
+}
+
+pub(crate) fn structured_comment_limit_diagnostic(
+    observed: usize,
+    limit: usize,
+    span: Span,
+) -> Diagnostic {
+    exhausted("max_structured_comment_characters", observed, limit, span)
+}
+
+pub(crate) fn validate_event_path_limits<P: AsRef<str>>(
+    events: &[AssignmentEvent],
+    rendered_paths: &[P],
+    options: &CompileOptions,
+) -> Option<Diagnostic> {
+    debug_assert_eq!(events.len(), rendered_paths.len());
+    for (event, rendered_path) in events.iter().zip(rendered_paths) {
         let depth = event.path.segments.len().saturating_sub(1);
         if depth > options.max_path_depth {
             return Some(exhausted(
@@ -74,7 +85,7 @@ pub(crate) fn validate_event_path_limits(
                 event.span,
             ));
         }
-        let characters = format_path(&event.path).chars().count();
+        let characters = rendered_path.as_ref().chars().count();
         if characters > options.max_path_characters {
             return Some(exhausted(
                 "max_path_characters",

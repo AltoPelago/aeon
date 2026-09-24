@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Binding, Diagnostic, HeaderFields, Position, Span, Value};
+use crate::{
+    AEON_GP_PROFILE_ID, BehaviorMode, Binding, Diagnostic, HeaderFields, Position, Span, Value,
+};
 
 fn combined_span(a: Span, b: Span) -> Span {
     Span {
@@ -17,6 +19,127 @@ fn earlier_position(a: Position, b: Position) -> Position {
 
 fn later_position(a: Position, b: Position) -> Position {
     if a.offset >= b.offset { a } else { b }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct IncrementalHeaderState {
+    first_structured_span: Option<Span>,
+    first_shorthand_span: Option<Span>,
+    first_layout_error: Option<Diagnostic>,
+    declared_mode: Option<BehaviorMode>,
+    declared_profile: Option<String>,
+    uses_gp_profile: bool,
+    observed_field_count: usize,
+    seen_non_structured_binding: bool,
+}
+
+impl IncrementalHeaderState {
+    pub(crate) fn observe(&mut self, binding: &Binding) {
+        if binding.is_header && binding.key == "aeon:header" {
+            if self.first_structured_span.is_none() {
+                self.first_structured_span = Some(binding.span);
+            }
+            if self.seen_non_structured_binding && self.first_layout_error.is_none() {
+                self.first_layout_error = Some(
+                    Diagnostic::new(
+                        "SYNTAX_ERROR",
+                        "Structured headers must appear before body bindings",
+                    )
+                    .at_path("$"),
+                );
+                return;
+            }
+            let Value::ObjectNode { bindings } = &binding.value else {
+                if self.first_layout_error.is_none() {
+                    self.first_layout_error = Some(
+                        Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object")
+                            .at_path("$"),
+                    );
+                }
+                return;
+            };
+            for field in bindings {
+                let key = if field.key == "mode" {
+                    "aeon:mode"
+                } else if field.key == "profile" {
+                    "aeon:profile"
+                } else {
+                    ""
+                };
+                self.observe_field(key, &field.value);
+            }
+            return;
+        }
+
+        self.seen_non_structured_binding = true;
+        if binding.is_header {
+            if self.first_shorthand_span.is_none() {
+                self.first_shorthand_span = Some(binding.span);
+            }
+            self.observe_field(&binding.key, &binding.value);
+        }
+    }
+
+    fn observe_field(&mut self, key: &str, value: &Value) {
+        self.observed_field_count = self.observed_field_count.saturating_add(1);
+        let Value::StringLiteral { value, .. } = value else {
+            return;
+        };
+        if key == "aeon:mode" && self.declared_mode.is_none() {
+            self.declared_mode = Some(match value.as_str() {
+                "strict" => BehaviorMode::Strict,
+                "custom" => BehaviorMode::Custom,
+                _ => BehaviorMode::Transport,
+            });
+        } else if key == "aeon:profile" && self.declared_profile.is_none() {
+            self.declared_profile = Some(value.clone());
+        }
+        if key == "aeon:profile" && value == AEON_GP_PROFILE_ID {
+            self.uses_gp_profile = true;
+        }
+    }
+
+    pub(crate) fn error(&self) -> Option<Diagnostic> {
+        if let (Some(structured), Some(shorthand)) =
+            (self.first_structured_span, self.first_shorthand_span)
+        {
+            return Some(
+                Diagnostic::new(
+                    "HEADER_CONFLICT",
+                    "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
+                )
+                .at_path("$")
+                .with_span(combined_span(structured, shorthand)),
+            );
+        }
+        self.first_layout_error.clone()
+    }
+
+    pub(crate) fn effective_mode(&self, override_mode: Option<BehaviorMode>) -> BehaviorMode {
+        override_mode
+            .or(self.declared_mode)
+            .unwrap_or(BehaviorMode::Transport)
+    }
+
+    pub(crate) const fn declared_mode(&self) -> Option<BehaviorMode> {
+        self.declared_mode
+    }
+
+    pub(crate) fn declared_profile(&self) -> Option<&str> {
+        self.declared_profile.as_deref()
+    }
+
+    pub(crate) fn uses_gp_profile(&self, option_profile: Option<&str>) -> bool {
+        option_profile == Some(AEON_GP_PROFILE_ID) || self.uses_gp_profile
+    }
+
+    pub(crate) const fn observed_field_count(&self) -> usize {
+        self.observed_field_count
+    }
+
+    pub(crate) fn retained_string_bytes(&self) -> usize {
+        self.declared_profile.as_ref().map_or(0, String::capacity)
+    }
 }
 
 pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
@@ -40,40 +163,23 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
 }
 
 pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagnostic> {
-    let structured_header = bindings
-        .iter()
-        .find(|binding| binding.is_header && binding.key == "aeon:header");
-    let shorthand_header = bindings
-        .iter()
-        .find(|binding| binding.is_header && binding.key != "aeon:header");
-    if let (Some(structured_header), Some(shorthand_header)) = (structured_header, shorthand_header)
-    {
-        return Err(Diagnostic::new(
-            "HEADER_CONFLICT",
-            "Header conflict: cannot use both structured header (aeon:header) and shorthand header fields",
-        )
-        .at_path("$")
-        .with_span(combined_span(structured_header.span, shorthand_header.span)));
+    let mut header_state = IncrementalHeaderState::default();
+    for binding in &bindings {
+        header_state.observe(binding);
+    }
+    if let Some(error) = header_state.error() {
+        return Err(error);
     }
     let mut lowered = Vec::new();
     let mut seen_body = false;
     for binding in bindings {
         if binding.is_header && binding.key == "aeon:header" {
-            if seen_body {
-                return Err(Diagnostic::new(
-                    "SYNTAX_ERROR",
-                    "Structured headers must appear before body bindings",
-                )
-                .at_path("$"));
-            }
+            debug_assert!(!seen_body);
             let Value::ObjectNode {
                 bindings: header_bindings,
             } = binding.value
             else {
-                return Err(
-                    Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object")
-                        .at_path("$"),
-                );
+                unreachable!("validated structured header must contain an object");
             };
             for header in header_bindings {
                 let mapped_key = if header.key == "mode" {
