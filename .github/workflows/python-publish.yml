@@ -163,3 +163,31 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+
+  published-smoke:
+    name: Clean PyPI consumer / CPython 3.12
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install exact binary wheel and exercise public API
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#python/v}"
+          for attempt in $(seq 1 12); do
+            if python -m pip install --no-cache-dir --only-binary=:all: "altopelago-aeon==${VERSION}"; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          python -c 'import altopelago.aeon as aeon; result = aeon.compile("greeting:string = \"Hello\"\n"); result.require_ok(); assert b"$.greeting" in aeon.compile_to_telex("greeting:string = \"Hello\"\n")'

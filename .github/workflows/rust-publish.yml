@@ -94,3 +94,48 @@ jobs:
           cargo publish --locked --manifest-path implementations/rust/crates/aeon-aeos/Cargo.toml
           cargo publish --locked --manifest-path implementations/rust/crates/aeon-finalize/Cargo.toml
           cargo publish --locked --manifest-path implementations/rust/crates/aeon-sdk/Cargo.toml
+
+  published-smoke:
+    name: Clean crates.io consumer
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: 1.93.1
+
+      - name: Install and exercise exact published version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#rust/v}"
+          cargo new --bin aeon-registry-smoke
+          cd aeon-registry-smoke
+          cat >> Cargo.toml <<EOF
+          altopelago-aeon = "=${VERSION}"
+          EOF
+          cat > src/main.rs <<'EOF'
+          use altopelago_aeon::{CompileToTelexOptions, aeon_to_telex};
+
+          fn main() {
+              let result = aeon_to_telex(
+                  "greeting:string = \"Hello\"\n",
+                  CompileToTelexOptions::default(),
+              );
+              assert!(result.compile.errors.is_empty());
+              assert!(result.telex.is_some());
+          }
+          EOF
+          for attempt in $(seq 1 12); do
+            if cargo fetch; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          cargo run --release

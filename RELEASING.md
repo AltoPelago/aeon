@@ -196,7 +196,9 @@ publishing for new versions and revoke any bootstrap crates.io token.
 
 The workflow gives OIDC permission only to its publish job. It obtains a
 short-lived crates.io token through the official crates.io authentication
-action; no registry token belongs in GitHub secrets.
+action; no registry token belongs in GitHub secrets. After publication, a new
+job with no repository checkout creates a fresh Cargo project, resolves the
+exact tagged facade version from crates.io, and exercises AEON-to-Telex output.
 
 ## Native Python PyPI Release Flow
 
@@ -223,7 +225,18 @@ Create the matching protected GitHub environment and require reviewer approval
 for deployment. The unprivileged build jobs upload the tested distributions;
 the final Linux job only downloads those artifacts and invokes the official
 PyPI publishing action with OIDC. PyPI attestations remain enabled by default,
-and no PyPI token belongs in GitHub secrets.
+and no PyPI token belongs in GitHub secrets. A subsequent clean job installs
+the exact tagged CPython 3.12 wheel from PyPI with source builds disabled and
+exercises both the typed compile API and Telex export.
+
+The npm release workflow likewise finishes with a separate clean job that has
+no repository checkout. It installs the exact published `@altopelago/aeon-sdk`
+version together with every other public package at that version, thereby
+checking the complete npm release set and its public dependency graph, and
+exercises the checked read/finalize API. All three registry smoke jobs retry
+dependency resolution for up to two minutes to tolerate normal index
+propagation, but run the behavioral check only once so implementation failures
+are not masked.
 
 ## Notes
 
