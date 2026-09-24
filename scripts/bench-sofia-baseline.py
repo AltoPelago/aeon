@@ -7,11 +7,11 @@ import argparse
 import hashlib
 import json
 import platform
-import re
 import statistics
 import subprocess
 import sys
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -89,12 +89,34 @@ def git_revision(path: Path) -> str:
     return command_output(["git", "rev-parse", "HEAD"], cwd=path)
 
 
-def telex_pin() -> str:
-    manifest = (REPO_ROOT / "implementations" / "rust" / "Cargo.toml").read_text()
-    match = re.search(r'aes-telex\s*=.*?rev\s*=\s*"([0-9a-f]{40})"', manifest)
-    if match is None:
-        raise RuntimeError("could not find the pinned aes-telex revision")
-    return match.group(1)
+def telex_dependency() -> str:
+    lock_path = REPO_ROOT / "implementations" / "rust" / "Cargo.lock"
+    lock = tomllib.loads(lock_path.read_text())
+    packages = [
+        package
+        for package in lock.get("package", [])
+        if package.get("name") == "altopelago-aes-telex"
+    ]
+    if len(packages) != 1:
+        raise RuntimeError(
+            "expected exactly one altopelago-aes-telex package in the Rust lockfile"
+        )
+
+    package = packages[0]
+    version = package.get("version")
+    source = package.get("source")
+    checksum = package.get("checksum")
+    if not isinstance(version, str) or not isinstance(source, str):
+        raise RuntimeError("altopelago-aes-telex lockfile entry is incomplete")
+    if not source.startswith("registry+"):
+        raise RuntimeError("altopelago-aes-telex is not locked to a registry source")
+    if not (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+    ):
+        raise RuntimeError("altopelago-aes-telex lockfile checksum is invalid")
+    return f"registry:altopelago-aes-telex@{version}#sha256:{checksum}"
 
 
 def repository_metadata() -> dict[str, Any]:
@@ -104,7 +126,7 @@ def repository_metadata() -> dict[str, Any]:
     cts_checkout = family_root / "aeonite-org" / "aeonite-cts"
     return {
         "aeon": git_revision(REPO_ROOT),
-        "aes_telex_dependency": telex_pin(),
+        "aes_telex_dependency": telex_dependency(),
         "aes_checkout": git_revision(aes_checkout),
         "aeonite_specs": git_revision(specs_checkout),
         "aeonite_cts": git_revision(cts_checkout),
