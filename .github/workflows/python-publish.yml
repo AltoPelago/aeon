@@ -1,0 +1,165 @@
+name: Python Publish
+
+on:
+  push:
+    tags:
+      - "python/v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release identity
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require signed annotated release tag
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+          git cat-file tag "${GITHUB_REF_NAME}" | grep -Eq '^-+BEGIN (PGP|SSH) SIGNATURE-+$'
+
+      - name: Verify tag commit is on main
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main
+
+      - name: Verify release tag is signed
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(printf '%s' "$tag_ref" | jq -r '.object.type')"
+          tag_sha="$(printf '%s' "$tag_ref" | jq -r '.object.sha')"
+          test "$tag_type" = "tag"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.verification.verified' | grep -qx true
+
+      - name: Check version consistency
+        run: npm run version:check
+
+      - name: Match tag to Python version
+        if: ${{ github.event_name == 'push' }}
+        run: npm run version:check-tag -- python "${GITHUB_REF_NAME}"
+
+  wheels:
+    name: ${{ matrix.platform.name }} / CPython ${{ matrix.python }}
+    needs: verify
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+        platform:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2_28"
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: "2_28"
+          - name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            manylinux: "off"
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: "off"
+          - name: windows-x86_64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            manylinux: "off"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          maturin-version: v1.15.0
+          rust-toolchain: 1.93.1
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          working-directory: implementations/rust/crates/aeon-python
+          args: >-
+            --release
+            --locked
+            --compatibility pypi
+            --interpreter python${{ matrix.python }}
+            --out dist
+
+      - name: Install and test exact wheel
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall --no-index --no-deps implementations/rust/crates/aeon-python/dist/*.whl
+          python -m unittest discover -s implementations/rust/crates/aeon-python/tests -p "test_*.py"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-dist-${{ matrix.platform.name }}-cp${{ matrix.python }}
+          path: implementations/rust/crates/aeon-python/dist/*.whl
+          if-no-files-found: error
+          retention-days: 1
+
+  sdist:
+    name: Source distribution
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          maturin-version: v1.15.0
+          rust-toolchain: 1.93.1
+          working-directory: implementations/rust/crates/aeon-python
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-dist-sdist
+          path: implementations/rust/crates/aeon-python/dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish PyPI distributions
+    if: ${{ github.event_name == 'push' }}
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/altopelago-aeon
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1

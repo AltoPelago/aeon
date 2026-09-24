@@ -1,0 +1,96 @@
+name: Rust Publish
+
+on:
+  push:
+    tags:
+      - "rust/v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify and package crates
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require signed annotated release tag
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+          git cat-file tag "${GITHUB_REF_NAME}" | grep -Eq '^-+BEGIN (PGP|SSH) SIGNATURE-+$'
+
+      - name: Verify tag commit is on main
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main
+
+      - name: Verify release tag is signed
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(printf '%s' "$tag_ref" | jq -r '.object.type')"
+          tag_sha="$(printf '%s' "$tag_ref" | jq -r '.object.sha')"
+          test "$tag_type" = "tag"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.verification.verified' | grep -qx true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: 1.93.1
+
+      - name: Check version consistency
+        run: npm run version:check
+
+      - name: Match tag to Rust version
+        if: ${{ github.event_name == 'push' }}
+        run: npm run version:check-tag -- rust "${GITHUB_REF_NAME}"
+
+      - name: Package public crates in dependency order
+        run: |
+          cargo publish --dry-run --locked --manifest-path implementations/rust/crates/aeon-core/Cargo.toml
+          cargo publish --dry-run --locked --manifest-path implementations/rust/crates/aeon-aeos/Cargo.toml
+          cargo publish --dry-run --locked --manifest-path implementations/rust/crates/aeon-finalize/Cargo.toml
+          cargo publish --dry-run --locked --manifest-path implementations/rust/crates/aeon-sdk/Cargo.toml
+
+  publish:
+    name: Publish crates.io packages
+    if: ${{ github.event_name == 'push' }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/altopelago-aeon
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: 1.93.1
+
+      - name: Authenticate with crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@4920f0933d6c80323414a03df1731d6678d52a1b # main
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          cargo publish --locked --manifest-path implementations/rust/crates/aeon-core/Cargo.toml
+          cargo publish --locked --manifest-path implementations/rust/crates/aeon-aeos/Cargo.toml
+          cargo publish --locked --manifest-path implementations/rust/crates/aeon-finalize/Cargo.toml
+          cargo publish --locked --manifest-path implementations/rust/crates/aeon-sdk/Cargo.toml

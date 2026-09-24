@@ -15,5 +15,6 @@ implementations/typescript/tools/**/package.json @AltoPelago
 implementations/rust/Cargo.toml @AltoPelago
 implementations/rust/Cargo.lock @AltoPelago
 implementations/rust/crates/**/Cargo.toml @AltoPelago
+implementations/rust/crates/aeon-python/pyproject.toml @AltoPelago
 
 implementations/python/pyproject.toml @AltoPelago
