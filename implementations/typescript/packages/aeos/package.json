@@ -46,7 +46,7 @@
     "@altopelago/aeon-aes": "workspace:*",
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
-    "@altopelago/sansa": "0.10.1"
+    "@altopelago/sansa": "0.11.1"
   },
   "publishConfig": {
     "access": "public"
