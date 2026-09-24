@@ -60,6 +60,10 @@ const rustWorkspacePackages = [
   { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
   { dependency: 'aeon-wasm', package: 'aeon-wasm' },
 ];
+const rustLockPackages = [
+  ...rustWorkspacePackages.map(({ package: packageName }) => packageName),
+  'aeon-python',
+];
 
 function rustWorkspaceDependencyLine({ dependency, package: packageName }, version) {
   const packageClause = dependency === packageName ? '' : `package = "${packageName}", `;
@@ -545,7 +549,7 @@ function consistencyProblems(sources, versions, { requireReleaseHeadings = true 
     problems,
     sources.get('implementations/rust/Cargo.lock'),
     'implementations/rust/Cargo.lock',
-    rustWorkspacePackages.map(({ package: packageName }) => packageName),
+    rustLockPackages,
     versions.rust,
   );
   cargoLockVersionProblems(
@@ -651,7 +655,7 @@ function updateRust(updates, current, next) {
     }
     return result;
   });
-  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustWorkspacePackages.map(({ package: packageName }) => packageName), current, next, 'implementations/rust/Cargo.lock'));
+  updateSource(updates, 'implementations/rust/Cargo.lock', (source) => replaceCargoLockVersions(source, rustLockPackages, current, next, 'implementations/rust/Cargo.lock'));
   updateSource(updates, 'implementations/rust/fuzz/Cargo.lock', (source) => replaceCargoLockVersions(source, ['altopelago-aeon-core'], current, next, 'implementations/rust/fuzz/Cargo.lock'));
   updateSource(updates, 'implementations/rust/README.md', (source) => replaceLiteral(source, `Current crate/workspace line: \`${current}\`.`, `Current crate/workspace line: \`${next}\`.`, 'Rust README current line'));
   updateSource(updates, 'VERSIONING.md', (source) => {

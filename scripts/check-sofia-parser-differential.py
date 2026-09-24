@@ -34,7 +34,7 @@ def main() -> int:
                 "--manifest-path",
                 str(RUST_MANIFEST),
                 "-p",
-                "aeon-core",
+                "altopelago-aeon-core",
                 TEST_NAME,
                 "--",
                 "--ignored",

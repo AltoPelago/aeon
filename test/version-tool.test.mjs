@@ -30,6 +30,7 @@ const rustPackages = [
   { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
   { dependency: 'aeon-wasm', package: 'aeon-wasm' },
 ];
+const rustLockPackages = [...rustPackages.map(({ package: packageName }) => packageName), 'aeon-python'];
 
 function rustDependencyLine({ dependency, package: packageName }, version) {
   const packageClause = dependency === packageName ? '' : `package = "${packageName}", `;
@@ -109,7 +110,7 @@ function fixtureSources(version = '1.2.3') {
   ].join('\n'));
   put('implementations/rust/Cargo.lock', [
     '# generated',
-    ...rustPackages.flatMap(({ package: packageName }) => [
+    ...rustLockPackages.flatMap((packageName) => [
       '',
       '[[package]]',
       `name = "${packageName}"`,
@@ -214,6 +215,10 @@ test('version set all updates TypeScript, Rust, and Python together', (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(readFileSync(join(root, 'implementations/rust/Cargo.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/rust/Cargo.lock'), 'utf8'), /version = "1\.3\.0"/);
+  assert.match(
+    readFileSync(join(root, 'implementations/rust/Cargo.lock'), 'utf8'),
+    /name = "aeon-python"\nversion = "1\.3\.0"/,
+  );
   assert.match(readFileSync(join(root, 'implementations/python/pyproject.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/rust/crates/aeon-python/pyproject.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/python/src/aeon/cli.py'), 'utf8'), /1\.3\.0/);
@@ -297,6 +302,25 @@ test('version check rejects a mismatched native Python package version', (t) => 
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /native Python project version 1\.2\.4 does not match Python 1\.2\.3/);
+});
+
+test('version check rejects a mismatched native Python Cargo lock entry', (t) => {
+  const { root } = createFixture(t);
+  const lockPath = join(root, 'implementations/rust/Cargo.lock');
+  writeFileSync(
+    lockPath,
+    readFileSync(lockPath, 'utf8').replace(
+      'name = "aeon-python"\nversion = "1.2.3"',
+      'name = "aeon-python"\nversion = "1.2.4"',
+    ),
+  );
+  const result = runVersion(root, ['check']);
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /implementations\/rust\/Cargo\.lock package aeon-python version 1\.2\.4 does not match 1\.2\.3/,
+  );
 });
 
 test('version check rejects malformed JSON without a stack trace', (t) => {

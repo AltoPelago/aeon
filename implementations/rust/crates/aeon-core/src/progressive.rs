@@ -1684,7 +1684,11 @@ impl ProgressiveCompiler {
             return Ok(self.backpressured_progress());
         }
 
-        self.accepted_input_bytes = self.accepted_input_bytes.saturating_add(chunk.len());
+        let accepted_input_bytes = self.accepted_input_bytes.saturating_add(chunk.len());
+        if let Some(progress) = self.reject_oversized_input(accepted_input_bytes) {
+            return Ok(progress);
+        }
+        self.accepted_input_bytes = accepted_input_bytes;
         if let Some(source) = &mut self.source {
             source.push_str(chunk);
         }
@@ -1699,6 +1703,49 @@ impl ProgressiveCompiler {
             .push_str(chunk, available);
         self.enqueue(batches);
         Ok(self.accepting_progress())
+    }
+
+    fn reject_oversized_input(
+        &mut self,
+        actual_bytes: usize,
+    ) -> Option<ProgressiveLifecycleProgress> {
+        let error = input_size_diagnostic_for_len(
+            actual_bytes,
+            self.options
+                .as_ref()
+                .expect("accepting progressive compiler must retain options"),
+        )?;
+        let options = self
+            .options
+            .take()
+            .expect("accepting progressive compiler must retain options");
+        self.accepted_input_bytes = actual_bytes;
+        self.frontend = None;
+        self.pending.clear();
+        self.terminal_output = None;
+        let source = match self.output_mode {
+            ProgressiveOutputMode::Rich(SourceRetention::Retain) => {
+                self.source.take().unwrap_or_default()
+            }
+            ProgressiveOutputMode::Rich(SourceRetention::Discard)
+            | ProgressiveOutputMode::Compact => {
+                self.source = None;
+                String::new()
+            }
+        };
+        self.state = ProgressiveLifecycleState::TerminalReady;
+        self.terminal = Some(ProgressiveDisposition::Invalidated {
+            result: CompileResult {
+                source,
+                events: Vec::new(),
+                errors: vec![error],
+                warnings: compile_portability_warnings(&options),
+                bindings: Vec::new(),
+                header: None,
+            },
+            exposed_event_count: self.exposed_event_count,
+        });
+        Some(ProgressiveLifecycleProgress::TerminalReady)
     }
 
     pub(crate) fn finish(
@@ -1983,6 +2030,17 @@ impl SofiaStreamCompiler {
             return Ok(self.backpressured_progress());
         }
 
+        let received_bytes = self.decoder.received_bytes().saturating_add(chunk.len());
+        if let Some(progress) = self
+            .compiler
+            .as_mut()
+            .expect("accepting Sofia stream must retain its compiler")
+            .reject_oversized_input(received_bytes)
+        {
+            self.decoder = Utf8Decoder::default();
+            return Ok(self.observe_progress(progress));
+        }
+
         let mut decoded = String::new();
         if let Err(error) = self.decoder.push(chunk, |_, text| decoded.push_str(text)) {
             return Ok(self.invalidate_utf8(error.valid_up_to, error.error_len));
@@ -2005,6 +2063,17 @@ impl SofiaStreamCompiler {
             .is_backpressured()
         {
             return Ok(self.backpressured_progress());
+        }
+
+        let received_bytes = self.decoder.received_bytes().saturating_add(chunk.len());
+        if let Some(progress) = self
+            .compiler
+            .as_mut()
+            .expect("accepting Sofia stream must retain its compiler")
+            .reject_oversized_input(received_bytes)
+        {
+            self.decoder = Utf8Decoder::default();
+            return Ok(self.observe_progress(progress));
         }
 
         let mut decoded = String::new();
@@ -2948,15 +3017,60 @@ mod tests {
             NonZeroUsize::new(2).expect("two is non-zero"),
             NonZeroUsize::new(2).expect("two is non-zero"),
         );
-        compiler.push_str(source).expect("push should succeed");
+        assert_eq!(
+            compiler.push_str(source),
+            Ok(ProgressiveLifecycleProgress::TerminalReady)
+        );
         let ProgressiveDisposition::Invalidated { result, .. } =
-            finish_progressive_compiler(&mut compiler)
+            compiler.take_terminal().expect("terminal should be ready")
         else {
             panic!("oversized stream should be invalidated");
         };
         assert_eq!(result, expected);
         assert_eq!(result.errors[0].code, "INPUT_SIZE_EXCEEDED");
         assert_eq!(compiler.buffered_bytes(), 0);
+    }
+
+    #[cfg(feature = "sofia")]
+    #[test]
+    fn public_stream_rejects_oversized_chunks_before_decoding_or_parsing() {
+        let mut compiler = SofiaStreamCompiler::new(
+            CompileOptions {
+                max_input_bytes: Some(4),
+                ..CompileOptions::default()
+            },
+            NonZeroUsize::new(2).expect("two is non-zero"),
+            NonZeroUsize::new(2).expect("two is non-zero"),
+        );
+
+        assert_eq!(
+            compiler.push(&[b'a', b'=', b'1', 0xf0]),
+            Ok(SofiaStreamProgress::NeedMoreInput { pending_batches: 0 })
+        );
+        assert_eq!(
+            compiler.push(&[0x9f, 0x8c, 0x8a]),
+            Ok(SofiaStreamProgress::TerminalReady)
+        );
+        let retention = compiler.retention();
+        assert_eq!(retention.accepted_input_bytes, 7);
+        assert_eq!(retention.source_bytes, 0);
+        assert_eq!(retention.lexer_active_bytes, 0);
+        assert_eq!(retention.parser_token_count, 0);
+        assert_eq!(retention.ready_event_count, 0);
+        let SofiaStreamTerminal::Invalidated {
+            errors,
+            exposed_event_count,
+            ..
+        } = compiler
+            .take_terminal()
+            .expect("terminal should be available")
+        else {
+            panic!("oversized stream should be invalidated");
+        };
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "INPUT_SIZE_EXCEEDED");
+        assert!(errors[0].message.contains("7 bytes"));
+        assert_eq!(exposed_event_count, 0);
     }
 
     #[test]

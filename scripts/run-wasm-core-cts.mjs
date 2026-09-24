@@ -150,6 +150,10 @@ function compareVector(vector, actual) {
   }
   failures.push(...compareDiagnostics(expected.errors ?? [], actual.errors));
   failures.push(...compareDiagnostics(expected.warnings ?? [], actual.warnings));
+  if (vector.assert?.no_extra_errors === true
+      && actual.errors.length > (expected.errors ?? []).length) {
+    failures.push(`unexpected extra errors: got ${actual.errors.length}, expected ${(expected.errors ?? []).length}`);
+  }
   if ('parse_ok' in (expected.result ?? {})
       && actual.ok !== Boolean(expected.result.parse_ok)) {
     failures.push(`result.parse_ok mismatch: expected ${Boolean(expected.result.parse_ok)}, got ${actual.ok}`);

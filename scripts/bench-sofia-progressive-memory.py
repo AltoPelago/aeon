@@ -150,7 +150,7 @@ def main() -> int:
     if not args.probe.is_file():
         raise RuntimeError(
             "progressive probe is missing; build it with "
-            "`cargo build --release -p aeon-core --example "
+            "`cargo build --release -p altopelago-aeon-core --example "
             "sofia_progressive_probe --features sofia-bench --locked`"
         )
 

@@ -113,6 +113,11 @@ impl Utf8Decoder {
         }
     }
 
+    #[cfg(feature = "sofia")]
+    pub(crate) const fn received_bytes(&self) -> usize {
+        self.received_bytes
+    }
+
     #[cfg(test)]
     pub(crate) const fn pending_bytes(&self) -> usize {
         self.pending_len

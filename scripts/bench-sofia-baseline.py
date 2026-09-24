@@ -364,7 +364,8 @@ def main() -> int:
         if not args.native_binary.is_file():
             raise RuntimeError(
                 "native benchmark binary is missing; run "
-                "`cargo build --release -p aeon-core --example sofia_baseline --locked` "
+                "`cargo build --release -p altopelago-aeon-core --example "
+                "sofia_baseline --features sofia-bench --locked` "
                 "from implementations/rust"
             )
         profiles = ("full", "check") if args.profile == "both" else (args.profile,)

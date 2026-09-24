@@ -126,7 +126,8 @@ def main() -> int:
     if not args.probe.is_file():
         raise RuntimeError(
             "native probe is missing; build it with "
-            "`cargo build --release -p aeon-core --example sofia_probe --locked`"
+            "`cargo build --release -p altopelago-aeon-core --example "
+            "sofia_probe --features sofia-bench --locked`"
         )
 
     empty_case = {
