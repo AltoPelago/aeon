@@ -67,7 +67,10 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
   numbers while retaining exact comparison metadata.
 - AEON `decimal` is the representation-preserving `radix[10]` alias. The
   adapter keeps its radix payload as text; numeric decimal interpretation and
-  ordering require an explicit trusted value-semantics profile.
+  ordering require an explicit trusted value-semantics profile. Radix-family
+  bindings expose their resolved `radixBase` for `decimal`, the reserved radix
+  aliases, and `radix[2]` through `radix[64]`, allowing SANSA's explicit
+  same-base radix-numeric profile to compare them without host-number coercion.
 - This integration provides bounded, deterministic, in-process resolution and
   query evaluation over compiled events. It does not add persistence, indexes,
   transactions, or a cost-based query optimizer.

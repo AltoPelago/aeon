@@ -18,6 +18,9 @@ repositories.
   attributes, and lossless finite-number materialization. Canonical numeric
   strings are the default; callers may explicitly opt into native JavaScript
   numbers while retaining the exact lexeme for SANSA comparison.
+- The public SANSA adapter now exposes resolved `radixBase` metadata for
+  radix-family values, including `decimal`, reserved aliases, and explicit
+  `radix[2]` through `radix[64]` declarations.
 
 ## 0.13.0 - 2026-09-14
 

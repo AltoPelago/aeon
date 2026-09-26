@@ -38,6 +38,7 @@ export interface AeonSansaBinding extends SansaResolveBinding {
   scalarKind?: string;
   nullReason?: string;
   numericLexeme?: string;
+  radixBase?: number;
   value?: unknown;
   children: AeonSansaBinding[];
   attributeSpace?: AeonSansaBinding;
@@ -48,6 +49,7 @@ export interface AeonSansaBinding extends SansaResolveBinding {
 export type AeonSansaNamespace = SansaResolveNamespace<AeonSansaBinding> & {
   readonly root: AeonSansaBinding;
   readonly numericLexeme: (binding: AeonSansaBinding) => string | undefined;
+  readonly radixBase: (binding: AeonSansaBinding) => number | undefined;
 };
 
 export interface ReadAeonNamespaceResult extends ReadAeonResult {
@@ -111,6 +113,7 @@ export function createAeonNamespace(
     value: (binding) => binding.value,
     nullReason: (binding) => binding.nullReason,
     numericLexeme: (binding) => binding.numericLexeme,
+    radixBase: (binding) => binding.radixBase,
     representationKindMatches: (binding, expected) => representationKindMatches(binding.representationKind, expected),
   };
 }
@@ -170,6 +173,8 @@ function bindingFromEvent(
   if (nullReason !== undefined) binding.nullReason = nullReason;
   const numericLexeme = numericLexemeFromValue(event.value);
   if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
+  const radixBase = radixBaseFromValue(event.value, semanticType);
+  if (radixBase !== undefined) binding.radixBase = radixBase;
   const scalar = scalarFromAeonValue(event.value, numericMaterialization);
   if (scalar.ok) binding.value = scalar.value;
 
@@ -211,6 +216,8 @@ function buildAttributeSpace(
     if (nullReason !== undefined) binding.nullReason = nullReason;
     const numericLexeme = numericLexemeFromValue(entry.value);
     if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
+    const radixBase = radixBaseFromValue(entry.value, binding.semanticType);
+    if (radixBase !== undefined) binding.radixBase = radixBase;
     const scalar = scalarFromAeonValue(entry.value, numericMaterialization);
     if (scalar.ok) binding.value = scalar.value;
     if (entry.annotations?.size) {
@@ -377,6 +384,19 @@ function scalarFromAeonValue(
 function numericLexemeFromValue(value: AeonValue): string | undefined {
   const unwrapped = unwrapTypedValue(value);
   return unwrapped.type === 'NumberLiteral' ? unwrapped.value : undefined;
+}
+
+function radixBaseFromValue(value: AeonValue, semanticType?: string): number | undefined {
+  const unwrapped = unwrapTypedValue(value);
+  if (unwrapped.type !== 'RadixLiteral' || typeof semanticType !== 'string') return undefined;
+  const normalized = semanticType.trim().toLowerCase();
+  if (normalized === 'decimal') return 10;
+  const alias = /^radix(2|6|8|12)$/u.exec(normalized);
+  if (alias !== null) return Number(alias[1]);
+  const clarified = /^radix\[(\d+)\]$/u.exec(normalized);
+  if (clarified === null) return undefined;
+  const base = Number(clarified[1]);
+  return Number.isInteger(base) && base >= 2 && base <= 64 ? base : undefined;
 }
 
 function nullReasonFromValue(value: AeonValue): string | undefined {

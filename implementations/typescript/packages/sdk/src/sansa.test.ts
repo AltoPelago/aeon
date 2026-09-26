@@ -37,6 +37,9 @@ types:object = {
   previous:number = 9007199254740992
   precise:number = 9007199254740993
   price:decimal = %19.9900
+  bits:radix[2] = %101.01
+  octal:radix8 = %70
+  maximum:radix[64] = %!
   active:boolean = true
   consent:toggle = yes
   color:hex = #ff00aa
@@ -130,6 +133,13 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   assert.equal(price.value, '19.9900');
   assert.equal(price.semanticType, 'decimal');
   assert.equal(price.representationKind, 'radix');
+  assert.equal(price.radixBase, 10);
+
+  const bits = bindingAt(namespace, '$.types.bits');
+  assert.equal(bits.value, '101.01');
+  assert.equal(bits.radixBase, 2);
+  assert.equal(bindingAt(namespace, '$.types.octal').radixBase, 8);
+  assert.equal(bindingAt(namespace, '$.types.maximum').radixBase, 64);
 
   assert.equal(bindingAt(namespace, '$.types.active').value, true);
   assert.deepEqual(
