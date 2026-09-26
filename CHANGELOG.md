@@ -8,6 +8,13 @@ repositories.
 
 ## Unreleased
 
+### Added
+
+- Added the `@altopelago/aeon-sdk/sansa` integration entry point with
+  `createAeonNamespace()` and `readAeonNamespace()` helpers. The adapter
+  preserves AES scalar, datatype, identity, null, and attribute metadata and
+  supports payload, header, and full-document namespace scopes.
+
 ## 0.13.0 - 2026-09-14
 
 ### Breaking

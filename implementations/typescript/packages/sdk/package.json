@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./sansa": {
+      "types": "./dist/sansa.d.ts",
+      "import": "./dist/sansa.js"
     }
   },
   "files": [
@@ -51,6 +55,7 @@
   "dependencies": {
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
-    "@altopelago/aeon-canonical": "workspace:*"
+    "@altopelago/aeon-canonical": "workspace:*",
+    "@altopelago/sansa": "0.11.1"
   }
 }
