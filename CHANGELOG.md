@@ -13,7 +13,10 @@ repositories.
 - Added the `@altopelago/aeon-sdk/sansa` integration entry point with
   `createAeonNamespace()` and `readAeonNamespace()` helpers. The adapter
   preserves AES scalar, datatype, identity, null, and attribute metadata and
-  supports payload, header, and full-document namespace scopes.
+  supports payload, header, and full-document namespace scopes. Its contract
+  coverage now includes every scalar family, references, containers, nested
+  attributes, and the distinction between lossless AES numeric lexemes and
+  JavaScript numbers used by the current query evaluator.
 
 ## 0.13.0 - 2026-09-14
 

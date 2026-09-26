@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateQuery, resolveAddress } from '@altopelago/sansa';
 import { readAeon } from './index.js';
-import { createAeonNamespace, readAeonNamespace } from './sansa.js';
+import {
+  createAeonNamespace,
+  readAeonNamespace,
+  type AeonSansaBinding,
+  type AeonSansaNamespace,
+} from './sansa.js';
 
 const INVENTORY_SOURCE = String.raw`aeon:header = {
   mode:string = "strict"
@@ -23,6 +28,44 @@ inventory\INVENTORY\@{source\SOURCE\:string = "erp"}:object = {
   ]
   unavailable:null = !notSet
 }`;
+
+const VALUE_FAMILIES_SOURCE = String.raw`target:number = 7
+targetClone:number = ~target
+targetPointer:number = ~>target
+
+types:object = {
+  precise:number = 9007199254740993
+  active:boolean = true
+  consent:toggle = yes
+  color:hex = #ff00aa
+  mask:radix[16] = %ff00aa
+  payload:encoding = &QmFzZTY0IQ==
+  version:sep["."] = ^0.11.0
+  selector:sansa = $.types.*.sku
+  released:date = 2026-07-25
+  window:time = 09:30:00Z
+  stamp:datetime = 2026-07-25T09:30:00Z
+  zone:wtc = 2026-07-25T09:30:00Z&Australia/Melbourne
+  metric:nan<number> = NaN
+  ceiling:infinity<number> = Infinity
+  floor:infinity<number> = -Infinity
+  unavailable:null<string> = !notApplicable
+}
+
+containers:object = {
+  series:list<number> = [1, 2]
+  pair:tuple = ("x", 1)
+  nodeValue:node = <tag("hello")>
+}
+
+annotated\ROOT\@{meta\META\@{deep\DEEP\ = 3}:string = "source"}:number = 1`;
+
+function bindingAt(namespace: AeonSansaNamespace, address: string): AeonSansaBinding {
+  const resolved = resolveAddress(address, namespace);
+  if (!resolved.ok) assert.fail(JSON.stringify(resolved.errors));
+  assert.equal(resolved.bindings.length, 1, `Expected one binding at ${address}`);
+  return resolved.bindings[0]!;
+}
 
 test('reads AEON directly into a payload-scoped SANSA namespace', () => {
   const { namespace } = readAeonNamespace(INVENTORY_SOURCE);
@@ -66,6 +109,102 @@ test('supports explicit header and full document scopes', () => {
 
   assert.deepEqual(header.root.children.map((binding) => binding.name), ['aeon:mode']);
   assert.deepEqual(full.root.children.map((binding) => binding.name), ['aeon:mode', 'inventory']);
+});
+
+test('adapts every AEON scalar family without erasing representation metadata', () => {
+  const { namespace, eventsByPath } = readAeonNamespace(VALUE_FAMILIES_SOURCE, {
+    compile: { datatypePolicy: 'allow_custom', maxAttributeDepth: 8 },
+  });
+
+  const precise = bindingAt(namespace, '$.types.precise');
+  assert.equal(precise.value, 9007199254740992);
+  const preciseEvent = eventsByPath.get('$.types.precise');
+  assert.equal(preciseEvent?.value.type, 'NumberLiteral');
+  if (preciseEvent?.value.type !== 'NumberLiteral') assert.fail('Expected NumberLiteral');
+  assert.equal(preciseEvent.value.value, '9007199254740993');
+
+  assert.equal(bindingAt(namespace, '$.types.active').value, true);
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.consent').representationKind, bindingAt(namespace, '$.types.consent').value],
+    ['toggle', 'yes'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.color').scalarKind, bindingAt(namespace, '$.types.color').value],
+    ['hex', 'ff00aa'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.mask').scalarKind, bindingAt(namespace, '$.types.mask').value],
+    ['radix', 'ff00aa'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.payload').scalarKind, bindingAt(namespace, '$.types.payload').value],
+    ['encoding', 'QmFzZTY0IQ=='],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.version').scalarKind, bindingAt(namespace, '$.types.version').value],
+    ['separator', '0.11.0'],
+  );
+  assert.deepEqual(bindingAt(namespace, '$.types.selector').value, {
+    type: 'SansaAddressLiteral',
+    address: '$.types.*.sku',
+    canonical: '$.types.*.sku',
+  });
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.released').scalarKind, bindingAt(namespace, '$.types.released').value],
+    ['date', '2026-07-25'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.window').scalarKind, bindingAt(namespace, '$.types.window').value],
+    ['time', '09:30:00Z'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.stamp').scalarKind, bindingAt(namespace, '$.types.stamp').value],
+    ['datetime', '2026-07-25T09:30:00Z'],
+  );
+  assert.deepEqual(
+    [bindingAt(namespace, '$.types.zone').scalarKind, bindingAt(namespace, '$.types.zone').value],
+    ['wtc', '2026-07-25T09:30:00Z&Australia/Melbourne'],
+  );
+  assert.equal(Number.isNaN(bindingAt(namespace, '$.types.metric').value), true);
+  assert.equal(bindingAt(namespace, '$.types.ceiling').value, Infinity);
+  assert.equal(bindingAt(namespace, '$.types.floor').value, -Infinity);
+
+  const unavailable = bindingAt(namespace, '$.types.unavailable');
+  assert.equal(unavailable.value, null);
+  assert.equal(unavailable.scalarKind, 'null');
+  assert.equal(unavailable.nullReason, 'notApplicable');
+});
+
+test('adapts references, containers, identities, and nested attributes', () => {
+  const { namespace } = readAeonNamespace(VALUE_FAMILIES_SOURCE, {
+    compile: { datatypePolicy: 'allow_custom', maxAttributeDepth: 8 },
+  });
+
+  assert.deepEqual(bindingAt(namespace, '$.targetClone').value, {
+    type: 'CloneReference',
+    path: ['target'],
+    canonical: '~target',
+  });
+  assert.deepEqual(bindingAt(namespace, '$.targetPointer').value, {
+    type: 'PointerReference',
+    path: ['target'],
+    canonical: '~>target',
+  });
+  assert.equal(bindingAt(namespace, '$.containers.series').representationKind, 'list');
+  assert.equal(bindingAt(namespace, '$.containers.pair').representationKind, 'tuple');
+  const node = bindingAt(namespace, '$.containers.nodeValue');
+  assert.equal(node.representationKind, 'node');
+  assert.equal(node.nodeTag, 'tag');
+
+  const annotated = bindingAt(namespace, '$.annotated');
+  assert.equal(annotated.identity, 'ROOT');
+  const meta = bindingAt(namespace, '$.annotated.@.meta');
+  assert.equal(meta.identity, 'META');
+  assert.equal(meta.value, 'source');
+  const deep = bindingAt(namespace, '$.annotated.@.meta.@.deep');
+  assert.equal(deep.identity, 'DEEP');
+  assert.equal(deep.value, 3);
+  assert.equal(namespace.parent?.(deep), meta.attributeSpace);
 });
 
 test('rejects event streams whose selected scope is not parent-first', () => {

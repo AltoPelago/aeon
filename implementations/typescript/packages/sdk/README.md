@@ -52,6 +52,24 @@ namespace exposes payload bindings by default; pass
 `{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
 Use `createAeonNamespace(events)` when the source has already been compiled.
 
+#### Semantics and limits
+
+- `candidateAddress` is a locator in the namespace's current structure, not a
+  durable identity. Positional addresses can move after edits. A binding's
+  `identity`, when present, is separate opaque structural-occurrence metadata;
+  SANSA mutation adapters can combine it with observed-state checks to reject
+  stale targets.
+- AES retains the source numeric lexeme. The namespace converts a finite AEON
+  number to a JavaScript `number` for the current SANSA evaluator. When exact
+  decimal or arbitrary-precision processing is required, retrieve the original
+  assignment event from `eventsByPath` (or retain the events passed to
+  `createAeonNamespace`).
+- This integration provides bounded, deterministic, in-process resolution and
+  query evaluation over compiled events. It does not add persistence, indexes,
+  transactions, or a cost-based query optimizer.
+- Query projections use AEON assignment syntax (`{ sku = .sku }`). `:` remains
+  reserved for datatype annotations.
+
 ## What This Package Does
 
 - wraps common read flows around `@altopelago/aeon-core` and `@altopelago/aeon-finalize`
