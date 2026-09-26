@@ -1,6 +1,7 @@
 import {
     AEON_DOCUMENT_PROJECTION,
     COMPLETE_AES_PROFILE,
+    aeonRadixDigitValue,
     validateTelexRecords,
     type AesDiagnostic,
     type PortableAesEvent,
@@ -450,19 +451,10 @@ function declaredRadixBase(record: PortableRecord): number | null {
 function exceedsDeclaredRadix(value: string, base: number): boolean {
     for (const character of value) {
         if (character === '+' || character === '-' || character === '.') continue;
-        const digit = radixDigitValue(character);
+        const digit = aeonRadixDigitValue(character);
         if (digit === null || digit >= base) return true;
     }
     return false;
-}
-
-function radixDigitValue(character: string): number | null {
-    if (character >= '0' && character <= '9') return character.charCodeAt(0) - 48;
-    if (character >= 'A' && character <= 'Z') return character.charCodeAt(0) - 55;
-    if (character >= 'a' && character <= 'z') return character.charCodeAt(0) - 61;
-    if (character === '&') return 62;
-    if (character === '!') return 63;
-    return null;
 }
 
 function referenceToken(prefix: '~' | '~>', target: string): string {

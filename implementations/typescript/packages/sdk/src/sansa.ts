@@ -1,4 +1,4 @@
-import { formatPath, type CompileResult } from '@altopelago/aeon-core';
+import { aeonRadixBaseFromDatatype, formatPath, type CompileResult } from '@altopelago/aeon-core';
 import type { SansaResolveBinding, SansaResolveNamespace } from '@altopelago/sansa';
 import {
   indexEventsByPath,
@@ -388,15 +388,7 @@ function numericLexemeFromValue(value: AeonValue): string | undefined {
 
 function radixBaseFromValue(value: AeonValue, semanticType?: string): number | undefined {
   const unwrapped = unwrapTypedValue(value);
-  if (unwrapped.type !== 'RadixLiteral' || typeof semanticType !== 'string') return undefined;
-  const normalized = semanticType.trim().toLowerCase();
-  if (normalized === 'decimal') return 10;
-  const alias = /^radix(2|6|8|12)$/u.exec(normalized);
-  if (alias !== null) return Number(alias[1]);
-  const clarified = /^radix\[(\d+)\]$/u.exec(normalized);
-  if (clarified === null) return undefined;
-  const base = Number(clarified[1]);
-  return Number.isInteger(base) && base >= 2 && base <= 64 ? base : undefined;
+  return unwrapped.type === 'RadixLiteral' ? aeonRadixBaseFromDatatype(semanticType) : undefined;
 }
 
 function nullReasonFromValue(value: AeonValue): string | undefined {

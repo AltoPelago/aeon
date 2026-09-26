@@ -1,4 +1,10 @@
-import { formatPath, type AssignmentEvent, type AttributeEntry } from '@altopelago/aeon-aes';
+import {
+    aeonRadixBaseFromDatatype,
+    aeonRadixDigitValue,
+    formatPath,
+    type AssignmentEvent,
+    type AttributeEntry,
+} from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,
@@ -815,58 +821,18 @@ function canonicalFinalizePath(path: string): string {
 }
 
 function declaredRadixBase(datatype: string | undefined): number | null {
-    if (!datatype) return null;
-
-    const trimmed = datatype.trim();
-    if (trimmed === 'decimal') return 10;
-    if (trimmed === 'radix2') return 2;
-    if (trimmed === 'radix6') return 6;
-    if (trimmed === 'radix8') return 8;
-    if (trimmed === 'radix12') return 12;
-
-    if (datatypeBase(trimmed) !== 'radix') return null;
-    const values = parseClarifierValues(trimmed);
-    if (values.length !== 1 || typeof values[0] !== 'number') return null;
-
-    const base = values[0];
-    return Number.isInteger(base) && base >= 2 && base <= 64 ? base : null;
-}
-
-function datatypeBase(datatype: string): string {
-    return datatype.split(/[<[]/, 1)[0] ?? datatype;
-}
-
-function parseClarifierValues(datatype: string): (string | number)[] {
-    const start = datatype.indexOf('[');
-    if (start < 0 || !datatype.endsWith(']')) return [];
-    const payload = datatype.slice(start + 1, -1);
-    try {
-        const parsed = JSON.parse(`[${payload}]`) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
-    } catch {
-        return [];
-    }
+    return aeonRadixBaseFromDatatype(datatype) ?? null;
 }
 
 function exceedsDeclaredRadix(value: string, base: number): boolean {
     for (const ch of value) {
         if (ch === '+' || ch === '-' || ch === '.') continue;
-        const digit = radixDigitValue(ch);
+        const digit = aeonRadixDigitValue(ch);
         if (digit == null || digit >= base) {
             return true;
         }
     }
     return false;
-}
-
-function radixDigitValue(ch: string): number | null {
-    if (ch >= '0' && ch <= '9') return ch.charCodeAt(0) - 48;
-    if (ch >= 'A' && ch <= 'Z') return ch.charCodeAt(0) - 55;
-    if (ch >= 'a' && ch <= 'z') return ch.charCodeAt(0) - 61;
-    if (ch === '&') return 62;
-    if (ch === '!') return 63;
-    return null;
 }
 
 function annotationsToJson(

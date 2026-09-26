@@ -21,6 +21,14 @@ repositories.
 - The public SANSA adapter now exposes resolved `radixBase` metadata for
   radix-family values, including `decimal`, reserved aliases, and explicit
   `radix[2]` through `radix[64]` declarations.
+- Added shared public radix utilities through AES and Core for the canonical
+  case-sensitive digit alphabet and datatype-to-base resolution. Finalization,
+  AEOS validation, and the SDK SANSA adapter now consume the same definitions.
+
+### Fixed
+
+- Aligned TypeScript AEOS radix validation with the Core base-64 alphabet:
+  lowercase letters map to 36 through 61, `&` maps to 62, and `!` maps to 63.
 
 ## 0.13.0 - 2026-09-14
 

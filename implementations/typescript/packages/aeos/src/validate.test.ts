@@ -1779,6 +1779,35 @@ describe('validate()', () => {
             assert.ok(result.errors.some((e) => e.code === ErrorCodes.NUMERIC_FORM_VIOLATION && e.path === '$.badBinary'));
         });
 
+        it('uses the case-sensitive Core digit alphabet through base 64', () => {
+            const entries = [
+                { key: 'upper', datatype: 'radix[36]', raw: '%Z', value: 'Z' },
+                { key: 'lowerTooHigh', datatype: 'radix[36]', raw: '%a', value: 'a' },
+                { key: 'ampersand', datatype: 'radix[63]', raw: '%&', value: '&' },
+                { key: 'bangTooHigh', datatype: 'radix[63]', raw: '%!', value: '!' },
+            ];
+            const aes = entries.map((entry, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: entry.key }] },
+                key: entry.key,
+                datatype: entry.datatype,
+                value: { type: 'RadixLiteral', value: entry.value, raw: entry.raw, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+
+            const result = validate(aes, {
+                rules: entries.map((entry) => ({
+                    path: `$.${entry.key}`,
+                    constraints: { type: 'RadixLiteral' as const, radix: Number(entry.datatype.slice(6, -1)) },
+                })),
+            });
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(!result.errors.some((error) => error.path === '$.upper'));
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.NUMERIC_FORM_VIOLATION && error.path === '$.lowerTooHigh'));
+            assert.ok(!result.errors.some((error) => error.path === '$.ampersand'));
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.NUMERIC_FORM_VIOLATION && error.path === '$.bangTooHigh'));
+        });
+
         it('requires radix literals to declare the constrained radix unless relaxed', () => {
             const aes: AES = [
                 {
