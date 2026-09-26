@@ -15,8 +15,9 @@ repositories.
   preserves AES scalar, datatype, identity, null, and attribute metadata and
   supports payload, header, and full-document namespace scopes. Its contract
   coverage now includes every scalar family, references, containers, nested
-  attributes, and the distinction between lossless AES numeric lexemes and
-  JavaScript numbers used by the current query evaluator.
+  attributes, and lossless finite-number materialization. Canonical numeric
+  strings are the default; callers may explicitly opt into native JavaScript
+  numbers while retaining the exact lexeme for SANSA comparison.
 
 ## 0.13.0 - 2026-09-14
 

@@ -34,7 +34,9 @@ targetClone:number = ~target
 targetPointer:number = ~>target
 
 types:object = {
+  previous:number = 9007199254740992
   precise:number = 9007199254740993
+  price:decimal = %19.9900
   active:boolean = true
   consent:toggle = yes
   color:hex = #ff00aa
@@ -79,7 +81,7 @@ test('reads AEON directly into a payload-scoped SANSA namespace', () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.results.map((entry) => entry.value), [
-    { type: 'object', value: { sku: 'A-100', qty: 14 } },
+    { type: 'object', value: { sku: 'A-100', qty: '14' } },
   ]);
 });
 
@@ -117,11 +119,17 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   });
 
   const precise = bindingAt(namespace, '$.types.precise');
-  assert.equal(precise.value, 9007199254740992);
+  assert.equal(precise.value, '9007199254740993');
+  assert.equal(precise.numericLexeme, '9007199254740993');
   const preciseEvent = eventsByPath.get('$.types.precise');
   assert.equal(preciseEvent?.value.type, 'NumberLiteral');
   if (preciseEvent?.value.type !== 'NumberLiteral') assert.fail('Expected NumberLiteral');
   assert.equal(preciseEvent.value.value, '9007199254740993');
+
+  const price = bindingAt(namespace, '$.types.price');
+  assert.equal(price.value, '19.9900');
+  assert.equal(price.semanticType, 'decimal');
+  assert.equal(price.representationKind, 'radix');
 
   assert.equal(bindingAt(namespace, '$.types.active').value, true);
   assert.deepEqual(
@@ -203,8 +211,23 @@ test('adapts references, containers, identities, and nested attributes', () => {
   assert.equal(meta.value, 'source');
   const deep = bindingAt(namespace, '$.annotated.@.meta.@.deep');
   assert.equal(deep.identity, 'DEEP');
-  assert.equal(deep.value, 3);
+  assert.equal(deep.value, '3');
+  assert.equal(deep.numericLexeme, '3');
   assert.equal(namespace.parent?.(deep), meta.attributeSpace);
+});
+
+test('requires explicit opt-in for native JavaScript number materialization', () => {
+  const { namespace } = readAeonNamespace(VALUE_FAMILIES_SOURCE, {
+    compile: { datatypePolicy: 'allow_custom', maxAttributeDepth: 8 },
+    namespace: { numericMaterialization: 'native' },
+  });
+
+  const previous = bindingAt(namespace, '$.types.previous');
+  const precise = bindingAt(namespace, '$.types.precise');
+  assert.equal(previous.value, 9007199254740992);
+  assert.equal(precise.value, 9007199254740992);
+  assert.equal(previous.numericLexeme, '9007199254740992');
+  assert.equal(precise.numericLexeme, '9007199254740993');
 });
 
 test('rejects event streams whose selected scope is not parent-first', () => {

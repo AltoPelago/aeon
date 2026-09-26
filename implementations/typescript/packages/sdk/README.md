@@ -59,11 +59,15 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
   `identity`, when present, is separate opaque structural-occurrence metadata;
   SANSA mutation adapters can combine it with observed-state checks to reject
   stale targets.
-- AES retains the source numeric lexeme. The namespace converts a finite AEON
-  number to a JavaScript `number` for the current SANSA evaluator. When exact
-  decimal or arbitrary-precision processing is required, retrieve the original
-  assignment event from `eventsByPath` (or retain the events passed to
-  `createAeonNamespace`).
+- AES retains the source numeric lexeme. The namespace exposes finite AEON
+  numbers as canonical strings by default and supplies the same lexeme to
+  SANSA's exact numeric comparator. Pass
+  `{ numericMaterialization: 'native' }` to `createAeonNamespace()`, or under
+  the `namespace` option of `readAeonNamespace()`, to opt into JavaScript
+  numbers while retaining exact comparison metadata.
+- AEON `decimal` is the representation-preserving `radix[10]` alias. The
+  adapter keeps its radix payload as text; numeric decimal interpretation and
+  ordering require an explicit trusted value-semantics profile.
 - This integration provides bounded, deterministic, in-process resolution and
   query evaluation over compiled events. It does not add persistence, indexes,
   transactions, or a cost-based query optimizer.
@@ -94,6 +98,9 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
 - `indexEventsByPath(events)`
 - `createAeonNamespace(events, options?)` from `@altopelago/aeon-sdk/sansa`
 - `readAeonNamespace(input, options?)` from `@altopelago/aeon-sdk/sansa`
+
+`CreateAeonNamespaceOptions` accepts `scope` and `numericMaterialization`.
+The latter is `lossless` by default and may be set to `native` explicitly.
 
 ## Notes
 

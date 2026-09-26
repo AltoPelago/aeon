@@ -15,10 +15,13 @@ type AeonAttributeEntry = NonNullable<AeonAssignmentEvent['annotations']> extend
   : never;
 
 export type AeonNamespaceScope = 'payload' | 'header' | 'full';
+export type AeonNumericMaterialization = 'lossless' | 'native';
 
 export interface CreateAeonNamespaceOptions {
   /** Select the AEON document plane exposed at the SANSA root. Defaults to `payload`. */
   readonly scope?: AeonNamespaceScope;
+  /** Materialize finite numbers as canonical strings or JavaScript numbers. Defaults to `lossless`. */
+  readonly numericMaterialization?: AeonNumericMaterialization;
 }
 
 export interface ReadAeonNamespaceOptions extends ReadAeonOptions {
@@ -34,6 +37,7 @@ export interface AeonSansaBinding extends SansaResolveBinding {
   representationKind?: string;
   scalarKind?: string;
   nullReason?: string;
+  numericLexeme?: string;
   value?: unknown;
   children: AeonSansaBinding[];
   attributeSpace?: AeonSansaBinding;
@@ -43,6 +47,7 @@ export interface AeonSansaBinding extends SansaResolveBinding {
 
 export type AeonSansaNamespace = SansaResolveNamespace<AeonSansaBinding> & {
   readonly root: AeonSansaBinding;
+  readonly numericLexeme: (binding: AeonSansaBinding) => string | undefined;
 };
 
 export interface ReadAeonNamespaceResult extends ReadAeonResult {
@@ -53,15 +58,16 @@ export interface ReadAeonNamespaceResult extends ReadAeonResult {
 /**
  * Adapt compiled AEON assignment events into a queryable SANSA namespace.
  *
- * Scalar AST values are converted to their JavaScript equivalents while AEON
- * datatype, representation, null, identity, and attribute metadata are kept on
- * the corresponding binding.
+ * Scalar AST values are exposed without losing finite-number precision while
+ * AEON datatype, representation, null, identity, and attribute metadata are
+ * kept on the corresponding binding.
  */
 export function createAeonNamespace(
   events: readonly AeonAssignmentEvent[],
   options: CreateAeonNamespaceOptions = {},
 ): AeonSansaNamespace {
   const scope = options.scope ?? 'payload';
+  const numericMaterialization = options.numericMaterialization ?? 'lossless';
   const root: AeonSansaBinding = {
     address: '$',
     representationKind: 'object',
@@ -85,7 +91,7 @@ export function createAeonNamespace(
       throw new Error(`AEON events contain more than one binding at '${address}'.`);
     }
 
-    const binding = bindingFromEvent(event, address, parents);
+    const binding = bindingFromEvent(event, address, parents, numericMaterialization);
     byAddress.set(address, binding);
     parents.set(binding, parent);
     parent.children.push(binding);
@@ -104,6 +110,7 @@ export function createAeonNamespace(
     representationKind: (binding) => binding.representationKind,
     value: (binding) => binding.value,
     nullReason: (binding) => binding.nullReason,
+    numericLexeme: (binding) => binding.numericLexeme,
     representationKindMatches: (binding, expected) => representationKindMatches(binding.representationKind, expected),
   };
 }
@@ -141,6 +148,7 @@ function bindingFromEvent(
   event: AeonAssignmentEvent,
   address: string,
   parents: Map<AeonSansaBinding, AeonSansaBinding | undefined>,
+  numericMaterialization: AeonNumericMaterialization,
 ): AeonSansaBinding {
   const segment = event.path.segments[event.path.segments.length - 1];
   const semanticType = event.datatype ?? semanticTypeFromValue(event.value);
@@ -160,13 +168,15 @@ function bindingFromEvent(
   if (scalarKind !== undefined) binding.scalarKind = scalarKind;
   const nullReason = nullReasonFromValue(event.value);
   if (nullReason !== undefined) binding.nullReason = nullReason;
-  const scalar = scalarFromAeonValue(event.value);
+  const numericLexeme = numericLexemeFromValue(event.value);
+  if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
+  const scalar = scalarFromAeonValue(event.value, numericMaterialization);
   if (scalar.ok) binding.value = scalar.value;
 
   const unwrapped = unwrapTypedValue(event.value);
   if (unwrapped.type === 'NodeLiteral') binding.nodeTag = unwrapped.tag;
   if (event.annotations?.size) {
-    binding.attributeSpace = buildAttributeSpace(address, event.annotations, binding, parents);
+    binding.attributeSpace = buildAttributeSpace(address, event.annotations, binding, parents, numericMaterialization);
   }
 
   return binding;
@@ -177,6 +187,7 @@ function buildAttributeSpace(
   annotations: ReadonlyMap<string, AeonAttributeEntry>,
   owner: AeonSansaBinding,
   parents: Map<AeonSansaBinding, AeonSansaBinding | undefined>,
+  numericMaterialization: AeonNumericMaterialization,
 ): AeonSansaBinding {
   const space: AeonSansaBinding = {
     address: `${ownerAddress}.@`,
@@ -198,10 +209,18 @@ function buildAttributeSpace(
     if (scalarKind !== undefined) binding.scalarKind = scalarKind;
     const nullReason = nullReasonFromValue(entry.value);
     if (nullReason !== undefined) binding.nullReason = nullReason;
-    const scalar = scalarFromAeonValue(entry.value);
+    const numericLexeme = numericLexemeFromValue(entry.value);
+    if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
+    const scalar = scalarFromAeonValue(entry.value, numericMaterialization);
     if (scalar.ok) binding.value = scalar.value;
     if (entry.annotations?.size) {
-      binding.attributeSpace = buildAttributeSpace(binding.address, entry.annotations, binding, parents);
+      binding.attributeSpace = buildAttributeSpace(
+        binding.address,
+        entry.annotations,
+        binding,
+        parents,
+        numericMaterialization,
+      );
     }
     parents.set(binding, space);
     space.children.push(binding);
@@ -282,6 +301,7 @@ function scalarKindFromValue(value: AeonValue, semanticType?: string): string | 
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'separator';
     case 'SansaAddressLiteral': return 'sansaAddress';
+    case 'NumberLiteral': return 'number';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return temporalKindFromSemanticType(semanticType);
     case 'DateTimeLiteral': return temporalKindFromSemanticType(semanticType);
@@ -289,7 +309,6 @@ function scalarKindFromValue(value: AeonValue, semanticType?: string): string | 
     case 'PointerReference':
       return 'referenceForm';
     case 'StringLiteral':
-    case 'NumberLiteral':
     case 'BooleanLiteral':
     case 'ObjectNode':
     case 'ListNode':
@@ -299,7 +318,10 @@ function scalarKindFromValue(value: AeonValue, semanticType?: string): string | 
   }
 }
 
-function scalarFromAeonValue(value: AeonValue): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+function scalarFromAeonValue(
+  value: AeonValue,
+  numericMaterialization: AeonNumericMaterialization,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
   const unwrapped = unwrapTypedValue(value);
   switch (unwrapped.type) {
     case 'StringLiteral':
@@ -313,7 +335,10 @@ function scalarFromAeonValue(value: AeonValue): { readonly ok: true; readonly va
     case 'ToggleLiteral':
       return { ok: true, value: unwrapped.value };
     case 'NumberLiteral':
-      return { ok: true, value: Number(unwrapped.value) };
+      return {
+        ok: true,
+        value: numericMaterialization === 'native' ? Number(unwrapped.value) : unwrapped.value,
+      };
     case 'InfinityLiteral':
       return { ok: true, value: unwrapped.value === '-Infinity' ? -Infinity : Infinity };
     case 'NaNLiteral':
@@ -347,6 +372,11 @@ function scalarFromAeonValue(value: AeonValue): { readonly ok: true; readonly va
     case 'NodeLiteral':
       return { ok: false };
   }
+}
+
+function numericLexemeFromValue(value: AeonValue): string | undefined {
+  const unwrapped = unwrapTypedValue(value);
+  return unwrapped.type === 'NumberLiteral' ? unwrapped.value : undefined;
 }
 
 function nullReasonFromValue(value: AeonValue): string | undefined {
