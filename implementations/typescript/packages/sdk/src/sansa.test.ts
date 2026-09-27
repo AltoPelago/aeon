@@ -134,10 +134,13 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   assert.equal(price.semanticType, 'decimal');
   assert.equal(price.representationKind, 'radix');
   assert.equal(price.radixBase, 10);
+  assert.equal(price.radixScale, 4);
 
   const bits = bindingAt(namespace, '$.types.bits');
   assert.equal(bits.value, '101.01');
   assert.equal(bits.radixBase, 2);
+  assert.equal(bits.radixScale, 2);
+  assert.equal(namespace.radixScale(bits), 2);
   assert.equal(bindingAt(namespace, '$.types.octal').radixBase, 8);
   assert.equal(bindingAt(namespace, '$.types.maximum').radixBase, 64);
 

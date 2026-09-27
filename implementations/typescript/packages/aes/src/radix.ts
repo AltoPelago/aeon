@@ -31,3 +31,43 @@ export function aeonRadixBaseFromDatatype(datatype: string | undefined): number 
         ? base
         : undefined;
 }
+
+/**
+ * Return the represented fractional digit count for an AEON radix payload.
+ *
+ * Visual `_` separators do not contribute to scale. When a base is supplied,
+ * digits outside that base make the payload invalid.
+ */
+export function aeonRadixScale(payload: string, base?: number): number | null {
+    if (payload.length === 0) return null;
+    if (base !== undefined && (!Number.isInteger(base) || base < AEON_RADIX_MIN_BASE || base > AEON_RADIX_MAX_BASE)) {
+        return null;
+    }
+
+    let index = payload[0] === '+' || payload[0] === '-' ? 1 : 0;
+    if (index === payload.length) return null;
+    let sawDigit = false;
+    let sawPoint = false;
+    let scale = 0;
+    for (; index < payload.length; index += 1) {
+        const character = payload[index]!;
+        if (character === '.') {
+            if (sawPoint) return null;
+            sawPoint = true;
+            continue;
+        }
+        if (character === '_') {
+            const previous = payload[index - 1];
+            const next = payload[index + 1];
+            if (previous === undefined || next === undefined || aeonRadixDigitValue(previous) === null || aeonRadixDigitValue(next) === null) {
+                return null;
+            }
+            continue;
+        }
+        const digit = aeonRadixDigitValue(character);
+        if (digit === null || base !== undefined && digit >= base) return null;
+        sawDigit = true;
+        if (sawPoint) scale += 1;
+    }
+    return !sawDigit || sawPoint && scale === 0 ? null : scale;
+}

@@ -71,6 +71,9 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
   bindings expose their resolved `radixBase` for `decimal`, the reserved radix
   aliases, and `radix[2]` through `radix[64]`, allowing SANSA's explicit
   same-base radix-numeric profile to compare them without host-number coercion.
+  They also expose `radixScale`, the represented fractional digit count excluding
+  visual `_` separators: `%19.9900` reports 4 and `%19.99` reports 2. Scale is
+  representation metadata and does not alter either comparison mode.
 - This integration provides bounded, deterministic, in-process resolution and
   query evaluation over compiled events. It does not add persistence, indexes,
   transactions, or a cost-based query optimizer.

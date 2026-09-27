@@ -44,6 +44,7 @@ export {
     AEON_RADIX_MIN_BASE,
     aeonRadixBaseFromDatatype,
     aeonRadixDigitValue,
+    aeonRadixScale,
 } from '@altopelago/aeon-aes';
 
 // =============================================================================

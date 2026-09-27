@@ -5,6 +5,7 @@ import {
     AEON_RADIX_MIN_BASE,
     aeonRadixBaseFromDatatype,
     aeonRadixDigitValue,
+    aeonRadixScale,
 } from './radix.js';
 
 describe('AEON radix utilities', () => {
@@ -34,5 +35,14 @@ describe('AEON radix utilities', () => {
         assert.equal(aeonRadixBaseFromDatatype('radix[65]'), undefined);
         assert.equal(aeonRadixBaseFromDatatype('radix16'), undefined);
         assert.equal(aeonRadixBaseFromDatatype(undefined), undefined);
+    });
+
+    it('reports representation-preserving fractional scale', () => {
+        assert.equal(aeonRadixScale('19.9900', 10), 4);
+        assert.equal(aeonRadixScale('19.99', 10), 2);
+        assert.equal(aeonRadixScale('101', 2), 0);
+        assert.equal(aeonRadixScale('-.0_0', 2), 2);
+        assert.equal(aeonRadixScale('A.0', 10), null);
+        assert.equal(aeonRadixScale('1.', 10), null);
     });
 });

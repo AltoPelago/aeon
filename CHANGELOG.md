@@ -24,6 +24,9 @@ repositories.
 - Added shared public radix utilities through AES and Core for the canonical
   case-sensitive digit alphabet and datatype-to-base resolution. Finalization,
   AEOS validation, and the SDK SANSA adapter now consume the same definitions.
+- Added shared `aeonRadixScale(...)` support and `radixScale` metadata on the
+  SDK SANSA adapter. Fractional trailing zeroes are preserved in the count;
+  this metadata does not change representation or numeric equality.
 
 ### Fixed
 
