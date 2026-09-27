@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: 26.6.1
-        version: 26.6.1
+        specifier: 26.6.2
+        version: 26.6.2
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -256,26 +256,26 @@ importers:
         version: 1.0.14
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
   tools/annotation-cts-runner:
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
   tools/cts-author:
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
   tools/cts-runner:
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
   tools/phase-fuzz:
     dependencies:
@@ -287,8 +287,8 @@ importers:
         version: link:../../packages/parser
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
   tools/sansa-resolve-cts-runner:
     dependencies:
@@ -297,8 +297,8 @@ importers:
         version: 0.11.1
     devDependencies:
       '@types/node':
-        specifier: ^26.6.1
-        version: 26.6.1
+        specifier: ^26.6.2
+        version: 26.6.2
 
 packages:
 
@@ -307,8 +307,8 @@ packages:
     engines: {node: '>=20.0.0'}
     hasBin: true
 
-  '@types/node@26.6.1':
-    resolution: {integrity: sha512-VqGJBMCtdhqkBUCcBLvywI0NJ+KLuVzgNnlBUNFOQjqVxzo2lxLUNg1DSey8+u2u6ktswSAxg+s68QLzWHNOuA==}
+  '@types/node@26.6.2':
+    resolution: {integrity: sha512-X1P21scMv4zGKLYqjdGjaKa7COa0RKVYYZZN/NfvLQ1JegxFhdhpZG/Lyn8AXx6CDUavKAd11v6BvfpkDByK8g==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -459,7 +459,7 @@ snapshots:
 
   '@altopelago/sansa@0.11.1': {}
 
-  '@types/node@26.6.1':
+  '@types/node@26.6.2':
     dependencies:
       undici-types: 8.9.0
 
