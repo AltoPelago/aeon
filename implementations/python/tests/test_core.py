@@ -532,11 +532,43 @@ class CoreCompileTests(unittest.TestCase):
             "z:wtc = 2025-01-01T09Z&Etc/GMT-1",
             "z:wtc = 2025-01-01T09Z&Etc/GMT+1",
             "z:wtc = 2035-01-01T09:00&-36.7590183/144.2826718",
+            "z:wtc = 2026-01-01T09:10:00+01:00&+/Antarctica/Elisabeth",
+            "z:wtc = 2026-01-01T09:10:10&TAI",
+            "z:wtc = 2026-01-01T09:10:10&UT1",
+            "z:wtc = 2026-01-01T09:10:10&TT",
+            "z:wtc = 2026-01-01T09:10:10&GPS",
         )
         for source in cases:
             with self.subTest(source=source):
                 result = compile_source(source)
                 self.assertEqual([], result.errors)
+
+    def test_temporal_fraction_leap_second_and_year_boundaries(self) -> None:
+        accepted = (
+            "t:time = 23:59:59.340000",
+            "leap:time = 23:59:60.5",
+            "utc:datetime = 2016-12-31T23:59:60Z",
+            "west:datetime = 2016-12-31T18:59:60-05:00",
+            "east:datetime = 2017-01-01T12:59:60+13:00",
+            "zone:wtc = 2017-01-01T10:59:60+11:00&Australia/Melbourne",
+            "lower:date = 0001-01-01",
+            "upper:date = 9999-12-31",
+        )
+        for source in accepted:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.errors)
+                self.assertIn(source.split(" = ", 1)[1], result.events[0]["value"]["raw"])
+
+        rejected = (
+            ("t:time = 23:59:61", "INVALID_TIME"),
+            ("t:time = 23:59:59.", "INVALID_TIME"),
+            ("date:date = 0000-01-01", "INVALID_DATE"),
+        )
+        for source, code in rejected:
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([code], [error.code for error in result.errors])
 
     def test_wtc_still_rejects_invalid_slash_placement(self) -> None:
         cases = (

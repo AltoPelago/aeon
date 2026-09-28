@@ -178,6 +178,18 @@ describe('buildRuleIndex()', () => {
         assert.strictEqual(ctx.errors.length, 0);
     });
 
+    it('rejects unsupported temporal context policies', () => {
+        const schema = {
+            rules: [{ path: '$.when', constraints: { temporal_context_policy: 'document-selected' } }],
+        } as unknown as SchemaV1;
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 0);
+        assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+    });
+
     it('rejects legacy indexed wildcard selectors because selectors are SANSA-only', () => {
         const schema: SchemaV1 = {
             rules: [
@@ -486,5 +498,44 @@ describe('buildRuleIndex()', () => {
             ['datatype_rules.malformed', 'datatype_rules.reversed']
         );
         assert.ok(ctx.errors.every((error) => error.code === ErrorCodes.UNKNOWN_CONSTRAINT_KEY));
+    });
+
+    it('accepts valid temporal field constraints', () => {
+        const schema: SchemaV1 = {
+            rules: [{
+                path: '$.observedAt',
+                constraints: {
+                    temporal_max_second: 59,
+                    temporal_min_year: 1,
+                    temporal_max_year: 9999,
+                },
+            }],
+        };
+        const ctx = createDiagContext();
+
+        const index = buildRuleIndex(schema, ctx);
+
+        assert.strictEqual(index.size, 1);
+        assert.strictEqual(ctx.errors.length, 0);
+    });
+
+    it('rejects invalid temporal field constraint declarations', () => {
+        const schemas = [
+            { temporal_max_second: 61 },
+            { temporal_max_second: 59.5 },
+            { temporal_min_year: 0 },
+            { temporal_max_year: 10000 },
+            { temporal_min_year: 2027, temporal_max_year: 2026 },
+        ];
+
+        for (const constraints of schemas) {
+            const ctx = createDiagContext();
+            const index = buildRuleIndex({
+                rules: [{ path: '$.observedAt', constraints }],
+            } as SchemaV1, ctx);
+
+            assert.strictEqual(index.size, 0);
+            assert.strictEqual(ctx.errors[0]?.code, ErrorCodes.UNKNOWN_CONSTRAINT_KEY);
+        }
     });
 });

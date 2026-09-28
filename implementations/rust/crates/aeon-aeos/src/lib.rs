@@ -707,6 +707,10 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "max_value",
     "min_length",
     "max_length",
+    "temporal_max_second",
+    "temporal_min_year",
+    "temporal_max_year",
+    "temporal_context_policy",
     "pattern",
     "datatype",
     "attributes",
@@ -1583,7 +1587,13 @@ fn validate_constraint_tree(
         }
     }
 
-    for key in ["type", "null_value", "sign", "datatype"] {
+    for key in [
+        "type",
+        "null_value",
+        "sign",
+        "datatype",
+        "temporal_context_policy",
+    ] {
         if constraints.get(key).is_some_and(|value| !value.is_string()) {
             emit_error(
                 ctx,
@@ -1596,6 +1606,23 @@ fn validate_constraint_tree(
             );
             return false;
         }
+    }
+
+    if constraints
+        .get("temporal_context_policy")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|value| value != "aeon.gp.temporal.v1")
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
     }
 
     if let Some(sign) = constraints.get("sign").and_then(JsonValue::as_str)
@@ -1622,6 +1649,9 @@ fn validate_constraint_tree(
         "max_digits",
         "min_length",
         "max_length",
+        "temporal_max_second",
+        "temporal_min_year",
+        "temporal_max_year",
     ] {
         if constraints
             .get(key)
@@ -1638,6 +1668,63 @@ fn validate_constraint_tree(
             );
             return false;
         }
+    }
+
+    if constraints
+        .get("temporal_max_second")
+        .and_then(JsonValue::as_u64)
+        .is_some_and(|value| value > 60)
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
+    }
+
+    for key in ["temporal_min_year", "temporal_max_year"] {
+        if constraints
+            .get(key)
+            .and_then(JsonValue::as_u64)
+            .is_some_and(|value| !(1..=9999).contains(&value))
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(String::from(path)),
+                    code: String::from("unknown_constraint_key"),
+                    phase: String::from("schema_validation"),
+                    span: None,
+                },
+            );
+            return false;
+        }
+    }
+
+    if let (Some(minimum), Some(maximum)) = (
+        constraints
+            .get("temporal_min_year")
+            .and_then(JsonValue::as_u64),
+        constraints
+            .get("temporal_max_year")
+            .and_then(JsonValue::as_u64),
+    ) && minimum > maximum
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("unknown_constraint_key"),
+                phase: String::from("schema_validation"),
+                span: None,
+            },
+        );
+        return false;
     }
 
     for key in ["min_value", "max_value"] {
@@ -2306,6 +2393,172 @@ fn check_literal_lexical_constraints(
                 );
             }
         }
+
+        check_temporal_field_constraints(path, event, constraints, ctx);
+        check_temporal_context_policy(path, event, constraints, ctx);
+    }
+}
+
+fn check_temporal_context_policy(
+    path: &str,
+    event: &EventInfo,
+    constraints: &JsonValue,
+    ctx: &mut DiagContext,
+) {
+    if constraints.get("temporal_context_policy").is_none() {
+        return;
+    }
+    if event.value_type == "NullLiteral"
+        && constraints.get("nullable").and_then(JsonValue::as_bool) == Some(true)
+    {
+        return;
+    }
+    if event.value_type != "WTCDateTimeLiteral" {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("constraint_inapplicable"),
+                phase: String::from("schema_validation"),
+                span: event.span,
+            },
+        );
+        return;
+    }
+    let value = event.raw.strip_prefix('@').unwrap_or(&event.raw);
+    let Some((temporal, context)) = value.rsplit_once('&') else {
+        return;
+    };
+    let non_utc_timescale = matches!(context, "TAI" | "UT1" | "TT" | "GPS");
+    let anchor = temporal_anchor(temporal);
+    if non_utc_timescale && anchor.is_some_and(|value| value != "-00:00") {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("temporal_context_conflict"),
+                phase: String::from("schema_validation"),
+                span: event.span,
+            },
+        );
+    }
+}
+
+fn temporal_anchor(value: &str) -> Option<&str> {
+    if value.ends_with('Z') {
+        return Some(&value[value.len() - 1..]);
+    }
+    if value.len() < 6 {
+        return None;
+    }
+    let candidate = &value[value.len() - 6..];
+    let bytes = candidate.as_bytes();
+    if matches!(bytes[0], b'+' | b'-')
+        && bytes[1..3].iter().all(u8::is_ascii_digit)
+        && bytes[3] == b':'
+        && bytes[4..6].iter().all(u8::is_ascii_digit)
+    {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn check_temporal_field_constraints(
+    path: &str,
+    event: &EventInfo,
+    constraints: &JsonValue,
+    ctx: &mut DiagContext,
+) {
+    let maximum_second = constraints
+        .get("temporal_max_second")
+        .and_then(JsonValue::as_u64);
+    let minimum_year = constraints
+        .get("temporal_min_year")
+        .and_then(JsonValue::as_u64);
+    let maximum_year = constraints
+        .get("temporal_max_year")
+        .and_then(JsonValue::as_u64);
+    if maximum_second.is_none() && minimum_year.is_none() && maximum_year.is_none() {
+        return;
+    }
+    if event.value_type == "NullLiteral"
+        && constraints.get("nullable").and_then(JsonValue::as_bool) == Some(true)
+    {
+        return;
+    }
+
+    let carries_seconds = matches!(
+        event.value_type.as_str(),
+        "TimeLiteral" | "DateTimeLiteral" | "WTCDateTimeLiteral"
+    );
+    let carries_year = matches!(
+        event.value_type.as_str(),
+        "DateLiteral" | "DateTimeLiteral" | "WTCDateTimeLiteral"
+    );
+    if (maximum_second.is_some() && !carries_seconds)
+        || ((minimum_year.is_some() || maximum_year.is_some()) && !carries_year)
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("constraint_inapplicable"),
+                phase: String::from("schema_validation"),
+                span: event.span,
+            },
+        );
+        return;
+    }
+
+    let value = event.raw.strip_prefix('@').unwrap_or(&event.raw);
+    if let Some(maximum) = maximum_second {
+        let clock = if event.value_type == "TimeLiteral" {
+            Some(value)
+        } else {
+            value.split_once('T').map(|(_, clock)| clock)
+        };
+        if let Some(clock) = clock {
+            let bytes = clock.as_bytes();
+            if bytes.len() >= 8
+                && bytes[2] == b':'
+                && bytes[5] == b':'
+                && bytes[6..8].iter().all(u8::is_ascii_digit)
+                && clock[6..8]
+                    .parse::<u64>()
+                    .ok()
+                    .is_some_and(|second| second > maximum)
+            {
+                emit_error(
+                    ctx,
+                    ValidationDiagnostic {
+                        path: Some(String::from(path)),
+                        code: String::from("temporal_field_constraint_mismatch"),
+                        phase: String::from("schema_validation"),
+                        span: event.span,
+                    },
+                );
+            }
+        }
+    }
+
+    let bytes = value.as_bytes();
+    if bytes.len() >= 5
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && let Ok(year) = value[..4].parse::<u64>()
+        && (minimum_year.is_some_and(|minimum| year < minimum)
+            || maximum_year.is_some_and(|maximum| year > maximum))
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(String::from(path)),
+                code: String::from("temporal_field_constraint_mismatch"),
+                phase: String::from("schema_validation"),
+                span: event.span,
+            },
+        );
     }
 }
 
@@ -4298,6 +4551,146 @@ mod tests {
         assert!(envelope.errors.iter().any(|error| {
             error.path.as_deref() == Some("$.id") && error.code == "type_mismatch"
         }));
+    }
+
+    #[test]
+    fn validates_temporal_field_constraints_without_zero_filling() {
+        let payload = r#"{
+          "aes": [
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "ordinary" } ] },
+              "key": "ordinary",
+              "datatype": "datetime",
+              "value": { "type": "DateTimeLiteral", "raw": "2027-01-31T23:59:59Z", "value": "2027-01-31T23:59:59Z" }
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "leap" } ] },
+              "key": "leap",
+              "datatype": "datetime",
+              "value": { "type": "DateTimeLiteral", "raw": "2016-12-31T23:59:60Z", "value": "2016-12-31T23:59:60Z" }
+            },
+            {
+              "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "reduced" } ] },
+              "key": "reduced",
+              "datatype": "datetime",
+              "value": { "type": "DateTimeLiteral", "raw": "2027-01-31T23:59Z", "value": "2027-01-31T23:59Z" }
+            }
+          ],
+          "schema": {
+            "datatype_rules": {
+              "datetime": {
+                "temporal_max_second": 59,
+                "temporal_min_year": 1,
+                "temporal_max_year": 9999
+              }
+            },
+            "rules": []
+          },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert!(!envelope.ok);
+        assert_eq!(envelope.errors.len(), 1);
+        assert_eq!(envelope.errors[0].path.as_deref(), Some("$.leap"));
+        assert_eq!(
+            envelope.errors[0].code,
+            "temporal_field_constraint_mismatch"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_and_inapplicable_temporal_constraints() {
+        for constraints in [
+            json!({"temporal_max_second": 61}),
+            json!({"temporal_max_second": 59.5}),
+            json!({"temporal_min_year": 0}),
+            json!({"temporal_max_year": 10_000}),
+            json!({"temporal_min_year": 2027, "temporal_max_year": 2026}),
+        ] {
+            let envelope = ValidationEnvelope {
+                aes: Vec::new(),
+                schema: Some(Schema {
+                    rules: vec![SchemaRule {
+                        path: Some(String::from("$.value")),
+                        selector: None,
+                        constraints,
+                    }],
+                    datatype_rules: BTreeMap::new(),
+                    datatype_allowlist: Vec::new(),
+                    world: String::from("open"),
+                    reference_policy: None,
+                    resource_policy: None,
+                }),
+                options: ValidationOptions::default(),
+            };
+            assert_eq!(validate(&envelope).errors[0].code, "unknown_constraint_key");
+        }
+
+        let payload = r#"{
+          "aes": [{
+            "path": { "segments": [ { "type": "root" }, { "type": "member", "key": "value" } ] },
+            "key": "value",
+            "value": { "type": "StringLiteral", "raw": "\"not temporal\"", "value": "not temporal" }
+          }],
+          "schema": { "rules": [{ "path": "$.value", "constraints": { "temporal_max_second": 59 } }] },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert_eq!(envelope.errors[0].code, "constraint_inapplicable");
+    }
+
+    #[test]
+    fn gp_temporal_context_policy_rejects_mixed_timescale_anchors() {
+        let payload = r#"{
+          "aes": [
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"z"}] }, "key":"z", "value": {"type":"WTCDateTimeLiteral","raw":"2026-01-01T09:10:10Z&TAI","value":"2026-01-01T09:10:10Z&TAI"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"offset"}] }, "key":"offset", "value": {"type":"WTCDateTimeLiteral","raw":"2026-01-01T09:10:10+01:00&GPS","value":"2026-01-01T09:10:10+01:00&GPS"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"unknown"}] }, "key":"unknown", "value": {"type":"WTCDateTimeLiteral","raw":"2026-01-01T09:10:10-00:00&TAI","value":"2026-01-01T09:10:10-00:00&TAI"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"civil"}] }, "key":"civil", "value": {"type":"WTCDateTimeLiteral","raw":"2026-01-01T09:10:10&TAI","value":"2026-01-01T09:10:10&TAI"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"utc"}] }, "key":"utc", "value": {"type":"WTCDateTimeLiteral","raw":"2026-01-01T09:10:10Z&UTC","value":"2026-01-01T09:10:10Z&UTC"} }
+          ],
+          "schema": { "rules": [
+            {"path":"$.z","constraints":{"temporal_context_policy":"aeon.gp.temporal.v1"}},
+            {"path":"$.offset","constraints":{"temporal_context_policy":"aeon.gp.temporal.v1"}},
+            {"path":"$.unknown","constraints":{"temporal_context_policy":"aeon.gp.temporal.v1"}},
+            {"path":"$.civil","constraints":{"temporal_context_policy":"aeon.gp.temporal.v1"}},
+            {"path":"$.utc","constraints":{"temporal_context_policy":"aeon.gp.temporal.v1"}}
+          ] },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert_eq!(
+            envelope
+                .errors
+                .iter()
+                .map(|error| (error.path.as_deref(), error.code.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some("$.offset"), "temporal_context_conflict"),
+                (Some("$.z"), "temporal_context_conflict")
+            ]
+        );
+
+        let invalid = ValidationEnvelope {
+            aes: Vec::new(),
+            schema: Some(Schema {
+                rules: vec![SchemaRule {
+                    path: Some(String::from("$.when")),
+                    selector: None,
+                    constraints: json!({"temporal_context_policy": "document-selected"}),
+                }],
+                datatype_rules: BTreeMap::new(),
+                datatype_allowlist: Vec::new(),
+                world: String::from("open"),
+                reference_policy: None,
+                resource_policy: None,
+            }),
+            options: ValidationOptions::default(),
+        };
+        assert_eq!(validate(&invalid).errors[0].code, "unknown_constraint_key");
     }
 
     #[test]

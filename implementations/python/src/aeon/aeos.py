@@ -34,6 +34,10 @@ KNOWN_CONSTRAINT_KEYS = {
     "max_value",
     "min_length",
     "max_length",
+    "temporal_max_second",
+    "temporal_min_year",
+    "temporal_max_year",
+    "temporal_context_policy",
     "pattern",
     "datatype",
     "attributes",
@@ -215,6 +219,9 @@ ERROR_CODES = {
     "numeric_form_violation": "numeric_form_violation",
     "string_length_violation": "string_length_violation",
     "pattern_mismatch": "pattern_mismatch",
+    "temporal_field_constraint_mismatch": "temporal_field_constraint_mismatch",
+    "temporal_context_conflict": "temporal_context_conflict",
+    "constraint_inapplicable": "constraint_inapplicable",
     "datatype_allowlist_reject": "datatype_allowlist_reject",
     "trailing_separator_delimiter": "trailing_separator_delimiter",
     "unexpected_binding": "unexpected_binding",
@@ -771,19 +778,37 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
         if value is not None and not isinstance(value, bool):
             emit_error(ctx, create_diag(path, None, f"{key} must be boolean for path {path}", ERROR_CODES["unknown_constraint_key"]))
             return False
-    for key in ("type", "null_value", "sign", "datatype"):
+    for key in ("type", "null_value", "sign", "datatype", "temporal_context_policy"):
         value = constraints.get(key)
         if value is not None and not isinstance(value, str):
             emit_error(ctx, create_diag(path, None, f"{key} must be string for path {path}", ERROR_CODES["unknown_constraint_key"]))
             return False
+    temporal_context_policy = constraints.get("temporal_context_policy")
+    if temporal_context_policy is not None and temporal_context_policy != "aeon.gp.temporal.v1":
+        emit_error(ctx, create_diag(path, None, f"Unsupported temporal_context_policy for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
     if constraints.get("sign") is not None and constraints.get("sign") not in {"signed", "unsigned"}:
         emit_error(ctx, create_diag(path, None, f"Invalid sign constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
         return False
-    for key in ("min_children", "max_children", "length_exact", "radix", "min_digits", "max_digits", "min_length", "max_length"):
+    for key in ("min_children", "max_children", "length_exact", "radix", "min_digits", "max_digits", "min_length", "max_length", "temporal_max_second", "temporal_min_year", "temporal_max_year"):
         value = constraints.get(key)
-        if value is not None and (not isinstance(value, int) or value < 0):
+        if value is not None and (type(value) is not int or value < 0):
             emit_error(ctx, create_diag(path, None, f"Invalid {key} constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
             return False
+    maximum_second = constraints.get("temporal_max_second")
+    if isinstance(maximum_second, int) and maximum_second > 60:
+        emit_error(ctx, create_diag(path, None, f"temporal_max_second must be between 0 and 60 for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
+    for key in ("temporal_min_year", "temporal_max_year"):
+        value = constraints.get(key)
+        if isinstance(value, int) and not 1 <= value <= 9999:
+            emit_error(ctx, create_diag(path, None, f"{key} must be between 1 and 9999 for path {path}", ERROR_CODES["unknown_constraint_key"]))
+            return False
+    minimum_year = constraints.get("temporal_min_year")
+    maximum_year = constraints.get("temporal_max_year")
+    if isinstance(minimum_year, int) and isinstance(maximum_year, int) and minimum_year > maximum_year:
+        emit_error(ctx, create_diag(path, None, f"temporal_min_year must be less than or equal to temporal_max_year for path {path}", ERROR_CODES["unknown_constraint_key"]))
+        return False
     for key in ("min_value", "max_value"):
         value = constraints.get(key)
         if key in constraints and (not isinstance(value, str) or parse_exact_decimal(value) is None):
@@ -1055,6 +1080,64 @@ def check_literal_lexical_constraints(rule_index: dict[str, dict[str, object]], 
             allowed = raw in {"yes", "no"} if pair == "yes_no" else raw in {"on", "off"} if pair == "on_off" else True
             if not allowed:
                 emit_error(ctx, create_diag(path, event.get("span"), f"Toggle pair mismatch: expected {pair}, got {raw}", ERROR_CODES["toggle_pair_mismatch"]))
+        check_temporal_field_constraints(path, event, constraints, ctx)
+        check_temporal_context_policy(path, event, constraints, ctx)
+
+
+def check_temporal_field_constraints(path: str, event: dict[str, object], constraints: dict[str, object], ctx: DiagContext) -> None:
+    has_second_constraint = isinstance(constraints.get("temporal_max_second"), int)
+    has_year_constraint = isinstance(constraints.get("temporal_min_year"), int) or isinstance(constraints.get("temporal_max_year"), int)
+    if not has_second_constraint and not has_year_constraint:
+        return
+    if event.get("type") == "NullLiteral" and constraints.get("nullable") is True:
+        return
+
+    actual_type = str(event.get("type", ""))
+    carries_seconds = actual_type in {"TimeLiteral", "DateTimeLiteral", "WTCDateTimeLiteral"}
+    carries_year = actual_type in {"DateLiteral", "DateTimeLiteral", "WTCDateTimeLiteral"}
+    if has_second_constraint and not carries_seconds or has_year_constraint and not carries_year:
+        emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint is inapplicable to {actual_type}", ERROR_CODES["constraint_inapplicable"]))
+        return
+
+    value = str(event.get("value", "")).removeprefix("@")
+    if has_second_constraint:
+        clock = value if actual_type == "TimeLiteral" else value.partition("T")[2]
+        match = re.match(r"^\d{2}:\d{2}:(\d{2})(?:\.\d+)?", clock)
+        if match is not None:
+            second = int(match.group(1))
+            maximum_second = int(constraints["temporal_max_second"])
+            if second > maximum_second:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: second {second} exceeds maximum {maximum_second}", ERROR_CODES["temporal_field_constraint_mismatch"]))
+
+    if has_year_constraint:
+        match = re.match(r"^(\d{4})-", value)
+        if match is not None:
+            year = int(match.group(1))
+            minimum_year = constraints.get("temporal_min_year")
+            maximum_year = constraints.get("temporal_max_year")
+            if isinstance(minimum_year, int) and year < minimum_year:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: year {year} is below minimum {minimum_year}", ERROR_CODES["temporal_field_constraint_mismatch"]))
+            if isinstance(maximum_year, int) and year > maximum_year:
+                emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: year {year} exceeds maximum {maximum_year}", ERROR_CODES["temporal_field_constraint_mismatch"]))
+
+
+def check_temporal_context_policy(path: str, event: dict[str, object], constraints: dict[str, object], ctx: DiagContext) -> None:
+    if constraints.get("temporal_context_policy") is None:
+        return
+    if event.get("type") == "NullLiteral" and constraints.get("nullable") is True:
+        return
+    actual_type = str(event.get("type", ""))
+    if actual_type != "WTCDateTimeLiteral":
+        emit_error(ctx, create_diag(path, event.get("span"), f"Temporal context policy is inapplicable to {actual_type}", ERROR_CODES["constraint_inapplicable"]))
+        return
+    value = str(event.get("value", "")).removeprefix("@")
+    temporal, separator, context = value.rpartition("&")
+    if not separator:
+        return
+    anchor_match = re.search(r"(Z|[+-]\d{2}:\d{2})$", temporal)
+    anchor = anchor_match.group(1) if anchor_match is not None else None
+    if context in {"TAI", "UT1", "TT", "GPS"} and anchor is not None and anchor != "-00:00":
+        emit_error(ctx, create_diag(path, event.get("span"), f"Temporal context conflict: UTC-relative anchor {anchor} conflicts with timescale {context}", ERROR_CODES["temporal_context_conflict"]))
 
 
 def check_string_form(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:

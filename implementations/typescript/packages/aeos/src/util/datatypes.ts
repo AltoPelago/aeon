@@ -1,3 +1,5 @@
+import { aeonRadixBaseFromDatatype } from '@altopelago/aeon-aes';
+
 /**
  * Return the base name of a datatype without generic parameters or clarifiers.
  */
@@ -30,14 +32,5 @@ export function parseClarifierValues(datatype: string): (string | number)[] {
  * Resolve the radix declared by a built-in numeric datatype.
  */
 export function declaredRadixFromDatatype(datatype: string | undefined): number | null {
-    if (datatype === undefined) return null;
-    const trimmed = datatype.trim();
-    if (trimmed.toLowerCase() === 'decimal') return 10;
-    const alias = /^radix(2|6|8|12)$/i.exec(trimmed);
-    if (alias) return Number(alias[1]);
-    if (datatypeBase(trimmed).toLowerCase() !== 'radix') return null;
-    const values = parseClarifierValues(trimmed);
-    if (values.length !== 1 || typeof values[0] !== 'number') return null;
-    const value = values[0];
-    return Number.isInteger(value) && value >= 2 && value <= 64 ? value : null;
+    return aeonRadixBaseFromDatatype(datatype) ?? null;
 }

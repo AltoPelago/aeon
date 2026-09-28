@@ -39,12 +39,19 @@ import {
 import { buildAnnotationStreamFromSourceAndSpans, type AnnotationRecord } from '@altopelago/aeon-annotation-stream';
 export { inspectFilePreamble, type FilePreambleInfo, type HostDirective, type HostDirectiveKind } from './preamble.js';
 export * from './limits.js';
+export {
+    AEON_RADIX_MAX_BASE,
+    AEON_RADIX_MIN_BASE,
+    aeonRadixBaseFromDatatype,
+    aeonRadixDigitValue,
+    aeonRadixScale,
+} from '@altopelago/aeon-aes';
 
 // =============================================================================
 // PUBLIC API
 // =============================================================================
 
-export const VERSION = '0.13.0';
+export const VERSION = '0.14.0';
 
 /**
  * Union of all possible AEON errors

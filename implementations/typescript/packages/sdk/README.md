@@ -21,6 +21,67 @@ const film = readFilmDocument(filmBytes);
 console.log(film.finalized.document);
 ```
 
+### Query AEON with SANSA
+
+The optional `@altopelago/aeon-sdk/sansa` entry point converts compiled AEON
+events into the resolver namespace expected by `@altopelago/sansa`:
+
+```ts
+import { readAeonNamespace } from '@altopelago/aeon-sdk/sansa';
+import { evaluateQuery } from '@altopelago/sansa';
+
+const { namespace } = readAeonNamespace(`
+  inventory = {
+    items = [
+      { sku = "A-100" active = true }
+      { sku = "B-200" active = false }
+    ]
+  }
+`);
+
+const result = evaluateQuery(
+  'from $.inventory.items.* where .active == true select { sku = .sku }',
+  namespace,
+);
+```
+
+`readAeonNamespace()` requires successful compilation before returning. It
+keeps finalization diagnostics alongside the lossless AES-backed namespace, so
+AEON values that are not representable in strict JSON remain queryable. The
+namespace exposes payload bindings by default; pass
+`{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
+Full scope exposes explicit `$.header` and `$.body` roots so valid bindings with
+the same canonical path in both planes remain independently addressable.
+Use `createAeonNamespace(events)` when the source has already been compiled.
+
+#### Semantics and limits
+
+- `candidateAddress` is a locator in the namespace's current structure, not a
+  durable identity. Positional addresses can move after edits. A binding's
+  `identity`, when present, is separate opaque structural-occurrence metadata;
+  SANSA mutation adapters can combine it with observed-state checks to reject
+  stale targets.
+- AES retains the source numeric lexeme. The namespace exposes finite AEON
+  numbers as canonical strings by default and supplies the same lexeme to
+  SANSA's exact numeric comparator. Pass
+  `{ numericMaterialization: 'native' }` to `createAeonNamespace()`, or under
+  the `namespace` option of `readAeonNamespace()`, to opt into JavaScript
+  numbers while retaining exact comparison metadata.
+- AEON `decimal` is the representation-preserving `radix[10]` alias. The
+  adapter keeps its radix payload as text; numeric decimal interpretation and
+  ordering require an explicit trusted value-semantics profile. Radix-family
+  bindings expose their resolved `radixBase` for `decimal`, the reserved radix
+  aliases, and `radix[2]` through `radix[64]`, allowing SANSA's explicit
+  same-base radix-numeric profile to compare them without host-number coercion.
+  They also expose `radixScale`, the represented fractional digit count excluding
+  visual `_` separators: `%19.9900` reports 4 and `%19.99` reports 2. Scale is
+  representation metadata and does not alter either comparison mode.
+- This integration provides bounded, deterministic, in-process resolution and
+  query evaluation over compiled events. It does not add persistence, indexes,
+  transactions, or a cost-based query optimizer.
+- Query projections use AEON assignment syntax (`{ sku = .sku }`). `:` remains
+  reserved for datatype annotations.
+
 ## What This Package Does
 
 - wraps common read flows around `@altopelago/aeon-core` and `@altopelago/aeon-finalize`
@@ -43,6 +104,11 @@ console.log(film.finalized.document);
 - `readFilmDocument(input, options?)`
 - `formatPath(path)`
 - `indexEventsByPath(events)`
+- `createAeonNamespace(events, options?)` from `@altopelago/aeon-sdk/sansa`
+- `readAeonNamespace(input, options?)` from `@altopelago/aeon-sdk/sansa`
+
+`CreateAeonNamespaceOptions` accepts `scope` and `numericMaterialization`.
+The latter is `lossless` by default and may be set to `native` explicitly.
 
 ## Notes
 

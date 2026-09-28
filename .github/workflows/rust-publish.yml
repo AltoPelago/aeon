@@ -58,9 +58,17 @@ jobs:
       - name: Package public crates without registry resolution
         run: |
           cargo package --locked --no-verify --manifest-path implementations/rust/crates/aeon-core/Cargo.toml
-          cargo package --locked --no-verify --manifest-path implementations/rust/crates/aeon-aeos/Cargo.toml
-          cargo package --locked --no-verify --manifest-path implementations/rust/crates/aeon-finalize/Cargo.toml
-          cargo package --locked --no-verify --manifest-path implementations/rust/crates/aeon-sdk/Cargo.toml
+          cargo package --locked --no-verify \
+            --manifest-path implementations/rust/crates/aeon-aeos/Cargo.toml \
+            --config 'patch.crates-io.altopelago-aeon-core.path="implementations/rust/crates/aeon-core"'
+          cargo package --locked --no-verify \
+            --manifest-path implementations/rust/crates/aeon-finalize/Cargo.toml \
+            --config 'patch.crates-io.altopelago-aeon-core.path="implementations/rust/crates/aeon-core"'
+          cargo package --locked --no-verify \
+            --manifest-path implementations/rust/crates/aeon-sdk/Cargo.toml \
+            --config 'patch.crates-io.altopelago-aeon-core.path="implementations/rust/crates/aeon-core"' \
+            --config 'patch.crates-io.altopelago-aeon-aeos.path="implementations/rust/crates/aeon-aeos"' \
+            --config 'patch.crates-io.altopelago-aeon-finalize.path="implementations/rust/crates/aeon-finalize"'
 
   publish:
     name: Publish crates.io packages

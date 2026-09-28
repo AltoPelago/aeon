@@ -42,6 +42,8 @@ export const ErrorCodes = {
     CONTAINER_CARDINALITY_MISMATCH: 'container_cardinality_mismatch',
     NULL_VALUE_MISMATCH: 'null_value_mismatch',
     TOGGLE_PAIR_MISMATCH: 'toggle_pair_mismatch',
+    TEMPORAL_FIELD_CONSTRAINT_MISMATCH: 'temporal_field_constraint_mismatch',
+    TEMPORAL_CONTEXT_CONFLICT: 'temporal_context_conflict',
 
     // Core v1 indexed addressing checks
     VERSION_GATE_MISSING: 'version_gate_missing',

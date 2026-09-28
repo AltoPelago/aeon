@@ -156,6 +156,12 @@ Reads only the file-header preamble slot and returns:
 - `format`
 - `span`
 
+### Radix metadata helpers
+
+Core re-exports `aeonRadixDigitValue(character)` and
+`aeonRadixBaseFromDatatype(datatype)` so adapters and validators can share the
+same case-sensitive base-2-through-base-64 definitions.
+
 ### Telex boundary APIs
 
 - `compileToTelex(input, options?)`

@@ -49,6 +49,10 @@ if (result.errors.length === 0) {
 - `decodeFilmSyntax(input, options?)` for provisional inspection
 - `decodeFilm(input, options?)` for complete validated reads
 - `IncrementalFilmDecoder`
+- `aeonRadixDigitValue(character)` maps the case-sensitive Core radix alphabet
+  (`0-9`, `A-Z`, `a-z`, `&`, `!`) to digit values 0 through 63
+- `aeonRadixBaseFromDatatype(datatype)` resolves `decimal`, reserved radix
+  aliases, and `radix[n]` declarations to bases 2 through 64
 - canonical path helpers
 - Assignment Event Stream types
   - emitted native events carry `sourcePlane: 'header' | 'body'`; consumers

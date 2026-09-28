@@ -12,6 +12,7 @@ import type { RuleIndex } from './schemaIndex.js';
 import { countIntegerDigits, isNegative } from '../util/digits.js';
 import { declaredRadixFromDatatype } from '../util/datatypes.js';
 import { compareNumericValues } from '../util/numericBounds.js';
+import { aeonRadixDigitValue } from '@altopelago/aeon-aes';
 
 /**
  * Event value with type, raw representation, and span
@@ -185,18 +186,9 @@ function isFormNegative(raw: string): boolean {
 function firstInvalidRadixDigit(raw: string, radix: number): string | null {
     const body = raw.replace(/^%/, '').replace(/^[+-]/, '').replace(/_/g, '');
     for (const char of body) {
-        const value = radixDigitValue(char);
+        const value = aeonRadixDigitValue(char);
         if (value !== null && value >= radix) return char;
     }
-    return null;
-}
-
-function radixDigitValue(char: string): number | null {
-    if (char >= '0' && char <= '9') return char.charCodeAt(0) - 48;
-    const lower = char.toLowerCase();
-    if (lower >= 'a' && lower <= 'z') return lower.charCodeAt(0) - 87;
-    if (char === '&') return 36;
-    if (char === '!') return 37;
     return null;
 }
 

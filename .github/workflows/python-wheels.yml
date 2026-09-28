@@ -68,7 +68,7 @@ jobs:
           --no-index
           --only-binary=:all:
           --find-links implementations/rust/crates/aeon-python/wheelhouse
-          altopelago-aeon==0.13.0
+          altopelago-aeon==0.14.0
 
       - name: Installed-wheel smoke suite
         run: python -m unittest discover -s implementations/rust/crates/aeon-python/tests -p "test_*.py"
@@ -95,7 +95,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 0c575b2493812f209dcbd86856d43a989324ae0e
+          ref: 63cb4491bfce5f658731001b028ae97ae5e2fa17
           path: aeonite-cts
 
       - name: Setup Python

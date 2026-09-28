@@ -231,10 +231,7 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
             && bytes[..2].iter().all(u8::is_ascii_digit)
             && bytes[3..5].iter().all(u8::is_ascii_digit)
             && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5]
-                .parse::<u32>()
-                .ok()
-                .is_some_and(is_valid_minute_or_second);
+            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute);
     }
     matches_hms(value)
 }
@@ -247,22 +244,29 @@ fn matches_datetime_core(value: &str) -> bool {
 }
 
 fn matches_hms(value: &str) -> bool {
-    let bytes = value.as_bytes();
+    let (whole, fraction) = match value.split_once('.') {
+        Some((whole, fraction)) => {
+            if fraction.is_empty()
+                || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+                || fraction.contains('.')
+            {
+                return false;
+            }
+            (whole, Some(fraction))
+        }
+        None => (value, None),
+    };
+    let bytes = whole.as_bytes();
     bytes.len() == 8
         && bytes[2] == b':'
         && bytes[5] == b':'
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && bytes[6..8].iter().all(u8::is_ascii_digit)
-        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
-        && value[6..8]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && whole[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+        && whole[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
+        && whole[6..8].parse::<u32>().ok().is_some_and(is_valid_second)
+        && fraction.is_none_or(|digits| !digits.is_empty())
 }
 
 fn matches_offset(value: &str) -> bool {
@@ -272,14 +276,11 @@ fn matches_offset(value: &str) -> bool {
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
 }
 
 fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
-    if !(1..=12).contains(&month) || day == 0 {
+    if year == 0 || !(1..=12).contains(&month) || day == 0 {
         return false;
     }
     let days_in_month = match month {
@@ -300,8 +301,12 @@ fn is_valid_hour(value: u32) -> bool {
     value <= 23
 }
 
-fn is_valid_minute_or_second(value: u32) -> bool {
+fn is_valid_minute(value: u32) -> bool {
     value <= 59
+}
+
+fn is_valid_second(value: u32) -> bool {
+    value <= 60
 }
 
 #[cfg(test)]
@@ -327,7 +332,7 @@ mod tests {
     fn rejects_temporal_literals_with_invalid_ranges() {
         assert!(classify_temporal_literal("24:00").is_none());
         assert!(classify_temporal_literal("99:99").is_none());
-        assert!(classify_temporal_literal("23:59:60").is_none());
+        assert!(classify_temporal_literal("23:59:61").is_none());
         assert!(classify_temporal_literal("09:30z").is_none());
         assert!(classify_temporal_literal("09:+24:99").is_none());
         assert!(classify_temporal_literal("2025-01-01T09z").is_none());
@@ -336,6 +341,9 @@ mod tests {
         assert!(classify_temporal_literal("2025-02-29").is_none());
         assert!(classify_temporal_literal("2025-13-40T99:99:99").is_none());
         assert!(classify_temporal_literal("2025-02-29T09:30:00").is_none());
+        assert!(classify_temporal_literal("0000-01-01").is_none());
+        assert!(classify_temporal_literal("23:59:59.").is_none());
+        assert!(classify_temporal_literal("23:59:59.1.2").is_none());
     }
 
     #[test]
@@ -343,6 +351,8 @@ mod tests {
         assert!(classify_temporal_literal("09:").is_some());
         assert!(classify_temporal_literal("09:30").is_some());
         assert!(classify_temporal_literal("23:59:59").is_some());
+        assert!(classify_temporal_literal("23:59:60").is_some());
+        assert!(classify_temporal_literal("23:59:59.340000").is_some());
         assert!(classify_temporal_literal("09:30Z").is_some());
         assert!(classify_temporal_literal("09:+02:00").is_some());
         assert!(classify_temporal_literal("09:30+02:00").is_some());
@@ -367,5 +377,16 @@ mod tests {
         assert!(classify_temporal_literal("2025-01-01T09:30Z&LOCAL").is_none());
         assert!(classify_temporal_literal("2024-02-29").is_some());
         assert!(classify_temporal_literal("2024-02-29T09:30:00").is_some());
+        assert!(classify_temporal_literal("0001-01-01").is_some());
+        assert!(classify_temporal_literal("9999-12-31").is_some());
+        assert!(classify_temporal_literal("2016-12-31T23:59:60.5Z").is_some());
+        assert!(classify_temporal_literal("2016-12-31T18:59:60-05:00").is_some());
+        assert!(classify_temporal_literal("2017-01-01T12:59:60+13:00").is_some());
+        assert!(
+            classify_temporal_literal("2017-01-01T10:59:60+11:00&Australia/Melbourne").is_some()
+        );
+        assert!(
+            classify_temporal_literal("2026-01-01T09:10:00+01:00&+/Antarctica/Elisabeth").is_some()
+        );
     }
 }

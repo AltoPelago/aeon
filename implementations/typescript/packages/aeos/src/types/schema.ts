@@ -88,6 +88,18 @@ export interface ConstraintsV1 {
     /** Maximum string length in UTF-16 code units (JavaScript string.length) */
     readonly max_length?: number;
 
+    /** Maximum admitted seconds field for time-bearing temporal literals */
+    readonly temporal_max_second?: number;
+
+    /** Minimum admitted year field for date-bearing temporal literals */
+    readonly temporal_min_year?: number;
+
+    /** Maximum admitted year field for date-bearing temporal literals */
+    readonly temporal_max_year?: number;
+
+    /** Convention-aware temporal context policy for WTC literals */
+    readonly temporal_context_policy?: 'aeon.gp.temporal.v1';
+
     /** AEOS portable pattern for string matching */
     readonly pattern?: string;
 
@@ -218,6 +230,10 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'max_value',
     'min_length',
     'max_length',
+    'temporal_max_second',
+    'temporal_min_year',
+    'temporal_max_year',
+    'temporal_context_policy',
     'pattern',
     'datatype',
     'attributes',
