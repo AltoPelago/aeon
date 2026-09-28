@@ -1222,7 +1222,7 @@ function isValidDateLiteral(value: string): boolean {
     const year = Number.parseInt(value.slice(0, 4), 10);
     const month = Number.parseInt(value.slice(5, 7), 10);
     const day = Number.parseInt(value.slice(8, 10), 10);
-    return isValidDateParts(year, month, day);
+    return year >= 1 && year <= 9999 && isValidDateParts(year, month, day);
 }
 
 function isValidTimeLiteral(value: string): boolean {
@@ -1272,15 +1272,11 @@ function matchesDateTimeTime(value: string): boolean {
 }
 
 function matchesHms(value: string): boolean {
-    return value.length === 8
-        && value[2] === ':'
-        && value[5] === ':'
-        && /^\d{2}$/.test(value.slice(0, 2))
-        && /^\d{2}$/.test(value.slice(3, 5))
-        && /^\d{2}$/.test(value.slice(6, 8))
-        && isValidHour(Number.parseInt(value.slice(0, 2), 10))
-        && isValidMinuteOrSecond(Number.parseInt(value.slice(3, 5), 10))
-        && isValidMinuteOrSecond(Number.parseInt(value.slice(6, 8), 10));
+    const match = /^(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/.exec(value);
+    if (match === null) return false;
+    return isValidHour(Number.parseInt(match[1]!, 10))
+        && isValidMinute(Number.parseInt(match[2]!, 10))
+        && isValidSecond(Number.parseInt(match[3]!, 10));
 }
 
 function matchesZonedTime(value: string): boolean {
@@ -1316,7 +1312,7 @@ function matchesOffset(value: string): boolean {
         && /^\d{2}$/.test(value.slice(0, 2))
         && /^\d{2}$/.test(value.slice(3, 5))
         && isValidHour(Number.parseInt(value.slice(0, 2), 10))
-        && isValidMinuteOrSecond(Number.parseInt(value.slice(3, 5), 10));
+        && isValidMinute(Number.parseInt(value.slice(3, 5), 10));
 }
 
 function isValidDateParts(year: number, month: number, day: number): boolean {
@@ -1337,6 +1333,14 @@ function isValidHour(value: number): boolean {
 
 function isValidMinuteOrSecond(value: number): boolean {
     return value >= 0 && value <= 59;
+}
+
+function isValidMinute(value: number): boolean {
+    return isValidMinuteOrSecond(value);
+}
+
+function isValidSecond(value: number): boolean {
+    return value >= 0 && value <= 60;
 }
 
 function isValidWtcReference(reference: string): boolean {

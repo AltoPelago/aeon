@@ -38,6 +38,55 @@ class AeosTests(unittest.TestCase):
         result = validate(aes, {"rules": [{"path": "$.x", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])
 
+    def test_temporal_field_constraints(self) -> None:
+        compiled = compile_source(
+            "ordinary:datetime = 2027-01-31T23:59:59Z\n"
+            "leap:datetime = 2016-12-31T23:59:60Z\n"
+            "reduced:datetime = 2027-01-31T23:59Z\n"
+            "earliest:date = 0001-01-01\n"
+        )
+        self.assertEqual([], compiled.errors)
+        schema = {
+            "datatype_rules": {
+                "datetime": {
+                    "temporal_max_second": 59,
+                    "temporal_min_year": 1,
+                    "temporal_max_year": 9999,
+                },
+                "date": {"temporal_min_year": 1, "temporal_max_year": 9999},
+            },
+            "rules": [],
+        }
+
+        result = validate_events(compiled.events, schema)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            ["temporal_field_constraint_mismatch"],
+            [error["code"] for error in result["errors"]],
+        )
+        self.assertEqual("$.leap", result["errors"][0]["path"])
+
+    def test_temporal_constraint_declarations_and_applicability(self) -> None:
+        compiled = compile_source('value:string = "not temporal"')
+        self.assertEqual([], compiled.errors)
+        inapplicable = validate_events(compiled.events, {
+            "rules": [{"path": "$.value", "constraints": {"temporal_max_second": 59}}],
+        })
+        self.assertEqual(["constraint_inapplicable"], [error["code"] for error in inapplicable["errors"]])
+
+        invalid_constraints = (
+            {"temporal_max_second": 61},
+            {"temporal_max_second": 59.5},
+            {"temporal_min_year": 0},
+            {"temporal_max_year": 10000},
+            {"temporal_min_year": 2027, "temporal_max_year": 2026},
+        )
+        for constraints in invalid_constraints:
+            with self.subTest(constraints=constraints):
+                result = validate([], {"rules": [{"path": "$.value", "constraints": constraints}]})
+                self.assertEqual(["unknown_constraint_key"], [error["code"] for error in result["errors"]])
+
     def test_datatype_constraint_requires_exact_label(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "datatype": "user-id", "value": {"type": "StringLiteral", "raw": '"U-1"', "value": "U-1"}, "span": [0, 1]}]
         matching = validate(aes, {"rules": [{"path": "$.x", "constraints": {"datatype": "user-id"}}]})
@@ -380,6 +429,35 @@ class AeosTests(unittest.TestCase):
         result = validate([], {"rules": [{"path": "$.value", "constraints": {"min_value": "١"}}]})
         self.assertFalse(result["ok"])
         self.assertTrue(any(error["code"] == "unknown_constraint_key" for error in result["errors"]))
+
+    def test_gp_temporal_context_policy_rejects_mixed_timescale_anchors(self) -> None:
+        values = [
+            "2026-01-01T09:10:10Z&TAI",
+            "2026-01-01T09:10:10+01:00&GPS",
+            "2026-01-01T09:10:10-00:00&TAI",
+            "2026-01-01T09:10:10&TAI",
+            "2026-01-01T09:10:10Z&UTC",
+        ]
+        aes = [{
+            "path": {"segments": [{"type": "root"}, {"type": "member", "key": f"value{index}"}]},
+            "key": f"value{index}",
+            "value": {"type": "WTCDateTimeLiteral", "raw": f"@{value}", "value": value},
+            "span": [index, index + 1],
+        } for index, value in enumerate(values)]
+        schema = {"rules": [{
+            "path": f"$.value{index}",
+            "constraints": {"temporal_context_policy": "aeon.gp.temporal.v1"},
+        } for index in range(len(values))]}
+
+        result = validate(aes, schema)
+
+        self.assertEqual(
+            [("$.value0", "temporal_context_conflict"), ("$.value1", "temporal_context_conflict")],
+            [(error["path"], error["code"]) for error in result["errors"]],
+        )
+
+        invalid = validate([], {"rules": [{"path": "$.when", "constraints": {"temporal_context_policy": "document-selected"}}]})
+        self.assertEqual(["unknown_constraint_key"], [error["code"] for error in invalid["errors"]])
 
     def test_cts_payload_adapter(self) -> None:
         payload = json.dumps({"aes": [], "schema": {"rules": []}, "options": {}})

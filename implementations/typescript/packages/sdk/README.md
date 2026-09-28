@@ -50,6 +50,8 @@ keeps finalization diagnostics alongside the lossless AES-backed namespace, so
 AEON values that are not representable in strict JSON remain queryable. The
 namespace exposes payload bindings by default; pass
 `{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
+Full scope exposes explicit `$.header` and `$.body` roots so valid bindings with
+the same canonical path in both planes remain independently addressable.
 Use `createAeonNamespace(events)` when the source has already been compiled.
 
 #### Semantics and limits

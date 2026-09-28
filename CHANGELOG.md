@@ -8,8 +8,22 @@ repositories.
 
 ## Unreleased
 
+## 0.14.0 - 2026-09-29
+
+### Breaking
+
+- Core temporal literals now use the four-digit year domain `0001` through
+  `9999`; year `0000` is rejected at the parser boundary.
+
 ### Added
 
+- Added exact arbitrary-scale fractional seconds and structurally plausible
+  second `60` claims across the TypeScript, Python, and Rust implementation
+  tracks. Fractions preserve authored scale and trailing zeroes, and numeric
+  offsets remain hour-and-minute only.
+- Added AEOS temporal field constraints for maximum second and minimum/maximum
+  year, plus the convention-aware general-purpose temporal-context policy and
+  stable mismatch/conflict diagnostics.
 - Added the `@altopelago/aeon-sdk/sansa` integration entry point with
   `createAeonNamespace()` and `readAeonNamespace()` helpers. The adapter
   preserves AES scalar, datatype, identity, null, and attribute metadata and
@@ -28,8 +42,20 @@ repositories.
   SDK SANSA adapter. Fractional trailing zeroes are preserved in the count;
   this metadata does not change representation or numeric equality.
 
+### Changed
+
+- The Core temporal seconds domain is now `00` through `60`; the
+  general-purpose schema remains deliberately narrower and rejects second `60`.
+- WTC temporal contexts remain opaque parser payloads while preserving named
+  timescales, `-00:00`, and `+/` named-place contexts for downstream policy.
+
 ### Fixed
 
+- Made Rust release verification package coordinated, not-yet-published crate
+  versions through explicit local path overrides while retaining registry
+  dependencies in the produced crates.
+- Reduced-precision temporal values are no longer implicitly zero-filled by
+  AEOS temporal validation.
 - Aligned TypeScript AEOS radix validation with the Core base-64 alphabet:
   lowercase letters map to 36 through 61, `&` maps to 62, and `!` maps to 63.
 

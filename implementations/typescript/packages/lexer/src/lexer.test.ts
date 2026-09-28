@@ -457,6 +457,35 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '09:30:00');
         });
 
+        it('should preserve arbitrary fractional-second digits and trailing zeroes', () => {
+            for (const source of [
+                '23:59:59.34',
+                '23:59:59.340000',
+                '2027-01-31T23:59:59.340000000Z',
+                '2027-01-31T23:59:59.34+11:00',
+                '2027-01-31T23:59:59.340000&local',
+            ]) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
+        it('should accept structural second 60 in UTC, offset, and WTC projections', () => {
+            for (const source of [
+                '23:59:60',
+                '23:59:60.5',
+                '2016-12-31T23:59:60Z',
+                '2016-12-31T18:59:60-05:00',
+                '2017-01-01T12:59:60+13:00',
+                '2017-01-01T10:59:60+11:00&Australia/Melbourne',
+            ]) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should tokenize time literals with timezone offsets', () => {
             const result = tokenize('09:30:00+02:40');
             assert.strictEqual(result.tokens[0]!.type, TokenType.Time);
@@ -510,7 +539,7 @@ describe('Lexer', () => {
         });
 
         it('should accept valid leap-day and bounded temporal literals', () => {
-            for (const source of ['09:', '09:30', '23:59:59', '2024-02-29', '2024-02-29T09:30:00']) {
+            for (const source of ['09:', '09:30', '23:59:59', '23:59:60', '0001-01-01', '9999-12-31', '2024-02-29', '2024-02-29T09:30:00']) {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);
                 assert.notStrictEqual(result.tokens[0]!.type, TokenType.EOF, source);
@@ -521,11 +550,14 @@ describe('Lexer', () => {
             for (const source of [
                 '24:00',
                 '99:99',
-                '23:59:60',
+                '23:59:61',
+                '23:59:59.',
+                '23:59:59..1',
                 '09:+24:99',
                 '2025-01-01T09:+24:99',
                 '2025-13-40',
                 '2025-02-29',
+                '0000-01-01',
                 '2025-13-40T99:99:99',
                 '2025-02-29T09:30:00',
                 '2025-01-01T09:30Z&/',
@@ -574,6 +606,14 @@ describe('Lexer', () => {
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01T00:00:00Z&Europe/Belgium/Brussels');
+        });
+
+        it('preserves convention-defined named-place WTC references', () => {
+            const source = '2026-01-01T09:10:00+01:00&+/Antarctica/Elisabeth';
+            const result = tokenize(source);
+            assert.strictEqual(result.errors.length, 0);
+            assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
+            assert.strictEqual(result.tokens[0]!.value, source);
         });
 
         it('accepts WTC geographic coordinate references', () => {

@@ -113,7 +113,28 @@ test('supports explicit header and full document scopes', () => {
   const full = createAeonNamespace(compiled.compile.events, { scope: 'full' });
 
   assert.deepEqual(header.root.children.map((binding) => binding.name), ['aeon:mode']);
-  assert.deepEqual(full.root.children.map((binding) => binding.name), ['aeon:mode', 'inventory']);
+  assert.deepEqual(full.root.children.map((binding) => binding.name), ['header', 'body']);
+  assert.equal(bindingAt(full, '$.header.["aeon:mode"]').value, 'strict');
+  assert.equal(bindingAt(full, '$.body.inventory').identity, 'INVENTORY');
+});
+
+test('keeps colliding header and body paths distinct in full document scope', () => {
+  const { compile } = readAeon(String.raw`aeon:mode = "strict"
+"aeon:mode":string = "payload"`);
+  assert.equal(compile.errors.length, 0);
+
+  const full = createAeonNamespace(compile.events, { scope: 'full' });
+  assert.equal(bindingAt(full, '$.header.["aeon:mode"]').value, 'strict');
+  assert.equal(bindingAt(full, '$.body.["aeon:mode"]').value, 'payload');
+});
+
+test('infers WTC metadata for an untyped temporal context claim', () => {
+  const { namespace } = readAeonNamespace('world = 2026-07-25T09:30:00Z&Australia/Melbourne');
+  const world = bindingAt(namespace, '$.world');
+
+  assert.equal(world.semanticType, 'wtc');
+  assert.equal(world.representationKind, 'wtc');
+  assert.equal(world.scalarKind, 'wtc');
 });
 
 test('adapts every AEON scalar family without erasing representation metadata', () => {

@@ -740,7 +740,7 @@ class Lexer:
                 and value[:2].isdigit()
                 and value[3:5].isdigit()
                 and Lexer.is_valid_hour(int(value[:2]))
-                and Lexer.is_valid_minute_or_second(int(value[3:5]))
+                and Lexer.is_valid_minute(int(value[3:5]))
             )
         return Lexer.matches_hms(value)
 
@@ -756,16 +756,19 @@ class Lexer:
 
     @staticmethod
     def matches_hms(value: str) -> bool:
+        whole, separator, fraction = value.partition(".")
+        if separator and (not fraction or not fraction.isdigit() or "." in fraction):
+            return False
         return (
-            len(value) == 8
-            and value[2] == ":"
-            and value[5] == ":"
-            and value[:2].isdigit()
-            and value[3:5].isdigit()
-            and value[6:8].isdigit()
-            and Lexer.is_valid_hour(int(value[:2]))
-            and Lexer.is_valid_minute_or_second(int(value[3:5]))
-            and Lexer.is_valid_minute_or_second(int(value[6:8]))
+            len(whole) == 8
+            and whole[2] == ":"
+            and whole[5] == ":"
+            and whole[:2].isdigit()
+            and whole[3:5].isdigit()
+            and whole[6:8].isdigit()
+            and Lexer.is_valid_hour(int(whole[:2]))
+            and Lexer.is_valid_minute(int(whole[3:5]))
+            and Lexer.is_valid_second(int(whole[6:8]))
         )
 
     @classmethod
@@ -798,12 +801,12 @@ class Lexer:
             and value[:2].isdigit()
             and value[3:5].isdigit()
             and Lexer.is_valid_hour(int(value[:2]))
-            and Lexer.is_valid_minute_or_second(int(value[3:5]))
+            and Lexer.is_valid_minute(int(value[3:5]))
         )
 
     @staticmethod
     def is_valid_date_parts(year: int, month: int, day: int) -> bool:
-        if month < 1 or month > 12 or day < 1:
+        if year < 1 or month < 1 or month > 12 or day < 1:
             return False
         days_in_month = [31, 29 if Lexer.is_leap_year(year) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         return day <= days_in_month[month - 1]
@@ -817,8 +820,12 @@ class Lexer:
         return 0 <= value <= 23
 
     @staticmethod
-    def is_valid_minute_or_second(value: int) -> bool:
+    def is_valid_minute(value: int) -> bool:
         return 0 <= value <= 59
+
+    @staticmethod
+    def is_valid_second(value: int) -> bool:
+        return 0 <= value <= 60
 
     @staticmethod
     def is_hex_digit(char: str) -> bool:

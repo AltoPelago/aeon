@@ -275,6 +275,18 @@ def main() -> int:
                 cts_manifest("aeos", "v1", "aeos-validator-cts.v1.json"),
             ],
         ),
+        LaneCommand(
+            name="aeos-next",
+            command=[
+                "node",
+                str(repo_root / "implementations" / "typescript" / "tools" / "cts-runner" / "dist" / "index.js"),
+                "--sut",
+                str(sut),
+                "--cts",
+                cts_manifest("aeos", "v1", "aeos-validator-cts.v1.next.json"),
+            ],
+            default=False,
+        ),
     ]
 
     requested = set(sys.argv[1:])
@@ -282,7 +294,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos", file=sys.stderr)
+            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos aeos-next", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
     else:

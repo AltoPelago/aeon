@@ -45,6 +45,7 @@ const rustRelativePaths = [
   'implementations/rust/README.md',
 ];
 const pythonRelativePaths = [
+  '.github/workflows/python-wheels.yml',
   'implementations/python/pyproject.toml',
   'implementations/python/README.md',
   'implementations/python/src/aeon/cli.py',
@@ -563,6 +564,7 @@ function consistencyProblems(sources, versions, { requireReleaseHeadings = true 
 
   expectLiteral(problems, sources.get('implementations/python/README.md'), `Current package line: \`${versions.python}\`.`, 'Python README current line');
   expectLiteral(problems, sources.get('implementations/python/src/aeon/cli.py'), `print("aeon-python ${versions.python}")`, 'Python CLI version');
+  expectLiteral(problems, sources.get('.github/workflows/python-wheels.yml'), `altopelago-aeon==${versions.python}`, 'Python wheel workflow package version');
   try {
     const nativeVersion = singleCapturedValue(
       sources.get('implementations/rust/crates/aeon-python/pyproject.toml'),
@@ -670,6 +672,7 @@ function updateRust(updates, current, next) {
 
 function updatePython(updates, current, next) {
   updateSource(updates, 'conformance/cts-claims.json', (source) => replaceCtsClaimVersion(source, 'python', current, next));
+  updateSource(updates, '.github/workflows/python-wheels.yml', (source) => replaceLiteral(source, `altopelago-aeon==${current}`, `altopelago-aeon==${next}`, 'Python wheel workflow package version'));
   updateSource(updates, 'implementations/python/pyproject.toml', (source) => replacePattern(source, new RegExp(`^(version = ")${escapeRegExp(current)}("$)`, 'gm'), `$1${next}$2`, 'Python project version'));
   updateSource(updates, 'implementations/python/README.md', (source) => replaceLiteral(source, `Current package line: \`${current}\`.`, `Current package line: \`${next}\`.`, 'Python README current line'));
   updateSource(updates, 'implementations/python/src/aeon/cli.py', (source) => replaceLiteral(source, `print("aeon-python ${current}")`, `print("aeon-python ${next}")`, 'Python CLI version'));

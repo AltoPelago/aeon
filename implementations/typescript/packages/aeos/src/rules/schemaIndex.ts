@@ -387,7 +387,7 @@ function validateConstraintTree(
         }
     }
 
-    for (const key of ['type', 'null_value', 'sign', 'datatype'] as const) {
+    for (const key of ['type', 'null_value', 'sign', 'datatype', 'temporal_context_policy'] as const) {
         const value = constraints[key];
         if (value !== undefined && typeof value !== 'string') {
             emitError(ctx, createDiag(
@@ -398,6 +398,17 @@ function validateConstraintTree(
             ));
             return false;
         }
+    }
+
+    if (constraints.temporal_context_policy !== undefined
+        && constraints.temporal_context_policy !== 'aeon.gp.temporal.v1') {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `Unsupported temporal_context_policy for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
     }
 
     if (constraints.sign !== undefined && !['signed', 'unsigned'].includes(String(constraints.sign))) {
@@ -456,7 +467,19 @@ function validateConstraintTree(
         }
     }
 
-    for (const key of ['min_children', 'max_children', 'length_exact', 'radix', 'min_digits', 'max_digits', 'min_length', 'max_length'] as const) {
+    for (const key of [
+        'min_children',
+        'max_children',
+        'length_exact',
+        'radix',
+        'min_digits',
+        'max_digits',
+        'min_length',
+        'max_length',
+        'temporal_max_second',
+        'temporal_min_year',
+        'temporal_max_year',
+    ] as const) {
         const value = constraints[key];
         if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
             emitError(ctx, createDiag(
@@ -467,6 +490,41 @@ function validateConstraintTree(
             ));
             return false;
         }
+    }
+
+    if (typeof constraints.temporal_max_second === 'number' && constraints.temporal_max_second > 60) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `temporal_max_second must be between 0 and 60 for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
+    }
+
+    for (const key of ['temporal_min_year', 'temporal_max_year'] as const) {
+        const value = constraints[key];
+        if (typeof value === 'number' && (value < 1 || value > 9999)) {
+            emitError(ctx, createDiag(
+                rulePath,
+                null,
+                `${key} must be between 1 and 9999 for path ${rulePath}`,
+                ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+            ));
+            return false;
+        }
+    }
+
+    if (typeof constraints.temporal_min_year === 'number'
+        && typeof constraints.temporal_max_year === 'number'
+        && constraints.temporal_min_year > constraints.temporal_max_year) {
+        emitError(ctx, createDiag(
+            rulePath,
+            null,
+            `temporal_min_year must be less than or equal to temporal_max_year for path ${rulePath}`,
+            ErrorCodes.UNKNOWN_CONSTRAINT_KEY
+        ));
+        return false;
     }
 
     for (const key of ['min_value', 'max_value'] as const) {

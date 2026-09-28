@@ -1496,6 +1496,9 @@ function checkLexicalLiteralConstraint(
     constraints: ConstraintsV1,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
+    checkTemporalFieldConstraints(path, event, constraints, ctx);
+    checkTemporalContextPolicy(path, event, constraints, ctx);
+
     if (event.type === 'NullLiteral' && !nullValueMatches(event.value, constraints)) {
         emitError(ctx, createDiag(
             path,
@@ -1519,6 +1522,109 @@ function checkLexicalLiteralConstraint(
                 `Toggle pair mismatch: expected ${constraints.toggle_pair}, got ${value || '<none>'}`,
                 ErrorCodes.TOGGLE_PAIR_MISMATCH
             ));
+        }
+    }
+}
+
+function checkTemporalContextPolicy(
+    path: string,
+    event: Pick<EventInfo, 'type' | 'value' | 'span'>,
+    constraints: ConstraintsV1,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    if (constraints.temporal_context_policy === undefined) return;
+    if (event.type === 'NullLiteral' && constraints.nullable === true) return;
+    if (event.type !== 'WTCDateTimeLiteral') {
+        emitError(ctx, createDiag(
+            path,
+            event.span,
+            `Temporal context policy is inapplicable to ${event.type}`,
+            ErrorCodes.CONSTRAINT_INAPPLICABLE
+        ));
+        return;
+    }
+    const value = event.value.replace(/^@/, '');
+    const separator = value.lastIndexOf('&');
+    if (separator < 0) return;
+    const temporal = value.slice(0, separator);
+    const context = value.slice(separator + 1);
+    const nonUtcTimescale = context === 'TAI' || context === 'UT1' || context === 'TT' || context === 'GPS';
+    const anchor = /(Z|[+-]\d{2}:\d{2})$/.exec(temporal)?.[1];
+    if (nonUtcTimescale && anchor !== undefined && anchor !== '-00:00') {
+        emitError(ctx, createDiag(
+            path,
+            event.span,
+            `Temporal context conflict: UTC-relative anchor ${anchor} conflicts with timescale ${context}`,
+            ErrorCodes.TEMPORAL_CONTEXT_CONFLICT
+        ));
+    }
+}
+
+function checkTemporalFieldConstraints(
+    path: string,
+    event: Pick<EventInfo, 'type' | 'raw' | 'value' | 'span'>,
+    constraints: ConstraintsV1,
+    ctx: ReturnType<typeof createDiagContext>,
+): void {
+    const hasSecondConstraint = constraints.temporal_max_second !== undefined;
+    const hasYearConstraint = constraints.temporal_min_year !== undefined || constraints.temporal_max_year !== undefined;
+    if (!hasSecondConstraint && !hasYearConstraint) return;
+    if (event.type === 'NullLiteral' && constraints.nullable === true) return;
+
+    const carriesSeconds = event.type === 'TimeLiteral'
+        || event.type === 'DateTimeLiteral'
+        || event.type === 'WTCDateTimeLiteral';
+    const carriesYear = event.type === 'DateLiteral'
+        || event.type === 'DateTimeLiteral'
+        || event.type === 'WTCDateTimeLiteral';
+
+    if ((hasSecondConstraint && !carriesSeconds) || (hasYearConstraint && !carriesYear)) {
+        emitError(ctx, createDiag(
+            path,
+            event.span,
+            `Temporal field constraint is inapplicable to ${event.type}`,
+            ErrorCodes.CONSTRAINT_INAPPLICABLE
+        ));
+        return;
+    }
+
+    const value = event.value.replace(/^@/, '');
+    if (hasSecondConstraint) {
+        const clock = event.type === 'TimeLiteral' ? value : value.slice(value.indexOf('T') + 1);
+        const secondMatch = /^(?:\d{2}):(?:\d{2}):(\d{2})(?:\.\d+)?/.exec(clock);
+        if (secondMatch !== null) {
+            const second = Number.parseInt(secondMatch[1]!, 10);
+            if (second > constraints.temporal_max_second!) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Temporal field constraint mismatch: second ${second} exceeds maximum ${constraints.temporal_max_second}`,
+                    ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
+                ));
+            }
+        }
+    }
+
+    if (hasYearConstraint) {
+        const yearMatch = /^(\d{4})-/.exec(value);
+        if (yearMatch !== null) {
+            const year = Number.parseInt(yearMatch[1]!, 10);
+            if (constraints.temporal_min_year !== undefined && year < constraints.temporal_min_year) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Temporal field constraint mismatch: year ${year} is below minimum ${constraints.temporal_min_year}`,
+                    ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
+                ));
+            }
+            if (constraints.temporal_max_year !== undefined && year > constraints.temporal_max_year) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Temporal field constraint mismatch: year ${year} exceeds maximum ${constraints.temporal_max_year}`,
+                    ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
+                ));
+            }
         }
     }
 }

@@ -80,11 +80,30 @@ export function createAeonNamespace(
   const byAddress = new Map<string, AeonSansaBinding>([['$', root]]);
   const parents = new Map<AeonSansaBinding, AeonSansaBinding | undefined>([[root, undefined]]);
 
+  if (scope === 'full') {
+    for (const sourcePlane of ['header', 'body'] as const) {
+      const address = appendMember('$', sourcePlane);
+      const planeRoot: AeonSansaBinding = {
+        address,
+        name: sourcePlane,
+        sourcePlane,
+        representationKind: 'object',
+        children: [],
+      };
+      root.children.push(planeRoot);
+      byAddress.set(address, planeRoot);
+      parents.set(planeRoot, root);
+    }
+  }
+
   for (const event of events) {
     if (!eventIsInScope(event, scope)) continue;
 
-    const address = formatPath(event.path);
-    const parentAddress = parentPathAddress(event.path);
+    const sourcePlane = event.sourcePlane === 'header' ? 'header' : 'body';
+    const eventAddress = formatPath(event.path);
+    const eventParentAddress = parentPathAddress(event.path);
+    const address = scope === 'full' ? addressInPlane(sourcePlane, eventAddress) : eventAddress;
+    const parentAddress = scope === 'full' ? addressInPlane(sourcePlane, eventParentAddress) : eventParentAddress;
     const parent = byAddress.get(parentAddress);
     if (!parent) {
       throw new Error(`AEON event '${address}' has no parent binding '${parentAddress}' in the selected '${scope}' scope.`);
@@ -148,6 +167,11 @@ function eventIsInScope(event: AeonAssignmentEvent, scope: AeonNamespaceScope): 
 function parentPathAddress(path: AeonAssignmentEvent['path']): string {
   if (path.segments.length <= 1) return '$';
   return formatPath({ segments: path.segments.slice(0, -1) });
+}
+
+function addressInPlane(sourcePlane: 'header' | 'body', address: string): string {
+  const planeRoot = appendMember('$', sourcePlane);
+  return address === '$' ? planeRoot : `${planeRoot}${address.slice(1)}`;
 }
 
 function bindingFromEvent(
@@ -265,7 +289,7 @@ function semanticTypeFromValue(value: AeonValue): string | undefined {
     case 'SansaAddressLiteral': return 'sansa';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return 'time';
-    case 'DateTimeLiteral': return 'datetime';
+    case 'DateTimeLiteral': return unwrapped.raw.includes('&') ? 'wtc' : 'datetime';
     case 'ObjectNode':
     case 'ListNode':
     case 'TupleLiteral':

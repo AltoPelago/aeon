@@ -216,6 +216,48 @@ aeos:schema = {
         });
     });
 
+    it('round-trips temporal field constraints as AEON numbers', () => {
+        const source = schemaToAeon({
+            datatype_rules: {
+                datetime: {
+                    temporal_max_second: 59,
+                    temporal_min_year: 1,
+                    temporal_max_year: 9999,
+                    temporal_context_policy: 'aeon.gp.temporal.v1',
+                },
+            },
+            rules: [{
+                path: '$.observedAt',
+                constraints: {
+                    type: 'DateTimeLiteral',
+                    temporal_max_second: 60,
+                },
+            }],
+        });
+
+        assert.match(source, /temporal_max_second:number = 59/u);
+        assert.match(source, /temporal_min_year:number = 1/u);
+        assert.match(source, /temporal_max_year:number = 9999/u);
+        assert.match(source, /temporal_context_policy:string = "aeon\.gp\.temporal\.v1"/u);
+        assert.deepStrictEqual(parseSchemaSource(source), {
+            datatype_rules: {
+                datetime: {
+                    temporal_max_second: 59,
+                    temporal_min_year: 1,
+                    temporal_max_year: 9999,
+                    temporal_context_policy: 'aeon.gp.temporal.v1',
+                },
+            },
+            rules: [{
+                path: '$.observedAt',
+                constraints: {
+                    type: 'DateTimeLiteral',
+                    temporal_max_second: 60,
+                },
+            }],
+        });
+    });
+
     it('authors numeric bounds as AEON numbers while retaining exact portable lexemes', () => {
         const schema = parseSchemaSource(`
 aeos:schema = {

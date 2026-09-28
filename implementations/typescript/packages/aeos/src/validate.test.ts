@@ -475,6 +475,95 @@ describe('validate()', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
+        it('enforces temporal field constraints without zero-filling omitted fields', () => {
+            const aes: AES = [
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'allowed' }] },
+                    key: 'allowed',
+                    value: { type: 'DateTimeLiteral', value: '2026-05-25T12:34:59.3400Z', raw: '@2026-05-25T12:34:59.3400Z', span: [1, 2] },
+                    span: [1, 2],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'leap' }] },
+                    key: 'leap',
+                    value: { type: 'DateTimeLiteral', value: '2016-12-31T23:59:60Z', raw: '@2016-12-31T23:59:60Z', span: [3, 4] },
+                    span: [3, 4],
+                },
+                {
+                    path: { segments: [{ type: 'root' }, { type: 'member', key: 'reduced' }] },
+                    key: 'reduced',
+                    value: { type: 'DateTimeLiteral', value: '2026-05-25T12:34Z', raw: '@2026-05-25T12:34Z', span: [5, 6] },
+                    span: [5, 6],
+                },
+            ] as unknown as AES;
+
+            const schema: SchemaV1 = {
+                rules: [
+                    { path: '$.allowed', constraints: { temporal_max_second: 59, temporal_min_year: 1, temporal_max_year: 9999 } },
+                    { path: '$.leap', constraints: { temporal_max_second: 59, temporal_min_year: 1, temporal_max_year: 9999 } },
+                    { path: '$.reduced', constraints: { temporal_max_second: 59, temporal_min_year: 1, temporal_max_year: 9999 } },
+                ],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [['$.leap', ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH]]
+            );
+        });
+
+        it('reports temporal constraints used on incompatible literal kinds', () => {
+            const aes: AES = [{
+                path: { segments: [{ type: 'root' }, { type: 'member', key: 'text' }] },
+                key: 'text',
+                value: { type: 'StringLiteral', value: '2016-12-31T23:59:60Z', raw: '"2016-12-31T23:59:60Z"', delimiter: '"', span: [1, 2] },
+                span: [1, 2],
+            }] as unknown as AES;
+            const schema: SchemaV1 = {
+                rules: [{ path: '$.text', constraints: { temporal_max_second: 59 } }],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.ok(result.errors.some((error) => error.code === ErrorCodes.CONSTRAINT_INAPPLICABLE));
+        });
+
+        it('rejects UTC-relative anchors combined with non-UTC timescales under GP policy', () => {
+            const values = [
+                '2026-01-01T09:10:10Z&TAI',
+                '2026-01-01T09:10:10+01:00&GPS',
+                '2026-01-01T09:10:10-00:00&TAI',
+                '2026-01-01T09:10:10&TAI',
+                '2026-01-01T09:10:10Z&UTC',
+            ];
+            const aes = values.map((value, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: `value${index}` }] },
+                key: `value${index}`,
+                value: { type: 'WTCDateTimeLiteral', value, raw: `@${value}`, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+            const schema: SchemaV1 = {
+                rules: values.map((_, index) => ({
+                    path: `$.value${index}`,
+                    constraints: { temporal_context_policy: 'aeon.gp.temporal.v1' },
+                })),
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [
+                    ['$.value0', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT],
+                    ['$.value1', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT],
+                ],
+            );
+        });
+
         it('rejects unexpected top-level bindings in closed-world mode', () => {
             const aes: AES = [
                 {

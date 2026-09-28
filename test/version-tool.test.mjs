@@ -127,6 +127,7 @@ function fixtureSources(version = '1.2.3') {
     '',
   ].join('\n'));
   put('implementations/rust/README.md', `Current crate/workspace line: \`${version}\`.\n`);
+  put('.github/workflows/python-wheels.yml', `python -m pip install altopelago-aeon==${version}\n`);
   put('implementations/python/pyproject.toml', `[project]\nname = "aeon-python"\nversion = "${version}"\n`);
   put('implementations/rust/crates/aeon-python/pyproject.toml', `[project]\nname = "altopelago-aeon"\nversion = "${version}"\n`);
   put('implementations/python/README.md', `Current package line: \`${version}\`.\n`);
@@ -222,6 +223,7 @@ test('version set all updates TypeScript, Rust, and Python together', (t) => {
   assert.match(readFileSync(join(root, 'implementations/python/pyproject.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/rust/crates/aeon-python/pyproject.toml'), 'utf8'), /version = "1\.3\.0"/);
   assert.match(readFileSync(join(root, 'implementations/python/src/aeon/cli.py'), 'utf8'), /1\.3\.0/);
+  assert.match(readFileSync(join(root, '.github/workflows/python-wheels.yml'), 'utf8'), /altopelago-aeon==1\.3\.0/);
   assert.deepEqual(
     JSON.parse(readFileSync(join(root, 'conformance/cts-claims.json'))).claim_sets.map((claimSet) => claimSet.implementation_version),
     ['1.3.0', '1.3.0', '1.3.0'],
