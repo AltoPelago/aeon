@@ -564,6 +564,41 @@ describe('validate()', () => {
             );
         });
 
+        it('applies WTC datatype rules to parser-shaped DateTimeLiteral events', () => {
+            const values = [
+                '2026-01-01T09:10:10&TAI',
+                '2026-01-01T09:10:10Z&TAI',
+                '2026-01-01T09:10:10-00:00&TAI',
+            ];
+            const aes = values.map((value, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: `value${index}` }] },
+                key: `value${index}`,
+                datatype: 'wtc',
+                value: { type: 'DateTimeLiteral', value, raw: value, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+            const schema: SchemaV1 = {
+                datatype_rules: {
+                    wtc: {
+                        type: 'WTCDateTimeLiteral',
+                        temporal_max_second: 59,
+                        temporal_min_year: 1,
+                        temporal_max_year: 9999,
+                        temporal_context_policy: 'aeon.gp.temporal.v1',
+                    },
+                },
+                rules: [],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [['$.value1', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT]],
+            );
+        });
+
         it('rejects unexpected top-level bindings in closed-world mode', () => {
             const aes: AES = [
                 {

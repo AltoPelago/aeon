@@ -1466,6 +1466,7 @@ function constraintTypeMatches(actualType: string, expectedType: string, raw: st
     if (constraints?.allow_infinity === true && actualType === 'InfinityLiteral' && isNumericExpectedType(expectedType)) return true;
     if (constraints?.allow_nan === true && actualType === 'NaNLiteral' && isNumericExpectedType(expectedType)) return true;
     if (actualType === expectedType) return true;
+    if (actualType === 'DateTimeLiteral' && expectedType === 'WTCDateTimeLiteral' && raw.includes('&')) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') return /^[+-]?\d[\d_]*$/.test(raw);
         if (expectedType === 'FloatLiteral') return /^[+-]?(?:\d[\d_]*\.\d[\d_]*|\d[\d_]*\.|\.\d[\d_]*|\d[\d_]*[eE][+-]?\d[\d_]*)$/.test(raw);
@@ -1528,13 +1529,15 @@ function checkLexicalLiteralConstraint(
 
 function checkTemporalContextPolicy(
     path: string,
-    event: Pick<EventInfo, 'type' | 'value' | 'span'>,
+    event: Pick<EventInfo, 'type' | 'raw' | 'value' | 'span'>,
     constraints: ConstraintsV1,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     if (constraints.temporal_context_policy === undefined) return;
     if (event.type === 'NullLiteral' && constraints.nullable === true) return;
-    if (event.type !== 'WTCDateTimeLiteral') {
+    const isWtc = event.type === 'WTCDateTimeLiteral'
+        || (event.type === 'DateTimeLiteral' && (event.raw || event.value).includes('&'));
+    if (!isWtc) {
         emitError(ctx, createDiag(
             path,
             event.span,
@@ -1652,6 +1655,7 @@ function isReferenceType(type: string): boolean {
 
 function datatypeTypeMatches(actualType: string, expectedType: string, raw: string): boolean {
     if (actualType === expectedType) return true;
+    if (actualType === 'DateTimeLiteral' && expectedType === 'WTCDateTimeLiteral' && raw.includes('&')) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') {
             return /^[+-]?\d[\d_]*$/.test(raw);

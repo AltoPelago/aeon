@@ -132,6 +132,14 @@ function typeMatches(actualType: string, expectedType: string, raw?: string, con
     // Direct match
     if (actualType === expectedType) return true;
 
+    // Core represents WTC syntax as a DateTimeLiteral whose authored value
+    // contains a temporal-context suffix. AEOS exposes the more specific
+    // WTCDateTimeLiteral constraint without requiring Core to rewrite AES.
+    if (actualType === 'DateTimeLiteral'
+        && expectedType === 'WTCDateTimeLiteral'
+        && typeof raw === 'string'
+        && raw.includes('&')) return true;
+
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') {
             return isIntegerNumber(raw);
