@@ -445,6 +445,15 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01');
         });
 
+        it('should tokenize reduced-granularity date literals', () => {
+            for (const source of ['2024-', '2024-02', '2024-02-29']) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.Date, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should tokenize datetime literals', () => {
             const result = tokenize('2025-01-01T10:00:00Z');
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
@@ -558,6 +567,12 @@ describe('Lexer', () => {
                 '2025-13-40',
                 '2025-02-29',
                 '0000-01-01',
+                '0000-',
+                '2025-00',
+                '2025-13',
+                '2025-1',
+                '2025-T09:30',
+                '2025-01T09:30',
                 '2025-13-40T99:99:99',
                 '2025-02-29T09:30:00',
                 '2025-01-01T09:30Z&/',

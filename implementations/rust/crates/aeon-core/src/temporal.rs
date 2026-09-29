@@ -53,6 +53,26 @@ pub(crate) fn invalid_temporal_literal(raw: &str) -> Option<(&'static str, Strin
 
 fn looks_like_date(value: &str) -> bool {
     let bytes = value.as_bytes();
+    if bytes.len() == 5 && bytes[4] == b'-' && bytes[..4].iter().all(u8::is_ascii_digit) {
+        return value[0..4]
+            .parse::<u32>()
+            .is_ok_and(|year| (1..=9999).contains(&year));
+    }
+    if bytes.len() == 7
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+    {
+        return match (value[0..4].parse::<u32>(), value[5..7].parse::<u32>()) {
+            (Ok(year), Ok(month)) => (1..=9999).contains(&year) && (1..=12).contains(&month),
+            _ => false,
+        };
+    }
+    looks_like_full_date(value)
+}
+
+fn looks_like_full_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
     if !(bytes.len() == 10
         && bytes[4] == b'-'
         && bytes[7] == b'-'
@@ -74,6 +94,17 @@ fn looks_like_date(value: &str) -> bool {
 }
 
 fn looks_like_date_candidate(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 5
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || *byte == b'-')
+        && bytes[5..].iter().filter(|byte| **byte == b'-').count() <= 1
+    {
+        return true;
+    }
     let mut parts = value.split('-');
     let (Some(year), Some(month), Some(day), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())
@@ -95,7 +126,7 @@ fn looks_like_time(value: &str) -> bool {
 
 fn looks_like_datetime(value: &str) -> bool {
     if let Some((date, rest)) = value.split_once('T') {
-        if !looks_like_date(date) {
+        if !looks_like_full_date(date) {
             return false;
         }
         if looks_like_datetime_time(rest) || looks_like_datetime_zoned_time(rest) {

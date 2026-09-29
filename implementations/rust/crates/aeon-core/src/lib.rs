@@ -3108,6 +3108,39 @@ mod tests {
     }
 
     #[test]
+    fn accepts_reduced_granularity_dates_without_widening_datetime_dates() {
+        let accepted = compile(
+            "year:date = 2024-\nmonth:date = 2024-02\nday:date = 2024-02-29\n",
+            CompileOptions::default(),
+        );
+        assert!(accepted.errors.is_empty(), "{:?}", accepted.errors);
+        assert_eq!(accepted.events.len(), 3);
+        assert!(
+            accepted
+                .events
+                .iter()
+                .all(|event| event.value.value_kind() == "DateLiteral")
+        );
+
+        for source in [
+            "date:date = 0000-\n",
+            "date:date = 2024-00\n",
+            "date:date = 2024-13\n",
+            "date:date = 2024-2\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert_eq!(result.errors[0].code, "INVALID_DATE", "{source}");
+        }
+        for source in [
+            "date:datetime = 2024-T09:30\n",
+            "date:datetime = 2024-02T09:30\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert_eq!(result.errors[0].code, "INVALID_DATETIME", "{source}");
+        }
+    }
+
+    #[test]
     fn rejects_incomplete_transport_exponent_forms_before_finalize() {
         for source in [
             "aeon:mode = \"transport\"\na = 1e\n",

@@ -654,6 +654,17 @@ class Lexer:
 
     @staticmethod
     def is_valid_date_literal(value: str) -> bool:
+        if len(value) == 5 and value.endswith("-") and value[:4].isdigit():
+            year = int(value[:4])
+            return 1 <= year <= 9999
+        if len(value) == 7 and value[4] == "-" and value[:4].isdigit() and value[5:7].isdigit():
+            year = int(value[:4])
+            month = int(value[5:7])
+            return 1 <= year <= 9999 and 1 <= month <= 12
+        return Lexer.is_valid_full_date_literal(value)
+
+    @staticmethod
+    def is_valid_full_date_literal(value: str) -> bool:
         if not (len(value) == 10 and value[4] == "-" and value[7] == "-" and value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()):
             return False
         year = int(value[:4])
@@ -670,7 +681,7 @@ class Lexer:
         if "T" not in value:
             return False
         date, rest = value.split("T", 1)
-        if not cls.is_valid_date_literal(date):
+        if not cls.is_valid_full_date_literal(date):
             return False
         if cls.matches_datetime_time(rest) or cls.matches_datetime_zoned_time(rest):
             return True

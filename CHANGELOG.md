@@ -8,6 +8,12 @@ repositories.
 
 ## Unreleased
 
+### Added
+
+- Added Core year- and month-granularity date literals (`YYYY-` and
+  `YYYY-MM`) across the TypeScript, Python, and Rust implementations. Datetime
+  and WTC literals continue to require a complete `YYYY-MM-DD` date component.
+
 ## 0.14.0 - 2026-09-29
 
 ### Breaking

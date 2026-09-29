@@ -1211,6 +1211,21 @@ function reservedSubtypeFromMarker(marker: string): ReservedCommentSubtype | nul
 }
 
 function isValidDateLiteral(value: string): boolean {
+    const yearOnly = /^(\d{4})-$/.exec(value);
+    if (yearOnly) {
+        const year = Number.parseInt(yearOnly[1]!, 10);
+        return year >= 1 && year <= 9999;
+    }
+    const yearMonth = /^(\d{4})-(\d{2})$/.exec(value);
+    if (yearMonth) {
+        const year = Number.parseInt(yearMonth[1]!, 10);
+        const month = Number.parseInt(yearMonth[2]!, 10);
+        return year >= 1 && year <= 9999 && month >= 1 && month <= 12;
+    }
+    return isValidFullDateLiteral(value);
+}
+
+function isValidFullDateLiteral(value: string): boolean {
     if (value.length !== 10
         || value[4] !== '-'
         || value[7] !== '-'
@@ -1234,7 +1249,7 @@ function isValidDateTimeLiteral(value: string): boolean {
     if (tIndex === -1) return false;
     const date = value.slice(0, tIndex);
     const rest = value.slice(tIndex + 1);
-    if (!isValidDateLiteral(date)) return false;
+    if (!isValidFullDateLiteral(date)) return false;
     if (matchesDateTimeTime(rest) || matchesDateTimeZonedTime(rest)) return true;
     const ampIndex = rest.indexOf('&');
     if (ampIndex === -1) return false;

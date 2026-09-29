@@ -553,6 +553,8 @@ class CoreCompileTests(unittest.TestCase):
             "zone:wtc = 2017-01-01T10:59:60+11:00&Australia/Melbourne",
             "lower:date = 0001-01-01",
             "upper:date = 9999-12-31",
+            "year:date = 2024-",
+            "month:date = 2024-02",
         )
         for source in accepted:
             with self.subTest(source=source):
@@ -564,6 +566,12 @@ class CoreCompileTests(unittest.TestCase):
             ("t:time = 23:59:61", "INVALID_TIME"),
             ("t:time = 23:59:59.", "INVALID_TIME"),
             ("date:date = 0000-01-01", "INVALID_DATE"),
+            ("date:date = 0000-", "INVALID_DATE"),
+            ("date:date = 2024-00", "INVALID_DATE"),
+            ("date:date = 2024-13", "INVALID_DATE"),
+            ("date:date = 2024-2", "INVALID_DATE"),
+            ("date:datetime = 2024-T09:30", "INVALID_DATETIME"),
+            ("date:datetime = 2024-02T09:30", "INVALID_DATETIME"),
         )
         for source, code in rejected:
             with self.subTest(source=source):
