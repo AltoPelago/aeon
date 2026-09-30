@@ -112,6 +112,11 @@ class UnterminatedStringError(AeonError):
         )
 
 
+class InvalidSymbolicLiteralError(AeonError):
+    def __init__(self, message: str, span: Span, code: str = "INVALID_SYMBOLIC_LITERAL") -> None:
+        super().__init__(message=message, span=span, code=code)
+
+
 class InvalidNumberError(AeonError):
     def __init__(self, raw: str, span: Span, path: str | None = None) -> None:
         super().__init__(

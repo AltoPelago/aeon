@@ -21,6 +21,7 @@ from .ast import (
     PointerReference,
     RadixLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     StringLiteral,
     TupleLiteral,
     TypedValue,
@@ -154,6 +155,7 @@ RESERVED_KIND_MAP = {
     "radix12": ("RadixLiteral",),
     "sep": ("SeparatorLiteral",),
     "kadot": ("SeparatorLiteral",),
+    "symbol": ("SymbolicLiteral",),
     "sansa": ("SansaAddressLiteral",),
 }
 
@@ -302,7 +304,7 @@ def validate_source_structure(document: Document, options: CompileOptions) -> Re
         return None
 
     def check_value(value: Value) -> ResourceLimitExceededError | None:
-        if isinstance(value, StringLiteral):
+        if isinstance(value, (StringLiteral, SymbolicLiteral)):
             return ResourceLimitExceededError("max_string_codepoints", len(value.value), options.max_string_codepoints, value.span) if len(value.value) > options.max_string_codepoints else None
         if isinstance(value, NumberLiteral):
             return ResourceLimitExceededError("max_numeric_literal_characters", len(value.raw), options.max_numeric_literal_characters, value.span) if len(value.raw) > options.max_numeric_literal_characters else None
@@ -439,6 +441,7 @@ AEON_GP_PROFILE_ID = "aeon.gp.profile.v1"
 GP_DATATYPE_CLARIFIER_RULES = {
     "decimal": "none",
     "kadot": "none",
+    "symbol": "none",
     "radix": "radix_base",
     "sep": "separator_chars",
     "separator": "separator_chars",
@@ -1424,6 +1427,8 @@ def value_kind(value: Value) -> str:
         return "WTCDateTimeLiteral" if value.raw and "&" in value.raw else "DateTimeLiteral"
     if isinstance(value, SeparatorLiteral):
         return "SeparatorLiteral"
+    if isinstance(value, SymbolicLiteral):
+        return "SymbolicLiteral"
     if isinstance(value, HexLiteral):
         return "HexLiteral" if has_valid_literal_underscores(value.raw) else "InvalidHexLiteral"
     if isinstance(value, RadixLiteral):

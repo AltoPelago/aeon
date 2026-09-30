@@ -178,6 +178,13 @@ def _materialize_record(indexed: _IndexedRecord, ctx: _Context) -> object:
     value = str(record.get("value", ""))
     if kind == "StringLiteral":
         return value
+    if kind == "SymbolicLiteral":
+        ctx.report(
+            "FINALIZE_JSON_PROFILE_SYMBOL",
+            f"Symbol literal is not losslessly representable in the strict JSON profile: {value}",
+            indexed.address,
+        )
+        return value
     if kind == "NumberLiteral":
         return _number_value(value, indexed.address, ctx)
     if kind in {"InfinityLiteral", "NaNLiteral"}:

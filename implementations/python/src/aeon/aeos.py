@@ -73,6 +73,7 @@ STRING_LIKE_VALUE_TYPES = {
     "StringLiteral",
     "TrimtickLiteral",
     "SeparatorLiteral",
+    "SymbolicLiteral",
     "HexLiteral",
     "EncodingLiteral",
     "NullLiteral",
@@ -183,6 +184,7 @@ def _portable_pattern_problem(pattern: str) -> str | None:
 TYPE_ALIASES = {
     "NumberLiteral": {"NumberLiteral", "IntegerLiteral", "FloatLiteral"},
     "StringLiteral": {"StringLiteral"},
+    "SymbolicLiteral": {"SymbolicLiteral"},
     "BooleanLiteral": {"BooleanLiteral"},
     "NullLiteral": {"NullLiteral"},
     "ToggleLiteral": {"ToggleLiteral"},
@@ -2078,6 +2080,7 @@ def is_string_like_literal(value_type: str) -> bool:
         "TrimtickLiteral",
         "TrimtickStringLiteral",
         "SeparatorLiteral",
+        "SymbolicLiteral",
         "NullLiteral",
         "EncodingLiteral",
         "DateLiteral",

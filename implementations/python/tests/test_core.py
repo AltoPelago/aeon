@@ -459,6 +459,43 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual(f'{datatype}["|"]', result.events[0]["datatype"])
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
+    def test_symbol_literals_are_inferred_and_preserve_decoded_payload(self) -> None:
+        result = compile_source(r"stage = |this has \| spaces|")
+        self.assertEqual([], result.errors)
+        self.assertEqual("SymbolicLiteral", result.events[0]["value"]["type"])
+        self.assertEqual("this has | spaces", result.events[0]["value"]["value"])
+        self.assertEqual(r"|this has \| spaces|", result.events[0]["value"]["raw"])
+
+    def test_symbol_datatype_is_reserved_in_strict_mode(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nstage:symbol = |approved|')
+        self.assertEqual([], result.errors)
+        self.assertEqual("SymbolicLiteral", result.events[0]["value"]["type"])
+
+    def test_symbol_payload_obeys_the_string_codepoint_limit(self) -> None:
+        result = compile_source("stage = |xy|", CompileOptions(max_string_codepoints=1))
+        self.assertEqual(["MAX_STRING_CODEPOINTS_EXCEEDED"], [error.code for error in result.errors])
+
+    def test_symbol_literals_are_nonempty_and_single_line(self) -> None:
+        for source in ("stage = ||", "stage = |first\nsecond|", "stage = |first\rsecond|"):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.events)
+                self.assertNotEqual([], result.errors)
+
+    def test_symbol_datatype_rejects_string_literal(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nstage:symbol = "approved"')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_gp_symbol_datatype_rejects_clarifiers(self) -> None:
+        result = compile_source('aeon:profile = "aeon.gp.profile.v1"\nstage:symbol["state"] = |approved|')
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
+
+        custom = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\nstage:status["state"] = |approved|',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in custom.errors])
+
     def test_unquoted_slash_separator_clarifiers_are_rejected(self) -> None:
         result = compile_source('aeon:mode = "strict"\nvalue:sep[/] = ^000.000')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

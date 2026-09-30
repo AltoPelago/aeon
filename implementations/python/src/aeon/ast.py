@@ -172,6 +172,14 @@ class SeparatorLiteral:
 
 
 @dataclass(slots=True)
+class SymbolicLiteral:
+    type: Literal["SymbolicLiteral"] = "SymbolicLiteral"
+    value: str = ""
+    raw: str = ""
+    span: Span | None = None
+
+
+@dataclass(slots=True)
 class SansaAddressLiteral:
     type: Literal["SansaAddressLiteral"] = "SansaAddressLiteral"
     address: dict[str, object] = field(default_factory=dict)
@@ -268,6 +276,7 @@ Value = (
     | DateTimeLiteral
     | TimeLiteral
     | SeparatorLiteral
+    | SymbolicLiteral
     | SansaAddressLiteral
     | ObjectNode
     | ListNode

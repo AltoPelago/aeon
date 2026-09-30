@@ -188,7 +188,7 @@ class AeosTests(unittest.TestCase):
         self.assertEqual(["missing_required_field"], [error["code"] for error in result["errors"]])
 
     def test_checks_attribute_entry_type_and_datatype(self) -> None:
-        compiled = compile_source('value@{unit:symbol = "cm"}:number = 3')
+        compiled = compile_source('value@{unit:symbol = |cm|}:number = 3')
         self.assertEqual([], compiled.errors)
         result = validate_events(compiled.events, {"rules": [{"path": "$.value", "constraints": {"attributes": {"unit": {"type": "NumberLiteral", "datatype": "string"}}}}]})
         self.assertTrue(any(error["code"] == "type_mismatch" and error["path"] == "$.value.@.unit" for error in result["errors"]))

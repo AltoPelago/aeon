@@ -30,6 +30,7 @@ from .ast import (
     ReferencePathSegment,
     SansaAddressLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     StringLiteral,
     ToggleLiteral,
     TimeLiteral,
@@ -65,7 +66,7 @@ RESERVED_V1_DATATYPES = {
     "hex", "date", "time", "datetime", "wtc",
     "encoding", "base64", "embed", "inline",
     "radix", "decimal", "radix2", "radix6", "radix8", "radix12",
-    "sep", "kadot",
+    "sep", "kadot", "symbol",
     "tuple", "triple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
 }
 
@@ -898,6 +899,9 @@ class Parser:
         if token.kind == "SEPARATOR":
             self.advance()
             return SeparatorLiteral(value=token.value[1:], raw=token.value, span=token.span)
+        if token.kind == "SYMBOLIC":
+            self.advance()
+            return SymbolicLiteral(value=token.value, raw=token.raw or f"|{token.value}|", span=token.span)
         if token.kind == "SANSA_ADDRESS":
             self.advance()
             result = parse_address(token.value)
