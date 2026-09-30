@@ -30,6 +30,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
     'RadixLiteral': ['RadixLiteral'],
     'EncodingLiteral': ['EncodingLiteral'],
     'SeparatorLiteral': ['SeparatorLiteral'],
+    'SymbolicLiteral': ['SymbolicLiteral'],
     'SansaAddressLiteral': ['SansaAddressLiteral'],
     'DateLiteral': ['DateLiteral'],
     'TimeLiteral': ['TimeLiteral'],

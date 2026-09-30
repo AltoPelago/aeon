@@ -154,6 +154,7 @@ function resolveScalarType(
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SymbolicLiteral':
         case 'SansaAddressLiteral':
         case 'CloneReference':
         case 'PointerReference':

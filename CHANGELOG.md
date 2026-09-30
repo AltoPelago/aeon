@@ -10,6 +10,11 @@ repositories.
 
 ### Added
 
+- Added nonempty pipe-delimited symbolic literals and the reserved `symbol`
+  datatype across TypeScript, Python, and Rust. The implementations preserve a
+  distinct `SymbolicLiteral` through AST and AES projection, canonicalize with
+  minimal pipe escaping, apply AEOS string-form constraints, and report lossy
+  JSON materialization as an error in strict mode or warning in transport mode.
 - Added Core year- and month-granularity date literals (`YYYY-` and
   `YYYY-MM`) across the TypeScript, Python, and Rust implementations. Datetime
   and WTC literals continue to require a complete `YYYY-MM-DD` date component.

@@ -102,6 +102,7 @@ export type Value =
     | RadixLiteral
     | EncodingLiteral
     | SeparatorLiteral
+    | SymbolicLiteral
     | SansaAddressLiteral
     | DateLiteral
     | DateTimeLiteral
@@ -223,6 +224,15 @@ export interface EncodingLiteral extends ASTNode {
  */
 export interface SeparatorLiteral extends ASTNode {
     readonly type: 'SeparatorLiteral';
+    readonly value: string;
+    readonly raw: string;
+}
+
+/**
+ * Symbolic literal (|atomic symbolic value|)
+ */
+export interface SymbolicLiteral extends ASTNode {
+    readonly type: 'SymbolicLiteral';
     readonly value: string;
     readonly raw: string;
 }

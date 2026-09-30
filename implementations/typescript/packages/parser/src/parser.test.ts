@@ -1760,3 +1760,18 @@ describe('Parser (contract)', () => {
         assert.strictEqual(result.errors.length, 0);
     });
 });
+
+describe('Symbolic literals', () => {
+    it('parses decoded symbolic values with their raw spelling', () => {
+        const lexed = tokenize('stage:symbol = |this has \\| spaces|');
+        assert.deepStrictEqual(lexed.errors, []);
+        const result = parse(lexed.tokens);
+        assert.deepStrictEqual(result.errors, []);
+        const value = result.document?.bindings[0]?.value;
+        assert.equal(value?.type, 'SymbolicLiteral');
+        if (value?.type === 'SymbolicLiteral') {
+            assert.equal(value.value, 'this has | spaces');
+            assert.equal(value.raw, '|this has \\| spaces|');
+        }
+    });
+});

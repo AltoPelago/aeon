@@ -13,6 +13,7 @@ import {
     LexerError,
     UnexpectedCharacterError,
     UnterminatedStringError,
+    InvalidSymbolicLiteralError,
     InvalidEscapeSequenceError,
     InvalidNumberError,
     InvalidTimeError,
@@ -266,6 +267,11 @@ export class Lexer {
                 break;
             case ';': this.addToken(TokenType.Semicolon, c, start); break;
 
+            // Symbolic literal (|decoded symbolic value|)
+            case '|':
+                this.scanSymbolicLiteral(start);
+                break;
+
             // Tilde (may be ~ or ~>)
             case '~':
                 if (this.match('>')) {
@@ -426,6 +432,64 @@ export class Lexer {
         }
 
         this.errors.push(new UnterminatedStringError(delimiter, createSpan(start, this.currentPosition())));
+    }
+
+    private scanSymbolicLiteral(start: Position): void {
+        let value = '';
+        let raw = '|';
+        const initialErrorCount = this.errors.length;
+
+        while (!this.isAtEnd()) {
+            const c = this.peek();
+            if (c === '|') {
+                raw += this.advance();
+                if (value.length === 0) {
+                    this.errors.push(new InvalidSymbolicLiteralError(
+                        'Symbolic literals must contain a value',
+                        createSpan(start, this.currentPosition())
+                    ));
+                    return;
+                }
+                if (this.errors.length > initialErrorCount) return;
+                this.tokens.push({
+                    type: TokenType.SymbolicLiteral,
+                    value,
+                    raw,
+                    span: createSpan(start, this.currentPosition()),
+                });
+                return;
+            }
+            if (c === '\n' || c === '\r') {
+                this.errors.push(new InvalidSymbolicLiteralError(
+                    'Unterminated symbolic literal',
+                    createSpan(start, this.currentPosition()),
+                    'UNTERMINATED_SYMBOLIC_LITERAL'
+                ));
+                return;
+            }
+            if (c === '\\') {
+                raw += this.advance();
+                if (this.isAtEnd()) break;
+                if (this.peek() === '|') {
+                    raw += this.advance();
+                    value += '|';
+                    continue;
+                }
+                const escapeStart = this.offset;
+                const escaped = this.scanEscapeSequence(start);
+                raw += this.input.slice(escapeStart, this.offset);
+                if (escaped !== null) value += escaped;
+                continue;
+            }
+            raw += this.advance();
+            value += c;
+        }
+
+        this.errors.push(new InvalidSymbolicLiteralError(
+            'Unterminated symbolic literal',
+            createSpan(start, this.currentPosition()),
+            'UNTERMINATED_SYMBOLIC_LITERAL'
+        ));
     }
 
     private scanStructuralIdentity(start: Position): void {

@@ -304,6 +304,17 @@ function valueToJson(
                 code: 'FINALIZE_JSON_PROFILE_NAN',
             });
             return value.value;
+        case 'SymbolicLiteral':
+            ctx[ctx.strict ? 'errors' : 'warnings'].push({
+                ...toDiagnostic(
+                    ctx.strict ? 'error' : 'warning',
+                    `Symbolic literal is not representable in the strict JSON profile: ${value.raw}`,
+                    path,
+                    value.span
+                ),
+                code: 'FINALIZE_JSON_PROFILE_SYMBOL',
+            });
+            return value.value;
         case 'NullLiteral':
             if (value.mode === 'reserved' && value.value === 'none') {
                 return null;
@@ -581,6 +592,7 @@ function measureMaterializedWeight(
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SymbolicLiteral':
         case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':

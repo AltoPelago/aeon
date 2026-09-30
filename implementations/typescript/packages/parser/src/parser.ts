@@ -29,6 +29,7 @@ import type {
     DateTimeLiteral,
     TimeLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     SansaAddressLiteral,
     CloneReference,
     PointerReference,
@@ -1280,6 +1281,10 @@ class Parser {
                 this.advance();
                 return this.createSeparatorLiteral(token);
 
+            case TokenType.SymbolicLiteral:
+                this.advance();
+                return this.createSymbolicLiteral(token);
+
             case TokenType.Caret:
                 throw new SyntaxError(
                     'Separator literals must contain a payload',
@@ -1532,6 +1537,15 @@ class Parser {
             type: 'SeparatorLiteral',
             value: token.value.substring(1), // remove ^
             raw: token.value,
+            span: token.span,
+        };
+    }
+
+    private createSymbolicLiteral(token: Token): SymbolicLiteral {
+        return {
+            type: 'SymbolicLiteral',
+            value: token.value,
+            raw: token.raw ?? `|${token.value}|`,
             span: token.span,
         };
     }
@@ -1801,7 +1815,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'hex', 'date', 'time', 'datetime', 'wtc',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12',
-    'sep', 'kadot',
+    'sep', 'kadot', 'symbol',
     'sansa',
     'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);

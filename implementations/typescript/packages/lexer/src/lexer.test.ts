@@ -41,14 +41,13 @@ describe('Lexer', () => {
         });
 
         it('should tokenize printable symbols not reserved as core tokens', () => {
-            const result = tokenize('| / +');
+            const result = tokenize('/ +');
             const tokens = result.tokens.filter(t => t.type !== TokenType.EOF);
             assert.deepStrictEqual(tokens.map(t => t.type), [
                 TokenType.Symbol,
                 TokenType.Symbol,
-                TokenType.Symbol,
             ]);
-            assert.deepStrictEqual(tokens.map(t => t.value), ['|', '/', '+']);
+            assert.deepStrictEqual(tokens.map(t => t.value), ['/', '+']);
         });
 
         it('should tokenize structural identities', () => {
@@ -1160,5 +1159,27 @@ describe('Lexer', () => {
             assert.ok(tokens[1]!.span.start.column >= 1);
             assert.strictEqual(tokens[1]!.span.start.column, 1);
         });
+    });
+});
+
+describe('Symbolic literals', () => {
+    it('decodes string-style content between pipes', () => {
+        const result = tokenize('|approved| |this has spaces| |left\\|right|');
+        assert.deepStrictEqual(result.errors, []);
+        assert.deepStrictEqual(
+            result.tokens.filter(token => token.type === TokenType.SymbolicLiteral).map(token => [token.value, token.raw]),
+            [
+                ['approved', '|approved|'],
+                ['this has spaces', '|this has spaces|'],
+                ['left|right', '|left\\|right|'],
+            ]
+        );
+    });
+
+    it('rejects empty, unterminated, and raw multiline symbols', () => {
+        assert.equal(tokenize('||').errors[0]?.code, 'INVALID_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|open').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|one\ntwo|').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|one\rtwo|').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
     });
 });

@@ -25,6 +25,10 @@ const datatypeSemantics = {
         literalFamily: 'SeparatorLiteral',
         clarifiers: 'none',
     },
+    symbol: {
+        literalFamily: 'SymbolicLiteral',
+        clarifiers: 'none',
+    },
     encoding: {
         literalFamily: 'EncodingLiteral',
         clarifiers: 'encoding_name',

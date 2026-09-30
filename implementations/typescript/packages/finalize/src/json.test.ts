@@ -545,3 +545,16 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
         assert.strictEqual(({} as any).polluted, undefined);
     });
 });
+
+describe('symbolic JSON materialization', () => {
+    it('fails closed in strict mode and emits the decoded string in loose mode', () => {
+        const events = compileToEvents('stage:symbol = |in review|');
+        const strict = finalizeJson(events, { mode: 'strict' });
+        assert.equal(strict.document.stage, 'in review');
+        assert.equal(strict.meta?.errors?.[0]?.code, 'FINALIZE_JSON_PROFILE_SYMBOL');
+
+        const loose = finalizeJson(events, { mode: 'loose' });
+        assert.equal(loose.document.stage, 'in review');
+        assert.equal(loose.meta?.warnings?.[0]?.code, 'FINALIZE_JSON_PROFILE_SYMBOL');
+    });
+});

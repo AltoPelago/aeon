@@ -55,6 +55,7 @@ export enum TokenType {
     RadixLiteral = 'RadixLiteral',     // %1011
     EncodingLiteral = 'EncodingLiteral', // &Base64...
     SeparatorLiteral = 'SeparatorLiteral', // ^content
+    SymbolicLiteral = 'SymbolicLiteral', // |symbolic value|
     SansaAddressLiteral = 'SansaAddressLiteral', // $.path or ?.path
     StructuralIdentity = 'StructuralIdentity', // \identifier\
 
@@ -101,6 +102,8 @@ export interface Token {
     readonly type: TokenType;
     /** The raw text of the token */
     readonly value: string;
+    /** Original source spelling when `value` is a decoded literal payload. */
+    readonly raw?: string;
     /** Source location */
     readonly span: Span;
     /** Structured metadata for comment tokens */
