@@ -74,7 +74,7 @@ async function main() {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.format, 'film.aes');
     assert.equal(manifest.meta.format_version, '1');
-    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.1');
+    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.2');
 
     let passed = 0;
     let encoderOnly = 0;
@@ -83,8 +83,10 @@ async function main() {
         const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
         const suite = JSON.parse(await readFile(suitePath, 'utf8'));
         assert.equal(suite.id, suiteRef.id);
-        expectedEncoderOnly += suite.tests.filter((vector) => vector.operation === 'encode').length;
-        for (const vector of suite.tests) {
+        const excluded = new Set(suiteRef.exclude_tests ?? []);
+        const vectors = suite.tests.filter((vector) => !excluded.has(vector.id));
+        expectedEncoderOnly += vectors.filter((vector) => vector.operation === 'encode').length;
+        for (const vector of vectors) {
             if (vector.operation === 'encode') {
                 encoderOnly += 1;
                 continue;

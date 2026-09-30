@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 63cb4491bfce5f658731001b028ae97ae5e2fa17
+          ref: f11cac1229edad2441a7abce9744b5533d208a79
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -111,7 +111,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 63cb4491bfce5f658731001b028ae97ae5e2fa17
+          ref: f11cac1229edad2441a7abce9744b5533d208a79
           path: aeonite-cts
 
       - name: Checkout AES
