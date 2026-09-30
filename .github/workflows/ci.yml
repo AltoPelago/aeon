@@ -24,6 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES for the Rust workspace
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
@@ -108,8 +118,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 8816c403e698f2a6fd1dd47b08cfc44b099f4740
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
           path: aes
+
+      - name: Link AES for the Rust workspace
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
