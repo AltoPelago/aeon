@@ -58,6 +58,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside the AEON checkout
+        run: ln -s "$GITHUB_WORKSPACE/aes" "$GITHUB_WORKSPACE/../aes"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
