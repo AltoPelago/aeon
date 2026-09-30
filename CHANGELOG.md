@@ -8,6 +8,8 @@ repositories.
 
 ## Unreleased
 
+## 0.14.0 - 2026-10-01
+
 ### Breaking
 
 - Replaced width-bearing trimtick openers with a single `>` marker. Trimtick
@@ -15,6 +17,8 @@ repositories.
   nonblank payload line, removes the minimum common run of that character,
   treats mixed indentation as valid payload, and no longer exposes
   `markerWidth` parser metadata.
+- Core temporal literals now use the four-digit year domain `0001` through
+  `9999`; year `0000` is rejected at the parser boundary.
 
 ### Added
 
@@ -27,16 +31,6 @@ repositories.
   `YYYY-MM`) across the TypeScript, Python, and Rust implementations. Datetime
   and WTC literals can compose those reduced-granularity dates with a clock
   tick while preserving omitted calendar fields.
-
-## 0.14.0 - 2026-09-29
-
-### Breaking
-
-- Core temporal literals now use the four-digit year domain `0001` through
-  `9999`; year `0000` is rejected at the parser boundary.
-
-### Added
-
 - Added exact arbitrary-scale fractional seconds and structurally plausible
   second `60` claims across the TypeScript, Python, and Rust implementation
   tracks. Fractions preserve authored scale and trailing zeroes, and numeric
