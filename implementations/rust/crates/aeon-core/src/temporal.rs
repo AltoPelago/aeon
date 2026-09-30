@@ -126,7 +126,7 @@ fn looks_like_time(value: &str) -> bool {
 
 fn looks_like_datetime(value: &str) -> bool {
     if let Some((date, rest)) = value.split_once('T') {
-        if !looks_like_full_date(date) {
+        if !looks_like_date(date) {
             return false;
         }
         if looks_like_datetime_time(rest) || looks_like_datetime_zoned_time(rest) {

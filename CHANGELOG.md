@@ -25,7 +25,8 @@ repositories.
   JSON materialization as an error in strict mode or warning in transport mode.
 - Added Core year- and month-granularity date literals (`YYYY-` and
   `YYYY-MM`) across the TypeScript, Python, and Rust implementations. Datetime
-  and WTC literals continue to require a complete `YYYY-MM-DD` date component.
+  and WTC literals can compose those reduced-granularity dates with a clock
+  tick while preserving omitted calendar fields.
 
 ## 0.14.0 - 2026-09-29
 

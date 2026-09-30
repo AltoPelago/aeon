@@ -701,7 +701,7 @@ class Lexer:
         if "T" not in value:
             return False
         date, rest = value.split("T", 1)
-        if not cls.is_valid_full_date_literal(date):
+        if not cls.is_valid_date_literal(date):
             return False
         if cls.matches_datetime_time(rest) or cls.matches_datetime_zoned_time(rest):
             return True

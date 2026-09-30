@@ -1313,7 +1313,7 @@ function isValidDateTimeLiteral(value: string): boolean {
     if (tIndex === -1) return false;
     const date = value.slice(0, tIndex);
     const rest = value.slice(tIndex + 1);
-    if (!isValidFullDateLiteral(date)) return false;
+    if (!isValidDateLiteral(date)) return false;
     if (matchesDateTimeTime(rest) || matchesDateTimeZonedTime(rest)) return true;
     const ampIndex = rest.indexOf('&');
     if (ampIndex === -1) return false;

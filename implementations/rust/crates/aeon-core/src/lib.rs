@@ -3120,19 +3120,28 @@ mod tests {
     }
 
     #[test]
-    fn accepts_reduced_granularity_dates_without_widening_datetime_dates() {
+    fn accepts_reduced_granularity_dates_and_datetime_date_components() {
         let accepted = compile(
-            "year:date = 2024-\nmonth:date = 2024-02\nday:date = 2024-02-29\n",
+            "year:date = 2024-\n\
+             month:date = 2024-02\n\
+             day:date = 2024-02-29\n\
+             year_tick:datetime = 2024-T10:10:00\n\
+             month_tick:datetime = 2024-12T10:10:00Z\n\
+             year_zone:wtc = 2024-T10:10:00&Europe\n\
+             month_zone:wtc = 2024-12T10:&Europe\n",
             CompileOptions::default(),
         );
         assert!(accepted.errors.is_empty(), "{:?}", accepted.errors);
-        assert_eq!(accepted.events.len(), 3);
+        assert_eq!(accepted.events.len(), 7);
         assert!(
-            accepted
-                .events
+            accepted.events[..3]
                 .iter()
                 .all(|event| event.value.value_kind() == "DateLiteral")
         );
+        assert!(accepted.events[3..].iter().all(|event| matches!(
+            event.value.value_kind(),
+            "DateTimeLiteral" | "WTCDateTimeLiteral"
+        )));
 
         for source in [
             "date:date = 0000-\n",
@@ -3144,8 +3153,10 @@ mod tests {
             assert_eq!(result.errors[0].code, "INVALID_DATE", "{source}");
         }
         for source in [
-            "date:datetime = 2024-T09:30\n",
-            "date:datetime = 2024-02T09:30\n",
+            "date:datetime = 0000-T10:10\n",
+            "date:datetime = 2024-00T10:10\n",
+            "date:datetime = 2024-13T10:10\n",
+            "date:datetime = 2024-2T10:10\n",
         ] {
             let result = compile(source, CompileOptions::default());
             assert_eq!(result.errors[0].code, "INVALID_DATETIME", "{source}");

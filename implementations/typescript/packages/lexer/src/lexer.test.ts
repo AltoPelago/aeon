@@ -459,6 +459,20 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01T10:00:00Z');
         });
 
+        it('should tokenize reduced-date datetime and wtc literals', () => {
+            for (const source of [
+                '2024-T10:10:00',
+                '2024-12T10:10:00Z',
+                '2024-T10:10:00&Europe',
+                '2024-12T10:&Europe',
+            ]) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should tokenize time literals', () => {
             const result = tokenize('09:30:00');
             assert.strictEqual(result.tokens[0]!.type, TokenType.Time);
@@ -570,8 +584,6 @@ describe('Lexer', () => {
                 '2025-00',
                 '2025-13',
                 '2025-1',
-                '2025-T09:30',
-                '2025-01T09:30',
                 '2025-13-40T99:99:99',
                 '2025-02-29T09:30:00',
                 '2025-01-01T09:30Z&/',
@@ -590,6 +602,10 @@ describe('Lexer', () => {
                 ['2025-02-29', 'INVALID_DATE'],
                 ['24:00', 'INVALID_TIME'],
                 ['2025-13-40T99:99:99', 'INVALID_DATETIME'],
+                ['0000-T10:10', 'INVALID_DATETIME'],
+                ['2024-00T10:10', 'INVALID_DATETIME'],
+                ['2024-13T10:10', 'INVALID_DATETIME'],
+                ['2024-2T10:10', 'INVALID_DATETIME'],
                 ['2025-01-01T09:30Z&/', 'INVALID_DATETIME'],
             ];
             for (const [source, expectedCode] of cases) {
