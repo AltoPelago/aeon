@@ -460,6 +460,7 @@ function representationAlias(kind: string): string | undefined {
     case 'RadixLiteral': return 'radix';
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'separator';
+    case 'SymbolicLiteral': return 'symbol';
     case 'SansaAddressLiteral': return 'sansa';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return 'time';
