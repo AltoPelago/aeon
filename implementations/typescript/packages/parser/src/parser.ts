@@ -47,7 +47,7 @@ import {
     AttributeDepthExceededError,
     NestingDepthExceededError,
 } from './errors.js';
-import { applyTrimticks, type TrimtickMarkerWidth } from './trimticks.js';
+import { applyTrimticks } from './trimticks.js';
 
 /**
  * Parser options
@@ -1332,31 +1332,7 @@ class Parser {
     }
 
     private parseTrimtickString(): StringLiteral {
-        const startToken = this.peek();
-        let markerWidth = 0;
-        let previousAngle: Token | null = null;
-
-        while (this.check(TokenType.RightAngle)) {
-            const angle = this.peek();
-            if (previousAngle && previousAngle.span.end.offset !== angle.span.start.offset) {
-                throw new SyntaxError(
-                    'Trimtick marker must be contiguous',
-                    angle.span,
-                    'trimticks',
-                    angle.value
-                );
-            }
-            markerWidth += 1;
-            if (markerWidth > 4) {
-                throw new SyntaxError(
-                    'Trimtick marker may contain at most four ">" characters',
-                    angle.span,
-                    'trimticks',
-                    angle.value
-                );
-            }
-            previousAngle = this.advance();
-        }
+        const startToken = this.advance();
 
         if (!this.check(TokenType.String) || this.peek().quote !== '`') {
             throw new SyntaxError(
@@ -1372,11 +1348,10 @@ class Parser {
 
         return {
             type: 'StringLiteral',
-            value: applyTrimticks(rawValue, markerWidth as TrimtickMarkerWidth),
+            value: applyTrimticks(rawValue),
             raw: rawValue,
             delimiter: '`',
             trimticks: {
-                markerWidth: markerWidth as TrimtickMarkerWidth,
                 rawValue,
             },
             span: createSpan(startToken.span.start, token.span.end),

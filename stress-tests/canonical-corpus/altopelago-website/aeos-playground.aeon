@@ -3,7 +3,7 @@ description:string = "Try AEOS schema validation in the browser with paired AEON
 activePage:string = "aeos-playground"
 keywords:list<string> = ["AEOS playground", "schema playground", "validation", "schema composer", "AEON schema", "rules", "diagnostics"]
 
-source:prose = >>`
+source:prose = >`
   //# AEON source: change this document directly or use AEON Composer.
   //# The schema on the right decides which paths, types, and values are accepted.
   contact:object = {
@@ -14,7 +14,7 @@ source:prose = >>`
   }
 `
 
-schema:prose = >>`
+schema:prose = >`
   //# AEOS schema: use AEOS Composer to set up custom rules.
   //# This starter schema requires contact, contact.name, and contact.status.
   aeos:schema = {
@@ -53,7 +53,7 @@ examples:list<object> = [
     key:string = "required"
     label:string = "Required fields"
     mode:string = "strict"
-    source:prose = >>`
+    source:prose = >`
       //# Demonstrates required paths and basic type checks.
       //# Try removing contact.name or changing status to a string.
       contact:object = {
@@ -62,7 +62,7 @@ examples:list<object> = [
         status:boolean = true
       }
     `
-    schema:prose = >>`
+    schema:prose = >`
       //# Requires contact, then requires selected child bindings.
       //# Open world allows occupation even though it is not listed here.
       aeos:schema = {
@@ -100,7 +100,7 @@ examples:list<object> = [
     key:string = "closed"
     label:string = "Closed world"
     mode:string = "strict"
-    source:prose = >>`
+    source:prose = >`
       //# Demonstrates closed-world validation.
       //# Add an extra binding and AEOS will reject it until the schema lists it.
       contact:object = {
@@ -108,7 +108,7 @@ examples:list<object> = [
         status:boolean = true
       }
     `
-    schema:prose = >>`
+    schema:prose = >`
       //# Closed world means only schema-covered paths are accepted.
       //# The listed rules become the complete allowed document shape.
       aeos:schema = {
@@ -145,14 +145,14 @@ examples:list<object> = [
     key:string = "wildcard"
     label:string = "Selector list"
     mode:string = "strict"
-    source:prose = >>`
+    source:prose = >`
       //# Demonstrates list item validation with a SANSA selector.
       //# Every measurement is checked against the selector item rule.
       contact:object = {
         measurements:list<number> = [3, 4, 5]
       }
     `
-    schema:prose = >>`
+    schema:prose = >`
       //# The list rule validates the container.
       //# The SANSA selector validates every indexed child value.
       aeos:schema = {
@@ -184,7 +184,7 @@ examples:list<object> = [
     key:string = "selector"
     label:string = "Selector"
     mode:string = "strict"
-    source:prose = >>`
+    source:prose = >`
       //# Demonstrates selector rules across repeated structure.
       //# Both contact.name bindings are matched by one schema selector.
       primary:object = {
@@ -198,7 +198,7 @@ examples:list<object> = [
         }
       }
     `
-    schema:prose = >>`
+    schema:prose = >`
       //# selector matches paths by shape instead of one absolute path.
       //# $.*.contact.name matches primary.contact.name and archive.contact.name.
       aeos:schema = {

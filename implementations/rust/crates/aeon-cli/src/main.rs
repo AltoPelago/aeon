@@ -3357,8 +3357,7 @@ fn render_value_json_string(value: &Value) -> String {
                 .as_ref()
                 .map(|metadata| {
                     format!(
-                        ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
-                        metadata.marker_width,
+                        ",\"trimticks\":{{\"rawValue\":\"{}\"}}",
                         escape_json(&metadata.raw_value)
                     )
                 })
@@ -5915,7 +5914,6 @@ mod tests {
         assert_eq!(by_key["raw"]["value"]["raw"], "beta");
         assert_eq!(by_key["trim"]["value"]["delimiter"], "`");
         assert_eq!(by_key["trim"]["value"]["raw"], "\n  one\n  two\n");
-        assert_eq!(by_key["trim"]["value"]["trimticks"]["markerWidth"], 1);
         assert_eq!(
             by_key["trim"]["value"]["trimticks"]["rawValue"],
             "\n  one\n  two\n"
@@ -6133,7 +6131,7 @@ mod tests {
     #[test]
     fn fmt_output_normalizes_trimticks_generic_datatypes_and_numbers() {
         let source = "aeon:mode = \"strict\"\n\
-                      c:trimtick = >> ``\n\
+                      c:trimtick = > ``\n\
                       pair:tuple<int32,int32> = (1, 2)\n\
                       values:list = [\n\
                         1E6\n\

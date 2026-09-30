@@ -8,6 +8,14 @@ repositories.
 
 ## Unreleased
 
+### Breaking
+
+- Replaced width-bearing trimtick openers with a single `>` marker. Trimtick
+  normalization now adopts an exact space-or-tab gutter from the first
+  nonblank payload line, removes the minimum common run of that character,
+  treats mixed indentation as valid payload, and no longer exposes
+  `markerWidth` parser metadata.
+
 ### Added
 
 - Added nonempty pipe-delimited symbolic literals and the reserved `symbol`

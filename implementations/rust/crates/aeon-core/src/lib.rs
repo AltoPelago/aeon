@@ -414,7 +414,6 @@ pub enum Value {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrimtickMetadata {
-    pub marker_width: usize,
     pub raw_value: String,
 }
 
@@ -4416,9 +4415,9 @@ mod tests {
     }
 
     #[test]
-    fn supports_trimticks_with_marker_widths_one_and_two() {
+    fn supports_space_and_tab_trimtick_gutters() {
         let result = compile(
-            "note1:trimtick = >`\n  one\n  two\n`\nnote2:trimtick = >>`\n\talpha\n  beta\n`\n",
+            "note1:trimtick = >`\n  one\n  two\n`\nnote2:trimtick = >`\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n`\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -4429,7 +4428,6 @@ mod tests {
                 raw: String::from("\n  one\n  two\n"),
                 delimiter: '`',
                 trimticks: Some(TrimtickMetadata {
-                    marker_width: 1,
                     raw_value: String::from("\n  one\n  two\n"),
                 }),
             }
@@ -4437,12 +4435,11 @@ mod tests {
         assert_eq!(
             result.events[1].value,
             Value::StringLiteral {
-                value: String::from("alpha\nbeta"),
-                raw: String::from("\n\talpha\n  beta\n"),
+                value: String::from("alpha\n\tbeta\ngamma"),
+                raw: String::from("\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n"),
                 delimiter: '`',
                 trimticks: Some(TrimtickMetadata {
-                    marker_width: 2,
-                    raw_value: String::from("\n\talpha\n  beta\n"),
+                    raw_value: String::from("\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n"),
                 }),
             }
         );

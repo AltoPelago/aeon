@@ -646,7 +646,7 @@ fn escape_trimtick_line(value: &str) -> String {
     out
 }
 
-fn apply_trimticks(raw: &str, marker_width: usize) -> String {
+fn apply_trimticks(raw: &str) -> String {
     if !raw.contains('\n') {
         return raw.to_owned();
     }
@@ -667,18 +667,23 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
         .map(|line| {
             if is_blank_trimtick_line(line) {
                 String::new()
-            } else if marker_width == 1 {
-                String::from(line)
             } else {
-                normalize_trimtick_indent(line, marker_width)
+                String::from(line)
             }
         })
         .collect();
 
+    let gutter = normalized
+        .iter()
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.chars().next())
+        .filter(|ch| *ch == '\t')
+        .unwrap_or(' ');
+
     let common_indent = normalized
         .iter()
         .filter(|line| !line.is_empty())
-        .map(|line| count_leading_spaces(line))
+        .map(|line| line.chars().take_while(|ch| *ch == gutter).count())
         .min()
         .unwrap_or(0);
 
@@ -688,7 +693,7 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
             if line.is_empty() {
                 String::new()
             } else {
-                line[common_indent..].to_owned()
+                line.chars().skip(common_indent).collect()
             }
         })
         .collect::<Vec<_>>()
@@ -697,26 +702,6 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
 
 fn is_blank_trimtick_line(line: &str) -> bool {
     line.chars().all(|ch| matches!(ch, ' ' | '\t'))
-}
-
-fn count_leading_spaces(line: &str) -> usize {
-    line.chars().take_while(|ch| *ch == ' ').count()
-}
-
-fn normalize_trimtick_indent(line: &str, tab_width: usize) -> String {
-    let mut prefix = String::new();
-    let mut rest_start = line.len();
-    for (idx, ch) in line.char_indices() {
-        match ch {
-            ' ' => prefix.push(' '),
-            '\t' => prefix.push_str(&" ".repeat(tab_width)),
-            _ => {
-                rest_start = idx;
-                break;
-            }
-        }
-    }
-    format!("{prefix}{}", &line[rest_start..])
 }
 
 fn normalize_number(raw: &str) -> String {
@@ -2084,11 +2069,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_trimtick(&mut self) -> Result<String, Diagnostic> {
-        let mut marker_width = 0usize;
-        while self.peek() == Some('>') {
-            self.index += 1;
-            marker_width += 1;
-        }
+        self.index += 1;
         while matches!(self.peek(), Some(' ' | '\t')) {
             self.index += 1;
         }
@@ -2096,7 +2077,7 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected trimtick opener"));
         }
         let decoded = self.parse_quoted_string()?;
-        Ok(apply_trimticks(&decoded, marker_width.max(1)))
+        Ok(apply_trimticks(&decoded))
     }
 
     fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
@@ -2565,7 +2546,7 @@ mod tests {
     #[test]
     fn normalizes_trimtick_to_string_content() {
         let result =
-            canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");
+            canonicalize("aeon:mode = \"transport\"\nc:trimtick = > ``\nb:string = \"\"\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -3029,7 +3010,7 @@ mod tests {
 
     #[test]
     fn canonicalizes_multiline_strings_as_trimticks() {
-        let result = canonicalize("aeon:mode = \"transport\"\ntext = >> `\n  alpha\n\n  beta\n`\n");
+        let result = canonicalize("aeon:mode = \"transport\"\ntext = > `\n  alpha\n\n  beta\n`\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -3054,7 +3035,7 @@ mod tests {
     #[test]
     fn canonicalizes_one_line_trimticks_in_lists_to_strings() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  >> `\n    one\n  `,\n  >> `\n    two\n  `\n]\n",
+            "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  > `\n    one\n  `,\n  > `\n    two\n  `\n]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
@@ -3066,7 +3047,7 @@ mod tests {
     #[test]
     fn canonicalizes_multiline_trimticks_inside_inline_attribute_objects_as_strings() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = >> `\n    hello\n\n    world\n  ` } }:node = <box>\n",
+            "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node = <box>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
@@ -3132,7 +3113,7 @@ mod tests {
     #[test]
     fn parses_node_heads_with_attributes_before_datatype() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    >> `\n      Click\n      Here\n    `\n  )>\n)>\n",
+            "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(

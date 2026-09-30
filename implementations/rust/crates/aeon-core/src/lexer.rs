@@ -2259,7 +2259,7 @@ mod tests {
 
     #[test]
     fn trimtick_markers_and_raw_body_match_at_every_scalar_split() {
-        let source = "note:trimtick = >>>>`\n    first\n\twave 🌊\n` next";
+        let source = "note:trimtick = >`\n    first\n\twave 🌊\n` next";
         let expected = tokenize(source, LexerOptions::default());
         let mut splits = source
             .char_indices()
@@ -2274,20 +2274,14 @@ mod tests {
 
         let marker = expected
             .tokens
-            .windows(5)
+            .windows(2)
             .find(|window| {
-                window[..4]
-                    .iter()
-                    .all(|token| token.kind == TokenKind::RightAngle)
-                    && window[4].kind == TokenKind::String
+                window[0].kind == TokenKind::RightAngle && window[1].kind == TokenKind::String
             })
-            .expect("four contiguous marker tokens precede the raw body");
-        for pair in marker[..4].windows(2) {
-            assert_eq!(pair[0].span.end.offset, pair[1].span.start.offset);
-        }
-        assert_eq!(marker[3].span.end.offset, marker[4].span.start.offset);
-        assert_eq!(marker[4].quote, Some('`'));
-        assert_eq!(marker[4].text, "`\n    first\n\twave 🌊\n`");
+            .expect("one marker token precedes the raw body");
+        assert_eq!(marker[0].span.end.offset, marker[1].span.start.offset);
+        assert_eq!(marker[1].quote, Some('`'));
+        assert_eq!(marker[1].text, "`\n    first\n\twave 🌊\n`");
     }
 
     #[test]

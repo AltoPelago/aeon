@@ -304,7 +304,7 @@ describe('Core - compile()', () => {
         it('should compile trimticks to trimmed string literal values', () => {
             const result = compile([
                 'class = {',
-                '  text = >>`',
+                '  text = >`',
                 '           This policy applies when a request is retried.',
                 '        The consumer must validate the signature again.',
                 '           The cached response may be reused if it is still valid.',

@@ -338,6 +338,26 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("prose", body["datatype"])
         self.assertEqual("StringLiteral", body["value"]["type"])
 
+    def test_trimticks_adopt_exact_tab_gutters(self) -> None:
+        source = "note:trimtick = >`\n\t\tfirst\n\t\t\tsecond\n\t\tthird\n`"
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+        self.assertEqual("first\n\tsecond\nthird", result.events[0]["value"]["value"])
+        self.assertEqual(
+            {"rawValue": "\n\t\tfirst\n\t\t\tsecond\n\t\tthird\n"},
+            result.internal_events[0]["value"]["trimticks"],
+        )
+
+    def test_non_adopted_trimtick_indentation_prevents_trimming(self) -> None:
+        source = "note:trimtick = >`\n\tfirst\n second\n\tthird\n`"
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+        self.assertEqual("\tfirst\n second\n\tthird", result.events[0]["value"]["value"])
+
+    def test_repeated_trimtick_markers_are_rejected(self) -> None:
+        result = compile_source("note:trimtick = >>`value`")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
     def test_custom_mode_enforces_switch_typing(self) -> None:
         source = 'aeon:mode = "custom"\ndebug = yes'
         result = compile_source(source)

@@ -317,10 +317,10 @@ test('Bare caret',
 test('Trimtick string',
     'a = >`line1\nline2`');
 
-test('Multi-angle trimtick',
-    'a = >>>`deeply trimmed`');
+test('Repeated trimtick marker',
+    'a = >>`invalid`');
 
-test('Five angle trimtick (over limit)',
+test('Repeated trimtick marker (long form)',
     'a = >>>>>`nope`');
 
 // ================================================================

@@ -133,7 +133,7 @@ test('canonicalizes SANSA address literals', () => {
 test('canonicalizes multiline strings as spaces-only trimticks', () => {
     const input = [
         'class = {',
-        '  text = >>`',
+        '  text = >`',
         '           This policy applies when a request is retried.',
         '        The consumer must validate the signature again.',
         '           The cached response may be reused if it is still valid.',
@@ -176,10 +176,10 @@ test('escapes trimtick delimiters, backslashes, and controls in multiline output
 test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
     const input = [
         'notes:list<trimtick> = [',
-        '  >> `',
+        '  > `',
         '    one',
         '  `,',
-        '  >> `',
+        '  > `',
         '    two',
         '  `',
         ']',
@@ -192,7 +192,7 @@ test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
 
 test('canonicalizes multiline trimticks inside inline attribute objects as escaped strings', () => {
     const input = [
-        'a@{ nested:object = { note:trimtick = >> `',
+        'a@{ nested:object = { note:trimtick = > `',
         '    hello',
         '',
         '    world',

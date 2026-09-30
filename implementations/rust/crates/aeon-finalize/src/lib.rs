@@ -374,7 +374,6 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
                 object.insert(
                     String::from("trimticks"),
                     json!({
-                        "markerWidth": metadata.marker_width,
                         "rawValue": metadata.raw_value,
                     }),
                 );
@@ -2164,7 +2163,6 @@ mod tests {
         assert_eq!(by_path["$.raw"]["raw"], "beta");
         assert_eq!(by_path["$.trim"]["delimiter"], "`");
         assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
-        assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
         assert_eq!(
             by_path["$.trim"]["trimticks"]["rawValue"],
             "\n  one\n  two\n"

@@ -104,7 +104,7 @@ sep3 : sep [ a ] = ^1920x1080
 ---
 sep3 : sep [;] = ^1920;1080
 ---
-c:trimtick = >> ``, b:string = ""
+c:trimtick = > ``, b:string = ""
 ---
 a:tuple<n> = (3,)
 ---

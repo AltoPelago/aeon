@@ -100,11 +100,9 @@ test004:o ={
 /*
 	Trimtick
 
-	Trimticks are a distinct multiline string form using > through >>>> markers.
-	- >` : spaces-only indentation analysis
-	- >>` : tabs normalize to width 2
-	- >>>` : tabs normalize to width 3
-	- >>>>` : tabs normalize to width 4
+	Trimticks are a distinct multiline string form using one > marker.
+	The first nonblank payload line selects SPACE or TAB as the gutter character.
+	Indentation is measured as exact code-point runs without assigning tabs a width.
 */
 
 test005:o = {
@@ -112,15 +110,15 @@ test005:o = {
 		one
 		two
 	`
-	trimtick002:trimtick = >>`
+	trimtick002:trimtick = >`
 			one
 		two
 	`
-	trimtick003:trimtick = >>>`
+	trimtick003:trimtick = >`
 				one
 			two
 	`
-	trimtick004:trimtick = >>>>`
+	trimtick004:trimtick = >`
 					one
 				two
 	`
@@ -134,15 +132,15 @@ test005:o = {
 		spaces before backtick are accepted
     | 4 spaces
 	`
-	trimtick009:trimtick = >> `
+	trimtick009:trimtick = > `
 		spaces before backtick are accepted
     |< space control
 	`
-	trimtick010:trimtick = >>> `
+	trimtick010:trimtick = > `
 		spaces before backtick are accepted
       |< space control
 	`
-	trimtick011:trimtick = >>>> `
+	trimtick011:trimtick = > `
 		spaces before backtick are accepted
         |< space control
 	`

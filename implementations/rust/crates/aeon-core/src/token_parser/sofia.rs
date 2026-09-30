@@ -868,22 +868,7 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn parse_trimtick(&mut self) -> Result<Option<Value>, Diagnostic> {
-        let mut marker_width = 0usize;
-        let mut previous_end = None;
-        while self.check(TokenKind::RightAngle) {
-            let token = self.peek();
-            if previous_end.is_some_and(|end| end != token.span.start.offset) {
-                return Err(self.error_at_current("Trimtick marker must be contiguous"));
-            }
-            marker_width += 1;
-            if marker_width > 4 {
-                return Err(self.error_at_current(
-                    "Trimtick marker may contain at most four \">\" characters",
-                ));
-            }
-            previous_end = Some(token.span.end.offset);
-            self.advance();
-        }
+        self.advance();
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
             return Err(
                 self.error_at_current("Trimtick marker must be followed by a backtick string")
@@ -891,13 +876,10 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
         }
         let raw = decode_quoted_token(self.advance())?;
         Ok(Some(Value::StringLiteral {
-            value: apply_trimticks(&raw, marker_width),
+            value: apply_trimticks(&raw),
             raw: raw.clone(),
             delimiter: '`',
-            trimticks: Some(TrimtickMetadata {
-                marker_width,
-                raw_value: raw,
-            }),
+            trimticks: Some(TrimtickMetadata { raw_value: raw }),
         }))
     }
 
@@ -4171,7 +4153,6 @@ trim = >`
         assert_eq!(raw, "\n  one\n  two\n");
         assert_eq!(*delimiter, '`');
         let metadata = trimticks.as_ref().expect("trimtick metadata");
-        assert_eq!(metadata.marker_width, 1);
         assert_eq!(metadata.raw_value, *raw);
     }
 
@@ -4240,9 +4221,9 @@ literal = ~true.off"#;
                 "Number literal `01` is not valid",
             ),
             (
-                "bad = >>>>>`value`",
+                "bad = >>`value`",
                 "SYNTAX_ERROR",
-                "Trimtick marker may contain at most four \">\" characters",
+                "Trimtick marker must be followed by a backtick string",
             ),
             (
                 "bad = ~$[\"source\"]",

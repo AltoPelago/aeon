@@ -42,7 +42,7 @@ describe('Parser', () => {
         it('should parse trimticks and trim semantic indentation', () => {
             const tokens = tokenize([
                 'class = {',
-                '  text = >>`',
+                '  text = >`',
                 '           This policy applies when a request is retried.',
                 '        The consumer must validate the signature again.',
                 '           The cached response may be reused if it is still valid.',
@@ -60,7 +60,17 @@ describe('Parser', () => {
             const text = root.value.bindings[0]!.value;
             assert.strictEqual(text.type, 'StringLiteral');
             if (text.type !== 'StringLiteral') assert.fail('Expected StringLiteral');
-            assert.strictEqual(text.trimticks?.markerWidth, 2);
+            assert.deepStrictEqual(text.trimticks, {
+                rawValue: [
+                    '',
+                    '           This policy applies when a request is retried.',
+                    '        The consumer must validate the signature again.',
+                    '           The cached response may be reused if it is still valid.',
+                    '         Otherwise, fetch a fresh copy.',
+                    '',
+                    '  ',
+                ].join('\n'),
+            });
             assert.strictEqual(text.value, [
                 '   This policy applies when a request is retried.',
                 'The consumer must validate the signature again.',
@@ -70,18 +80,18 @@ describe('Parser', () => {
         });
 
         it('should allow spaces between trimtick marker and backtick opener', () => {
-            const tokens = tokenize('a = >> ``').tokens;
+            const tokens = tokenize('a = > ``').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             const value = result.document!.bindings[0]!.value;
             assert.strictEqual(value.type, 'StringLiteral');
             if (value.type !== 'StringLiteral') assert.fail('Expected StringLiteral');
-            assert.strictEqual(value.trimticks?.markerWidth, 2);
+            assert.deepStrictEqual(value.trimticks, { rawValue: '' });
             assert.strictEqual(value.value, '');
         });
 
-        it('should reject split trimtick markers', () => {
+        it('should reject repeated trimtick markers', () => {
             const tokens = tokenize('a = > > ``').tokens;
             const result = parse(tokens);
 
@@ -90,7 +100,7 @@ describe('Parser', () => {
         });
 
         it('should reject trimtick markers before non-backtick strings', () => {
-            const tokens = tokenize('a = >> ""').tokens;
+            const tokens = tokenize('a = > ""').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);

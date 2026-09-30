@@ -108,7 +108,7 @@ tuple:tuple = ($.name)
 ---
 sep3:sep["a"] = ^1920x1080
 ---
-c:trimtick = >> ``
+c:trimtick = > ``
 ---
 a:tuple<n> = (3)
 ---
