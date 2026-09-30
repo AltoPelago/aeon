@@ -63,6 +63,9 @@ repositories.
 
 ### Changed
 
+- Advanced the Rust workspace to the coordinated, symbol-capable
+  `altopelago-aes-telex` `0.2.0` development line. Published AEON crate
+  manifests retain the registry package name and version.
 - The Core temporal seconds domain is now `00` through `60`; the
   general-purpose schema remains deliberately narrower and rejects second `60`.
 - WTC temporal contexts remain opaque parser payloads while preserving named
