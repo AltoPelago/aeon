@@ -1065,6 +1065,19 @@ impl<'a> TokenParser<'a> {
             TokenKind::SeparatorLiteral => Ok(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::SymbolicLiteral => {
+                let token = self.advance();
+                Ok(Value::SymbolicLiteral {
+                    value: decode_quoted_text(&token.text, true).map_err(|message| Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from(message),
+                    })?,
+                    raw: token.text.clone(),
+                })
+            }
             TokenKind::SansaAddressLiteral => {
                 let token = self.advance();
                 let raw = token.text.clone();
@@ -1993,6 +2006,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "radix12"
             | "sep"
             | "kadot"
+            | "symbol"
             | "tuple"
             | "triple"
             | "list"
@@ -2014,7 +2028,7 @@ fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
                 .with_span(token.span),
         );
     }
-    decode_quoted_text(&token.text).map_err(|message| {
+    decode_quoted_text(&token.text, false).map_err(|message| {
         Diagnostic::new("INVALID_ESCAPE", message)
             .at_path("$")
             .with_span(token.span)
@@ -2050,7 +2064,7 @@ fn render_quoted_string(value: &str) -> String {
     output
 }
 
-fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
+fn decode_quoted_text(text: &str, symbolic: bool) -> Result<String, &'static str> {
     if text.len() < 2 {
         return Ok(String::from(text));
     }
@@ -2065,6 +2079,7 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                 '"' => output.push('"'),
                 '\'' => output.push('\''),
                 '`' => output.push('`'),
+                '|' if symbolic => output.push('|'),
                 'n' => output.push('\n'),
                 'r' => output.push('\r'),
                 't' => output.push('\t'),

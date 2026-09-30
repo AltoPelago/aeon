@@ -359,6 +359,10 @@ pub enum Value {
     SeparatorLiteral {
         raw: String,
     },
+    SymbolicLiteral {
+        value: String,
+        raw: String,
+    },
     EncodingLiteral {
         raw: String,
     },
@@ -480,6 +484,7 @@ impl Value {
             Self::BooleanLiteral { .. } => "BooleanLiteral",
             Self::HexLiteral { .. } => "HexLiteral",
             Self::SeparatorLiteral { .. } => "SeparatorLiteral",
+            Self::SymbolicLiteral { .. } => "SymbolicLiteral",
             Self::EncodingLiteral { .. } => "EncodingLiteral",
             Self::RadixLiteral { .. } => "RadixLiteral",
             Self::DateLiteral { .. } => "DateLiteral",
@@ -1476,7 +1481,7 @@ fn gp_custom_clarifier_literal(value: &Value) -> bool {
 
 fn gp_datatype_clarifier_rule(name: &str) -> Option<GpDatatypeClarifierRule> {
     match name {
-        "decimal" | "kadot" => Some(GpDatatypeClarifierRule::None),
+        "decimal" | "kadot" | "symbol" => Some(GpDatatypeClarifierRule::None),
         "radix" => Some(GpDatatypeClarifierRule::RadixBase),
         "sep" | "separator" => Some(GpDatatypeClarifierRule::SeparatorChars),
         "encoding" | "inline" | "embed" => Some(GpDatatypeClarifierRule::EncodingName),
@@ -2055,6 +2060,14 @@ mod tests {
             (
                 "max_string_codepoints",
                 "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_string_codepoints symbolic literal",
+                "a = |é😀|",
                 configured_options(|options| options.max_string_codepoints = 2),
                 configured_options(|options| options.max_string_codepoints = 1),
                 "MAX_STRING_CODEPOINTS_EXCEEDED",
@@ -4652,6 +4665,60 @@ mod tests {
         let result = compile("semver:kadot = ^3.14.15\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn symbol_literals_decode_escapes_and_support_the_reserved_datatype() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nstage:symbol = |this has \\| spaces|\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+        assert!(matches!(
+            &result.events[0].value,
+            Value::SymbolicLiteral { value, raw }
+                if value == "this has | spaces" && raw == "|this has \\| spaces|"
+        ));
+    }
+
+    #[test]
+    fn symbol_literals_are_nonempty_and_reject_raw_newlines() {
+        for source in [
+            "stage = ||\n",
+            "stage = |first\nsecond|\n",
+            "stage = |first\rsecond|\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "{source}");
+            assert!(!result.errors.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn gp_symbol_datatype_rejects_clarifiers() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nstage:symbol[\"state\"] = |approved|\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
+
+        let custom = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nstage:status[\"state\"] = |approved|\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(custom.errors.len(), 1);
+        assert_eq!(
+            custom.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
     }
 
     #[test]

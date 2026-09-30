@@ -726,6 +726,7 @@ fn aes_value_kind(kind: &str) -> AesValueKind {
         "RadixLiteral" => AesValueKind::RadixLiteral,
         "EncodingLiteral" => AesValueKind::EncodingLiteral,
         "SeparatorLiteral" => AesValueKind::SeparatorLiteral,
+        "SymbolicLiteral" => AesValueKind::SymbolicLiteral,
         "SansaAddressLiteral" => AesValueKind::SansaAddressLiteral,
         "DateLiteral" => AesValueKind::DateLiteral,
         "TimeLiteral" => AesValueKind::TimeLiteral,
@@ -1200,6 +1201,7 @@ fn project_value(
             "SeparatorLiteral",
             Some(raw.trim_start_matches('^').to_owned()),
         ),
+        Value::SymbolicLiteral { value, .. } => ("SymbolicLiteral", Some(value.clone())),
         Value::SansaAddressLiteral { canonical, .. } => {
             ("SansaAddressLiteral", Some(canonical.clone()))
         }
@@ -1291,6 +1293,9 @@ fn project_taken_value(
                 AesValueKind::SeparatorLiteral,
                 Some(raw.trim_start_matches('^').to_owned()),
             )
+        }
+        Value::SymbolicLiteral { value, .. } => {
+            (AesValueKind::SymbolicLiteral, Some(std::mem::take(value)))
         }
         Value::SansaAddressLiteral { canonical, .. } => (
             AesValueKind::SansaAddressLiteral,

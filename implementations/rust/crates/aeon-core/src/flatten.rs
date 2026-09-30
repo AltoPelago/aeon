@@ -1685,6 +1685,10 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
             raw: String::from("#0"),
         },
         Value::SeparatorLiteral { .. } => Value::SeparatorLiteral { raw: String::new() },
+        Value::SymbolicLiteral { .. } => Value::SymbolicLiteral {
+            value: String::new(),
+            raw: String::from("|x|"),
+        },
         Value::EncodingLiteral { .. } => Value::EncodingLiteral {
             raw: String::from("&A"),
         },

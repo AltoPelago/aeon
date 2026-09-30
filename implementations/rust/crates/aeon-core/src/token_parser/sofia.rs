@@ -760,6 +760,21 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
             TokenKind::SeparatorLiteral => Ok(Some(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             })),
+            TokenKind::SymbolicLiteral => {
+                let token = self.advance();
+                Ok(Some(Value::SymbolicLiteral {
+                    value: super::decode_quoted_text(&token.text, true).map_err(|message| {
+                        Diagnostic {
+                            code: String::from("SYNTAX_ERROR"),
+                            path: Some(String::from("$")),
+                            span: Some(token.span),
+                            phase: None,
+                            message: String::from(message),
+                        }
+                    })?,
+                    raw: token.text.clone(),
+                }))
+            }
             TokenKind::SansaAddressLiteral => {
                 let token = self.advance();
                 let raw = token.text.clone();

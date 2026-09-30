@@ -318,6 +318,7 @@ fn is_string_like_value_type(value_type: &str) -> bool {
         value_type,
         "StringLiteral"
             | "TrimtickLiteral"
+            | "SymbolicLiteral"
             | "SeparatorLiteral"
             | "HexLiteral"
             | "EncodingLiteral"
@@ -3986,6 +3987,7 @@ fn is_string_like_literal(value_type: &str) -> bool {
         "StringLiteral"
             | "TrimtickLiteral"
             | "TrimtickStringLiteral"
+            | "SymbolicLiteral"
             | "SeparatorLiteral"
             | "NullLiteral"
             | "EncodingLiteral"
@@ -4475,6 +4477,12 @@ impl SpanInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbolic_literals_are_string_like_for_form_constraints() {
+        assert!(is_string_like_value_type("SymbolicLiteral"));
+        assert!(is_string_like_literal("SymbolicLiteral"));
+    }
     use serde_json::json;
 
     #[test]

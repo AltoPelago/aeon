@@ -255,6 +255,18 @@ fn materialize_record(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonVal
         "NullLiteral" => null_value(value, &indexed.address, ctx),
         "BooleanLiteral" => JsonValue::Bool(value == "true"),
         "ToggleLiteral" => JsonValue::Bool(value == "yes" || value == "on"),
+        "SymbolicLiteral" => {
+            report(
+                ctx,
+                format!(
+                    "Symbol literal is not losslessly representable in the strict JSON profile: {value}"
+                ),
+                "FINALIZE_JSON_PROFILE_SYMBOL",
+                &indexed.address,
+                false,
+            );
+            JsonValue::String(value.to_owned())
+        }
         "HexLiteral"
         | "EncodingLiteral"
         | "SeparatorLiteral"

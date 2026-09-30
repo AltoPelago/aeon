@@ -841,6 +841,11 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             raw.clone(),
             JsonValue::String(raw.trim_start_matches('^').to_string()),
         ),
+        Value::SymbolicLiteral { value, raw } => scalar_value(
+            "SymbolicLiteral",
+            raw.clone(),
+            JsonValue::String(value.clone()),
+        ),
         Value::EncodingLiteral { raw } => scalar_value(
             "EncodingLiteral",
             raw.clone(),

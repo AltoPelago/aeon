@@ -2644,6 +2644,7 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
+        Value::SymbolicLiteral { raw, .. } => raw.clone(),
         Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
         Value::CloneReference { segments, .. } => {
@@ -3389,6 +3390,11 @@ fn render_value_json_string(value: &Value) -> String {
             escape_json(raw.trim_start_matches('^')),
             escape_json(raw)
         ),
+        Value::SymbolicLiteral { value, raw } => format!(
+            "{{\"type\":\"SymbolicLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
+            escape_json(value),
+            escape_json(raw)
+        ),
         Value::EncodingLiteral { raw } => format!(
             "{{\"type\":\"EncodingLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
             escape_json(raw.trim_start_matches('&')),
@@ -3545,6 +3551,7 @@ fn render_human_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
+        Value::SymbolicLiteral { raw, .. } => raw.clone(),
         Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
         Value::PointerReference { segments, .. } => {
@@ -4050,6 +4057,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("SeparatorLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('^').to_string())),
+            path: None,
+            elements: Vec::new(),
+            bindings: Vec::new(),
+        },
+        Value::SymbolicLiteral { value, raw } => EventValue {
+            value_type: String::from("SymbolicLiteral"),
+            raw: Some(raw.clone()),
+            value: Some(JsonValue::String(value.clone())),
             path: None,
             elements: Vec::new(),
             bindings: Vec::new(),

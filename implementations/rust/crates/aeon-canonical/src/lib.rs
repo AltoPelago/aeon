@@ -47,6 +47,7 @@ enum Value {
         value: Box<Value>,
     },
     String(String),
+    Symbol(String),
     Number(String),
     Infinity(String),
     Null {
@@ -454,6 +455,7 @@ fn render_value_inline(value: &Value) -> String {
             )
         }
         Value::String(value) => format!("\"{}\"", escape_string(value)),
+        Value::Symbol(value) => format_symbol(value),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
         Value::Null { mode, value } => match mode {
@@ -548,7 +550,11 @@ fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
+        Value::Symbol(_)
+        | Value::Number(_)
+        | Value::Infinity(_)
+        | Value::Null { .. }
+        | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -557,7 +563,11 @@ fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
+        Value::Symbol(_)
+        | Value::Number(_)
+        | Value::Infinity(_)
+        | Value::Null { .. }
+        | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -584,6 +594,23 @@ fn escape_string(value: &str) -> String {
             _ => out.push(ch),
         }
     }
+    out
+}
+
+fn format_symbol(value: &str) -> String {
+    let mut out = String::from("|");
+    for ch in value.chars() {
+        match ch {
+            '|' => out.push_str("\\|"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out.push('|');
     out
 }
 
@@ -1304,6 +1331,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "separated"
             | "sep"
             | "kadot"
+            | "symbol"
             | "string"
             | "str"
             | "text"
@@ -1585,6 +1613,7 @@ impl<'a> Parser<'a> {
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         match self.peek() {
             Some('"') | Some('\'') | Some('`') => Ok(Value::String(self.parse_quoted_string()?)),
+            Some('|') => Ok(Value::Symbol(self.parse_quoted_string()?)),
             Some('>') => Ok(Value::String(self.parse_trimtick()?)),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_list(),
@@ -1896,9 +1925,10 @@ impl<'a> Parser<'a> {
         let quote = self
             .peek()
             .ok_or_else(|| self.syntax_error("Expected quoted string"))?;
-        if !matches!(quote, '"' | '\'' | '`') {
+        if !matches!(quote, '"' | '\'' | '`' | '|') {
             return Err(self.syntax_error("Expected quoted string"));
         }
+        let symbolic = quote == '|';
         self.index += 1;
         let mut value = String::new();
         let mut chunk_start = self.index;
@@ -1910,9 +1940,21 @@ impl<'a> Parser<'a> {
                         .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
                 );
                 self.index += 1;
+                if symbolic && value.is_empty() {
+                    return Err(self.error(
+                        "INVALID_SYMBOLIC_LITERAL",
+                        "Symbolic literals must contain a value",
+                    ));
+                }
                 return Ok(value);
             }
             if matches!(byte, b'\n' | b'\r') && quote != '`' {
+                if symbolic {
+                    return Err(self.error(
+                        "UNTERMINATED_SYMBOLIC_LITERAL",
+                        "Unterminated symbolic literal",
+                    ));
+                }
                 return Err(self.error(
                     "UNTERMINATED_STRING",
                     &format!("Unterminated string literal (started with {quote})"),
@@ -1924,14 +1966,22 @@ impl<'a> Parser<'a> {
                         .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
                 );
                 self.index += 1;
-                let escaped = self
-                    .peek()
-                    .ok_or_else(|| self.syntax_error("Unterminated string"))?;
+                let escaped = self.peek().ok_or_else(|| {
+                    if symbolic {
+                        self.error(
+                            "UNTERMINATED_SYMBOLIC_LITERAL",
+                            "Unterminated symbolic literal",
+                        )
+                    } else {
+                        self.syntax_error("Unterminated string")
+                    }
+                })?;
                 match escaped {
                     '\\' => value.push('\\'),
                     '"' => value.push('"'),
                     '\'' => value.push('\''),
                     '`' => value.push('`'),
+                    '|' if symbolic => value.push('|'),
                     'n' => value.push('\n'),
                     'r' => value.push('\r'),
                     't' => value.push('\t'),
@@ -2023,7 +2073,14 @@ impl<'a> Parser<'a> {
             }
             self.index += 1;
         }
-        Err(self.syntax_error("Unterminated string"))
+        if symbolic {
+            Err(self.error(
+                "UNTERMINATED_SYMBOLIC_LITERAL",
+                "Unterminated symbolic literal",
+            ))
+        } else {
+            Err(self.syntax_error("Unterminated string"))
+        }
     }
 
     fn parse_trimtick(&mut self) -> Result<String, Diagnostic> {
@@ -3240,6 +3297,28 @@ mod tests {
         assert!(result.text.contains("a:n[10] = 22"));
         assert!(result.text.contains("b:string[333] = \"hello world\""));
         assert!(result.text.contains("r:radix2[4] = %111"));
+    }
+
+    #[test]
+    fn canonicalizes_symbol_literals_and_escapes_pipes() {
+        let result = canonicalize("stage:symbol = |say \\\"yes\\\" and \\|wait\\||\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("stage:symbol = |say \"yes\" and \\|wait\\||")
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn rejects_empty_symbol_literals_during_canonicalization() {
+        let result = canonicalize("stage:symbol = ||\n");
+        assert_eq!(result.text, "");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INVALID_SYMBOLIC_LITERAL");
     }
 
     #[test]
