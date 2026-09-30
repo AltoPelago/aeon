@@ -58,6 +58,9 @@ repositories.
 
 ### Changed
 
+- Updated TypeScript SANSA consumers to require
+  `@altopelago/sansa@0.12.0`, including symbolic-literal and reduced-date
+  value semantics used by the AEON adapter.
 - Advanced the Rust workspace to the coordinated, symbol-capable
   `altopelago-aes-telex` `0.2.0` development line. Published AEON crate
   manifests retain the registry package name and version.
