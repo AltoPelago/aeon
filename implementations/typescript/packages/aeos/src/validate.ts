@@ -1572,8 +1572,9 @@ function checkTemporalFieldConstraints(
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     const hasSecondConstraint = constraints.temporal_max_second !== undefined;
+    const hasFractionConstraint = constraints.temporal_max_fraction_digits !== undefined;
     const hasYearConstraint = constraints.temporal_min_year !== undefined || constraints.temporal_max_year !== undefined;
-    if (!hasSecondConstraint && !hasYearConstraint) return;
+    if (!hasSecondConstraint && !hasFractionConstraint && !hasYearConstraint) return;
     if (event.type === 'NullLiteral' && constraints.nullable === true) return;
 
     const carriesSeconds = event.type === 'TimeLiteral'
@@ -1583,7 +1584,7 @@ function checkTemporalFieldConstraints(
         || event.type === 'DateTimeLiteral'
         || event.type === 'WTCDateTimeLiteral';
 
-    if ((hasSecondConstraint && !carriesSeconds) || (hasYearConstraint && !carriesYear)) {
+    if (((hasSecondConstraint || hasFractionConstraint) && !carriesSeconds) || (hasYearConstraint && !carriesYear)) {
         emitError(ctx, createDiag(
             path,
             event.span,
@@ -1594,16 +1595,25 @@ function checkTemporalFieldConstraints(
     }
 
     const value = event.value.replace(/^@/, '');
-    if (hasSecondConstraint) {
+    if (hasSecondConstraint || hasFractionConstraint) {
         const clock = event.type === 'TimeLiteral' ? value : value.slice(value.indexOf('T') + 1);
-        const secondMatch = /^(?:\d{2}):(?:\d{2}):(\d{2})(?:\.\d+)?/.exec(clock);
+        const secondMatch = /^(?:\d{2}):(?:\d{2}):(\d{2})(?:\.(\d+))?/.exec(clock);
         if (secondMatch !== null) {
             const second = Number.parseInt(secondMatch[1]!, 10);
-            if (second > constraints.temporal_max_second!) {
+            if (hasSecondConstraint && second > constraints.temporal_max_second!) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
                     `Temporal field constraint mismatch: second ${second} exceeds maximum ${constraints.temporal_max_second}`,
+                    ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
+                ));
+            }
+            const fractionDigits = secondMatch[2]?.length;
+            if (hasFractionConstraint && fractionDigits !== undefined && fractionDigits > constraints.temporal_max_fraction_digits!) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Temporal field constraint mismatch: fractional precision ${fractionDigits} digits exceeds maximum ${constraints.temporal_max_fraction_digits}`,
                     ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
                 ));
             }

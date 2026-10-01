@@ -35,9 +35,10 @@ repositories.
   second `60` claims across the TypeScript, Python, and Rust implementation
   tracks. Fractions preserve authored scale and trailing zeroes, and numeric
   offsets remain hour-and-minute only.
-- Added AEOS temporal field constraints for maximum second and minimum/maximum
-  year, plus the convention-aware general-purpose temporal-context policy and
-  stable mismatch/conflict diagnostics.
+- Added AEOS temporal field constraints for maximum second, maximum authored
+  fractional-second digits, and minimum/maximum year, plus the convention-aware
+  general-purpose temporal-context policy and stable mismatch/conflict
+  diagnostics.
 - Added the `@altopelago/aeon-sdk/sansa` integration entry point with
   `createAeonNamespace()` and `readAeonNamespace()` helpers. The adapter
   preserves AES scalar, datatype, identity, null, and attribute metadata and
@@ -70,7 +71,9 @@ repositories.
   `altopelago-aes-telex` `0.2.0` development line. Published AEON crate
   manifests retain the registry package name and version.
 - The Core temporal seconds domain is now `00` through `60`; the
-  general-purpose schema remains deliberately narrower and rejects second `60`.
+  general-purpose schema remains deliberately narrower, rejects second `60`,
+  and caps fractional precision at nine authored digits. GP selector rules
+  apply those bounds to typed and untyped temporal literals alike.
 - WTC temporal contexts remain opaque parser payloads while preserving named
   timescales, `-00:00`, and `+/` named-place contexts for downstream policy.
 

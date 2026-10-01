@@ -3265,6 +3265,16 @@ mod tests {
                 "Invalid date literal: '0000-02-1'",
             ),
             (
+                "a = 2024--02-01\n",
+                "INVALID_DATE",
+                "Invalid date literal: '2024--02-01'",
+            ),
+            (
+                "a = 2024-12-01-\n",
+                "INVALID_DATE",
+                "Invalid date literal: '2024-12-01-'",
+            ),
+            (
                 "a:time = 24:00\n",
                 "INVALID_TIME",
                 "Invalid time literal: '24:00'",

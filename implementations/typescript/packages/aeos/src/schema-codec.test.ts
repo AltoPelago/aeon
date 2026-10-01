@@ -221,6 +221,7 @@ aeos:schema = {
             datatype_rules: {
                 datetime: {
                     temporal_max_second: 59,
+                    temporal_max_fraction_digits: 9,
                     temporal_min_year: 1,
                     temporal_max_year: 9999,
                     temporal_context_policy: 'aeon.gp.temporal.v1',
@@ -236,6 +237,7 @@ aeos:schema = {
         });
 
         assert.match(source, /temporal_max_second:number = 59/u);
+        assert.match(source, /temporal_max_fraction_digits:number = 9/u);
         assert.match(source, /temporal_min_year:number = 1/u);
         assert.match(source, /temporal_max_year:number = 9999/u);
         assert.match(source, /temporal_context_policy:string = "aeon\.gp\.temporal\.v1"/u);
@@ -243,6 +245,7 @@ aeos:schema = {
             datatype_rules: {
                 datetime: {
                     temporal_max_second: 59,
+                    temporal_max_fraction_digits: 9,
                     temporal_min_year: 1,
                     temporal_max_year: 9999,
                     temporal_context_policy: 'aeon.gp.temporal.v1',

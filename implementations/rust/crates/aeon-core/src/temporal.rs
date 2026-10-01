@@ -95,29 +95,12 @@ fn looks_like_full_date(value: &str) -> bool {
 
 fn looks_like_date_candidate(value: &str) -> bool {
     let bytes = value.as_bytes();
-    if bytes.len() >= 5
+    bytes.len() >= 5
         && bytes[4] == b'-'
         && bytes[..4].iter().all(u8::is_ascii_digit)
         && bytes[5..]
             .iter()
             .all(|byte| byte.is_ascii_digit() || *byte == b'-')
-        && bytes[5..].iter().filter(|byte| **byte == b'-').count() <= 1
-    {
-        return true;
-    }
-    let mut parts = value.split('-');
-    let (Some(year), Some(month), Some(day), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-
-    year.len() == 4
-        && (1..=2).contains(&month.len())
-        && (1..=2).contains(&day.len())
-        && year.bytes().all(|byte| byte.is_ascii_digit())
-        && month.bytes().all(|byte| byte.is_ascii_digit())
-        && day.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn looks_like_time(value: &str) -> bool {

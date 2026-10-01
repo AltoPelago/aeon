@@ -78,6 +78,8 @@ class AeosTests(unittest.TestCase):
         invalid_constraints = (
             {"temporal_max_second": 61},
             {"temporal_max_second": 59.5},
+            {"temporal_max_fraction_digits": -1},
+            {"temporal_max_fraction_digits": 9.5},
             {"temporal_min_year": 0},
             {"temporal_max_year": 10000},
             {"temporal_min_year": 2027, "temporal_max_year": 2026},
@@ -86,6 +88,30 @@ class AeosTests(unittest.TestCase):
             with self.subTest(constraints=constraints):
                 result = validate([], {"rules": [{"path": "$.value", "constraints": constraints}]})
                 self.assertEqual(["unknown_constraint_key"], [error["code"] for error in result["errors"]])
+
+    def test_schema_wide_temporal_precision_applies_to_untyped_literals(self) -> None:
+        compiled = compile_source(
+            "allowed = 23:55:59.999999999\n"
+            "too_precise = 23:55:59.1234567890\n"
+            "leap = 23:55:60.5\n"
+            "reduced = 23:55\n"
+        )
+        self.assertEqual([], compiled.errors)
+        result = validate_events(compiled.events, {
+            "rules": [{
+                "selector": "$.**%timeLiteral",
+                "constraints": {
+                    "temporal_max_second": 59,
+                    "temporal_max_fraction_digits": 9,
+                },
+            }],
+        })
+
+        self.assertCountEqual(
+            ["$.too_precise", "$.leap"],
+            [error["path"] for error in result["errors"]],
+        )
+        self.assertTrue(all(error["code"] == "temporal_field_constraint_mismatch" for error in result["errors"]))
 
     def test_datatype_constraint_requires_exact_label(self) -> None:
         aes = [{"path": {"segments": [{"type": "root"}, {"type": "member", "key": "x"}]}, "key": "x", "datatype": "user-id", "value": {"type": "StringLiteral", "raw": '"U-1"', "value": "U-1"}, "span": [0, 1]}]

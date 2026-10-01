@@ -35,6 +35,7 @@ KNOWN_CONSTRAINT_KEYS = {
     "min_length",
     "max_length",
     "temporal_max_second",
+    "temporal_max_fraction_digits",
     "temporal_min_year",
     "temporal_max_year",
     "temporal_context_policy",
@@ -792,7 +793,7 @@ def validate_constraint_tree(schema: dict[str, object], path: str, constraints: 
     if constraints.get("sign") is not None and constraints.get("sign") not in {"signed", "unsigned"}:
         emit_error(ctx, create_diag(path, None, f"Invalid sign constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
         return False
-    for key in ("min_children", "max_children", "length_exact", "radix", "min_digits", "max_digits", "min_length", "max_length", "temporal_max_second", "temporal_min_year", "temporal_max_year"):
+    for key in ("min_children", "max_children", "length_exact", "radix", "min_digits", "max_digits", "min_length", "max_length", "temporal_max_second", "temporal_max_fraction_digits", "temporal_min_year", "temporal_max_year"):
         value = constraints.get(key)
         if value is not None and (type(value) is not int or value < 0):
             emit_error(ctx, create_diag(path, None, f"Invalid {key} constraint for path {path}", ERROR_CODES["unknown_constraint_key"]))
@@ -1088,8 +1089,9 @@ def check_literal_lexical_constraints(rule_index: dict[str, dict[str, object]], 
 
 def check_temporal_field_constraints(path: str, event: dict[str, object], constraints: dict[str, object], ctx: DiagContext) -> None:
     has_second_constraint = isinstance(constraints.get("temporal_max_second"), int)
+    has_fraction_constraint = isinstance(constraints.get("temporal_max_fraction_digits"), int)
     has_year_constraint = isinstance(constraints.get("temporal_min_year"), int) or isinstance(constraints.get("temporal_max_year"), int)
-    if not has_second_constraint and not has_year_constraint:
+    if not has_second_constraint and not has_fraction_constraint and not has_year_constraint:
         return
     if event.get("type") == "NullLiteral" and constraints.get("nullable") is True:
         return
@@ -1097,19 +1099,25 @@ def check_temporal_field_constraints(path: str, event: dict[str, object], constr
     actual_type = str(event.get("type", ""))
     carries_seconds = actual_type in {"TimeLiteral", "DateTimeLiteral", "WTCDateTimeLiteral"}
     carries_year = actual_type in {"DateLiteral", "DateTimeLiteral", "WTCDateTimeLiteral"}
-    if has_second_constraint and not carries_seconds or has_year_constraint and not carries_year:
+    if (has_second_constraint or has_fraction_constraint) and not carries_seconds or has_year_constraint and not carries_year:
         emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint is inapplicable to {actual_type}", ERROR_CODES["constraint_inapplicable"]))
         return
 
     value = str(event.get("value", "")).removeprefix("@")
-    if has_second_constraint:
+    if has_second_constraint or has_fraction_constraint:
         clock = value if actual_type == "TimeLiteral" else value.partition("T")[2]
-        match = re.match(r"^\d{2}:\d{2}:(\d{2})(?:\.\d+)?", clock)
+        match = re.match(r"^\d{2}:\d{2}:(\d{2})(?:\.(\d+))?", clock)
         if match is not None:
             second = int(match.group(1))
-            maximum_second = int(constraints["temporal_max_second"])
-            if second > maximum_second:
-                emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: second {second} exceeds maximum {maximum_second}", ERROR_CODES["temporal_field_constraint_mismatch"]))
+            if has_second_constraint:
+                maximum_second = int(constraints["temporal_max_second"])
+                if second > maximum_second:
+                    emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: second {second} exceeds maximum {maximum_second}", ERROR_CODES["temporal_field_constraint_mismatch"]))
+            fraction = match.group(2)
+            if has_fraction_constraint and fraction is not None:
+                maximum_fraction_digits = int(constraints["temporal_max_fraction_digits"])
+                if len(fraction) > maximum_fraction_digits:
+                    emit_error(ctx, create_diag(path, event.get("span"), f"Temporal field constraint mismatch: fractional precision {len(fraction)} digits exceeds maximum {maximum_fraction_digits}", ERROR_CODES["temporal_field_constraint_mismatch"]))
 
     if has_year_constraint:
         match = re.match(r"^(\d{4})-", value)

@@ -506,6 +506,7 @@ describe('buildRuleIndex()', () => {
                 path: '$.observedAt',
                 constraints: {
                     temporal_max_second: 59,
+                    temporal_max_fraction_digits: 9,
                     temporal_min_year: 1,
                     temporal_max_year: 9999,
                 },
@@ -523,6 +524,8 @@ describe('buildRuleIndex()', () => {
         const schemas = [
             { temporal_max_second: 61 },
             { temporal_max_second: 59.5 },
+            { temporal_max_fraction_digits: -1 },
+            { temporal_max_fraction_digits: 9.5 },
             { temporal_min_year: 0 },
             { temporal_max_year: 10000 },
             { temporal_min_year: 2027, temporal_max_year: 2026 },
