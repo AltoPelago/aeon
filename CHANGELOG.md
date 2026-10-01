@@ -58,6 +58,11 @@ repositories.
 
 ### Changed
 
+- Advanced the TypeScript, Rust, and Python Core/AES conformance claims and
+  default lanes to the immutable `0.4` snapshots covering symbolic literals,
+  reduced temporal precision, and single-marker trimticks.
+- Advanced the TypeScript Film reader claim to the immutable `0.2` snapshot,
+  covering the append-only `SymbolicLiteral` kind mapping.
 - Updated TypeScript SANSA consumers to require
   `@altopelago/sansa@0.12.0`, including symbolic-literal and reduced-date
   value semantics used by the AEON adapter.

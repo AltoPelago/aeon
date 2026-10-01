@@ -172,7 +172,7 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
-`core` and `aes` run their current immutable 0.3 compatibility targets. Use
+`core` and `aes` run their current immutable 0.4 compatibility targets. Use
 `core-legacy` or `aes-legacy` for historical targets, and `core-next` or
 `aes-next` for mutable development targets. The explicit `*-released` aliases
 select the same targets as the defaults.

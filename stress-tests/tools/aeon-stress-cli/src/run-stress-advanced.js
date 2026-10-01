@@ -140,10 +140,10 @@ function runTrimtickStrictAlias() {
 function runTrimtickCanonicalConvergence() {
   const trimtick = canonicalize([
     'text:string = >`',
-    '\t\tWhenever I am here,',
-    '\t  I can do whatever I want',
-    '    because this is such a cool feature',
-    '\t\tright?',
+    '\tWhenever I am here,',
+    '\tI can do whatever I want',
+    '\tbecause this is such a cool feature',
+    '\tright?',
     '\t`',
   ].join('\n'));
   const raw = canonicalize([
