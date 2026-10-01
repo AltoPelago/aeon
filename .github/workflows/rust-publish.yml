@@ -19,6 +19,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+
       - name: Require signed annotated release tag
         if: ${{ github.event_name == 'push' }}
         run: |
@@ -84,6 +94,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master

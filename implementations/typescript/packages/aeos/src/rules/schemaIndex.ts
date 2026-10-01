@@ -477,6 +477,7 @@ function validateConstraintTree(
         'min_length',
         'max_length',
         'temporal_max_second',
+        'temporal_max_fraction_digits',
         'temporal_min_year',
         'temporal_max_year',
     ] as const) {

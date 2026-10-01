@@ -91,6 +91,9 @@ export interface ConstraintsV1 {
     /** Maximum admitted seconds field for time-bearing temporal literals */
     readonly temporal_max_second?: number;
 
+    /** Maximum authored fractional-second digit count for time-bearing temporal literals */
+    readonly temporal_max_fraction_digits?: number;
+
     /** Minimum admitted year field for date-bearing temporal literals */
     readonly temporal_min_year?: number;
 
@@ -231,6 +234,7 @@ export const KNOWN_CONSTRAINT_KEYS: ReadonlySet<string> = new Set([
     'min_length',
     'max_length',
     'temporal_max_second',
+    'temporal_max_fraction_digits',
     'temporal_min_year',
     'temporal_max_year',
     'temporal_context_policy',

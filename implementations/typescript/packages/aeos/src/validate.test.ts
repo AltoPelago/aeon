@@ -514,6 +514,41 @@ describe('validate()', () => {
             );
         });
 
+        it('enforces schema-wide temporal precision on untyped literals selected by source type', () => {
+            const values = [
+                '23:55:59.999999999',
+                '23:55:59.1234567890',
+                '23:55:60.5',
+                '23:55',
+            ];
+            const aes = values.map((value, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: `value${index}` }] },
+                key: `value${index}`,
+                value: { type: 'TimeLiteral', value, raw: value, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+            const schema: SchemaV1 = {
+                rules: [{
+                    selector: '$.**%timeLiteral',
+                    constraints: {
+                        temporal_max_second: 59,
+                        temporal_max_fraction_digits: 9,
+                    },
+                }],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [
+                    ['$.value1', ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH],
+                    ['$.value2', ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH],
+                ],
+            );
+        });
+
         it('reports temporal constraints used on incompatible literal kinds', () => {
             const aes: AES = [{
                 path: { segments: [{ type: 'root' }, { type: 'member', key: 'text' }] },
