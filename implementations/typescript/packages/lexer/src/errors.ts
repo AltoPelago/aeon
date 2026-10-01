@@ -51,6 +51,13 @@ export class UnterminatedStringError extends LexerError {
     }
 }
 
+export class InvalidSymbolicLiteralError extends LexerError {
+    constructor(message: string, span: Span, code = 'INVALID_SYMBOLIC_LITERAL') {
+        super(message, span, code);
+        this.name = 'InvalidSymbolicLiteralError';
+    }
+}
+
 /**
  * Invalid escape sequence
  */

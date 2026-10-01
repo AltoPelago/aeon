@@ -229,6 +229,8 @@ def value_to_json(value: object, ctx: JsonContext, path: str, datatype: object =
             return value_to_json(value.get("value"), ctx, path, value.get("datatype"))
         if value_type == "StringLiteral":
             return value.get("value")
+        if value_type == "SymbolicLiteral":
+            return symbolic_to_json(value, ctx, path)
         if value_type == "NumberLiteral":
             return number_to_json(value, ctx, path)
         if value_type == "InfinityLiteral":
@@ -326,6 +328,18 @@ def infinity_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> s
         value.get("span"),
     )
     return raw
+
+
+def symbolic_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> str:
+    payload = str(value.get("value", ""))
+    ctx.emit(
+        "error" if ctx.strict else "warning",
+        "FINALIZE_JSON_PROFILE_SYMBOL",
+        f"Symbol literal is not losslessly representable in the strict JSON profile: {payload}",
+        path,
+        value.get("span"),
+    )
+    return payload
 
 
 def nan_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> str:
@@ -531,6 +545,7 @@ def measure_materialized_weight(
         "RadixLiteral",
         "EncodingLiteral",
         "SeparatorLiteral",
+        "SymbolicLiteral",
         "DateLiteral",
         "DateTimeLiteral",
         "TimeLiteral",

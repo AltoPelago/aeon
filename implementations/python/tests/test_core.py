@@ -338,6 +338,26 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("prose", body["datatype"])
         self.assertEqual("StringLiteral", body["value"]["type"])
 
+    def test_trimticks_adopt_exact_tab_gutters(self) -> None:
+        source = "note:trimtick = >`\n\t\tfirst\n\t\t\tsecond\n\t\tthird\n`"
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+        self.assertEqual("first\n\tsecond\nthird", result.events[0]["value"]["value"])
+        self.assertEqual(
+            {"rawValue": "\n\t\tfirst\n\t\t\tsecond\n\t\tthird\n"},
+            result.internal_events[0]["value"]["trimticks"],
+        )
+
+    def test_non_adopted_trimtick_indentation_prevents_trimming(self) -> None:
+        source = "note:trimtick = >`\n\tfirst\n second\n\tthird\n`"
+        result = compile_source(source)
+        self.assertEqual([], result.errors)
+        self.assertEqual("\tfirst\n second\n\tthird", result.events[0]["value"]["value"])
+
+    def test_repeated_trimtick_markers_are_rejected(self) -> None:
+        result = compile_source("note:trimtick = >>`value`")
+        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+
     def test_custom_mode_enforces_switch_typing(self) -> None:
         source = 'aeon:mode = "custom"\ndebug = yes'
         result = compile_source(source)
@@ -459,6 +479,43 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual(f'{datatype}["|"]', result.events[0]["datatype"])
                 self.assertEqual("SeparatorLiteral", result.events[0]["value"]["type"])
 
+    def test_symbol_literals_are_inferred_and_preserve_decoded_payload(self) -> None:
+        result = compile_source(r"stage = |this has \| spaces|")
+        self.assertEqual([], result.errors)
+        self.assertEqual("SymbolicLiteral", result.events[0]["value"]["type"])
+        self.assertEqual("this has | spaces", result.events[0]["value"]["value"])
+        self.assertEqual(r"|this has \| spaces|", result.events[0]["value"]["raw"])
+
+    def test_symbol_datatype_is_reserved_in_strict_mode(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nstage:symbol = |approved|')
+        self.assertEqual([], result.errors)
+        self.assertEqual("SymbolicLiteral", result.events[0]["value"]["type"])
+
+    def test_symbol_payload_obeys_the_string_codepoint_limit(self) -> None:
+        result = compile_source("stage = |xy|", CompileOptions(max_string_codepoints=1))
+        self.assertEqual(["MAX_STRING_CODEPOINTS_EXCEEDED"], [error.code for error in result.errors])
+
+    def test_symbol_literals_are_nonempty_and_single_line(self) -> None:
+        for source in ("stage = ||", "stage = |first\nsecond|", "stage = |first\rsecond|"):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.events)
+                self.assertNotEqual([], result.errors)
+
+    def test_symbol_datatype_rejects_string_literal(self) -> None:
+        result = compile_source('aeon:mode = "strict"\nstage:symbol = "approved"')
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_gp_symbol_datatype_rejects_clarifiers(self) -> None:
+        result = compile_source('aeon:profile = "aeon.gp.profile.v1"\nstage:symbol["state"] = |approved|')
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in result.errors])
+
+        custom = compile_source(
+            'aeon:profile = "aeon.gp.profile.v1"\nstage:status["state"] = |approved|',
+            CompileOptions(mode="strict", datatype_policy="allow_custom"),
+        )
+        self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"], [error.code for error in custom.errors])
+
     def test_unquoted_slash_separator_clarifiers_are_rejected(self) -> None:
         result = compile_source('aeon:mode = "strict"\nvalue:sep[/] = ^000.000')
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
@@ -553,6 +610,12 @@ class CoreCompileTests(unittest.TestCase):
             "zone:wtc = 2017-01-01T10:59:60+11:00&Australia/Melbourne",
             "lower:date = 0001-01-01",
             "upper:date = 9999-12-31",
+            "year:date = 2024-",
+            "month:date = 2024-02",
+            "year_tick:datetime = 2024-T10:10:00",
+            "month_tick:datetime = 2024-12T10:10:00Z",
+            "year_zone:wtc = 2024-T10:10:00&Europe",
+            "month_zone:wtc = 2024-12T10:&Europe",
         )
         for source in accepted:
             with self.subTest(source=source):
@@ -564,6 +627,14 @@ class CoreCompileTests(unittest.TestCase):
             ("t:time = 23:59:61", "INVALID_TIME"),
             ("t:time = 23:59:59.", "INVALID_TIME"),
             ("date:date = 0000-01-01", "INVALID_DATE"),
+            ("date:date = 0000-", "INVALID_DATE"),
+            ("date:date = 2024-00", "INVALID_DATE"),
+            ("date:date = 2024-13", "INVALID_DATE"),
+            ("date:date = 2024-2", "INVALID_DATE"),
+            ("date:datetime = 0000-T10:10", "INVALID_DATETIME"),
+            ("date:datetime = 2024-00T10:10", "INVALID_DATETIME"),
+            ("date:datetime = 2024-13T10:10", "INVALID_DATETIME"),
+            ("date:datetime = 2024-2T10:10", "INVALID_DATETIME"),
         )
         for source, code in rejected:
             with self.subTest(source=source):

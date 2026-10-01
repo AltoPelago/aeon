@@ -239,7 +239,7 @@ function projectionDatatype(node: ProjectionNode): string {
     if (type === 'TupleLiteral') return 'tuple';
     if (type === 'ListNode' || type === 'ListLiteral' || node.positions.size > 0) return 'list';
     return {
-        StringLiteral: 'string', NumberLiteral: 'number', BooleanLiteral: 'boolean', ToggleLiteral: 'toggle',
+        StringLiteral: 'string', SymbolicLiteral: 'symbol', NumberLiteral: 'number', BooleanLiteral: 'boolean', ToggleLiteral: 'toggle',
         NullLiteral: 'null', SansaAddressLiteral: 'sansa',
     }[type ?? ''] ?? 'value';
 }
@@ -252,6 +252,12 @@ function projectionLiteral(constraints: ConstraintsV1 | undefined): string {
             const maximum = Math.max(minimum, effective.max_length ?? Math.max(7, minimum));
             const length = Math.max(minimum, Math.min(7, maximum));
             return JSON.stringify('example'.slice(0, length).padEnd(length, 'x'));
+        }
+        case 'SymbolicLiteral': {
+            const minimum = Math.max(1, effective.min_length ?? 1);
+            const maximum = Math.max(minimum, effective.max_length ?? Math.max(7, minimum));
+            const length = Math.max(minimum, Math.min(7, maximum));
+            return `|${'example'.slice(0, length).padEnd(length, 'x')}|`;
         }
         case 'NumberLiteral': return effective.min_value ?? '0';
         case 'BooleanLiteral': return 'true';

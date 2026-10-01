@@ -46,6 +46,7 @@ types:object = {
   mask:radix[16] = %ff00aa
   payload:encoding = &QmFzZTY0IQ==
   version:sep["."] = ^0.11.0
+  stage:symbol = |approved|
   selector:sansa = $.types.*.sku
   released:date = 2026-07-25
   window:time = 09:30:00Z
@@ -185,6 +186,15 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   assert.deepEqual(
     [bindingAt(namespace, '$.types.version').scalarKind, bindingAt(namespace, '$.types.version').value],
     ['separator', '0.11.0'],
+  );
+  assert.deepEqual(
+    [
+      bindingAt(namespace, '$.types.stage').semanticType,
+      bindingAt(namespace, '$.types.stage').representationKind,
+      bindingAt(namespace, '$.types.stage').scalarKind,
+      bindingAt(namespace, '$.types.stage').value,
+    ],
+    ['symbol', 'symbol', 'symbol', 'approved'],
   );
   assert.deepEqual(bindingAt(namespace, '$.types.selector').value, {
     type: 'SansaAddressLiteral',

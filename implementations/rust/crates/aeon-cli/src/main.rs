@@ -2644,6 +2644,7 @@ fn serialize_canonical_value(value: &Value) -> String {
         | Value::DateLiteral { raw }
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw } => raw.clone(),
+        Value::SymbolicLiteral { raw, .. } => raw.clone(),
         Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::HexLiteral { raw } => format!("\"{}\"", escape_json(raw)),
         Value::CloneReference { segments, .. } => {
@@ -3356,8 +3357,7 @@ fn render_value_json_string(value: &Value) -> String {
                 .as_ref()
                 .map(|metadata| {
                     format!(
-                        ",\"trimticks\":{{\"markerWidth\":{},\"rawValue\":\"{}\"}}",
-                        metadata.marker_width,
+                        ",\"trimticks\":{{\"rawValue\":\"{}\"}}",
                         escape_json(&metadata.raw_value)
                     )
                 })
@@ -3387,6 +3387,11 @@ fn render_value_json_string(value: &Value) -> String {
         Value::SeparatorLiteral { raw } => format!(
             "{{\"type\":\"SeparatorLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
             escape_json(raw.trim_start_matches('^')),
+            escape_json(raw)
+        ),
+        Value::SymbolicLiteral { value, raw } => format!(
+            "{{\"type\":\"SymbolicLiteral\",\"value\":\"{}\",\"raw\":\"{}\"}}",
+            escape_json(value),
             escape_json(raw)
         ),
         Value::EncodingLiteral { raw } => format!(
@@ -3545,6 +3550,7 @@ fn render_human_value(value: &Value) -> String {
         | Value::DateTimeLiteral { raw }
         | Value::TimeLiteral { raw }
         | Value::NodeLiteral { raw, .. } => raw.clone(),
+        Value::SymbolicLiteral { raw, .. } => raw.clone(),
         Value::SansaAddressLiteral { canonical, .. } => canonical.clone(),
         Value::CloneReference { segments, .. } => format!("~{}", render_reference_path(segments)),
         Value::PointerReference { segments, .. } => {
@@ -4050,6 +4056,14 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             value_type: String::from("SeparatorLiteral"),
             raw: Some(raw.clone()),
             value: Some(JsonValue::String(raw.trim_start_matches('^').to_string())),
+            path: None,
+            elements: Vec::new(),
+            bindings: Vec::new(),
+        },
+        Value::SymbolicLiteral { value, raw } => EventValue {
+            value_type: String::from("SymbolicLiteral"),
+            raw: Some(raw.clone()),
+            value: Some(JsonValue::String(value.clone())),
             path: None,
             elements: Vec::new(),
             bindings: Vec::new(),
@@ -5900,7 +5914,6 @@ mod tests {
         assert_eq!(by_key["raw"]["value"]["raw"], "beta");
         assert_eq!(by_key["trim"]["value"]["delimiter"], "`");
         assert_eq!(by_key["trim"]["value"]["raw"], "\n  one\n  two\n");
-        assert_eq!(by_key["trim"]["value"]["trimticks"]["markerWidth"], 1);
         assert_eq!(
             by_key["trim"]["value"]["trimticks"]["rawValue"],
             "\n  one\n  two\n"
@@ -6118,7 +6131,7 @@ mod tests {
     #[test]
     fn fmt_output_normalizes_trimticks_generic_datatypes_and_numbers() {
         let source = "aeon:mode = \"strict\"\n\
-                      c:trimtick = >> ``\n\
+                      c:trimtick = > ``\n\
                       pair:tuple<int32,int32> = (1, 2)\n\
                       values:list = [\n\
                         1E6\n\

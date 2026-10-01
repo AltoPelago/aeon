@@ -814,6 +814,7 @@ function expectedKindsForReservedDatatype(datatype: string): readonly string[] |
     if (base === 'trimtick' || base === 'prose') return ['TrimtickStringLiteral'];
     if (base === 'boolean' || base === 'bool') return ['BooleanLiteral'];
     if (base === 'toggle') return ['ToggleLiteral'];
+    if (base === 'symbol') return ['SymbolicLiteral'];
     if (base === 'hex') return ['HexLiteral'];
     if (RADIX_TYPES.has(base)) return ['RadixLiteral'];
     if (ENCODING_TYPES.has(base)) return ['EncodingLiteral'];

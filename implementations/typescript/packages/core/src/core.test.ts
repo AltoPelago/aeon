@@ -304,7 +304,7 @@ describe('Core - compile()', () => {
         it('should compile trimticks to trimmed string literal values', () => {
             const result = compile([
                 'class = {',
-                '  text = >>`',
+                '  text = >`',
                 '           This policy applies when a request is retried.',
                 '        The consumer must validate the signature again.',
                 '           The cached response may be reused if it is still valid.',
@@ -498,6 +498,7 @@ describe('Core - compile()', () => {
 
         it('enforces decoded strings, keys, collection lengths, and numeric lexemes independently', () => {
             assert.strictEqual(code('a = "xy"', { maxStringCodepoints: 1 }), 'MAX_STRING_CODEPOINTS_EXCEEDED');
+            assert.strictEqual(code('a = |xy|', { maxStringCodepoints: 1 }), 'MAX_STRING_CODEPOINTS_EXCEEDED');
             assert.strictEqual(code('ab = 1', { maxKeySegmentCodepoints: 1 }), 'MAX_KEY_SEGMENT_CODEPOINTS_EXCEEDED');
             assert.strictEqual(code('a = [1,2]', { maxListItems: 1 }), 'MAX_LIST_ITEMS_EXCEEDED');
             assert.strictEqual(code('a = (1,2)', { maxTupleItems: 1 }), 'MAX_TUPLE_ITEMS_EXCEEDED');

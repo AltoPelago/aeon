@@ -103,6 +103,14 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('top:null = !none', result.text)
         self.assertIn('bottom:null = !"postponed"', result.text)
 
+    def test_canonicalizes_symbol_literals_with_pipe_escapes(self) -> None:
+        result = canonicalize(r'stage:symbol = |say "yes" and \|wait\||')
+        self.assertEqual([], result.errors)
+        self.assertIn(r'stage:symbol = |say "yes" and \|wait\||', result.text)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
     def test_preserves_padded_base64url_encoding_literals(self) -> None:
         result = canonicalize('payload:base64 = &abc-_==')
         self.assertEqual([], result.errors)

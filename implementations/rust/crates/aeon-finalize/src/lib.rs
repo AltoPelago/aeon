@@ -374,7 +374,6 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
                 object.insert(
                     String::from("trimticks"),
                     json!({
-                        "markerWidth": metadata.marker_width,
                         "rawValue": metadata.raw_value,
                     }),
                 );
@@ -398,6 +397,11 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
         Value::SeparatorLiteral { raw } => json!({
             "type": "SeparatorLiteral",
             "value": raw.trim_start_matches('^'),
+            "raw": raw,
+        }),
+        Value::SymbolicLiteral { value, raw } => json!({
+            "type": "SymbolicLiteral",
+            "value": value,
             "raw": raw,
         }),
         Value::EncodingLiteral { raw } => json!({
@@ -772,6 +776,26 @@ fn value_to_json_with_active_key(
         Value::SeparatorLiteral { raw } => {
             JsonValue::String(raw.trim_start_matches('^').to_owned())
         }
+        Value::SymbolicLiteral { value, .. } => {
+            let diag = Diagnostic::new(
+                "FINALIZE_JSON_PROFILE_SYMBOL",
+                format!(
+                    "Symbol literal is not losslessly representable in the strict JSON profile: {value}"
+                ),
+            )
+            .at_path(path);
+            let diag = if let Some(span) = source_span {
+                diag.with_span(span)
+            } else {
+                diag
+            };
+            if matches!(mode, FinalizeMode::Strict) {
+                errors.push(diag);
+            } else {
+                warnings.push(diag);
+            }
+            JsonValue::String(value.clone())
+        }
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('&').to_owned()),
         Value::RadixLiteral { raw } => {
             let normalized = raw.trim_start_matches('%').replace('_', "");
@@ -1110,6 +1134,7 @@ fn measure_materialized_weight(
         | Value::BooleanLiteral { .. }
         | Value::HexLiteral { .. }
         | Value::SeparatorLiteral { .. }
+        | Value::SymbolicLiteral { .. }
         | Value::EncodingLiteral { .. }
         | Value::RadixLiteral { .. }
         | Value::DateLiteral { .. }
@@ -2138,7 +2163,6 @@ mod tests {
         assert_eq!(by_path["$.raw"]["raw"], "beta");
         assert_eq!(by_path["$.trim"]["delimiter"], "`");
         assert_eq!(by_path["$.trim"]["raw"], "\n  one\n  two\n");
-        assert_eq!(by_path["$.trim"]["trimticks"]["markerWidth"], 1);
         assert_eq!(
             by_path["$.trim"]["trimticks"]["rawValue"],
             "\n  one\n  two\n"
@@ -2693,6 +2717,28 @@ mod tests {
         assert_eq!(finalized.document, json!({ "limit": "NaN" }));
         assert_eq!(finalized.meta.errors.len(), 1);
         assert_eq!(finalized.meta.errors[0].code, "FINALIZE_JSON_PROFILE_NAN");
+    }
+
+    #[test]
+    fn reports_symbols_as_lossy_in_strict_and_loose_json_profiles() {
+        let source = "stage:symbol = |in review|\n";
+        let result = compile(source, CompileOptions::default());
+
+        let strict = finalize_json(&result.events, FinalizeOptions::default());
+        assert_eq!(strict.document, json!({ "stage": "in review" }));
+        assert_eq!(strict.meta.errors.len(), 1);
+        assert_eq!(strict.meta.errors[0].code, "FINALIZE_JSON_PROFILE_SYMBOL");
+
+        let loose = finalize_json(
+            &result.events,
+            FinalizeOptions {
+                mode: FinalizeMode::Loose,
+                ..FinalizeOptions::default()
+            },
+        );
+        assert_eq!(loose.document, json!({ "stage": "in review" }));
+        assert_eq!(loose.meta.warnings.len(), 1);
+        assert_eq!(loose.meta.warnings[0].code, "FINALIZE_JSON_PROFILE_SYMBOL");
     }
 
     #[test]

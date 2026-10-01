@@ -30,6 +30,7 @@ from .ast import (
     ReferencePathSegment,
     SansaAddressLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     StringLiteral,
     ToggleLiteral,
     TimeLiteral,
@@ -65,7 +66,7 @@ RESERVED_V1_DATATYPES = {
     "hex", "date", "time", "datetime", "wtc",
     "encoding", "base64", "embed", "inline",
     "radix", "decimal", "radix2", "radix6", "radix8", "radix12",
-    "sep", "kadot",
+    "sep", "kadot", "symbol",
     "tuple", "triple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
 }
 
@@ -898,6 +899,9 @@ class Parser:
         if token.kind == "SEPARATOR":
             self.advance()
             return SeparatorLiteral(value=token.value[1:], raw=token.value, span=token.span)
+        if token.kind == "SYMBOLIC":
+            self.advance()
+            return SymbolicLiteral(value=token.value, raw=token.raw or f"|{token.value}|", span=token.span)
         if token.kind == "SANSA_ADDRESS":
             self.advance()
             result = parse_address(token.value)
@@ -965,17 +969,7 @@ class Parser:
         )
 
     def parse_trimtick_string(self) -> StringLiteral:
-        start_token = self.peek()
-        marker_width = 0
-        previous_angle: Token | None = None
-        while self.check("RANGLE"):
-            angle = self.peek()
-            if previous_angle is not None and previous_angle.span.end.offset != angle.span.start.offset:
-                raise SyntaxError("Trimtick marker must be contiguous", angle.span)
-            marker_width += 1
-            if marker_width > 4:
-                raise SyntaxError('Trimtick marker may contain at most four ">" characters', angle.span)
-            previous_angle = self.advance()
+        start_token = self.advance()
 
         if not self.check("STRING") or self.peek().quote != "`":
             raise SyntaxError("Trimtick marker must be followed by a backtick string", self.peek().span)
@@ -983,10 +977,10 @@ class Parser:
         token = self.advance()
         raw_value = token.value
         return StringLiteral(
-            value=apply_trimticks(raw_value, marker_width),
+            value=apply_trimticks(raw_value),
             raw=raw_value,
             delimiter="`",
-            trimticks={"markerWidth": marker_width, "rawValue": raw_value},
+            trimticks={"rawValue": raw_value},
             span=Span(start=start_token.span.start, end=token.span.end),
         )
 
@@ -1101,7 +1095,7 @@ def parse_tokens(
     ).parse()
 
 
-def apply_trimticks(raw: str, marker_width: int) -> str:
+def apply_trimticks(raw: str) -> str:
     if "\n" not in raw:
         return raw
 
@@ -1113,20 +1107,14 @@ def apply_trimticks(raw: str, marker_width: int) -> str:
     if not lines:
         return ""
 
-    normalized = []
-    for line in lines:
-        if is_blank_line(line):
-            normalized.append("")
-        elif marker_width == 1:
-            normalized.append(line)
-        else:
-            normalized.append(normalize_leading_indent(line, marker_width))
+    normalized = ["" if is_blank_line(line) else line for line in lines]
 
     non_empty = [line for line in normalized if line]
     if not non_empty:
         return ""
 
-    common_indent = min(count_leading_spaces(line) for line in non_empty)
+    gutter = "\t" if non_empty[0].startswith("\t") else " "
+    common_indent = min(count_leading_gutter(line, gutter) for line in non_empty)
     return "\n".join("" if not line else line[common_indent:] for line in normalized)
 
 
@@ -1134,28 +1122,11 @@ def is_blank_line(line: str) -> bool:
     return re.match(r"^[ \t]*$", line) is not None
 
 
-def count_leading_spaces(line: str) -> int:
+def count_leading_gutter(line: str, gutter: str) -> int:
     index = 0
-    while index < len(line) and line[index] == " ":
+    while index < len(line) and line[index] == gutter:
         index += 1
     return index
-
-
-def normalize_leading_indent(line: str, tab_width: int) -> str:
-    index = 0
-    prefix: list[str] = []
-    while index < len(line):
-        char = line[index]
-        if char == " ":
-            prefix.append(" ")
-            index += 1
-            continue
-        if char == "\t":
-            prefix.append(" " * tab_width)
-            index += 1
-            continue
-        break
-    return "".join(prefix) + line[index:]
 
 
 def is_ascii_whitespace_only(value: str) -> bool:

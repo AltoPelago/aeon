@@ -27,6 +27,7 @@ from .ast import (
     RadixLiteral,
     SansaAddressLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     StringLiteral,
     ToggleLiteral,
     TimeLiteral,
@@ -211,6 +212,8 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
         return [f"&{format_encoding_literal(value.value)}"]
     if isinstance(value, SeparatorLiteral):
         return [f"^{format_separator(value.raw or value.value)}"]
+    if isinstance(value, SymbolicLiteral):
+        return [format_symbolic(value.value)]
     if isinstance(value, SansaAddressLiteral):
         return [value.canonical or value.value or value.raw]
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
@@ -348,6 +351,8 @@ def render_compact_inline_value(value: Value) -> str:
         return f"&{format_encoding_literal(value.value)}"
     if isinstance(value, SeparatorLiteral):
         return f"^{format_separator(value.raw or value.value)}"
+    if isinstance(value, SymbolicLiteral):
+        return format_symbolic(value.value)
     if isinstance(value, SansaAddressLiteral):
         return value.canonical or value.value or value.raw
     if isinstance(value, (DateLiteral, DateTimeLiteral, TimeLiteral)):
@@ -431,6 +436,28 @@ def format_string(value: str) -> str:
             else:
                 out.append(char)
     return '"' + "".join(out) + '"'
+
+
+def format_symbolic(value: str) -> str:
+    out: list[str] = []
+    for char in value:
+        if char == "|":
+            out.append("\\|")
+        elif char == "\\":
+            out.append("\\\\")
+        elif char == "\n":
+            out.append("\\n")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        else:
+            code = ord(char)
+            if code < 0x20:
+                out.append(f"\\u{code:04x}")
+            else:
+                out.append(char)
+    return "|" + "".join(out) + "|"
 
 
 def format_string_lines(value: str, indent: int) -> list[str]:
@@ -517,6 +544,7 @@ def is_simple_value(value: Value) -> bool:
             RadixLiteral,
             EncodingLiteral,
             SeparatorLiteral,
+            SymbolicLiteral,
             SansaAddressLiteral,
             DateLiteral,
             DateTimeLiteral,

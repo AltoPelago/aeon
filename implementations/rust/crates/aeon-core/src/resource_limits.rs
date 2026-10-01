@@ -139,7 +139,7 @@ fn validate_value(value: &Value, options: &CompileOptions, span: Span) -> Option
             attributes, value, ..
         } => validate_attributes(attributes, options, span)
             .or_else(|| validate_value(value, options, span)),
-        Value::StringLiteral { value, .. } => {
+        Value::StringLiteral { value, .. } | Value::SymbolicLiteral { value, .. } => {
             let observed = value.chars().count();
             (observed > options.max_string_codepoints).then(|| {
                 exhausted(

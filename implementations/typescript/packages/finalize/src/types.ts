@@ -109,6 +109,7 @@ export interface FinalizedScalarNode extends FinalizedNodeBase {
         | 'Radix'
         | 'Encoding'
         | 'Separator'
+        | 'Symbol'
         | 'SansaAddress'
         | 'Date'
         | 'DateTime'

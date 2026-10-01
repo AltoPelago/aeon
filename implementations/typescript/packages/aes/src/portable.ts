@@ -23,6 +23,7 @@ export type PortableAesKind =
     | 'RadixLiteral'
     | 'EncodingLiteral'
     | 'SeparatorLiteral'
+    | 'SymbolicLiteral'
     | 'SansaAddressLiteral'
     | 'DateLiteral'
     | 'TimeLiteral'
@@ -496,6 +497,8 @@ function projectValue(
             return { kind: 'EncodingLiteral', value: value.value };
         case 'SeparatorLiteral':
             return { kind: 'SeparatorLiteral', value: value.value };
+        case 'SymbolicLiteral':
+            return { kind: 'SymbolicLiteral', value: value.value };
         case 'SansaAddressLiteral':
             return { kind: 'SansaAddressLiteral', value: value.canonical };
         case 'DateLiteral':

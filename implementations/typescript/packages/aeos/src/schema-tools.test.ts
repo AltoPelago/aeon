@@ -98,6 +98,14 @@ contacts = [
         assert.ok(projection.assumptions.some((item) => item.includes('wildcard selector')));
     });
 
+    it('projects symbolic literal rules with the reserved datatype and pipe syntax', () => {
+        const projection = projectSchemaSourceToAeon(`schema = { rules = [
+          { path:sansa = $.stage, constraints = { required = true, type = "SymbolicLiteral" } }
+        ] }`);
+
+        assert.strictEqual(projection.source, 'stage:symbol = |example|\n');
+    });
+
     it('reports settings, additions, removals, and constraint changes', () => {
         const diff = diffSchemaSources(`
 aeos:schema = {

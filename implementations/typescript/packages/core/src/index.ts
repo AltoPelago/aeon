@@ -567,7 +567,8 @@ function validateSourceStructure(document: Document, limits: SourceStructureLimi
     };
     const checkValue = (value: Value): ResourceLimitExceededError | null => {
         switch (value.type) {
-            case 'StringLiteral': {
+            case 'StringLiteral':
+            case 'SymbolicLiteral': {
                 const observed = [...value.value].length;
                 return observed > limits.maxStringCodepoints
                     ? new ResourceLimitExceededError('max_string_codepoints', observed, limits.maxStringCodepoints)

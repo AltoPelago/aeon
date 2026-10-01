@@ -27,7 +27,7 @@ CORE_FIELDS = {
 VALUE_KINDS = {
     "StringLiteral", "NumberLiteral", "InfinityLiteral", "NaNLiteral", "NullLiteral",
     "BooleanLiteral", "ToggleLiteral", "HexLiteral", "RadixLiteral", "EncodingLiteral",
-    "SeparatorLiteral", "SansaAddressLiteral", "DateLiteral", "TimeLiteral", "DateTimeLiteral",
+    "SeparatorLiteral", "SymbolicLiteral", "SansaAddressLiteral", "DateLiteral", "TimeLiteral", "DateTimeLiteral",
     "WTCDateTimeLiteral", "ObjectNode", "ListNode", "TupleLiteral", "NodeLiteral", "NodeHead",
     "CloneReference", "PointerReference",
 }

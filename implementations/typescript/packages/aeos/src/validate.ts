@@ -50,6 +50,7 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     RadixLiteral: ['RadixLiteral'],
     EncodingLiteral: ['EncodingLiteral'],
     SeparatorLiteral: ['SeparatorLiteral'],
+    SymbolicLiteral: ['SymbolicLiteral'],
     SansaAddressLiteral: ['SansaAddressLiteral'],
     DateLiteral: ['DateLiteral'],
     TimeLiteral: ['TimeLiteral'],
@@ -193,6 +194,7 @@ const STRING_LIKE_VALUE_TYPES = new Set([
     'StringLiteral',
     'TrimtickLiteral',
     'SeparatorLiteral',
+    'SymbolicLiteral',
     'SansaAddressLiteral',
     'HexLiteral',
     'EncodingLiteral',
@@ -1466,6 +1468,7 @@ function constraintTypeMatches(actualType: string, expectedType: string, raw: st
     if (constraints?.allow_infinity === true && actualType === 'InfinityLiteral' && isNumericExpectedType(expectedType)) return true;
     if (constraints?.allow_nan === true && actualType === 'NaNLiteral' && isNumericExpectedType(expectedType)) return true;
     if (actualType === expectedType) return true;
+    if (actualType === 'DateTimeLiteral' && expectedType === 'WTCDateTimeLiteral' && raw.includes('&')) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') return /^[+-]?\d[\d_]*$/.test(raw);
         if (expectedType === 'FloatLiteral') return /^[+-]?(?:\d[\d_]*\.\d[\d_]*|\d[\d_]*\.|\.\d[\d_]*|\d[\d_]*[eE][+-]?\d[\d_]*)$/.test(raw);
@@ -1528,13 +1531,15 @@ function checkLexicalLiteralConstraint(
 
 function checkTemporalContextPolicy(
     path: string,
-    event: Pick<EventInfo, 'type' | 'value' | 'span'>,
+    event: Pick<EventInfo, 'type' | 'raw' | 'value' | 'span'>,
     constraints: ConstraintsV1,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     if (constraints.temporal_context_policy === undefined) return;
     if (event.type === 'NullLiteral' && constraints.nullable === true) return;
-    if (event.type !== 'WTCDateTimeLiteral') {
+    const isWtc = event.type === 'WTCDateTimeLiteral'
+        || (event.type === 'DateTimeLiteral' && (event.raw || event.value).includes('&'));
+    if (!isWtc) {
         emitError(ctx, createDiag(
             path,
             event.span,
@@ -1567,8 +1572,9 @@ function checkTemporalFieldConstraints(
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
     const hasSecondConstraint = constraints.temporal_max_second !== undefined;
+    const hasFractionConstraint = constraints.temporal_max_fraction_digits !== undefined;
     const hasYearConstraint = constraints.temporal_min_year !== undefined || constraints.temporal_max_year !== undefined;
-    if (!hasSecondConstraint && !hasYearConstraint) return;
+    if (!hasSecondConstraint && !hasFractionConstraint && !hasYearConstraint) return;
     if (event.type === 'NullLiteral' && constraints.nullable === true) return;
 
     const carriesSeconds = event.type === 'TimeLiteral'
@@ -1578,7 +1584,7 @@ function checkTemporalFieldConstraints(
         || event.type === 'DateTimeLiteral'
         || event.type === 'WTCDateTimeLiteral';
 
-    if ((hasSecondConstraint && !carriesSeconds) || (hasYearConstraint && !carriesYear)) {
+    if (((hasSecondConstraint || hasFractionConstraint) && !carriesSeconds) || (hasYearConstraint && !carriesYear)) {
         emitError(ctx, createDiag(
             path,
             event.span,
@@ -1589,16 +1595,25 @@ function checkTemporalFieldConstraints(
     }
 
     const value = event.value.replace(/^@/, '');
-    if (hasSecondConstraint) {
+    if (hasSecondConstraint || hasFractionConstraint) {
         const clock = event.type === 'TimeLiteral' ? value : value.slice(value.indexOf('T') + 1);
-        const secondMatch = /^(?:\d{2}):(?:\d{2}):(\d{2})(?:\.\d+)?/.exec(clock);
+        const secondMatch = /^(?:\d{2}):(?:\d{2}):(\d{2})(?:\.(\d+))?/.exec(clock);
         if (secondMatch !== null) {
             const second = Number.parseInt(secondMatch[1]!, 10);
-            if (second > constraints.temporal_max_second!) {
+            if (hasSecondConstraint && second > constraints.temporal_max_second!) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,
                     `Temporal field constraint mismatch: second ${second} exceeds maximum ${constraints.temporal_max_second}`,
+                    ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
+                ));
+            }
+            const fractionDigits = secondMatch[2]?.length;
+            if (hasFractionConstraint && fractionDigits !== undefined && fractionDigits > constraints.temporal_max_fraction_digits!) {
+                emitError(ctx, createDiag(
+                    path,
+                    event.span,
+                    `Temporal field constraint mismatch: fractional precision ${fractionDigits} digits exceeds maximum ${constraints.temporal_max_fraction_digits}`,
                     ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH
                 ));
             }
@@ -1652,6 +1667,7 @@ function isReferenceType(type: string): boolean {
 
 function datatypeTypeMatches(actualType: string, expectedType: string, raw: string): boolean {
     if (actualType === expectedType) return true;
+    if (actualType === 'DateTimeLiteral' && expectedType === 'WTCDateTimeLiteral' && raw.includes('&')) return true;
     if (actualType === 'NumberLiteral') {
         if (expectedType === 'IntegerLiteral') {
             return /^[+-]?\d[\d_]*$/.test(raw);

@@ -109,7 +109,7 @@ function runCanonicalNodeDeterminism() {
 function runTrimtickStrictAlias() {
   const source = [
     'aeon:mode = "strict"',
-    'doc:trimtick = >>`',
+    'doc:trimtick = >`',
     '    one',
     '  two',
     '`',
@@ -139,11 +139,11 @@ function runTrimtickStrictAlias() {
 
 function runTrimtickCanonicalConvergence() {
   const trimtick = canonicalize([
-    'text:string = >>`',
-    '\t\tWhenever I am here,',
-    '\t  I can do whatever I want',
-    '    because this is such a cool feature',
-    '\t\tright?',
+    'text:string = >`',
+    '\tWhenever I am here,',
+    '\tI can do whatever I want',
+    '\tbecause this is such a cool feature',
+    '\tright?',
     '\t`',
   ].join('\n'));
   const raw = canonicalize([
@@ -622,7 +622,7 @@ function runCanonicalQuotedKeySortPressure() {
 
 function runTrimtickIndentationStress() {
   const start = performance.now();
-  const lines = ['story:string = >>`'];
+  const lines = ['story:string = >`'];
   for (let i = 0; i < 250; i += 1) {
     const indent = i % 3 === 0 ? '\t\t' : (i % 3 === 1 ? '      ' : '\t  ');
     lines.push(`${indent}line ${i}`);

@@ -47,6 +47,7 @@ enum Value {
         value: Box<Value>,
     },
     String(String),
+    Symbol(String),
     Number(String),
     Infinity(String),
     Null {
@@ -454,6 +455,7 @@ fn render_value_inline(value: &Value) -> String {
             )
         }
         Value::String(value) => format!("\"{}\"", escape_string(value)),
+        Value::Symbol(value) => format_symbol(value),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
         Value::Null { mode, value } => match mode {
@@ -548,7 +550,11 @@ fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
+        Value::Symbol(_)
+        | Value::Number(_)
+        | Value::Infinity(_)
+        | Value::Null { .. }
+        | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -557,7 +563,11 @@ fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_value(value),
         Value::String(value) => !value.contains('\n'),
-        Value::Number(_) | Value::Infinity(_) | Value::Null { .. } | Value::Raw(_) => true,
+        Value::Symbol(_)
+        | Value::Number(_)
+        | Value::Infinity(_)
+        | Value::Null { .. }
+        | Value::Raw(_) => true,
         _ => false,
     }
 }
@@ -584,6 +594,23 @@ fn escape_string(value: &str) -> String {
             _ => out.push(ch),
         }
     }
+    out
+}
+
+fn format_symbol(value: &str) -> String {
+    let mut out = String::from("|");
+    for ch in value.chars() {
+        match ch {
+            '|' => out.push_str("\\|"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out.push('|');
     out
 }
 
@@ -619,7 +646,7 @@ fn escape_trimtick_line(value: &str) -> String {
     out
 }
 
-fn apply_trimticks(raw: &str, marker_width: usize) -> String {
+fn apply_trimticks(raw: &str) -> String {
     if !raw.contains('\n') {
         return raw.to_owned();
     }
@@ -640,18 +667,23 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
         .map(|line| {
             if is_blank_trimtick_line(line) {
                 String::new()
-            } else if marker_width == 1 {
-                String::from(line)
             } else {
-                normalize_trimtick_indent(line, marker_width)
+                String::from(line)
             }
         })
         .collect();
 
+    let gutter = normalized
+        .iter()
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.chars().next())
+        .filter(|ch| *ch == '\t')
+        .unwrap_or(' ');
+
     let common_indent = normalized
         .iter()
         .filter(|line| !line.is_empty())
-        .map(|line| count_leading_spaces(line))
+        .map(|line| line.chars().take_while(|ch| *ch == gutter).count())
         .min()
         .unwrap_or(0);
 
@@ -661,7 +693,7 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
             if line.is_empty() {
                 String::new()
             } else {
-                line[common_indent..].to_owned()
+                line.chars().skip(common_indent).collect()
             }
         })
         .collect::<Vec<_>>()
@@ -670,26 +702,6 @@ fn apply_trimticks(raw: &str, marker_width: usize) -> String {
 
 fn is_blank_trimtick_line(line: &str) -> bool {
     line.chars().all(|ch| matches!(ch, ' ' | '\t'))
-}
-
-fn count_leading_spaces(line: &str) -> usize {
-    line.chars().take_while(|ch| *ch == ' ').count()
-}
-
-fn normalize_trimtick_indent(line: &str, tab_width: usize) -> String {
-    let mut prefix = String::new();
-    let mut rest_start = line.len();
-    for (idx, ch) in line.char_indices() {
-        match ch {
-            ' ' => prefix.push(' '),
-            '\t' => prefix.push_str(&" ".repeat(tab_width)),
-            _ => {
-                rest_start = idx;
-                break;
-            }
-        }
-    }
-    format!("{prefix}{}", &line[rest_start..])
 }
 
 fn normalize_number(raw: &str) -> String {
@@ -857,6 +869,26 @@ fn invalid_temporal_literal(raw: &str) -> Option<String> {
 
 fn looks_like_date(value: &str) -> bool {
     let bytes = value.as_bytes();
+    if bytes.len() == 5 && bytes[4] == b'-' && bytes[..4].iter().all(u8::is_ascii_digit) {
+        return value[0..4]
+            .parse::<u32>()
+            .is_ok_and(|year| (1..=9999).contains(&year));
+    }
+    if bytes.len() == 7
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+    {
+        return match (value[0..4].parse::<u32>(), value[5..7].parse::<u32>()) {
+            (Ok(year), Ok(month)) => (1..=9999).contains(&year) && (1..=12).contains(&month),
+            _ => false,
+        };
+    }
+    looks_like_full_date(value)
+}
+
+fn looks_like_full_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
     if !(bytes.len() == 10
         && bytes[4] == b'-'
         && bytes[7] == b'-'
@@ -878,19 +910,13 @@ fn looks_like_date(value: &str) -> bool {
 }
 
 fn looks_like_date_candidate(value: &str) -> bool {
-    let mut parts = value.split('-');
-    let (Some(year), Some(month), Some(day), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-
-    year.len() == 4
-        && (1..=2).contains(&month.len())
-        && (1..=2).contains(&day.len())
-        && year.bytes().all(|byte| byte.is_ascii_digit())
-        && month.bytes().all(|byte| byte.is_ascii_digit())
-        && day.bytes().all(|byte| byte.is_ascii_digit())
+    let bytes = value.as_bytes();
+    bytes.len() >= 5
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || *byte == b'-')
 }
 
 fn looks_like_time(value: &str) -> bool {
@@ -1304,6 +1330,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "separated"
             | "sep"
             | "kadot"
+            | "symbol"
             | "string"
             | "str"
             | "text"
@@ -1585,6 +1612,7 @@ impl<'a> Parser<'a> {
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         match self.peek() {
             Some('"') | Some('\'') | Some('`') => Ok(Value::String(self.parse_quoted_string()?)),
+            Some('|') => Ok(Value::Symbol(self.parse_quoted_string()?)),
             Some('>') => Ok(Value::String(self.parse_trimtick()?)),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_list(),
@@ -1896,9 +1924,10 @@ impl<'a> Parser<'a> {
         let quote = self
             .peek()
             .ok_or_else(|| self.syntax_error("Expected quoted string"))?;
-        if !matches!(quote, '"' | '\'' | '`') {
+        if !matches!(quote, '"' | '\'' | '`' | '|') {
             return Err(self.syntax_error("Expected quoted string"));
         }
+        let symbolic = quote == '|';
         self.index += 1;
         let mut value = String::new();
         let mut chunk_start = self.index;
@@ -1910,9 +1939,21 @@ impl<'a> Parser<'a> {
                         .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
                 );
                 self.index += 1;
+                if symbolic && value.is_empty() {
+                    return Err(self.error(
+                        "INVALID_SYMBOLIC_LITERAL",
+                        "Symbolic literals must contain a value",
+                    ));
+                }
                 return Ok(value);
             }
             if matches!(byte, b'\n' | b'\r') && quote != '`' {
+                if symbolic {
+                    return Err(self.error(
+                        "UNTERMINATED_SYMBOLIC_LITERAL",
+                        "Unterminated symbolic literal",
+                    ));
+                }
                 return Err(self.error(
                     "UNTERMINATED_STRING",
                     &format!("Unterminated string literal (started with {quote})"),
@@ -1924,14 +1965,22 @@ impl<'a> Parser<'a> {
                         .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
                 );
                 self.index += 1;
-                let escaped = self
-                    .peek()
-                    .ok_or_else(|| self.syntax_error("Unterminated string"))?;
+                let escaped = self.peek().ok_or_else(|| {
+                    if symbolic {
+                        self.error(
+                            "UNTERMINATED_SYMBOLIC_LITERAL",
+                            "Unterminated symbolic literal",
+                        )
+                    } else {
+                        self.syntax_error("Unterminated string")
+                    }
+                })?;
                 match escaped {
                     '\\' => value.push('\\'),
                     '"' => value.push('"'),
                     '\'' => value.push('\''),
                     '`' => value.push('`'),
+                    '|' if symbolic => value.push('|'),
                     'n' => value.push('\n'),
                     'r' => value.push('\r'),
                     't' => value.push('\t'),
@@ -2023,15 +2072,18 @@ impl<'a> Parser<'a> {
             }
             self.index += 1;
         }
-        Err(self.syntax_error("Unterminated string"))
+        if symbolic {
+            Err(self.error(
+                "UNTERMINATED_SYMBOLIC_LITERAL",
+                "Unterminated symbolic literal",
+            ))
+        } else {
+            Err(self.syntax_error("Unterminated string"))
+        }
     }
 
     fn parse_trimtick(&mut self) -> Result<String, Diagnostic> {
-        let mut marker_width = 0usize;
-        while self.peek() == Some('>') {
-            self.index += 1;
-            marker_width += 1;
-        }
+        self.index += 1;
         while matches!(self.peek(), Some(' ' | '\t')) {
             self.index += 1;
         }
@@ -2039,7 +2091,7 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected trimtick opener"));
         }
         let decoded = self.parse_quoted_string()?;
-        Ok(apply_trimticks(&decoded, marker_width.max(1)))
+        Ok(apply_trimticks(&decoded))
     }
 
     fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
@@ -2508,7 +2560,7 @@ mod tests {
     #[test]
     fn normalizes_trimtick_to_string_content() {
         let result =
-            canonicalize("aeon:mode = \"transport\"\nc:trimtick = >> ``\nb:string = \"\"\n");
+            canonicalize("aeon:mode = \"transport\"\nc:trimtick = > ``\nb:string = \"\"\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -2972,7 +3024,7 @@ mod tests {
 
     #[test]
     fn canonicalizes_multiline_strings_as_trimticks() {
-        let result = canonicalize("aeon:mode = \"transport\"\ntext = >> `\n  alpha\n\n  beta\n`\n");
+        let result = canonicalize("aeon:mode = \"transport\"\ntext = > `\n  alpha\n\n  beta\n`\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
@@ -2997,7 +3049,7 @@ mod tests {
     #[test]
     fn canonicalizes_one_line_trimticks_in_lists_to_strings() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  >> `\n    one\n  `,\n  >> `\n    two\n  `\n]\n",
+            "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  > `\n    one\n  `,\n  > `\n    two\n  `\n]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
@@ -3009,7 +3061,7 @@ mod tests {
     #[test]
     fn canonicalizes_multiline_trimticks_inside_inline_attribute_objects_as_strings() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = >> `\n    hello\n\n    world\n  ` } }:node = <box>\n",
+            "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node = <box>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
@@ -3075,7 +3127,7 @@ mod tests {
     #[test]
     fn parses_node_heads_with_attributes_before_datatype() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    >> `\n      Click\n      Here\n    `\n  )>\n)>\n",
+            "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(
@@ -3211,6 +3263,44 @@ mod tests {
     }
 
     #[test]
+    fn accepts_reduced_precision_dates_during_canonicalization() {
+        for source in [
+            "aeon:mode = \"strict\"\nyear:date = 2024-\n",
+            "aeon:mode = \"strict\"\nmonth:date = 2024-12\n",
+            "aeon:mode = \"strict\"\nyear_time:datetime = 2024-T10:10\n",
+            "aeon:mode = \"strict\"\nmonth_time:datetime = 2024-12T10:10\n",
+        ] {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_reduced_precision_date_candidates_during_canonicalization() {
+        for source in [
+            "aeon:mode = \"transport\"\na = 2024-13\n",
+            "aeon:mode = \"transport\"\na = 0000-\n",
+            "aeon:mode = \"transport\"\na = 0000-T10:10\n",
+            "aeon:mode = \"transport\"\na = 2024-13T10:10\n",
+            "aeon:mode = \"transport\"\na = 2024--02-01\n",
+            "aeon:mode = \"transport\"\na = 2024-12-01-\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}");
+            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(
+                result.errors[0].message.starts_with("Invalid date literal")
+                    || result.errors[0]
+                        .message
+                        .starts_with("Invalid datetime literal"),
+                "{:?}",
+                result.errors
+            );
+        }
+    }
+
+    #[test]
     fn accepts_hour_precision_datetime_offsets_during_canonicalization() {
         for source in [
             "aeon:mode = \"strict\"\ndt5:datetime = 2025-01-01T09:+02:00\n",
@@ -3240,6 +3330,28 @@ mod tests {
         assert!(result.text.contains("a:n[10] = 22"));
         assert!(result.text.contains("b:string[333] = \"hello world\""));
         assert!(result.text.contains("r:radix2[4] = %111"));
+    }
+
+    #[test]
+    fn canonicalizes_symbol_literals_and_escapes_pipes() {
+        let result = canonicalize("stage:symbol = |say \\\"yes\\\" and \\|wait\\||\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("stage:symbol = |say \"yes\" and \\|wait\\||")
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn rejects_empty_symbol_literals_during_canonicalization() {
+        let result = canonicalize("stage:symbol = ||\n");
+        assert_eq!(result.text, "");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "INVALID_SYMBOLIC_LITERAL");
     }
 
     #[test]

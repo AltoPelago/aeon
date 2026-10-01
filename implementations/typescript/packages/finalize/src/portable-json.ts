@@ -189,6 +189,9 @@ function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext): Jso
         case 'NaNLiteral':
             report(ctx, `The ${record.kind} value '${record.value}' is not representable in strict JSON`, `FINALIZE_JSON_PROFILE_${record.kind === 'NaNLiteral' ? 'NAN' : 'INFINITY'}`, address);
             return record.value ?? '';
+        case 'SymbolicLiteral':
+            report(ctx, `The SymbolicLiteral value '${record.value}' is not representable in strict JSON`, 'FINALIZE_JSON_PROFILE_SYMBOL', address);
+            return record.value ?? '';
         case 'NullLiteral':
             return nullValue(record.value ?? '', address, ctx);
         case 'BooleanLiteral':

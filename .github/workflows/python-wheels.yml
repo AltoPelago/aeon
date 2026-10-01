@@ -40,6 +40,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        if: runner.os != 'Windows'
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+
+      - name: Link AES beside AEON checkout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          New-Item -ItemType Junction
+          -Path (Join-Path $env:GITHUB_WORKSPACE '../aes')
+          -Target (Join-Path $env:GITHUB_WORKSPACE 'aes')
+
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -53,6 +72,9 @@ jobs:
           rust-toolchain: 1.93.1
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
+          # manylinux only mounts github.workspace; Cargo resolves AES beside it.
+          docker-options: >-
+            -v ${{ github.workspace }}/aes:${{ github.workspace }}/../aes:ro
           working-directory: implementations/rust/crates/aeon-python
           args: >-
             --release
@@ -95,7 +117,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 63cb4491bfce5f658731001b028ae97ae5e2fa17
+          ref: f11cac1229edad2441a7abce9744b5533d208a79
           path: aeonite-cts
 
       - name: Setup Python
@@ -124,4 +146,4 @@ jobs:
       - name: Installed-wheel Core CTS and pure-Python differential
         run: >-
           python scripts/check-installed-python-differential.py
-          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.3.json
+          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.4.json

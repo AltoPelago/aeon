@@ -141,7 +141,7 @@ describe('Mode Enforcement', () => {
         it('should accept trimtick as a string alias in strict mode', () => {
             const result = enforce([
                 'aeon:mode = "strict"',
-                'note:trimtick = >>`',
+                'note:trimtick = >`',
                 '    one',
                 '  two',
                 '`',
@@ -153,7 +153,7 @@ describe('Mode Enforcement', () => {
         it('should accept prose as a reserved trimtick alias in strict mode', () => {
             const result = enforce([
                 'aeon:mode = "strict"',
-                'body:prose = >>`',
+                'body:prose = >`',
                 '  # Title',
                 '',
                 '  A formatted paragraph.',

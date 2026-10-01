@@ -405,6 +405,7 @@ def project_value(value: object, node_source_paths: set[str]) -> tuple[str, str 
         "RadixLiteral": "RadixLiteral",
         "EncodingLiteral": "EncodingLiteral",
         "SeparatorLiteral": "SeparatorLiteral",
+        "SymbolicLiteral": "SymbolicLiteral",
         "DateLiteral": "DateLiteral",
         "TimeLiteral": "TimeLiteral",
         "WTCDateTimeLiteral": "WTCDateTimeLiteral",

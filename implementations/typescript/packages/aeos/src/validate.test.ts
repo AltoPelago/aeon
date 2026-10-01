@@ -514,6 +514,41 @@ describe('validate()', () => {
             );
         });
 
+        it('enforces schema-wide temporal precision on untyped literals selected by source type', () => {
+            const values = [
+                '23:55:59.999999999',
+                '23:55:59.1234567890',
+                '23:55:60.5',
+                '23:55',
+            ];
+            const aes = values.map((value, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: `value${index}` }] },
+                key: `value${index}`,
+                value: { type: 'TimeLiteral', value, raw: value, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+            const schema: SchemaV1 = {
+                rules: [{
+                    selector: '$.**%timeLiteral',
+                    constraints: {
+                        temporal_max_second: 59,
+                        temporal_max_fraction_digits: 9,
+                    },
+                }],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [
+                    ['$.value1', ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH],
+                    ['$.value2', ErrorCodes.TEMPORAL_FIELD_CONSTRAINT_MISMATCH],
+                ],
+            );
+        });
+
         it('reports temporal constraints used on incompatible literal kinds', () => {
             const aes: AES = [{
                 path: { segments: [{ type: 'root' }, { type: 'member', key: 'text' }] },
@@ -561,6 +596,41 @@ describe('validate()', () => {
                     ['$.value0', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT],
                     ['$.value1', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT],
                 ],
+            );
+        });
+
+        it('applies WTC datatype rules to parser-shaped DateTimeLiteral events', () => {
+            const values = [
+                '2026-01-01T09:10:10&TAI',
+                '2026-01-01T09:10:10Z&TAI',
+                '2026-01-01T09:10:10-00:00&TAI',
+            ];
+            const aes = values.map((value, index) => ({
+                path: { segments: [{ type: 'root' }, { type: 'member', key: `value${index}` }] },
+                key: `value${index}`,
+                datatype: 'wtc',
+                value: { type: 'DateTimeLiteral', value, raw: value, span: [index, index + 1] },
+                span: [index, index + 1],
+            })) as unknown as AES;
+            const schema: SchemaV1 = {
+                datatype_rules: {
+                    wtc: {
+                        type: 'WTCDateTimeLiteral',
+                        temporal_max_second: 59,
+                        temporal_min_year: 1,
+                        temporal_max_year: 9999,
+                        temporal_context_policy: 'aeon.gp.temporal.v1',
+                    },
+                },
+                rules: [],
+            };
+
+            const result = validate(aes, schema);
+
+            assert.strictEqual(result.ok, false);
+            assert.deepStrictEqual(
+                result.errors.map((error) => [error.path, error.code]),
+                [['$.value1', ErrorCodes.TEMPORAL_CONTEXT_CONFLICT]],
             );
         });
 

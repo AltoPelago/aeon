@@ -63,14 +63,14 @@ v:lookup = ~a.@.["x.y"]
 a:number = 1
 v:pointer = ~>$.a
 ---
-text:trimtick = >> `
+text:trimtick = > `
   alpha
 
   beta
 `
 ---
 items:list<string> = [
-  >> `
+  > `
     alpha
 
     beta
@@ -111,7 +111,7 @@ bundle:object = {
   meta:object = { "z.k":lookup = ~$.target, alpha:lookup = ~>$.target }
 }
 ---
-host@{ nested:object = { note:trimtick = >> `
+host@{ nested:object = { note:trimtick = > `
   hello
 
   world

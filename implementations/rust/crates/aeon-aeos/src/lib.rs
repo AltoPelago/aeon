@@ -318,6 +318,7 @@ fn is_string_like_value_type(value_type: &str) -> bool {
         value_type,
         "StringLiteral"
             | "TrimtickLiteral"
+            | "SymbolicLiteral"
             | "SeparatorLiteral"
             | "HexLiteral"
             | "EncodingLiteral"
@@ -708,6 +709,7 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
     "min_length",
     "max_length",
     "temporal_max_second",
+    "temporal_max_fraction_digits",
     "temporal_min_year",
     "temporal_max_year",
     "temporal_context_policy",
@@ -1650,6 +1652,7 @@ fn validate_constraint_tree(
         "min_length",
         "max_length",
         "temporal_max_second",
+        "temporal_max_fraction_digits",
         "temporal_min_year",
         "temporal_max_year",
     ] {
@@ -2473,13 +2476,20 @@ fn check_temporal_field_constraints(
     let maximum_second = constraints
         .get("temporal_max_second")
         .and_then(JsonValue::as_u64);
+    let maximum_fraction_digits = constraints
+        .get("temporal_max_fraction_digits")
+        .and_then(JsonValue::as_u64);
     let minimum_year = constraints
         .get("temporal_min_year")
         .and_then(JsonValue::as_u64);
     let maximum_year = constraints
         .get("temporal_max_year")
         .and_then(JsonValue::as_u64);
-    if maximum_second.is_none() && minimum_year.is_none() && maximum_year.is_none() {
+    if maximum_second.is_none()
+        && maximum_fraction_digits.is_none()
+        && minimum_year.is_none()
+        && maximum_year.is_none()
+    {
         return;
     }
     if event.value_type == "NullLiteral"
@@ -2496,7 +2506,7 @@ fn check_temporal_field_constraints(
         event.value_type.as_str(),
         "DateLiteral" | "DateTimeLiteral" | "WTCDateTimeLiteral"
     );
-    if (maximum_second.is_some() && !carries_seconds)
+    if ((maximum_second.is_some() || maximum_fraction_digits.is_some()) && !carries_seconds)
         || ((minimum_year.is_some() || maximum_year.is_some()) && !carries_year)
     {
         emit_error(
@@ -2512,7 +2522,7 @@ fn check_temporal_field_constraints(
     }
 
     let value = event.raw.strip_prefix('@').unwrap_or(&event.raw);
-    if let Some(maximum) = maximum_second {
+    if maximum_second.is_some() || maximum_fraction_digits.is_some() {
         let clock = if event.value_type == "TimeLiteral" {
             Some(value)
         } else {
@@ -2520,7 +2530,8 @@ fn check_temporal_field_constraints(
         };
         if let Some(clock) = clock {
             let bytes = clock.as_bytes();
-            if bytes.len() >= 8
+            if let Some(maximum) = maximum_second
+                && bytes.len() >= 8
                 && bytes[2] == b':'
                 && bytes[5] == b':'
                 && bytes[6..8].iter().all(u8::is_ascii_digit)
@@ -2538,6 +2549,25 @@ fn check_temporal_field_constraints(
                         span: event.span,
                     },
                 );
+            }
+            if let Some(maximum) = maximum_fraction_digits
+                && bytes.get(8) == Some(&b'.')
+            {
+                let digits = bytes[9..]
+                    .iter()
+                    .take_while(|byte| byte.is_ascii_digit())
+                    .count() as u64;
+                if digits > maximum {
+                    emit_error(
+                        ctx,
+                        ValidationDiagnostic {
+                            path: Some(String::from(path)),
+                            code: String::from("temporal_field_constraint_mismatch"),
+                            phase: String::from("schema_validation"),
+                            span: event.span,
+                        },
+                    );
+                }
             }
         }
     }
@@ -3986,6 +4016,7 @@ fn is_string_like_literal(value_type: &str) -> bool {
         "StringLiteral"
             | "TrimtickLiteral"
             | "TrimtickStringLiteral"
+            | "SymbolicLiteral"
             | "SeparatorLiteral"
             | "NullLiteral"
             | "EncodingLiteral"
@@ -4475,6 +4506,12 @@ impl SpanInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbolic_literals_are_string_like_for_form_constraints() {
+        assert!(is_string_like_value_type("SymbolicLiteral"));
+        assert!(is_string_like_literal("SymbolicLiteral"));
+    }
     use serde_json::json;
 
     #[test]
@@ -4604,6 +4641,8 @@ mod tests {
         for constraints in [
             json!({"temporal_max_second": 61}),
             json!({"temporal_max_second": 59.5}),
+            json!({"temporal_max_fraction_digits": -1}),
+            json!({"temporal_max_fraction_digits": 9.5}),
             json!({"temporal_min_year": 0}),
             json!({"temporal_max_year": 10_000}),
             json!({"temporal_min_year": 2027, "temporal_max_year": 2026}),
@@ -4639,6 +4678,34 @@ mod tests {
         let parsed = validate_cts_payload(payload).expect("payload should validate");
         let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
         assert_eq!(envelope.errors[0].code, "constraint_inapplicable");
+    }
+
+    #[test]
+    fn schema_wide_temporal_precision_applies_to_untyped_literals() {
+        let payload = r#"{
+          "aes": [
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"allowed"}] }, "key": "allowed", "value": {"type":"TimeLiteral","raw":"23:55:59.999999999","value":"23:55:59.999999999"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"too_precise"}] }, "key": "too_precise", "value": {"type":"TimeLiteral","raw":"23:55:59.1234567890","value":"23:55:59.1234567890"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"leap"}] }, "key": "leap", "value": {"type":"TimeLiteral","raw":"23:55:60.5","value":"23:55:60.5"} },
+            { "path": { "segments": [{"type":"root"},{"type":"member","key":"reduced"}] }, "key": "reduced", "value": {"type":"TimeLiteral","raw":"23:55","value":"23:55"} }
+          ],
+          "schema": { "rules": [{
+            "selector": "$.**%timeLiteral",
+            "constraints": {"temporal_max_second":59,"temporal_max_fraction_digits":9}
+          }] },
+          "options": {}
+        }"#;
+        let parsed = validate_cts_payload(payload).expect("payload should validate");
+        let envelope: ResultEnvelope = serde_json::from_str(&parsed).expect("result JSON");
+        assert_eq!(envelope.errors.len(), 2);
+        assert_eq!(envelope.errors[0].path.as_deref(), Some("$.leap"));
+        assert_eq!(envelope.errors[1].path.as_deref(), Some("$.too_precise"));
+        assert!(
+            envelope
+                .errors
+                .iter()
+                .all(|error| error.code == "temporal_field_constraint_mismatch")
+        );
     }
 
     #[test]

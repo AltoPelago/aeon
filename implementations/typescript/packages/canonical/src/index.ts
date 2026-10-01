@@ -304,6 +304,8 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return [`&${formatEncoding(value.value)}`];
         case 'SeparatorLiteral':
             return [`^${formatSeparator(value.raw)}`];
+        case 'SymbolicLiteral':
+            return [`|${formatSymbolic(value.value)}|`];
         case 'SansaAddressLiteral':
             return [value.canonical];
         case 'DateLiteral':
@@ -468,6 +470,8 @@ function renderCompactInlineValue(value: Value): string {
             return `&${formatEncoding(value.value)}`;
         case 'SeparatorLiteral':
             return `^${formatSeparator(value.raw)}`;
+        case 'SymbolicLiteral':
+            return `|${formatSymbolic(value.value)}|`;
         case 'SansaAddressLiteral':
             return value.canonical;
         case 'DateLiteral':
@@ -828,6 +832,24 @@ function formatSeparator(raw: string): string {
     return raw.startsWith('^') ? raw.slice(1) : raw;
 }
 
+function formatSymbolic(value: string): string {
+    let out = '';
+    for (const ch of value) {
+        switch (ch) {
+            case '|': out += '\\|'; break;
+            case '\\': out += '\\\\'; break;
+            case '\n': out += '\\n'; break;
+            case '\r': out += '\\r'; break;
+            case '\t': out += '\\t'; break;
+            default: {
+                const code = ch.charCodeAt(0);
+                out += code < 0x20 ? `\\u${code.toString(16).padStart(4, '0')}` : ch;
+            }
+        }
+    }
+    return out;
+}
+
 function isSimpleValue(value: Value): boolean {
     if (value.type === 'StringLiteral' && value.value.includes('\n')) {
         return false;
@@ -847,6 +869,7 @@ function isSimpleValue(value: Value): boolean {
         case 'RadixLiteral':
         case 'EncodingLiteral':
         case 'SeparatorLiteral':
+        case 'SymbolicLiteral':
         case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':

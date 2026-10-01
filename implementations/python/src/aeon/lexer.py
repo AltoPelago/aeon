@@ -11,6 +11,7 @@ from .errors import (
     InvalidNumberError,
     InvalidStructuralIdentityError,
     InvalidTimeError,
+    InvalidSymbolicLiteralError,
     SyntaxError,
     UnterminatedStringError,
     UnterminatedBlockCommentError,
@@ -24,6 +25,7 @@ class Token:
     value: str
     span: Span
     quote: str | None = None
+    raw: str | None = None
 
 
 @dataclass(slots=True)
@@ -89,8 +91,8 @@ class Lexer:
     def make_span(self, start: Position) -> Span:
         return Span(start=start, end=self.current_position())
 
-    def add_token(self, kind: str, value: str, start: Position, quote: str | None = None) -> None:
-        self.tokens.append(Token(kind=kind, value=value, span=self.make_span(start), quote=quote))
+    def add_token(self, kind: str, value: str, start: Position, quote: str | None = None, raw: str | None = None) -> None:
+        self.tokens.append(Token(kind=kind, value=value, span=self.make_span(start), quote=quote, raw=raw))
 
     def match(self, expected: str) -> bool:
         if self.peek() != expected:
@@ -163,6 +165,10 @@ class Lexer:
 
         if char == "^":
             self.scan_separator_literal(start)
+            return
+
+        if char == "|":
+            self.scan_string(start, char, symbolic=True)
             return
 
         if char in {'"', "'", "`"}:
@@ -280,17 +286,25 @@ class Lexer:
         text = self.source[start.offset:self.offset]
         self.add_token("SANSA_ADDRESS", text, start)
 
-    def scan_string(self, start: Position, delimiter: str) -> None:
+    def scan_string(self, start: Position, delimiter: str, symbolic: bool = False) -> None:
         is_raw = delimiter == "`"
         value_parts: list[str] = []
         while not self.is_at_end():
             char = self.peek()
             if char == delimiter:
                 self.advance()
-                self.add_token("STRING", "".join(value_parts), start, quote=delimiter)
+                value = "".join(value_parts)
+                if symbolic and not value:
+                    self.errors.append(InvalidSymbolicLiteralError("Symbolic literals must contain a value", self.make_span(start)))
+                    return
+                raw = self.source[start.offset:self.offset]
+                self.add_token("SYMBOLIC" if symbolic else "STRING", value, start, quote=None if symbolic else delimiter, raw=raw if symbolic else None)
                 return
-            if char == "\n" and not is_raw:
-                self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
+            if char in {"\n", "\r"} and not is_raw:
+                if symbolic:
+                    self.errors.append(InvalidSymbolicLiteralError("Unterminated symbolic literal", self.make_span(start), "UNTERMINATED_SYMBOLIC_LITERAL"))
+                else:
+                    self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
                 return
             if char == "\\":
                 self.advance()
@@ -309,6 +323,9 @@ class Lexer:
                     "b": "\b",
                     "f": "\f",
                 }
+                if symbolic and escaped == "|":
+                    value_parts.append("|")
+                    continue
                 if escaped in mapping:
                     value_parts.append(mapping[escaped])
                     continue
@@ -371,7 +388,10 @@ class Lexer:
                 self.consume_invalid_string_tail(delimiter, is_raw)
                 return
             value_parts.append(self.advance())
-        self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
+        if symbolic:
+            self.errors.append(InvalidSymbolicLiteralError("Unterminated symbolic literal", self.make_span(start), "UNTERMINATED_SYMBOLIC_LITERAL"))
+        else:
+            self.errors.append(UnterminatedStringError(delimiter, self.make_span(start)))
 
     def consume_invalid_string_tail(self, delimiter: str, is_raw: bool) -> None:
         while not self.is_at_end():
@@ -654,6 +674,17 @@ class Lexer:
 
     @staticmethod
     def is_valid_date_literal(value: str) -> bool:
+        if len(value) == 5 and value.endswith("-") and value[:4].isdigit():
+            year = int(value[:4])
+            return 1 <= year <= 9999
+        if len(value) == 7 and value[4] == "-" and value[:4].isdigit() and value[5:7].isdigit():
+            year = int(value[:4])
+            month = int(value[5:7])
+            return 1 <= year <= 9999 and 1 <= month <= 12
+        return Lexer.is_valid_full_date_literal(value)
+
+    @staticmethod
+    def is_valid_full_date_literal(value: str) -> bool:
         if not (len(value) == 10 and value[4] == "-" and value[7] == "-" and value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()):
             return False
         year = int(value[:4])

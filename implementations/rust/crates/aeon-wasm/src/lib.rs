@@ -1320,6 +1320,9 @@ fn value_json(value: &Value) -> JsonValue {
         Value::BooleanLiteral { raw } => json!({ "type": "BooleanLiteral", "raw": raw }),
         Value::HexLiteral { raw } => json!({ "type": "HexLiteral", "raw": raw }),
         Value::SeparatorLiteral { raw } => json!({ "type": "SeparatorLiteral", "raw": raw }),
+        Value::SymbolicLiteral { value, raw } => {
+            json!({ "type": "SymbolicLiteral", "value": value, "raw": raw })
+        }
         Value::EncodingLiteral { raw } => json!({ "type": "EncodingLiteral", "raw": raw }),
         Value::RadixLiteral { raw } => json!({ "type": "RadixLiteral", "raw": raw }),
         Value::SansaAddressLiteral { raw, canonical, .. } => json!({

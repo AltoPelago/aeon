@@ -34,6 +34,7 @@ pub enum TokenKind {
     RadixLiteral,
     EncodingLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     True,
     False,
     Yes,
@@ -131,6 +132,7 @@ struct QuotedStringState {
     start: Position,
     quote: char,
     escaped: bool,
+    symbolic: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -635,15 +637,42 @@ impl<'a> LexerSession<'a> {
                 state.escaped = true;
                 continue;
             }
+            if state.symbolic && matches!(ch, '\n' | '\r') {
+                self.push_error(LexError {
+                    code: String::from("UNTERMINATED_SYMBOLIC_LITERAL"),
+                    message: String::from("Unterminated symbolic literal"),
+                    span: Span {
+                        start: state.start,
+                        end: self.current_position(),
+                    },
+                });
+                self.quoted_string = None;
+                return true;
+            }
             if ch == state.quote {
                 let text = self.slice_from(state.start.offset);
-                self.push_token(
-                    TokenKind::String,
-                    &text,
-                    state.start,
-                    None,
-                    Some(state.quote),
-                );
+                if state.symbolic && text == "||" {
+                    self.push_error(LexError {
+                        code: String::from("INVALID_SYMBOLIC_LITERAL"),
+                        message: String::from("Symbolic literals must contain a value"),
+                        span: Span {
+                            start: state.start,
+                            end: self.current_position(),
+                        },
+                    });
+                } else {
+                    self.push_token(
+                        if state.symbolic {
+                            TokenKind::SymbolicLiteral
+                        } else {
+                            TokenKind::String
+                        },
+                        &text,
+                        state.start,
+                        None,
+                        (!state.symbolic).then_some(state.quote),
+                    );
+                }
                 self.quoted_string = None;
                 return true;
             }
@@ -658,8 +687,16 @@ impl<'a> LexerSession<'a> {
             .take()
             .expect("quoted string finish requires active state");
         self.push_error(LexError {
-            code: String::from("UNTERMINATED_STRING"),
-            message: format!("Unterminated string literal (started with {})", state.quote),
+            code: String::from(if state.symbolic {
+                "UNTERMINATED_SYMBOLIC_LITERAL"
+            } else {
+                "UNTERMINATED_STRING"
+            }),
+            message: if state.symbolic {
+                String::from("Unterminated symbolic literal")
+            } else {
+                format!("Unterminated string literal (started with {})", state.quote)
+            },
             span: Span {
                 start: state.start,
                 end: self.current_position(),
@@ -1184,6 +1221,15 @@ impl<'a> LexerSession<'a> {
                 }
             }
             '^' => return self.begin_separator_literal(start),
+            '|' => {
+                self.quoted_string = Some(QuotedStringState {
+                    start,
+                    quote: '|',
+                    escaped: false,
+                    symbolic: true,
+                });
+                return self.scan_quoted_string();
+            }
             '#' => {
                 if self.peek().is_ascii_hexdigit() {
                     return self.begin_prefixed_literal(start, PrefixedLiteralKind::Hex);
@@ -1215,6 +1261,7 @@ impl<'a> LexerSession<'a> {
                     start,
                     quote: ch,
                     escaped: false,
+                    symbolic: false,
                 });
                 return self.scan_quoted_string();
             }
@@ -2212,7 +2259,7 @@ mod tests {
 
     #[test]
     fn trimtick_markers_and_raw_body_match_at_every_scalar_split() {
-        let source = "note:trimtick = >>>>`\n    first\n\twave 🌊\n` next";
+        let source = "note:trimtick = >`\n    first\n\twave 🌊\n` next";
         let expected = tokenize(source, LexerOptions::default());
         let mut splits = source
             .char_indices()
@@ -2227,20 +2274,14 @@ mod tests {
 
         let marker = expected
             .tokens
-            .windows(5)
+            .windows(2)
             .find(|window| {
-                window[..4]
-                    .iter()
-                    .all(|token| token.kind == TokenKind::RightAngle)
-                    && window[4].kind == TokenKind::String
+                window[0].kind == TokenKind::RightAngle && window[1].kind == TokenKind::String
             })
-            .expect("four contiguous marker tokens precede the raw body");
-        for pair in marker[..4].windows(2) {
-            assert_eq!(pair[0].span.end.offset, pair[1].span.start.offset);
-        }
-        assert_eq!(marker[3].span.end.offset, marker[4].span.start.offset);
-        assert_eq!(marker[4].quote, Some('`'));
-        assert_eq!(marker[4].text, "`\n    first\n\twave 🌊\n`");
+            .expect("one marker token precedes the raw body");
+        assert_eq!(marker[0].span.end.offset, marker[1].span.start.offset);
+        assert_eq!(marker[1].quote, Some('`'));
+        assert_eq!(marker[1].text, "`\n    first\n\twave 🌊\n`");
     }
 
     #[test]

@@ -605,6 +605,7 @@ pub(crate) enum CompactDatatypeValue {
     Boolean,
     Hex(bool),
     Separator,
+    Symbolic,
     Encoding(bool),
     Radix(bool),
     Date,
@@ -639,6 +640,7 @@ impl CompactDatatypeValue {
             Value::BooleanLiteral { .. } => Self::Boolean,
             Value::HexLiteral { raw } => Self::Hex(has_valid_literal_underscores(raw)),
             Value::SeparatorLiteral { .. } => Self::Separator,
+            Value::SymbolicLiteral { .. } => Self::Symbolic,
             Value::EncodingLiteral { raw } => Self::Encoding(has_valid_encoding_literal(raw)),
             Value::RadixLiteral { raw } => Self::Radix(has_valid_radix_literal(raw)),
             Value::DateLiteral { .. } => Self::Date,
@@ -683,6 +685,7 @@ impl CompactDatatypeValue {
             Self::Boolean => "BooleanLiteral",
             Self::Hex(_) => "HexLiteral",
             Self::Separator => "SeparatorLiteral",
+            Self::Symbolic => "SymbolicLiteral",
             Self::Encoding(_) => "EncodingLiteral",
             Self::Radix(_) => "RadixLiteral",
             Self::Date => "DateLiteral",
@@ -1382,6 +1385,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "wtc"
             | "sep"
             | "kadot"
+            | "symbol"
             | "tuple"
             | "triple"
             | "list"
@@ -1418,6 +1422,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "datetime" => Some(vec!["DateTimeLiteral"]),
         "wtc" => Some(vec!["WTCDateTimeLiteral"]),
         "sep" | "kadot" => Some(vec!["SeparatorLiteral"]),
+        "symbol" => Some(vec!["SymbolicLiteral"]),
         "tuple" | "triple" => Some(vec!["TupleLiteral"]),
         "list" => Some(vec!["ListNode"]),
         "object" | "obj" | "envelope" | "o" => Some(vec!["ObjectNode"]),
@@ -1563,6 +1568,7 @@ fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) 
         "datetime" => matches!(value, CompactDatatypeValue::DateTime),
         "wtc" => matches!(value, CompactDatatypeValue::WtcDateTime),
         "sep" | "kadot" => matches!(value, CompactDatatypeValue::Separator),
+        "symbol" => matches!(value, CompactDatatypeValue::Symbolic),
         "tuple" | "triple" => matches!(value, CompactDatatypeValue::Tuple),
         "list" => matches!(value, CompactDatatypeValue::List),
         "object" | "obj" | "envelope" | "o" => matches!(value, CompactDatatypeValue::Object),

@@ -41,14 +41,13 @@ describe('Lexer', () => {
         });
 
         it('should tokenize printable symbols not reserved as core tokens', () => {
-            const result = tokenize('| / +');
+            const result = tokenize('/ +');
             const tokens = result.tokens.filter(t => t.type !== TokenType.EOF);
             assert.deepStrictEqual(tokens.map(t => t.type), [
                 TokenType.Symbol,
                 TokenType.Symbol,
-                TokenType.Symbol,
             ]);
-            assert.deepStrictEqual(tokens.map(t => t.value), ['|', '/', '+']);
+            assert.deepStrictEqual(tokens.map(t => t.value), ['/', '+']);
         });
 
         it('should tokenize structural identities', () => {
@@ -445,10 +444,33 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01');
         });
 
+        it('should tokenize reduced-granularity date literals', () => {
+            for (const source of ['2024-', '2024-02', '2024-02-29']) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.Date, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
+        });
+
         it('should tokenize datetime literals', () => {
             const result = tokenize('2025-01-01T10:00:00Z');
             assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime);
             assert.strictEqual(result.tokens[0]!.value, '2025-01-01T10:00:00Z');
+        });
+
+        it('should tokenize reduced-date datetime and wtc literals', () => {
+            for (const source of [
+                '2024-T10:10:00',
+                '2024-12T10:10:00Z',
+                '2024-T10:10:00&Europe',
+                '2024-12T10:&Europe',
+            ]) {
+                const result = tokenize(source);
+                assert.strictEqual(result.errors.length, 0, source);
+                assert.strictEqual(result.tokens[0]!.type, TokenType.DateTime, source);
+                assert.strictEqual(result.tokens[0]!.value, source, source);
+            }
         });
 
         it('should tokenize time literals', () => {
@@ -558,6 +580,10 @@ describe('Lexer', () => {
                 '2025-13-40',
                 '2025-02-29',
                 '0000-01-01',
+                '0000-',
+                '2025-00',
+                '2025-13',
+                '2025-1',
                 '2025-13-40T99:99:99',
                 '2025-02-29T09:30:00',
                 '2025-01-01T09:30Z&/',
@@ -576,6 +602,10 @@ describe('Lexer', () => {
                 ['2025-02-29', 'INVALID_DATE'],
                 ['24:00', 'INVALID_TIME'],
                 ['2025-13-40T99:99:99', 'INVALID_DATETIME'],
+                ['0000-T10:10', 'INVALID_DATETIME'],
+                ['2024-00T10:10', 'INVALID_DATETIME'],
+                ['2024-13T10:10', 'INVALID_DATETIME'],
+                ['2024-2T10:10', 'INVALID_DATETIME'],
                 ['2025-01-01T09:30Z&/', 'INVALID_DATETIME'],
             ];
             for (const [source, expectedCode] of cases) {
@@ -1145,5 +1175,27 @@ describe('Lexer', () => {
             assert.ok(tokens[1]!.span.start.column >= 1);
             assert.strictEqual(tokens[1]!.span.start.column, 1);
         });
+    });
+});
+
+describe('Symbolic literals', () => {
+    it('decodes string-style content between pipes', () => {
+        const result = tokenize('|approved| |this has spaces| |left\\|right|');
+        assert.deepStrictEqual(result.errors, []);
+        assert.deepStrictEqual(
+            result.tokens.filter(token => token.type === TokenType.SymbolicLiteral).map(token => [token.value, token.raw]),
+            [
+                ['approved', '|approved|'],
+                ['this has spaces', '|this has spaces|'],
+                ['left|right', '|left\\|right|'],
+            ]
+        );
+    });
+
+    it('rejects empty, unterminated, and raw multiline symbols', () => {
+        assert.equal(tokenize('||').errors[0]?.code, 'INVALID_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|open').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|one\ntwo|').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
+        assert.equal(tokenize('|one\rtwo|').errors[0]?.code, 'UNTERMINATED_SYMBOLIC_LITERAL');
     });
 });

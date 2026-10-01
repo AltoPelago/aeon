@@ -211,6 +211,16 @@ class FinalizeJsonTests(unittest.TestCase):
         self.assertTrue(result["meta"]["errors"])
         self.assertEqual("FINALIZE_JSON_PROFILE_NAN", result["meta"]["errors"][0]["code"])
 
+    def test_reports_symbol_as_lossy_in_strict_and_loose_json_profiles(self) -> None:
+        events = compile_events("stage:symbol = |in review|")
+        strict = finalize_json(events, FinalizeOptions(mode="strict"))
+        self.assertEqual("in review", strict["document"]["stage"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_SYMBOL", strict["meta"]["errors"][0]["code"])
+
+        loose = finalize_json(events, FinalizeOptions(mode="loose"))
+        self.assertEqual("in review", loose["document"]["stage"])
+        self.assertEqual("FINALIZE_JSON_PROFILE_SYMBOL", loose["meta"]["warnings"][0]["code"])
+
     def test_materializes_none_null_literal_as_json_null(self) -> None:
         result = finalize_json(compile_events("limit:null = !none"), FinalizeOptions(mode="strict"))
         self.assertIsNone(result["document"]["limit"])

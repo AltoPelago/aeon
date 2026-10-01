@@ -272,6 +272,10 @@ test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capabil
             literalFamily: 'SeparatorLiteral',
             clarifiers: 'none',
         },
+        symbol: {
+            literalFamily: 'SymbolicLiteral',
+            clarifiers: 'none',
+        },
         encoding: {
             literalFamily: 'EncodingLiteral',
             clarifiers: 'encoding_name',
@@ -344,6 +348,27 @@ test('aeon.gp.profile.v1 still rejects custom datatype clarifiers for other lite
 
     assert.equal(result.aes.length, 0);
     assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
+});
+
+test('aeon.gp.profile.v1 assigns no clarifiers to symbol', () => {
+    const result = compile('stage:symbol["state"] = |approved|', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+    });
+
+    assert.equal(result.aes.length, 0);
+    assert.equal(result.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
+    assert.equal(result.meta?.errors?.[0]?.path, '$.stage');
+
+    const custom = compile('stage:status["state"] = |approved|', {
+        profile: 'aeon.gp.profile.v1',
+        registry: createDefaultRegistry(),
+        mode: 'strict',
+        datatypePolicy: 'allow_custom',
+    });
+    assert.equal(custom.aes.length, 0);
+    assert.equal(custom.meta?.errors?.[0]?.code, 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
 });
 
 test('aeon.gp.profile.v1 rejects invalid radix clarifier shapes', () => {

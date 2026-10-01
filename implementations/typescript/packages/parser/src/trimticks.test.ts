@@ -14,7 +14,7 @@ test('trimticks trims first empty line, trailing empty lines, and common left in
     ].join('\n');
 
     assert.equal(
-        applyTrimticks(raw, 2),
+        applyTrimticks(raw),
         [
             '   This policy applies when a request is retried.',
             'The consumer must validate the signature again.',
@@ -32,10 +32,10 @@ test('trimticks preserves trailing whitespace on non-empty lines', () => {
         '',
     ].join('\n');
 
-    assert.equal(applyTrimticks(raw, 2), 'one  \ntwo\t ');
+    assert.equal(applyTrimticks(raw), 'one  \ntwo\t ');
 });
 
-test('trimticks with marker width 1 treats tabs as payload', () => {
+test('trimticks adopt spaces from the first nonblank payload line', () => {
     const raw = [
         '',
         '    \talpha',
@@ -43,24 +43,42 @@ test('trimticks with marker width 1 treats tabs as payload', () => {
         '',
     ].join('\n');
 
-    assert.equal(applyTrimticks(raw, 1), '\talpha\nbeta');
+    assert.equal(applyTrimticks(raw), '\talpha\nbeta');
 });
 
-test('trimticks normalizes leading tabs for indentation analysis when marker width is greater than 1', () => {
+test('trimticks adopt tabs without assigning them a visual width', () => {
     const raw = [
         '',
-        '\talpha',
-        '  beta',
+        '\t\talpha',
+        '\t\t\tbeta',
+        '\t\tgamma',
         '',
     ].join('\n');
 
-    assert.equal(applyTrimticks(raw, 2), 'alpha\nbeta');
+    assert.equal(applyTrimticks(raw), 'alpha\n\tbeta\ngamma');
+});
+
+test('non-adopted indentation contributes zero gutter depth and remains payload', () => {
+    const raw = [
+        '',
+        '\talpha',
+        ' \tbeta',
+        '\tgamma',
+        '',
+    ].join('\n');
+
+    assert.equal(applyTrimticks(raw), '\talpha\n \tbeta\n\tgamma');
+});
+
+test('an inline first line defaults to a zero-depth space gutter', () => {
+    assert.equal(applyTrimticks('first\n\tsecond'), 'first\n\tsecond');
+    assert.equal(applyTrimticks('first\n second'), 'first\n second');
 });
 
 test('trimticks returns empty string when trimmed payload lines are empty', () => {
-    assert.equal(applyTrimticks('\n   \n\t\n', 2), '');
+    assert.equal(applyTrimticks('\n   \n\t\n'), '');
 });
 
 test('single-line trimticks are a no-op', () => {
-    assert.equal(applyTrimticks('    hello.   ', 2), '    hello.   ');
+    assert.equal(applyTrimticks('    hello.   '), '    hello.   ');
 });

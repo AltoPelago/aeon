@@ -83,6 +83,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        if: runner.os != 'Windows'
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+
+      - name: Link AES beside AEON checkout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          New-Item -ItemType Junction
+          -Path (Join-Path $env:GITHUB_WORKSPACE '../aes')
+          -Target (Join-Path $env:GITHUB_WORKSPACE 'aes')
+
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -96,6 +115,9 @@ jobs:
           rust-toolchain: 1.93.1
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
+          # manylinux only mounts github.workspace; Cargo resolves AES beside it.
+          docker-options: >-
+            -v ${{ github.workspace }}/aes:${{ github.workspace }}/../aes:ro
           working-directory: implementations/rust/crates/aeon-python
           args: >-
             --release
@@ -125,6 +147,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
 
       - name: Build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

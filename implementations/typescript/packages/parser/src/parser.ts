@@ -29,6 +29,7 @@ import type {
     DateTimeLiteral,
     TimeLiteral,
     SeparatorLiteral,
+    SymbolicLiteral,
     SansaAddressLiteral,
     CloneReference,
     PointerReference,
@@ -46,7 +47,7 @@ import {
     AttributeDepthExceededError,
     NestingDepthExceededError,
 } from './errors.js';
-import { applyTrimticks, type TrimtickMarkerWidth } from './trimticks.js';
+import { applyTrimticks } from './trimticks.js';
 
 /**
  * Parser options
@@ -1280,6 +1281,10 @@ class Parser {
                 this.advance();
                 return this.createSeparatorLiteral(token);
 
+            case TokenType.SymbolicLiteral:
+                this.advance();
+                return this.createSymbolicLiteral(token);
+
             case TokenType.Caret:
                 throw new SyntaxError(
                     'Separator literals must contain a payload',
@@ -1327,31 +1332,7 @@ class Parser {
     }
 
     private parseTrimtickString(): StringLiteral {
-        const startToken = this.peek();
-        let markerWidth = 0;
-        let previousAngle: Token | null = null;
-
-        while (this.check(TokenType.RightAngle)) {
-            const angle = this.peek();
-            if (previousAngle && previousAngle.span.end.offset !== angle.span.start.offset) {
-                throw new SyntaxError(
-                    'Trimtick marker must be contiguous',
-                    angle.span,
-                    'trimticks',
-                    angle.value
-                );
-            }
-            markerWidth += 1;
-            if (markerWidth > 4) {
-                throw new SyntaxError(
-                    'Trimtick marker may contain at most four ">" characters',
-                    angle.span,
-                    'trimticks',
-                    angle.value
-                );
-            }
-            previousAngle = this.advance();
-        }
+        const startToken = this.advance();
 
         if (!this.check(TokenType.String) || this.peek().quote !== '`') {
             throw new SyntaxError(
@@ -1367,11 +1348,10 @@ class Parser {
 
         return {
             type: 'StringLiteral',
-            value: applyTrimticks(rawValue, markerWidth as TrimtickMarkerWidth),
+            value: applyTrimticks(rawValue),
             raw: rawValue,
             delimiter: '`',
             trimticks: {
-                markerWidth: markerWidth as TrimtickMarkerWidth,
                 rawValue,
             },
             span: createSpan(startToken.span.start, token.span.end),
@@ -1532,6 +1512,15 @@ class Parser {
             type: 'SeparatorLiteral',
             value: token.value.substring(1), // remove ^
             raw: token.value,
+            span: token.span,
+        };
+    }
+
+    private createSymbolicLiteral(token: Token): SymbolicLiteral {
+        return {
+            type: 'SymbolicLiteral',
+            value: token.value,
+            raw: token.raw ?? `|${token.value}|`,
             span: token.span,
         };
     }
@@ -1801,7 +1790,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'hex', 'date', 'time', 'datetime', 'wtc',
     'encoding', 'base64', 'embed', 'inline',
     'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12',
-    'sep', 'kadot',
+    'sep', 'kadot', 'symbol',
     'sansa',
     'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);

@@ -462,6 +462,8 @@ export function serializeCanonicalValue(value: Value): string {
             return `"$${value.value}"`;
         case 'SeparatorLiteral':
             return `"${escapeString(value.raw)}"`;
+        case 'SymbolicLiteral':
+            return `"${escapeString(value.raw)}"`;
         case 'SansaAddressLiteral':
             return `"${escapeString(value.canonical)}"`;
         case 'DateLiteral':

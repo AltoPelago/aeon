@@ -286,6 +286,7 @@ function semanticTypeFromValue(value: AeonValue): string | undefined {
     case 'RadixLiteral': return 'radix';
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'sep';
+    case 'SymbolicLiteral': return 'symbol';
     case 'SansaAddressLiteral': return 'sansa';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return 'time';
@@ -318,6 +319,7 @@ function representationKindFromValue(value: AeonValue, semanticType?: string): s
     case 'RadixLiteral': return 'radix';
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'separator';
+    case 'SymbolicLiteral': return 'symbol';
     case 'SansaAddressLiteral': return 'sansa';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return temporalKindFromSemanticType(semanticType);
@@ -338,6 +340,7 @@ function scalarKindFromValue(value: AeonValue, semanticType?: string): string | 
     case 'RadixLiteral': return 'radix';
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'separator';
+    case 'SymbolicLiteral': return 'symbol';
     case 'SansaAddressLiteral': return 'sansaAddress';
     case 'NumberLiteral': return 'number';
     case 'DateLiteral': return 'date';
@@ -370,6 +373,7 @@ function scalarFromAeonValue(
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
+    case 'SymbolicLiteral':
     case 'ToggleLiteral':
       return { ok: true, value: unwrapped.value };
     case 'NumberLiteral':
@@ -456,6 +460,7 @@ function representationAlias(kind: string): string | undefined {
     case 'RadixLiteral': return 'radix';
     case 'EncodingLiteral': return 'encoding';
     case 'SeparatorLiteral': return 'separator';
+    case 'SymbolicLiteral': return 'symbol';
     case 'SansaAddressLiteral': return 'sansa';
     case 'DateLiteral': return 'date';
     case 'TimeLiteral': return 'time';

@@ -1065,6 +1065,19 @@ impl<'a> TokenParser<'a> {
             TokenKind::SeparatorLiteral => Ok(Value::SeparatorLiteral {
                 raw: self.advance().text.clone(),
             }),
+            TokenKind::SymbolicLiteral => {
+                let token = self.advance();
+                Ok(Value::SymbolicLiteral {
+                    value: decode_quoted_text(&token.text, true).map_err(|message| Diagnostic {
+                        code: String::from("SYNTAX_ERROR"),
+                        path: Some(String::from("$")),
+                        span: Some(token.span),
+                        phase: None,
+                        message: String::from(message),
+                    })?,
+                    raw: token.text.clone(),
+                })
+            }
             TokenKind::SansaAddressLiteral => {
                 let token = self.advance();
                 let raw = token.text.clone();
@@ -1163,24 +1176,7 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_trimtick(&mut self) -> Result<Value, Diagnostic> {
-        let mut marker_width = 0usize;
-        let mut previous_end = None;
-        while self.check(TokenKind::RightAngle) {
-            let token = self.peek();
-            if let Some(end) = previous_end
-                && end != token.span.start.offset
-            {
-                return Err(self.error_at_current("Trimtick marker must be contiguous"));
-            }
-            marker_width += 1;
-            if marker_width > 4 {
-                return Err(self.error_at_current(
-                    "Trimtick marker may contain at most four \">\" characters",
-                ));
-            }
-            previous_end = Some(token.span.end.offset);
-            self.advance();
-        }
+        self.advance();
         if !self.check(TokenKind::String) || self.peek().quote != Some('`') {
             return Err(
                 self.error_at_current("Trimtick marker must be followed by a backtick string")
@@ -1188,15 +1184,12 @@ impl<'a> TokenParser<'a> {
         }
         let token = self.advance();
         let raw = decode_quoted_token(token)?;
-        let value = apply_trimticks(&raw, marker_width);
+        let value = apply_trimticks(&raw);
         Ok(Value::StringLiteral {
             value,
             raw: raw.clone(),
             delimiter: '`',
-            trimticks: Some(TrimtickMetadata {
-                marker_width,
-                raw_value: raw,
-            }),
+            trimticks: Some(TrimtickMetadata { raw_value: raw }),
         })
     }
 
@@ -1993,6 +1986,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "radix12"
             | "sep"
             | "kadot"
+            | "symbol"
             | "tuple"
             | "triple"
             | "list"
@@ -2014,7 +2008,7 @@ fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {
                 .with_span(token.span),
         );
     }
-    decode_quoted_text(&token.text).map_err(|message| {
+    decode_quoted_text(&token.text, false).map_err(|message| {
         Diagnostic::new("INVALID_ESCAPE", message)
             .at_path("$")
             .with_span(token.span)
@@ -2050,7 +2044,7 @@ fn render_quoted_string(value: &str) -> String {
     output
 }
 
-fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
+fn decode_quoted_text(text: &str, symbolic: bool) -> Result<String, &'static str> {
     if text.len() < 2 {
         return Ok(String::from(text));
     }
@@ -2065,6 +2059,7 @@ fn decode_quoted_text(text: &str) -> Result<String, &'static str> {
                 '"' => output.push('"'),
                 '\'' => output.push('\''),
                 '`' => output.push('`'),
+                '|' if symbolic => output.push('|'),
                 'n' => output.push('\n'),
                 'r' => output.push('\r'),
                 't' => output.push('\t'),
@@ -2448,13 +2443,13 @@ reserved = !notSet
 reason = !"postponed"
 absolute = $.inventory:csv[","]
 context = ?.name
-trim = >>`
+trim = >`
     one
     two
   `"#,
             "bad = !missing\nlater = true",
             "bad = !\"none\"\nlater = true",
-            "bad = >>>>>`value`\nlater = true",
+            "bad = >>`value`\nlater = true",
             "bad = > >`value`\nlater = true",
             r#"source = { "quoted.key" = [1, 2] }
 clone = ~$.["source"].["quoted.key"][1]
@@ -3334,7 +3329,6 @@ context = ?.name"#;
                 raw: String::from("\n  one\n  two\n"),
                 delimiter: '`',
                 trimticks: Some(TrimtickMetadata {
-                    marker_width: 1,
                     raw_value: String::from("\n  one\n  two\n"),
                 }),
             }
@@ -3343,7 +3337,7 @@ context = ?.name"#;
 
     #[test]
     fn incremental_trimticks_preserve_metadata_at_every_scalar_split() {
-        let source = "note1:trimtick = >`\n  one\n  two\n`\nnote4:trimtick = >>>>`\n\talpha\n    beta 🌊\n`\n";
+        let source = "note1:trimtick = >`\n  one\n  two\n`\nnote2:trimtick = >`\n\t\talpha\n\t\t\tbeta 🌊\n`\n";
         let mut splits = source
             .char_indices()
             .map(|(index, _)| index)
@@ -3365,18 +3359,17 @@ context = ?.name"#;
                 ..
             } = &expected[1].value
             else {
-                panic!("expected width-four trimtick metadata");
+                panic!("expected trimtick metadata");
             };
             assert_eq!(*delimiter, '`');
-            assert_eq!(metadata.marker_width, 4);
             assert_eq!(metadata.raw_value, *raw);
             assert!(raw.contains("beta 🌊"));
         }
     }
 
     #[test]
-    fn oversized_incremental_trimtick_marker_matches_one_shot_error() {
-        let source = "bad:trimtick = >>>>>`value`\n";
+    fn repeated_incremental_trimtick_marker_matches_one_shot_error() {
+        let source = "bad:trimtick = >>`value`\n";
         let mut splits = source
             .char_indices()
             .map(|(index, _)| index)
@@ -3384,10 +3377,10 @@ context = ?.name"#;
         splits.push(source.len());
 
         for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
-            let expected = parse_with(source, implementation).expect_err("marker is too wide");
+            let expected = parse_with(source, implementation).expect_err("marker is repeated");
             for &split in &splits {
                 let actual = parse_chunks(source, split, implementation)
-                    .expect_err("incremental marker must remain too wide");
+                    .expect_err("incremental marker must remain invalid");
                 assert_eq!(actual, expected, "trimtick split at byte {split}");
             }
         }

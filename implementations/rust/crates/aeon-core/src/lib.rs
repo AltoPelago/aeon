@@ -359,6 +359,10 @@ pub enum Value {
     SeparatorLiteral {
         raw: String,
     },
+    SymbolicLiteral {
+        value: String,
+        raw: String,
+    },
     EncodingLiteral {
         raw: String,
     },
@@ -410,7 +414,6 @@ pub enum Value {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrimtickMetadata {
-    pub marker_width: usize,
     pub raw_value: String,
 }
 
@@ -480,6 +483,7 @@ impl Value {
             Self::BooleanLiteral { .. } => "BooleanLiteral",
             Self::HexLiteral { .. } => "HexLiteral",
             Self::SeparatorLiteral { .. } => "SeparatorLiteral",
+            Self::SymbolicLiteral { .. } => "SymbolicLiteral",
             Self::EncodingLiteral { .. } => "EncodingLiteral",
             Self::RadixLiteral { .. } => "RadixLiteral",
             Self::DateLiteral { .. } => "DateLiteral",
@@ -1476,7 +1480,7 @@ fn gp_custom_clarifier_literal(value: &Value) -> bool {
 
 fn gp_datatype_clarifier_rule(name: &str) -> Option<GpDatatypeClarifierRule> {
     match name {
-        "decimal" | "kadot" => Some(GpDatatypeClarifierRule::None),
+        "decimal" | "kadot" | "symbol" => Some(GpDatatypeClarifierRule::None),
         "radix" => Some(GpDatatypeClarifierRule::RadixBase),
         "sep" | "separator" => Some(GpDatatypeClarifierRule::SeparatorChars),
         "encoding" | "inline" | "embed" => Some(GpDatatypeClarifierRule::EncodingName),
@@ -2055,6 +2059,14 @@ mod tests {
             (
                 "max_string_codepoints",
                 "a = \"é😀\"",
+                configured_options(|options| options.max_string_codepoints = 2),
+                configured_options(|options| options.max_string_codepoints = 1),
+                "MAX_STRING_CODEPOINTS_EXCEEDED",
+                None,
+            ),
+            (
+                "max_string_codepoints symbolic literal",
+                "a = |é😀|",
                 configured_options(|options| options.max_string_codepoints = 2),
                 configured_options(|options| options.max_string_codepoints = 1),
                 "MAX_STRING_CODEPOINTS_EXCEEDED",
@@ -3108,6 +3120,50 @@ mod tests {
     }
 
     #[test]
+    fn accepts_reduced_granularity_dates_and_datetime_date_components() {
+        let accepted = compile(
+            "year:date = 2024-\n\
+             month:date = 2024-02\n\
+             day:date = 2024-02-29\n\
+             year_tick:datetime = 2024-T10:10:00\n\
+             month_tick:datetime = 2024-12T10:10:00Z\n\
+             year_zone:wtc = 2024-T10:10:00&Europe\n\
+             month_zone:wtc = 2024-12T10:&Europe\n",
+            CompileOptions::default(),
+        );
+        assert!(accepted.errors.is_empty(), "{:?}", accepted.errors);
+        assert_eq!(accepted.events.len(), 7);
+        assert!(
+            accepted.events[..3]
+                .iter()
+                .all(|event| event.value.value_kind() == "DateLiteral")
+        );
+        assert!(accepted.events[3..].iter().all(|event| matches!(
+            event.value.value_kind(),
+            "DateTimeLiteral" | "WTCDateTimeLiteral"
+        )));
+
+        for source in [
+            "date:date = 0000-\n",
+            "date:date = 2024-00\n",
+            "date:date = 2024-13\n",
+            "date:date = 2024-2\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert_eq!(result.errors[0].code, "INVALID_DATE", "{source}");
+        }
+        for source in [
+            "date:datetime = 0000-T10:10\n",
+            "date:datetime = 2024-00T10:10\n",
+            "date:datetime = 2024-13T10:10\n",
+            "date:datetime = 2024-2T10:10\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert_eq!(result.errors[0].code, "INVALID_DATETIME", "{source}");
+        }
+    }
+
+    #[test]
     fn rejects_incomplete_transport_exponent_forms_before_finalize() {
         for source in [
             "aeon:mode = \"transport\"\na = 1e\n",
@@ -3207,6 +3263,16 @@ mod tests {
                 "a = 0000-02-1\n",
                 "INVALID_DATE",
                 "Invalid date literal: '0000-02-1'",
+            ),
+            (
+                "a = 2024--02-01\n",
+                "INVALID_DATE",
+                "Invalid date literal: '2024--02-01'",
+            ),
+            (
+                "a = 2024-12-01-\n",
+                "INVALID_DATE",
+                "Invalid date literal: '2024-12-01-'",
             ),
             (
                 "a:time = 24:00\n",
@@ -4370,9 +4436,9 @@ mod tests {
     }
 
     #[test]
-    fn supports_trimticks_with_marker_widths_one_and_two() {
+    fn supports_space_and_tab_trimtick_gutters() {
         let result = compile(
-            "note1:trimtick = >`\n  one\n  two\n`\nnote2:trimtick = >>`\n\talpha\n  beta\n`\n",
+            "note1:trimtick = >`\n  one\n  two\n`\nnote2:trimtick = >`\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n`\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -4383,7 +4449,6 @@ mod tests {
                 raw: String::from("\n  one\n  two\n"),
                 delimiter: '`',
                 trimticks: Some(TrimtickMetadata {
-                    marker_width: 1,
                     raw_value: String::from("\n  one\n  two\n"),
                 }),
             }
@@ -4391,12 +4456,11 @@ mod tests {
         assert_eq!(
             result.events[1].value,
             Value::StringLiteral {
-                value: String::from("alpha\nbeta"),
-                raw: String::from("\n\talpha\n  beta\n"),
+                value: String::from("alpha\n\tbeta\ngamma"),
+                raw: String::from("\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n"),
                 delimiter: '`',
                 trimticks: Some(TrimtickMetadata {
-                    marker_width: 2,
-                    raw_value: String::from("\n\talpha\n  beta\n"),
+                    raw_value: String::from("\n\t\talpha\n\t\t\tbeta\n\t\tgamma\n"),
                 }),
             }
         );
@@ -4619,6 +4683,60 @@ mod tests {
         let result = compile("semver:kadot = ^3.14.15\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
+    fn symbol_literals_decode_escapes_and_support_the_reserved_datatype() {
+        let result = compile(
+            "aeon:mode = \"strict\"\nstage:symbol = |this has \\| spaces|\n",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events.len(), 1);
+        assert!(matches!(
+            &result.events[0].value,
+            Value::SymbolicLiteral { value, raw }
+                if value == "this has | spaces" && raw == "|this has \\| spaces|"
+        ));
+    }
+
+    #[test]
+    fn symbol_literals_are_nonempty_and_reject_raw_newlines() {
+        for source in [
+            "stage = ||\n",
+            "stage = |first\nsecond|\n",
+            "stage = |first\rsecond|\n",
+        ] {
+            let result = compile(source, CompileOptions::default());
+            assert!(result.events.is_empty(), "{source}");
+            assert!(!result.errors.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn gp_symbol_datatype_rejects_clarifiers() {
+        let result = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nstage:symbol[\"state\"] = |approved|\n",
+            CompileOptions::default(),
+        );
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
+
+        let custom = compile(
+            "aeon:profile = \"aeon.gp.profile.v1\"\nstage:status[\"state\"] = |approved|\n",
+            CompileOptions {
+                datatype_policy: Some(DatatypePolicy::AllowCustom),
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(custom.errors.len(), 1);
+        assert_eq!(
+            custom.errors[0].code,
+            "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        );
     }
 
     #[test]

@@ -17,19 +17,19 @@
         },
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.3",
+          "snapshot_id": "core-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "pnpm test:cts:core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.3",
+          "snapshot_id": "aes-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "pnpm test:cts:aes"
         },
         {
           "surface": "film-reader",
-          "snapshot_id": "film-cts-v1-snapshot-0.1",
+          "snapshot_id": "film-cts-v1-snapshot-0.2",
           "operations": ["decode"],
           "status": "claimed",
           "command": "pnpm test:cts:film"
@@ -67,13 +67,13 @@
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.3",
+          "snapshot_id": "core-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.3",
+          "snapshot_id": "aes-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
         },
@@ -122,13 +122,13 @@
       "claims": [
         {
           "surface": "core",
-          "snapshot_id": "core-cts-v1-snapshot-0.3",
+          "snapshot_id": "core-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py core"
         },
         {
           "surface": "aes",
-          "snapshot_id": "aes-cts-v1-snapshot-0.3",
+          "snapshot_id": "aes-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
         },

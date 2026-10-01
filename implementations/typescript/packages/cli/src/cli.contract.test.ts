@@ -645,6 +645,20 @@ describe('AEON CLI output contract', () => {
             assert.ok(out.includes('$.friend'));
         });
 
+        it('renders symbolic literals with their pipe spelling', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-symbol-'));
+            const file = path.join(dir, 'symbol.aeon');
+            fs.writeFileSync(file, 'stage:symbol = |in review|\n', 'utf-8');
+            try {
+                const { code, stdout, stderr } = await runCli(['inspect', file, '--strict']);
+                assert.strictEqual(code, 0);
+                assert.strictEqual(stderr, '');
+                assert.ok(normalize(stdout).includes('$.stage :symbol = |in review|'));
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
         it('keeps clone/pointer references symbolic (no resolution)', async () => {
             const { code, stdout, stderr } = await runCli(['inspect', fixture('references-symbolic.aeon')]);
             assert.strictEqual(code, 0);

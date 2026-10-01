@@ -8,22 +8,37 @@ repositories.
 
 ## Unreleased
 
-## 0.14.0 - 2026-09-29
+## 0.14.0 - 2026-10-01
 
 ### Breaking
 
+- Replaced width-bearing trimtick openers with a single `>` marker. Trimtick
+  normalization now adopts an exact space-or-tab gutter from the first
+  nonblank payload line, removes the minimum common run of that character,
+  treats mixed indentation as valid payload, and no longer exposes
+  `markerWidth` parser metadata.
 - Core temporal literals now use the four-digit year domain `0001` through
   `9999`; year `0000` is rejected at the parser boundary.
 
 ### Added
 
+- Added nonempty pipe-delimited symbolic literals and the reserved `symbol`
+  datatype across TypeScript, Python, and Rust. The implementations preserve a
+  distinct `SymbolicLiteral` through AST and AES projection, canonicalize with
+  minimal pipe escaping, apply AEOS string-form constraints, and report lossy
+  JSON materialization as an error in strict mode or warning in transport mode.
+- Added Core year- and month-granularity date literals (`YYYY-` and
+  `YYYY-MM`) across the TypeScript, Python, and Rust implementations. Datetime
+  and WTC literals can compose those reduced-granularity dates with a clock
+  tick while preserving omitted calendar fields.
 - Added exact arbitrary-scale fractional seconds and structurally plausible
   second `60` claims across the TypeScript, Python, and Rust implementation
   tracks. Fractions preserve authored scale and trailing zeroes, and numeric
   offsets remain hour-and-minute only.
-- Added AEOS temporal field constraints for maximum second and minimum/maximum
-  year, plus the convention-aware general-purpose temporal-context policy and
-  stable mismatch/conflict diagnostics.
+- Added AEOS temporal field constraints for maximum second, maximum authored
+  fractional-second digits, and minimum/maximum year, plus the convention-aware
+  general-purpose temporal-context policy and stable mismatch/conflict
+  diagnostics.
 - Added the `@altopelago/aeon-sdk/sansa` integration entry point with
   `createAeonNamespace()` and `readAeonNamespace()` helpers. The adapter
   preserves AES scalar, datatype, identity, null, and attribute metadata and
@@ -44,8 +59,21 @@ repositories.
 
 ### Changed
 
+- Advanced the TypeScript, Rust, and Python Core/AES conformance claims and
+  default lanes to the immutable `0.4` snapshots covering symbolic literals,
+  reduced temporal precision, and single-marker trimticks.
+- Advanced the TypeScript Film reader claim to the immutable `0.2` snapshot,
+  covering the append-only `SymbolicLiteral` kind mapping.
+- Updated TypeScript SANSA consumers to require
+  `@altopelago/sansa@0.12.0`, including symbolic-literal and reduced-date
+  value semantics used by the AEON adapter.
+- Advanced the Rust workspace to the coordinated, symbol-capable
+  `altopelago-aes-telex` `0.2.0` development line. Published AEON crate
+  manifests retain the registry package name and version.
 - The Core temporal seconds domain is now `00` through `60`; the
-  general-purpose schema remains deliberately narrower and rejects second `60`.
+  general-purpose schema remains deliberately narrower, rejects second `60`,
+  and caps fractional precision at nine authored digits. GP selector rules
+  apply those bounds to typed and untyped temporal literals alike.
 - WTC temporal contexts remain opaque parser payloads while preserving named
   timescales, `-00:00`, and `+/` named-place contexts for downstream policy.
 

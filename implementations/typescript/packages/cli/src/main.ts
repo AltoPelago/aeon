@@ -3444,6 +3444,8 @@ function renderValue(value: Record<string, unknown>): string {
         }
         case 'StringLiteral':
             return JSON.stringify(String(value.value ?? ''));
+        case 'SymbolicLiteral':
+            return String(value.raw ?? `|${String(value.value ?? '')}|`);
         case 'InfinityLiteral':
         case 'NaNLiteral':
             return String(value.raw ?? value.value ?? '');

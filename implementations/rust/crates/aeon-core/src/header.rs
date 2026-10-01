@@ -228,27 +228,7 @@ fn is_blank_trimtick_line(line: &str) -> bool {
     line.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
 
-fn count_leading_spaces(line: &str) -> usize {
-    line.chars().take_while(|ch| *ch == ' ').count()
-}
-
-fn normalize_trimtick_indent(line: &str, tab_width: usize) -> String {
-    let mut prefix = String::new();
-    let mut rest_start = line.len();
-    for (idx, ch) in line.char_indices() {
-        match ch {
-            ' ' => prefix.push(' '),
-            '\t' => prefix.push_str(&" ".repeat(tab_width)),
-            _ => {
-                rest_start = idx;
-                break;
-            }
-        }
-    }
-    format!("{prefix}{}", &line[rest_start..])
-}
-
-pub(crate) fn apply_trimticks(raw: &str, marker_width: usize) -> String {
+pub(crate) fn apply_trimticks(raw: &str) -> String {
     if !raw.contains('\n') {
         return String::from(raw);
     }
@@ -269,18 +249,23 @@ pub(crate) fn apply_trimticks(raw: &str, marker_width: usize) -> String {
         .map(|line| {
             if is_blank_trimtick_line(line) {
                 String::new()
-            } else if marker_width == 1 {
-                String::from(line)
             } else {
-                normalize_trimtick_indent(line, marker_width)
+                String::from(line)
             }
         })
         .collect();
 
+    let gutter = normalized
+        .iter()
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.chars().next())
+        .filter(|ch| *ch == '\t')
+        .unwrap_or(' ');
+
     let common_indent = normalized
         .iter()
         .filter(|line| !line.is_empty())
-        .map(|line| count_leading_spaces(line))
+        .map(|line| line.chars().take_while(|ch| *ch == gutter).count())
         .min()
         .unwrap_or(0);
 
