@@ -6,6 +6,7 @@ The oracle below imports no implementation code. See docs/scripts/temporal-flow.
 from __future__ import annotations
 
 import argparse
+from calendar import monthrange
 from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
@@ -157,6 +158,38 @@ def datatype(value, root):
     return "wtc" if "&" in value else "datetime" if "T" in value else "date"
 
 
+def duplication_cases():
+    """Duplicate each character independently (two and three total copies).
+
+    Keep the seed and first triggering position in the case name, but collapse
+    identical results produced by positions within an existing repeated run.
+    The oracle decides validity: fraction digits and context characters can
+    legally repeat, unlike fixed-width fields and most structural punctuation.
+    """
+    seeds = {
+        "year0": (
+            "0001-", "2002-", "2002-02", "2002-03-02", "2024-02-29", "9999-12-31",
+            "2021-T20:", "2024-02T10", "2002-03-02T10:10:32.010Z", "2024-T10:10-00:00",
+            "2024-T10&local", "2024-02-29T10:10:32+02:30&Europe/Belgium/Brussels",
+            "2024-T10&+/Antarctica/Elisabeth", "2024-T10&-36.75/144.28", "2024-T10&A_A-A+A.A",
+        ),
+        "time-hour0": ("00:", "10:10", "10:10:32", "23:59:60.0100", "10:10:32Z",
+                       "10:10:32+02:30", "10:10:32-00:00"),
+    }
+    for root, values in seeds.items():
+        for seed in values:
+            if not oracle(seed, root):
+                raise ValueError(f"invalid duplication seed: {seed}")
+            seen = set()
+            for index, char in enumerate(seed):
+                for copies in (2, 3):
+                    value = seed[:index] + char * copies + seed[index + 1:]
+                    if value in seen:
+                        continue
+                    seen.add(value)
+                    yield f"{seed}/index-{index}/{copies}-copies", root, value
+
+
 def cases():
     result = []
 
@@ -197,6 +230,14 @@ def cases():
                   "2024-02-00", "2024-02-29", "2023-02-29", "1900-02-29", "2000-02-29",
                   "2024-04-30", "2024-04-31", "2024-12-31", "2024-12-32"):
         add(value, "ranges", value, "year0")
+    # Month-specific off-by-one faults can survive a single representative
+    # 30/31-day month. Cover each month in a common and leap year.
+    for year in (2023, 2024):
+        for month in range(1, 13):
+            last = monthrange(year, month)[1]
+            for day in (last - 1, last, last + 1):
+                value = f"{year:04}-{month:02}-{day:02}"
+                add(value, "calendar-boundaries", value, "year0")
     clocks = ("00:", "23:", "24:", "99:", "23:59", "23:60", "23:59:59", "23:59:60", "23:59:61",
               "11:11:11.", "11:11:11.0", "11:11:11.000000000", "11:11:11." + "1" * 200,
               "11:11.1", "11:.1", "11:11:11.1.1", "11:11:11+23:59", "11:11:11+24:00",
@@ -238,19 +279,22 @@ def cases():
         for suffix in ("//A", "/*A*/"):
             add(value + suffix, "comment-adjacency", value, root,
                 accepted="&" not in value, template="v:{kind} = {value}" + suffix)
+    for name, root, value in duplication_cases():
+        add(name, "character-duplication", value, root)
     return result
 
 
-def run_case(case: Case, timeout: float):
+def run_case(case: Case, timeout: float, *, commands=None, process_runner=subprocess.run):
+    commands = COMMANDS if commands is None else commands
     failures = []
     canonical = {}
     with tempfile.TemporaryDirectory(prefix="aeon-temporal-flow-") as temp:
         fixture = Path(temp) / "input.aeon"
         def run(impl, source, command):
             fixture.write_text(source, encoding="utf-8")
-            return subprocess.run([*COMMANDS[impl], *command[:1], str(fixture), *command[1:]],
+            return process_runner([*commands[impl], *command[:1], str(fixture), *command[1:]],
                                   cwd=ROOT, capture_output=True, text=True, timeout=timeout)
-        for impl in COMMANDS:
+        for impl in commands:
             try:
                 inspected = run(impl, case.source, ["inspect", "--json", "--portable-aes"])
                 envelope = json.loads(inspected.stdout)
@@ -284,7 +328,7 @@ def run_case(case: Case, timeout: float):
                 failures.append(f"{impl}: harness failure: {exc}")
     if len(set(canonical.values())) > 1:
         failures.append("cross-runtime canonical bytes differ")
-    return {**asdict(case), "failures": failures, "canonical": canonical if failures else {}}
+    return {**asdict(case), "failures": failures, "canonical": canonical}
 
 
 def main():
@@ -294,6 +338,7 @@ def main():
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--timeout", type=float, default=20)
     parser.add_argument("--report", type=Path, help="Write a machine-readable report including reproducible source for every case")
+    parser.add_argument("--quiet", action="store_true", help="Print only failures/errors, not progress or successful summaries")
     args = parser.parse_args()
     matrix = cases()
     if args.group:
@@ -309,7 +354,8 @@ def main():
     for impl, cmd in COMMANDS.items():
         if not Path(cmd[1] if impl == "typescript" else cmd[0]).is_file():
             parser.error(f"missing {impl} executable; build all implementations first")
-    print(f"Temporal flow: {len(matrix)} cases; {dict(Counter(c.group for c in matrix))}", flush=True)
+    if not args.quiet:
+        print(f"Temporal flow: {len(matrix)} cases; {dict(Counter(c.group for c in matrix))}", flush=True)
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         pending = [pool.submit(run_case, c, args.timeout) for c in matrix]
@@ -318,14 +364,15 @@ def main():
             results.append(result)
             if result["failures"]:
                 print(f"FAIL {result['group']} {result['name']}: " + " | ".join(result["failures"]), flush=True)
-            if len(results) % 100 == 0:
+            if not args.quiet and len(results) % 100 == 0:
                 print(f"Progress {len(results)}/{len(matrix)}", flush=True)
     results.sort(key=lambda r: (r["group"], r["name"]))
     failed = sum(bool(r["failures"]) for r in results)
     report = {"total": len(results), "failed": failed, "passed": len(results) - failed, "cases": results}
     if args.report:
         args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Temporal flow summary: total={len(results)} failed={failed} passed={len(results) - failed}")
+    if not args.quiet:
+        print(f"Temporal flow summary: total={len(results)} failed={failed} passed={len(results) - failed}")
     return 1 if failed else 0
 
 

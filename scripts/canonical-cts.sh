@@ -138,4 +138,6 @@ echo
 
 echo "-- Grammar-derived temporal flow and canonical parity"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/test-temporal-flow.py"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/test-mutate-temporal-flow.py"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/test-temporal-sweep.py"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/stress-temporal-flow.py"

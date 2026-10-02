@@ -8,6 +8,8 @@ Primary scripts:
 - `scripts/stress-canonical-snippets.py`
 - `scripts/stress-diagnostic-snippets.py`
 - `scripts/stress-temporal-flow.py`
+- `scripts/mutate-temporal-flow.py`
+- `scripts/temporal-sweep.py`
 - `scripts/stress-positive-snippets.py`
 - `scripts/stress-negative-snippets.py`
 - `scripts/stress-whitespace-mutations.py`
@@ -75,6 +77,8 @@ Use these for focused regressions:
 - diagnostic parity: `stress-diagnostic-snippets.py`
 - positive/negative corpus validation: `stress-positive-snippets.py`, `stress-negative-snippets.py`
 - mutation fuzzing and combination matrices: `stress-whitespace-mutations.py`, `stress-combinations.py`
+- temporal test-sensitivity audit with isolated source mutations: `mutate-temporal-flow.py`
+- opt-in quiet numeric calendar/clock sweep: `temporal-sweep.py` (see [launch and benchmark instructions](temporal-flow.md#numeric-range-sweep))
 - fast smoke across implementations: `stress-smoke.sh`
 
 ## Boundary note
@@ -83,6 +87,8 @@ The [temporal flow analysis](temporal-flow.md) maps the grammar into representat
 state transitions, complete paths, range checks, and source boundaries. Run
 `python3 scripts/stress-temporal-flow.py` to verify acceptance, exact portable
 values, canonical parity, and round trips across TypeScript, Python, and Rust.
+Use `--group character-duplication --quiet` for the targeted double/triple
+character lane with failures-only output.
 
 These scripts validate implementation behavior and cross-implementation alignment.
 They do not redefine AEON Core, AES, or CTS authority.
