@@ -96,13 +96,17 @@ test('canonicalizes number families without collapsing exponent or decimal inten
 });
 
 test('preserves radix representation while canonicalizing number zero families', () => {
-    const input = 'a:number = +0\nb:number = -.0\nc:number = 0.0e+0\nd:number = -0.0E-0\nmask:radix[10] = %10.00\nwidth:radix[10] = %0010.00';
+    const input = 'a:number = +0\nb:number = -.0\nc:number = 0.0e+0\nd:number = -0.0E-0\ne:number = 0e+01\nf:number = 0e-01\ng:number = -0e+01\nh:number = -0e-01\nmask:radix[10] = %10.00\nwidth:radix[10] = %0010.00';
     const result = canonicalize(input);
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('a:number = 0'));
     assert.ok(result.text.includes('b:number = -0.0'));
     assert.ok(result.text.includes('c:number = 0e0'));
     assert.ok(result.text.includes('d:number = -0e0'));
+    assert.ok(result.text.includes('e:number = 0e0'));
+    assert.ok(result.text.includes('f:number = 0e0'));
+    assert.ok(result.text.includes('g:number = -0e0'));
+    assert.ok(result.text.includes('h:number = -0e0'));
     assert.ok(result.text.includes('mask:radix[10] = %10.00'));
     assert.ok(result.text.includes('width:radix[10] = %0010.00'));
 });

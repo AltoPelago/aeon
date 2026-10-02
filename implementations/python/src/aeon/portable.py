@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import Iterable
 
+from ._numbers import normalize_number_literal
 from .telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_datatype_descriptor
 
 
@@ -473,28 +474,6 @@ def format_clarifier(value: object) -> str:
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
-
-
-def normalize_number_literal(raw: str) -> str:
-    value = raw.replace("_", "").replace("E", "e")
-    if value.startswith("."):
-        value = f"0{value}"
-    elif value.startswith("-."):
-        value = value.replace("-.", "-0.", 1)
-    elif value.startswith("+."):
-        value = value.replace("+.", "0.", 1)
-    elif value.startswith("+") and len(value) > 1 and value[1].isdigit():
-        value = value[1:]
-
-    if "e" in value:
-        mantissa, exponent = value.split("e", 1)
-    else:
-        mantissa, exponent = value, None
-    if "." in mantissa:
-        integer, fraction = mantissa.split(".", 1)
-        fraction = fraction.rstrip("0") or "0"
-        mantissa = integer if exponent is not None and fraction == "0" else f"{integer}.{fraction}"
-    return f"{mantissa}e{exponent}" if exponent is not None else mantissa
 
 
 def translate_node_path(path: str, node_source_paths: set[str]) -> str:

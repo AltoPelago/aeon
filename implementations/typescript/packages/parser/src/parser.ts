@@ -48,6 +48,7 @@ import {
     NestingDepthExceededError,
 } from './errors.js';
 import { applyTrimticks } from './trimticks.js';
+import { normalizeNumberLiteral } from './number.js';
 
 /**
  * Parser options
@@ -1361,7 +1362,7 @@ class Parser {
     private createNumberLiteral(token: Token): NumberLiteral {
         return {
             type: 'NumberLiteral',
-            value: token.value.replace(/_/g, ''),
+            value: normalizeNumberLiteral(token.value),
             raw: token.value,
             span: token.span,
         };

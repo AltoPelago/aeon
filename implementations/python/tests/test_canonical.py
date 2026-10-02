@@ -154,6 +154,10 @@ class CanonicalTests(unittest.TestCase):
             'zeroInt:number = +0\n'
             'zeroDec:number = -.0\n'
             'zeroExp:number = -0.0E-0\n'
+            'zeroExpPositive:number = 0e+01\n'
+            'zeroExpNegative:number = 0e-01\n'
+            'negativeZeroExpPositive:number = -0e+01\n'
+            'negativeZeroExpNegative:number = -0e-01\n'
             'mask:radix[10] = %10.00\n'
             'width:radix[10] = %0010.00'
         )
@@ -165,6 +169,10 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('zeroInt:number = 0', result.text)
         self.assertIn('zeroDec:number = -0.0', result.text)
         self.assertIn('zeroExp:number = -0e0', result.text)
+        self.assertIn('zeroExpPositive:number = 0e0', result.text)
+        self.assertIn('zeroExpNegative:number = 0e0', result.text)
+        self.assertIn('negativeZeroExpPositive:number = -0e0', result.text)
+        self.assertIn('negativeZeroExpNegative:number = -0e0', result.text)
         self.assertIn('mask:radix[10] = %10.00', result.text)
         self.assertIn('width:radix[10] = %0010.00', result.text)
 

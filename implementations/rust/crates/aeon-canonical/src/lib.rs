@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
+use aeon_core::{Diagnostic, Position, Span, normalize_number_literal, strip_leading_bom};
 
 pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
@@ -779,59 +779,7 @@ fn is_blank_trimtick_line(line: &str) -> bool {
 }
 
 fn normalize_number(raw: &str) -> String {
-    let mut value = raw.replace('_', "").replace('E', "e");
-    if value.starts_with('.') {
-        value = format!("0{value}");
-    }
-    if value.starts_with("-.") {
-        value = value.replacen("-.", "-0.", 1);
-    }
-    if value.starts_with("+.") {
-        value = value.replacen("+.", "0.", 1);
-    }
-    if value.starts_with('+') && value.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
-        value.remove(0);
-    }
-
-    let (mut mantissa, exponent) = match value.split_once('e') {
-        Some((mantissa, exponent)) => (mantissa.to_owned(), Some(exponent.to_owned())),
-        None => (value, None),
-    };
-
-    if let Some((int_part, frac_part_raw)) = mantissa.split_once('.') {
-        let mut frac_part = frac_part_raw.trim_end_matches('0').to_owned();
-        if frac_part.is_empty() {
-            frac_part = String::from("0");
-        }
-        if exponent.is_some() && frac_part == "0" {
-            mantissa = int_part.to_owned();
-        } else {
-            mantissa = format!("{int_part}.{frac_part}");
-        }
-    }
-
-    if let Some(mut exponent) = exponent {
-        if exponent.starts_with('+') {
-            exponent.remove(0);
-        }
-        let negative = exponent.starts_with('-');
-        let digits = if negative {
-            &exponent[1..]
-        } else {
-            &exponent[..]
-        };
-        let trimmed = digits.trim_start_matches('0');
-        let normalized = if trimmed.is_empty() { "0" } else { trimmed };
-        if normalized == "0" {
-            format!("{mantissa}e0")
-        } else if negative {
-            format!("{mantissa}e-{normalized}")
-        } else {
-            format!("{mantissa}e{normalized}")
-        }
-    } else {
-        mantissa
-    }
+    normalize_number_literal(raw)
 }
 
 fn is_rejected_nonfinite_literal(raw: &str) -> bool {
@@ -2732,13 +2680,17 @@ mod tests {
              zero_int:number = +0\n\
              zero_dec:number = -.0\n\
              zero_exp:number = -0.0E-0\n\
+             zero_exp_positive:number = 0e+01\n\
+             zero_exp_negative:number = 0e-01\n\
+             negative_zero_exp_positive:number = -0e+01\n\
+             negative_zero_exp_negative:number = -0e-01\n\
              mask:radix[10] = %10.00\n\
              width:radix[10] = %0010.00\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_int:number = 0\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nnegative_zero_exp_negative:number = -0e0\nnegative_zero_exp_positive:number = -0e0\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_exp_negative:number = 0e0\nzero_exp_positive:number = 0e0\nzero_int:number = 0\n"
         );
     }
 

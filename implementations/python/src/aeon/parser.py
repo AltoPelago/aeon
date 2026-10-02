@@ -5,6 +5,7 @@ import re
 from typing import cast
 
 from ._compat import dataclass
+from ._numbers import normalize_number_literal
 from .ast import (
     Attribute,
     AttributeEntry,
@@ -871,7 +872,7 @@ class Parser:
             return StringLiteral(value=token.value, raw=token.value, delimiter=cast(str, token.quote), span=token.span)
         if token.kind == "NUMBER":
             self.advance()
-            return NumberLiteral(value=token.value.replace("_", ""), raw=token.value, span=token.span)
+            return NumberLiteral(value=normalize_number_literal(token.value), raw=token.value, span=token.span)
         if token.kind in {"TRUE", "FALSE"}:
             self.advance()
             return BooleanLiteral(value=token.value == "true", raw=token.value, span=token.span)

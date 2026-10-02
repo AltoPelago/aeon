@@ -457,9 +457,30 @@ pub fn normalize_number_literal(raw: &str) -> String {
         }
     }
 
-    match exponent {
-        Some(exponent) => format!("{mantissa}e{exponent}"),
-        None => mantissa,
+    if let Some(mut exponent) = exponent {
+        if mantissa == "0" || mantissa == "-0" {
+            return format!("{mantissa}e0");
+        }
+        if exponent.starts_with('+') {
+            exponent.remove(0);
+        }
+        let negative = exponent.starts_with('-');
+        let digits = if negative {
+            &exponent[1..]
+        } else {
+            &exponent[..]
+        };
+        let trimmed = digits.trim_start_matches('0');
+        let normalized = if trimmed.is_empty() { "0" } else { trimmed };
+        if normalized == "0" {
+            format!("{mantissa}e0")
+        } else if negative {
+            format!("{mantissa}e-{normalized}")
+        } else {
+            format!("{mantissa}e{normalized}")
+        }
+    } else {
+        mantissa
     }
 }
 
@@ -2988,6 +3009,23 @@ mod tests {
         ] {
             let result = compile(&format!("v = {literal}"), CompileOptions::default());
             assert!(result.errors.is_empty(), "{literal}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn number_literal_values_use_canonical_finite_numeric_text() {
+        for (source, expected) in [
+            ("+5", "5"),
+            ("+.50", "0.5"),
+            ("10.00", "10.0"),
+            ("1.0E+03", "1e3"),
+            ("1e0_1", "1e1"),
+            ("0e+01", "0e0"),
+            ("0e-01", "0e0"),
+            ("-0e+01", "-0e0"),
+            ("-0e-01", "-0e0"),
+        ] {
+            assert_eq!(normalize_number_literal(source), expected, "{source}");
         }
     }
 

@@ -4,6 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
+from ._numbers import normalize_number_literal
 from .ast import (
     Attribute,
     AttributePathSegment,
@@ -500,38 +501,7 @@ def format_trimtick_line(value: str) -> str:
 
 
 def format_number(raw: str) -> str:
-    value = raw.replace("_", "").replace("E", "e")
-    if value.startswith("."):
-        value = f"0{value}"
-    if value.startswith("-."):
-        value = value.replace("-.", "-0.", 1)
-    if value.startswith("+."):
-        value = value.replace("+.", "0.", 1)
-    if value.startswith("+") and len(value) > 1 and value[1].isdigit():
-        value = value[1:]
-
-    parts = value.split("e", 1)
-    mantissa = parts[0]
-    exponent = parts[1] if len(parts) == 2 else None
-    if "." in mantissa:
-        int_part, frac_part = mantissa.split(".", 1)
-        frac_part = frac_part.rstrip("0")
-        if not frac_part:
-            frac_part = "0"
-        if exponent is not None and frac_part == "0":
-            mantissa = int_part
-        else:
-            mantissa = f"{int_part}.{frac_part}"
-    if exponent is not None:
-        exponent = re.sub(r"^\+", "", exponent)
-        negative = exponent.startswith("-")
-        digits = exponent[1:] if negative else exponent
-        normalized = digits.lstrip("0") or "0"
-        if normalized == "0":
-            return f"{mantissa}e0"
-        sign = "-" if negative else ""
-        return f"{mantissa}e{sign}{normalized}"
-    return mantissa
+    return normalize_number_literal(raw)
 
 
 def format_separator(raw: str) -> str:

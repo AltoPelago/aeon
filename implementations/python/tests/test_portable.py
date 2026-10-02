@@ -306,8 +306,13 @@ class PortableProjectionTests(unittest.TestCase):
         )
 
     def test_normalizes_number_payloads_at_the_portable_boundary(self) -> None:
-        events = self.project("a = +.50\nb = 1.00E+2")
-        self.assertEqual(["0.5", "1e+2"], [events[0]["value"], events[1]["value"]])
+        events = self.project(
+            "a = +.50\nb = 1.00E+2\nc = 0e+01\nd = 0e-01\ne = -0e+01\nf = -0e-01"
+        )
+        self.assertEqual(
+            ["0.5", "1e2", "0e0", "0e0", "-0e0", "-0e0"],
+            [event["value"] for event in events],
+        )
 
     def test_preserves_attribute_declaration_order(self) -> None:
         events = self.project("a@{z = 1, a = 2} = 0")

@@ -1,5 +1,5 @@
 import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
-import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
+import { normalizeNumberLiteral, parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
@@ -798,49 +798,7 @@ function formatNullLiteral(value: Extract<Value, { type: 'NullLiteral' }>): stri
 }
 
 function formatNumber(raw: string): string {
-    let value = raw.replace(/_/g, '');
-    value = value.replace(/E/g, 'e');
-    if (value.startsWith('.')) value = `0${value}`;
-    if (value.startsWith('-.')) value = value.replace('-.', '-0.');
-    if (value.startsWith('+.')) value = value.replace('+.', '0.');
-    if (value.startsWith('+') && /\d/.test(value[1] ?? '')) value = value.slice(1);
-    const parts = value.split('e');
-    let mantissa = parts[0] ?? '';
-    let exponent = parts[1];
-
-    if (mantissa.includes('.')) {
-        const [intPart, fracPartRaw] = mantissa.split('.');
-        let fracPart = trimTrailingZeros(fracPartRaw ?? '');
-        if (fracPart.length === 0) {
-            fracPart = '0';
-        }
-        if (exponent !== undefined && fracPart === '0') {
-            mantissa = intPart ?? '';
-        } else {
-            mantissa = `${intPart ?? ''}.${fracPart}`;
-        }
-    }
-
-    if (exponent !== undefined) {
-        exponent = exponent.replace(/^\+/, '');
-        const negative = exponent.startsWith('-');
-        const digits = negative ? exponent.slice(1) : exponent;
-        const normalized = digits.replace(/^0+/, '') || '0';
-        value = normalized === '0'
-            ? `${mantissa}e0`
-            : `${mantissa}e${negative ? '-' : ''}${normalized}`;
-    } else {
-        value = mantissa;
-    }
-    return value;
-}
-
-function trimTrailingZeros(value: string): string {
-    let end = value.length;
-    while (end > 0 && value[end - 1] === '0') {
-        end -= 1;
-    }
-    return value.slice(0, end);
+    return normalizeNumberLiteral(raw);
 }
 
 function formatSeparator(raw: string): string {

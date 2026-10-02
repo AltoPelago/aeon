@@ -83,7 +83,9 @@ repositories.
   ordinary-string, and trimtick families. Fixed Rust accepting leading zeroes
   concealed by underscores, rejecting leading zeroes in exponent digits, and
   accepting non-trimtick values for `prose`; TypeScript now rejects raw carriage
-  returns inside single- and double-quoted strings.
+  returns inside single- and double-quoted strings. Canonical number formatting
+  and portable AES number values now use canonical finite numeric text, including
+  normalizing exponent-family zero with any exponent to `0e0` or `-0e0`.
 - Closed temporal flow gaps: hour-only datetime bounds are enforced across all
   runtimes, Python temporal fields and WTC contexts require ASCII, Rust preserves
   comment boundaries after ordinary temporal literals, and TypeScript formats

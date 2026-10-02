@@ -193,6 +193,19 @@ implementation regressions as well as the matrix. The initial exact-spelling
 comparison for numeric AES values was corrected to allow legitimate numeric
 normalization, without relaxing exact decoded string/symbol checks.
 
+Promotion of the normative boundaries into the draft Core and canonical CTS
+then exposed a shared canonical gap: every runtime preserved the authored
+nonzero exponent on zero (`0e+01` became `0e1`). Canonical formatting now follows
+the value-type rule and emits `0e0` or `-0e0` for exponent-family zero regardless
+of its authored exponent. The specification-derived CTS case is retained so
+cross-runtime agreement cannot conceal the regression.
+
+The same audit found that portable AES events exposed the authored exponent
+spelling even though `NumberLiteral.value` requires canonical finite numeric
+text. Number normalization now has one shared implementation per runtime for
+parser/AES and canonical output, and the draft AES CTS checks signs, leading
+dots, decimal scale, exponent signs and zeroes, underscores, and signed zero.
+
 This remains a bounded observable-behavior analysis, not instrumented lexer
 branch coverage. It does not yet add comprehensive incremental chunk splits,
 recovery-span parity, SANSA/reference dispatch, every prefixed scalar grammar,
