@@ -191,7 +191,7 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
             return [f"{head} = "]
         return [f"{head} = {rendered[0]}", *rendered[1:]]
     if isinstance(value, StringLiteral):
-        return format_string_lines(value.value, indent)
+        return format_trimticks(value.value, indent) if value.trimticks is not None else [format_string(value.value)]
     if isinstance(value, NumberLiteral):
         return [format_number(value.raw or value.value)]
     if isinstance(value, InfinityLiteral):
@@ -321,8 +321,6 @@ def format_clarifier(value: str | int | float) -> str:
 
 
 def render_value_inline(value: Value) -> str:
-    if isinstance(value, StringLiteral) and "\n" in value.value:
-        return format_string(value.value)
     return render_compact_inline_value(value)
 
 
@@ -330,7 +328,7 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, TypedValue):
         return f"{render_attributes(value.attributes)}{render_type(value.datatype)} = {render_compact_inline_value(value.value)}"
     if isinstance(value, StringLiteral):
-        return format_string(value.value)
+        return format_compact_trimtick(value.value) if value.trimticks is not None else format_string(value.value)
     if isinstance(value, NumberLiteral):
         return format_number(value.raw or value.value)
     if isinstance(value, InfinityLiteral):
@@ -460,12 +458,25 @@ def format_symbolic(value: str) -> str:
     return "|" + "".join(out) + "|"
 
 
-def format_string_lines(value: str, indent: int) -> list[str]:
+def format_trimticks(value: str, indent: int) -> list[str]:
     if "\n" not in value:
-        return [format_string(value)]
+        return [format_compact_trimtick(value)]
+    first_nonblank = next((line for line in value.split("\n") if line), "")
+    if first_nonblank.startswith(" "):
+        return [format_compact_trimtick(value)]
     prefix = " " * indent
     body_prefix = " " * (indent + 2)
     return [">`", *(f"{body_prefix}{format_trimtick_line(line)}" for line in value.split("\n")), f"{prefix}`"]
+
+
+def format_compact_trimtick(value: str) -> str:
+    if "\n" not in value:
+        return f">`{format_trimtick_line(value)}`"
+    lines = value.split("\n")
+    first_nonblank = next((line for line in lines if line), "")
+    gutter = "\t" if first_nonblank.startswith(" ") else " "
+    protected_value = "\n".join("" if not line else f"{gutter}{line}" for line in lines)
+    return f">`{format_trimtick_line(protected_value)}`"
 
 
 def format_trimtick_line(value: str) -> str:
@@ -475,6 +486,8 @@ def format_trimtick_line(value: str) -> str:
             out.append("\\\\")
         elif char == "`":
             out.append("\\`")
+        elif char == "\n":
+            out.append("\\n")
         elif char == "\r":
             out.append("\\r")
         elif char == "\t":
@@ -528,7 +541,7 @@ def format_separator(raw: str) -> str:
 def is_simple_value(value: Value) -> bool:
     if isinstance(value, TypedValue):
         return value.value is not None and is_simple_value(value.value)
-    if isinstance(value, StringLiteral) and "\n" in value.value:
+    if isinstance(value, StringLiteral) and value.trimticks is not None and "\n" in value.value:
         return False
     return isinstance(
         value,

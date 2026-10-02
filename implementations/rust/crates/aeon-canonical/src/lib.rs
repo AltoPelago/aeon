@@ -46,7 +46,10 @@ enum Value {
         datatype: Option<String>,
         value: Box<Value>,
     },
-    String(String),
+    String {
+        value: String,
+        trimticks: bool,
+    },
     Symbol(String),
     Number(String),
     Infinity(String),
@@ -173,10 +176,34 @@ fn merge_header_bindings(structured: &mut Vec<Binding>, shorthand: Vec<Binding>)
 
 fn default_header() -> Vec<Binding> {
     vec![
-        Binding::scalar("encoding", Value::String(String::from("utf-8"))),
-        Binding::scalar("mode", Value::String(String::from("transport"))),
-        Binding::scalar("profile", Value::String(String::from("core"))),
-        Binding::scalar("version", Value::String(String::from("1.0"))),
+        Binding::scalar(
+            "encoding",
+            Value::String {
+                value: String::from("utf-8"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "mode",
+            Value::String {
+                value: String::from("transport"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "profile",
+            Value::String {
+                value: String::from("core"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "version",
+            Value::String {
+                value: String::from("1.0"),
+                trimticks: false,
+            },
+        ),
     ]
 }
 
@@ -234,8 +261,11 @@ fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
                 lines
             }
         }
-        Value::String(value) if value.contains('\n') => {
-            let rendered = render_string_lines(value, indent);
+        Value::String {
+            value,
+            trimticks: true,
+        } if value.contains('\n') => {
+            let rendered = render_trimtick_lines(value, indent);
             let mut lines = vec![format!("{left} = {}", rendered[0])];
             lines.extend(rendered.into_iter().skip(1));
             lines
@@ -300,8 +330,11 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
                 vec![format!("{prefix}{head} = ")]
             }
         }
-        Value::String(value) if value.contains('\n') => {
-            let mut lines = render_string_lines(value, indent);
+        Value::String {
+            value,
+            trimticks: true,
+        } if value.contains('\n') => {
+            let mut lines = render_trimtick_lines(value, indent);
             if let Some(first) = lines.first_mut() {
                 *first = format!("{prefix}{first}");
             }
@@ -454,7 +487,13 @@ fn render_value_inline(value: &Value) -> String {
                 render_value_inline(value)
             )
         }
-        Value::String(value) => format!("\"{}\"", escape_string(value)),
+        Value::String { value, trimticks } => {
+            if *trimticks {
+                format_compact_trimtick(value)
+            } else {
+                format!("\"{}\"", escape_string(value))
+            }
+        }
         Value::Symbol(value) => format_symbol(value),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
@@ -549,7 +588,7 @@ fn render_structural_identity(structural_id: Option<&str>) -> String {
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_scalar(value),
-        Value::String(value) => !value.contains('\n'),
+        Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
         | Value::Number(_)
         | Value::Infinity(_)
@@ -562,7 +601,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_value(value),
-        Value::String(value) => !value.contains('\n'),
+        Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
         | Value::Number(_)
         | Value::Infinity(_)
@@ -614,9 +653,16 @@ fn format_symbol(value: &str) -> String {
     out
 }
 
-fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
+fn render_trimtick_lines(value: &str, indent: usize) -> Vec<String> {
     if !value.contains('\n') {
-        return vec![format!("\"{}\"", escape_string(value))];
+        return vec![format_compact_trimtick(value)];
+    }
+    let first_nonblank = value
+        .split('\n')
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    if first_nonblank.starts_with(' ') {
+        return vec![format_compact_trimtick(value)];
     }
 
     let prefix = " ".repeat(indent);
@@ -631,12 +677,40 @@ fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
     lines
 }
 
+fn format_compact_trimtick(value: &str) -> String {
+    if !value.contains('\n') {
+        return format!(">`{}`", escape_trimtick_line(value));
+    }
+    let first_nonblank = value
+        .split('\n')
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let gutter = if first_nonblank.starts_with(' ') {
+        '\t'
+    } else {
+        ' '
+    };
+    let protected_value = value
+        .split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{gutter}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(">`{}`", escape_trimtick_line(&protected_value))
+}
+
 fn escape_trimtick_line(value: &str) -> String {
     let mut out = String::new();
     for ch in value.chars() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '`' => out.push_str("\\`"),
+            '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
@@ -1611,9 +1685,15 @@ impl<'a> Parser<'a> {
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         match self.peek() {
-            Some('"') | Some('\'') | Some('`') => Ok(Value::String(self.parse_quoted_string()?)),
+            Some('"') | Some('\'') | Some('`') => Ok(Value::String {
+                value: self.parse_quoted_string()?,
+                trimticks: false,
+            }),
             Some('|') => Ok(Value::Symbol(self.parse_quoted_string()?)),
-            Some('>') => Ok(Value::String(self.parse_trimtick()?)),
+            Some('>') => Ok(Value::String {
+                value: self.parse_trimtick()?,
+                trimticks: true,
+            }),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_list(),
             Some('(') => self.parse_tuple(),
@@ -2558,13 +2638,13 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_trimtick_to_string_content() {
+    fn preserves_empty_trimtick_literal_family() {
         let result =
             canonicalize("aeon:mode = \"transport\"\nc:trimtick = > ``\nb:string = \"\"\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = \"\"\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = >``\n"
         );
     }
 
@@ -2574,7 +2654,10 @@ mod tests {
         let bindings = Parser::new(source).parse_document().expect("parse");
         assert_eq!(
             bindings[0].value,
-            Value::String(String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"))
+            Value::String {
+                value: String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"),
+                trimticks: true,
+            }
         );
     }
 
@@ -3033,13 +3116,13 @@ mod tests {
     }
 
     #[test]
-    fn escapes_trimtick_delimiters_backslashes_and_controls_in_multiline_output() {
+    fn escapes_controls_without_changing_string_literal_family() {
         let result = canonicalize("value = \"line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b\"");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(
-            result.text.contains(
-                "value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`"
-            )
+            result
+                .text
+                .contains("value = \"line1\\ntick:` slash:\\\\ tab:\\t backspace:\\u0008\"")
         );
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
@@ -3047,27 +3130,106 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_one_line_trimticks_in_lists_to_strings() {
+    fn preserves_one_line_trimticks_in_lists() {
         let result = canonicalize(
             "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  > `\n    one\n  `,\n  > `\n    two\n  `\n]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\nnotes:list<trimtick> = [\"one\", \"two\"]\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\nnotes:list<trimtick> = [>`one`, >`two`]\n"
         );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
     }
 
     #[test]
-    fn canonicalizes_multiline_trimticks_inside_inline_attribute_objects_as_strings() {
+    fn preserves_multiline_trimticks_inside_inline_attribute_objects() {
         let result = canonicalize(
             "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node = <box>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = \"hello\\n\\nworld\" }}:node = <box>\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node = <box>\n"
         );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn compact_multiline_trimticks_preserve_payload_indentation() {
+        let result = canonicalize("a@{note:trimtick = >`\n\t first\n\t  second\n`}:number = 1\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("note:trimtick = >`\\t first\\n\\t  second`")
+        );
+        let reparsed = Parser::new(&result.text)
+            .parse_document()
+            .expect("canonical output should parse");
+        let note = reparsed
+            .iter()
+            .find(|binding| binding.key == "a")
+            .expect("a binding")
+            .attributes
+            .get("note")
+            .expect("note attribute");
+        assert!(matches!(
+            &note.value,
+            Value::String {
+                value,
+                trimticks: true,
+            } if value == " first\n  second"
+        ));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn preserves_strict_string_and_prose_literal_families() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\ndescription:prose = >`approved`\nmessage:string = \"first\\nsecond\"\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("description:prose = >`approved`"));
+        assert!(result.text.contains("message:string = \"first\\nsecond\""));
+        let compiled = aeon_core::compile(&result.text, aeon_core::CompileOptions::default());
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+
+        let reparsed = Parser::new(&result.text)
+            .parse_document()
+            .expect("canonical output should parse");
+        let description = reparsed
+            .iter()
+            .find(|binding| binding.key == "description")
+            .expect("description binding");
+        assert!(matches!(
+            description.value,
+            Value::String {
+                trimticks: true,
+                ..
+            }
+        ));
+        let message = reparsed
+            .iter()
+            .find(|binding| binding.key == "message")
+            .expect("message binding");
+        assert!(matches!(
+            message.value,
+            Value::String {
+                trimticks: false,
+                ..
+            }
+        ));
+
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
     }
 
     #[test]

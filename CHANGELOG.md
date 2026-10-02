@@ -79,6 +79,10 @@ repositories.
 
 ### Fixed
 
+- Canonical writers now preserve the ordinary-string versus trimtick literal
+  family across TypeScript, Python, Rust, and the Rust/WASM response. This
+  keeps strict reserved datatypes such as `string`, `trimtick`, and `prose`
+  valid after canonical round trips, including inline and nested values.
 - Made Rust release verification package coordinated, not-yet-published crate
   versions through explicit local path overrides while retaining registry
   dependencies in the produced crates.

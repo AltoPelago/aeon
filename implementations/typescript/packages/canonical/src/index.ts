@@ -284,7 +284,9 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return [`${head} = ${first}`, ...rendered.slice(1)];
         }
         case 'StringLiteral':
-            return formatStringLines(value.value, indent);
+            return value.trimticks
+                ? formatTrimticks(value.value, indent)
+                : [formatString(value.value)];
         case 'NumberLiteral':
             return [formatNumber(value.raw)];
         case 'InfinityLiteral':
@@ -439,9 +441,6 @@ function renderAttributes(attributes: readonly Attribute[]): string {
 }
 
 function renderValueInline(value: Value): string {
-    if (value.type === 'StringLiteral' && value.value.includes('\n')) {
-        return formatString(value.value);
-    }
     return renderCompactInlineValue(value);
 }
 
@@ -450,7 +449,9 @@ function renderCompactInlineValue(value: Value): string {
         case 'TypedValue':
             return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
         case 'StringLiteral':
-            return formatString(value.value);
+            return value.trimticks
+                ? formatCompactTrimtick(value.value)
+                : formatString(value.value);
         case 'NumberLiteral':
             return formatNumber(value.raw);
         case 'InfinityLiteral':
@@ -737,14 +738,14 @@ function formatString(value: string): string {
     return `"${out}"`;
 }
 
-function formatStringLines(value: string, indent: number): string[] {
-    if (!value.includes('\n')) {
-        return [formatString(value)];
-    }
-    return formatTrimticks(value, indent);
-}
-
 function formatTrimticks(value: string, indent: number): string[] {
+    if (!value.includes('\n')) {
+        return [formatCompactTrimtick(value)];
+    }
+    const firstNonblank = value.split('\n').find((line) => line.length > 0) ?? '';
+    if (firstNonblank.startsWith(' ')) {
+        return [formatCompactTrimtick(value)];
+    }
     const prefix = ' '.repeat(indent);
     const bodyPrefix = ' '.repeat(indent + 2);
     return [
@@ -754,12 +755,26 @@ function formatTrimticks(value: string, indent: number): string[] {
     ];
 }
 
+function formatCompactTrimtick(value: string): string {
+    if (!value.includes('\n')) {
+        return `>\`${formatTrimtickLine(value)}\``;
+    }
+    const firstNonblank = value.split('\n').find((line) => line.length > 0) ?? '';
+    const gutter = firstNonblank.startsWith(' ') ? '\t' : ' ';
+    const protectedValue = value
+        .split('\n')
+        .map((line) => line.length === 0 ? '' : `${gutter}${line}`)
+        .join('\n');
+    return `>\`${formatTrimtickLine(protectedValue)}\``;
+}
+
 function formatTrimtickLine(value: string): string {
     let out = '';
     for (const ch of value) {
         switch (ch) {
             case '\\': out += '\\\\'; break;
             case '`': out += '\\`'; break;
+            case '\n': out += '\\n'; break;
             case '\r': out += '\\r'; break;
             case '\t': out += '\\t'; break;
             default: {
@@ -851,7 +866,7 @@ function formatSymbolic(value: string): string {
 }
 
 function isSimpleValue(value: Value): boolean {
-    if (value.type === 'StringLiteral' && value.value.includes('\n')) {
+    if (value.type === 'StringLiteral' && value.trimticks && value.value.includes('\n')) {
         return false;
     }
     if (value.type === 'TypedValue') {
