@@ -33,6 +33,7 @@ Runs the canonical conformance lane:
   6. Cross-implementation real-document canonical corpus parity
   7. Cross-implementation diagnostic snippet parity
   8. Grammar-derived temporal flow and canonical parity
+  9. Literal dispatch, symbols, strings, and trimtick flow
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -141,3 +142,8 @@ echo "-- Grammar-derived temporal flow and canonical parity"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/test-mutate-temporal-flow.py"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/test-temporal-sweep.py"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/stress-temporal-flow.py"
+echo
+
+echo "-- Literal dispatch and delimited literal flow"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/test-literal-flow.py"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/stress-literal-flow.py" --verbose

@@ -415,7 +415,7 @@ export class Lexer {
                 return;
             }
 
-            if (c === '\n' && !isMultiline) {
+            if ((c === '\n' || c === '\r') && !isMultiline) {
                 this.errors.push(new UnterminatedStringError(delimiter, createSpan(start, this.currentPosition())));
                 return;
             }

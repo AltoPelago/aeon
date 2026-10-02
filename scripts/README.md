@@ -54,6 +54,8 @@ changelog prose or create Git commits and tags.
 | `canonical-cts.sh` | Canonical conformance composite runner (TS + Rust + cross-implementation parity). | `bash ./scripts/canonical-cts.sh --mode all --brief` |
 | `stress-temporal-flow.py` | Grammar-derived temporal transitions, boundaries, and canonical round-trip parity across TS/Python/Rust. | `python3 ./scripts/stress-temporal-flow.py` |
 | `test-temporal-flow.py` | Independent temporal probe oracle and fixture sanity tests. | `python3 ./scripts/test-temporal-flow.py` |
+| `stress-literal-flow.py` | Number/temporal dispatch, symbols, strings, trimtick gutters, and canonical round trips; failures-only by default. | `python3.14 ./scripts/stress-literal-flow.py --report /tmp/literal-flow.json` |
+| `test-literal-flow.py` | Independent literal decoder, numeric semantics, and matrix sanity checks. | `python3.14 ./scripts/test-literal-flow.py` |
 | `mutate-temporal-flow.py` | Isolated Python source mutations measuring temporal matrix fault detection. | `python3.14 ./scripts/mutate-temporal-flow.py --report /tmp/temporal-mutations.json` |
 | `test-mutate-temporal-flow.py` | Validate mutation anchors and syntax without changing implementation files. | `python3.14 ./scripts/test-mutate-temporal-flow.py` |
 | `temporal-sweep.py` | Quiet seeded numeric date/time range sweep across all three Core compilers; builds workers automatically. | `python3.14 ./scripts/temporal-sweep.py --report /tmp/new-temporal-sweep.json` |

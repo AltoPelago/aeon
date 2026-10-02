@@ -284,7 +284,7 @@ def cases():
     return result
 
 
-def run_case(case: Case, timeout: float, *, commands=None, process_runner=subprocess.run):
+def run_case(case: Case, timeout: float, *, commands=None, process_runner=subprocess.run, semantic_key=None):
     commands = COMMANDS if commands is None else commands
     failures = []
     canonical = {}
@@ -306,8 +306,13 @@ def run_case(case: Case, timeout: float, *, commands=None, process_runner=subpro
                     continue
                 events = envelope.get("events", [])
                 event = next((e for e in events if e.get("path") == case.path), {})
-                kind = "WTCDateTimeLiteral" if "&" in case.literal else "DateTimeLiteral" if "T" in case.literal else "TimeLiteral" if ":" in case.literal else "DateLiteral"
-                if event.get("kind") != kind or event.get("value") != case.literal:
+                kind = getattr(case, "kind", None) or ("WTCDateTimeLiteral" if "&" in case.literal else "DateTimeLiteral" if "T" in case.literal else "TimeLiteral" if ":" in case.literal else "DateLiteral")
+                expected_value = getattr(case, "expected_value", case.literal)
+                actual_payload = {"kind": event.get("kind"), "value": event.get("value")}
+                expected_payload = {"kind": kind, "value": expected_value}
+                payload_matches = (semantic_key(actual_payload) == semantic_key(expected_payload)
+                                   if semantic_key else actual_payload == expected_payload)
+                if not payload_matches:
                     failures.append(f"{impl}: payload/kind mismatch at {case.path}: {event}")
                 formatted = run(impl, case.source, ["fmt"])
                 if formatted.returncode:
@@ -321,7 +326,7 @@ def run_case(case: Case, timeout: float, *, commands=None, process_runner=subpro
                 after = json.loads(round_trip.stdout)
                 # Ignore authored binding order: canonical output sorts object keys.
                 def semantic(records):
-                    return sorted(json.dumps(e, sort_keys=True) for e in records)
+                    return sorted(json.dumps(semantic_key(e) if semantic_key else e, sort_keys=True) for e in records)
                 if round_trip.returncode or after.get("errors") or semantic(events) != semantic(after.get("events", [])):
                     failures.append(f"{impl}: canonical reparse changed portable AES or failed")
             except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError, KeyError) as exc:

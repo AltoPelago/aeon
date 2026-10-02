@@ -2955,6 +2955,43 @@ mod tests {
     }
 
     #[test]
+    fn prose_rejects_non_trimtick_values_in_all_binding_positions() {
+        for value in ["\"text\"", "`text`", "|text|", "1"] {
+            for body in [
+                format!("v:prose = {value}"),
+                format!("v:list = [:prose = {value}]"),
+                format!("v:object = {{x:prose = {value}}}"),
+                format!("v@{{x:prose = {value}}}:number = 1"),
+            ] {
+                let source = format!("aeon:mode = \"strict\"\n{body}");
+                let result = compile(&source, CompileOptions::default());
+                assert!(!result.errors.is_empty(), "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_leading_zero_rules_distinguish_mantissas_from_exponents() {
+        for literal in ["0_1", "0_0", "-0_1.2", "+0_1", "0_1e2", "00", "01.2"] {
+            let result = compile(&format!("v = {literal}"), CompileOptions::default());
+            assert!(
+                result
+                    .errors
+                    .iter()
+                    .any(|error| error.code == "INVALID_NUMBER"),
+                "{literal}: {:?}",
+                result.errors
+            );
+        }
+        for literal in [
+            "0e+01", "0e-01", "1e01", "1e0_1", "1e+00", "1_000", "0.01", "0",
+        ] {
+            let result = compile(&format!("v = {literal}"), CompileOptions::default());
+            assert!(result.errors.is_empty(), "{literal}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
     fn transport_mode_allows_custom_datatypes_without_explicit_override() {
         let result = compile(
             "aeon:mode = \"transport\"\ncolor:stroke = #ff00ff\n",

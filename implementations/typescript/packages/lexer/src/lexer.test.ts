@@ -123,6 +123,19 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, 'line1\nline2');
         });
 
+        it('rejects raw LF, CR, and CRLF in non-backtick quoted strings', () => {
+            for (const quote of ['"', "'"]) {
+                for (const newline of ['\n', '\r', '\r\n']) {
+                    const result = tokenize(`${quote}a${newline}b${quote}`);
+                    assert.ok(result.errors.some(error => error.code === 'UNTERMINATED_STRING'));
+                    assert.ok(!result.tokens.some(token => token.type === TokenType.String));
+                }
+            }
+            const escaped = tokenize('"a\\rb"');
+            assert.equal(escaped.errors.length, 0);
+            assert.equal(escaped.tokens[0]!.value, 'a\rb');
+        });
+
         it('should handle escapes inside backtick strings', () => {
             const result = tokenize('`\\``');
             assert.strictEqual(result.tokens[0]!.type, TokenType.String);
