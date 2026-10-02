@@ -115,6 +115,9 @@ Before cutting a TypeScript release:
 - add the matching dated `CHANGELOG.md` section and run
   `npm run version:check` plus `npm run test:version`
 - verify any publish-surface changes are intentional and documented
+- for 0.14.0, the canonical conformance command is intentionally pinned to
+  `canonical-cts-v1-snapshot-0.2`; land that immutable CTS snapshot before the
+  implementation change so clean CI checkouts can resolve the pin
 - run:
 
 ```bash
