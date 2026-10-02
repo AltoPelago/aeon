@@ -462,8 +462,8 @@ def format_symbolic(value: str) -> str:
 def format_trimticks(value: str, indent: int) -> list[str]:
     if "\n" not in value:
         return [format_compact_trimtick(value)]
-    first_nonblank = next((line for line in value.split("\n") if line), "")
-    if first_nonblank.startswith(" "):
+    nonblank = [line for line in value.split("\n") if line]
+    if nonblank and all(line.startswith(" ") for line in nonblank):
         return [format_compact_trimtick(value)]
     prefix = " " * indent
     body_prefix = " " * (indent + 2)

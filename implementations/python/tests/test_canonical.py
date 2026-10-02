@@ -98,6 +98,15 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual([], repeated.errors)
         self.assertEqual(result.text, repeated.text)
 
+    def test_block_trimticks_use_canonical_space_indentation(self) -> None:
+        result = canonicalize('c=>`\n  hello\n world\n hello\n`')
+        self.assertEqual([], result.errors)
+        self.assertIn('c = >`\n   hello\n  world\n  hello\n`', result.text)
+        self.assertNotIn('\\t', result.text)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
     def test_canonicalizes_hex_and_tuple_layout_like_typescript(self) -> None:
         source = 'hexes = [#FF00AA, #00FF00]\ntuples = [\n  (\n    1,\n    2\n  )\n]'
         result = canonicalize(source)

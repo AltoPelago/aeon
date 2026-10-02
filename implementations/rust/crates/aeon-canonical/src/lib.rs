@@ -657,14 +657,10 @@ fn render_trimtick_lines(value: &str, indent: usize) -> Vec<String> {
     if !value.contains('\n') {
         return vec![format_compact_trimtick(value)];
     }
-    let first_nonblank = value
-        .split('\n')
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
-    if first_nonblank.starts_with(' ') {
+    let nonblank = value.split('\n').filter(|line| !line.is_empty());
+    if nonblank.clone().next().is_some() && nonblank.clone().all(|line| line.starts_with(' ')) {
         return vec![format_compact_trimtick(value)];
     }
-
     let prefix = " ".repeat(indent);
     let body_prefix = " ".repeat(indent + 2);
     let mut lines = vec![String::from(">`")];
@@ -3173,6 +3169,21 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(result.text.contains("value = \"\\nhello\\n\""));
         assert!(!result.text.contains("value = >`"));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn block_trimticks_use_canonical_space_indentation() {
+        let result = canonicalize("c=>`\n  hello\n world\n hello\n`");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("c = >`\n   hello\n  world\n  hello\n`")
+        );
+        assert!(!result.text.contains("\\t"));
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
         assert_eq!(repeated.text, result.text);

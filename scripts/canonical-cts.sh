@@ -102,7 +102,7 @@ echo
 
 echo "-- Canonical CTS manifests across all implementations"
 for manifest in \
-  "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.snapshot-0.2.json" \
+  "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.snapshot-0.3.json" \
   "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.next.json"; do
   for sut in \
     "$TS_DIR/packages/cli/dist/main.js" \

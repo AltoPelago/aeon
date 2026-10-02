@@ -742,8 +742,8 @@ function formatTrimticks(value: string, indent: number): string[] {
     if (!value.includes('\n')) {
         return [formatCompactTrimtick(value)];
     }
-    const firstNonblank = value.split('\n').find((line) => line.length > 0) ?? '';
-    if (firstNonblank.startsWith(' ')) {
+    const nonblank = value.split('\n').filter((line) => line.length > 0);
+    if (nonblank.length > 0 && nonblank.every((line) => line.startsWith(' '))) {
         return [formatCompactTrimtick(value)];
     }
     const prefix = ' '.repeat(indent);

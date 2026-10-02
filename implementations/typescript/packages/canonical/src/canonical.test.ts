@@ -166,7 +166,12 @@ test('canonicalizes multiline trimticks without losing payload indentation', () 
         '  version = "1.0"',
         '}',
         'class = {',
-        '  text = >`\\t   This policy applies when a request is retried.\\n\\tThe consumer must validate the signature again.\\n\\t   The cached response may be reused if it is still valid.\\n\\t Otherwise, fetch a fresh copy.`',
+        '  text = >`',
+        '       This policy applies when a request is retried.',
+        '    The consumer must validate the signature again.',
+        '       The cached response may be reused if it is still valid.',
+        '     Otherwise, fetch a fresh copy.',
+        '  `',
         '}',
     ].join('\n') + '\n');
     const repeated = canonicalize(result.text);
@@ -255,6 +260,17 @@ test('compact trimticks preserve semantic leading blank lines', () => {
         assert.deepEqual(repeated.errors, []);
         assert.equal(repeated.text, result.text, input);
     }
+});
+
+test('block trimticks use canonical space indentation when payload begins with a space', () => {
+    const result = canonicalize('c=>`\n  hello\n world\n hello\n`');
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('c = >`\n   hello\n  world\n  hello\n`'));
+    assert.ok(!result.text.includes('\\t'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
 });
 
 test('ordinary multiline backticks do not canonicalize as trimticks', () => {
