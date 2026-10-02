@@ -761,10 +761,11 @@ function formatCompactTrimtick(value: string): string {
     }
     const firstNonblank = value.split('\n').find((line) => line.length > 0) ?? '';
     const gutter = firstNonblank.startsWith(' ') ? '\t' : ' ';
-    const protectedValue = value
+    let protectedValue = value
         .split('\n')
         .map((line) => line.length === 0 ? '' : `${gutter}${line}`)
         .join('\n');
+    if (value.startsWith('\n')) protectedValue = `\n${protectedValue}`;
     return `>\`${formatTrimtickLine(protectedValue)}\``;
 }
 

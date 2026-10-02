@@ -690,7 +690,7 @@ fn format_compact_trimtick(value: &str) -> String {
     } else {
         ' '
     };
-    let protected_value = value
+    let mut protected_value = value
         .split('\n')
         .map(|line| {
             if line.is_empty() {
@@ -701,6 +701,9 @@ fn format_compact_trimtick(value: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    if value.starts_with('\n') {
+        protected_value.insert(0, '\n');
+    }
     format!(">`{}`", escape_trimtick_line(&protected_value))
 }
 
@@ -3139,6 +3142,37 @@ mod tests {
                 trimticks: true,
             } if value == " first\n  second"
         ));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn compact_trimticks_preserve_semantic_leading_blank_lines() {
+        let sources = [
+            "value:trimtick = >`\n\n\t alpha\n\tbeta\n`",
+            "value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`",
+            "value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1",
+        ];
+        for source in sources {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+            let repeated = canonicalize(&result.text);
+            assert!(
+                repeated.errors.is_empty(),
+                "{source}: {:?}",
+                repeated.errors
+            );
+            assert_eq!(repeated.text, result.text, "{source}");
+        }
+    }
+
+    #[test]
+    fn ordinary_multiline_backticks_do_not_canonicalize_as_trimticks() {
+        let result = canonicalize("value = `\nhello\n`");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("value = \"\\nhello\\n\""));
+        assert!(!result.text.contains("value = >`"));
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
         assert_eq!(repeated.text, result.text);

@@ -477,6 +477,8 @@ def format_compact_trimtick(value: str) -> str:
     first_nonblank = next((line for line in lines if line), "")
     gutter = "\t" if first_nonblank.startswith(" ") else " "
     protected_value = "\n".join("" if not line else f"{gutter}{line}" for line in lines)
+    if value.startswith("\n"):
+        protected_value = "\n" + protected_value
     return f">`{format_trimtick_line(protected_value)}`"
 
 

@@ -241,6 +241,33 @@ test('compact multiline trimticks preserve payload indentation after tab-gutter 
     assert.equal(repeated.text, result.text);
 });
 
+test('compact trimticks preserve semantic leading blank lines', () => {
+    const inputs = [
+        'value:trimtick = >`\n\n\t alpha\n\tbeta\n`',
+        'value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`',
+        'value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1',
+    ];
+
+    for (const input of inputs) {
+        const result = canonicalize(input);
+        assert.deepEqual(result.errors, []);
+        const repeated = canonicalize(result.text);
+        assert.deepEqual(repeated.errors, []);
+        assert.equal(repeated.text, result.text, input);
+    }
+});
+
+test('ordinary multiline backticks do not canonicalize as trimticks', () => {
+    const result = canonicalize('value = `\nhello\n`');
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('value = "\\nhello\\n"'));
+    assert.ok(!result.text.includes('value = >`'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
+});
+
 test('preserves strict string and prose literal families across canonical round trips', () => {
     const input = [
         'aeon:mode = "strict"',

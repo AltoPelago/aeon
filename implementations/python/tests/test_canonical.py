@@ -75,6 +75,29 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual([], repeated.errors)
         self.assertEqual(result.text, repeated.text)
 
+    def test_compact_trimticks_preserve_semantic_leading_blank_lines(self) -> None:
+        sources = [
+            'value:trimtick = >`\n\n\t alpha\n\tbeta\n`',
+            'value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`',
+            'value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1',
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                result = canonicalize(source)
+                self.assertEqual([], result.errors)
+                repeated = canonicalize(result.text)
+                self.assertEqual([], repeated.errors)
+                self.assertEqual(result.text, repeated.text)
+
+    def test_ordinary_multiline_backticks_do_not_canonicalize_as_trimticks(self) -> None:
+        result = canonicalize('value = `\nhello\n`')
+        self.assertEqual([], result.errors)
+        self.assertIn('value = "\\nhello\\n"', result.text)
+        self.assertNotIn('value = >`', result.text)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
     def test_canonicalizes_hex_and_tuple_layout_like_typescript(self) -> None:
         source = 'hexes = [#FF00AA, #00FF00]\ntuples = [\n  (\n    1,\n    2\n  )\n]'
         result = canonicalize(source)
