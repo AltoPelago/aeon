@@ -1,3 +1,9 @@
+function trimTrailingZeros(value: string): string {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '0') end -= 1;
+    return value.slice(0, end);
+}
+
 export function normalizeNumberLiteral(raw: string): string {
     let value = raw.replace(/_/g, '').replace(/E/g, 'e');
     if (value.startsWith('.')) value = `0${value}`;
@@ -10,7 +16,7 @@ export function normalizeNumberLiteral(raw: string): string {
     let exponent = parts[1];
     if (mantissa.includes('.')) {
         const [intPart, fractionRaw] = mantissa.split('.');
-        const fraction = fractionRaw?.replace(/0+$/, '') || '0';
+        const fraction = trimTrailingZeros(fractionRaw ?? '') || '0';
         mantissa = exponent !== undefined && fraction === '0'
             ? intPart ?? ''
             : `${intPart ?? ''}.${fraction}`;

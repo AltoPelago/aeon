@@ -18,3 +18,7 @@ test('normalizes number literal values to canonical finite numeric text', () => 
         assert.equal(normalizeNumberLiteral(source), expected, source);
     }
 });
+
+test('normalizes a long fractional suffix in linear time', () => {
+    assert.equal(normalizeNumberLiteral(`1.${'0'.repeat(100_000)}`), '1.0');
+});

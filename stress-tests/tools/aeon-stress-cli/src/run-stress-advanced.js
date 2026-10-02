@@ -146,21 +146,23 @@ function runTrimtickCanonicalConvergence() {
     '\tright?',
     '\t`',
   ].join('\n'));
-  const raw = canonicalize([
-    'text:string = `Whenever I am here,',
-    'I can do whatever I want',
-    'because this is such a cool feature',
-    'right?`',
+  const spaceGutter = canonicalize([
+    'text:string = >`',
+    '  Whenever I am here,',
+    '  I can do whatever I want',
+    '  because this is such a cool feature',
+    '  right?',
+    '`',
   ].join('\n'));
 
-  if (trimtick.errors.length > 0 || raw.errors.length > 0) {
+  if (trimtick.errors.length > 0 || spaceGutter.errors.length > 0) {
     return failRow('trimtick-canonical-convergence', 'canonicalization should not error', {
       e1: trimtick.errors.map((error) => error.code).join(','),
-      e2: raw.errors.map((error) => error.code).join(','),
+      e2: spaceGutter.errors.map((error) => error.code).join(','),
     });
   }
-  if (trimtick.text !== raw.text) {
-    return failRow('trimtick-canonical-convergence', 'equivalent multiline values should converge canonically');
+  if (trimtick.text !== spaceGutter.text) {
+    return failRow('trimtick-canonical-convergence', 'equivalent tab- and space-gutter values should converge canonically');
   }
   if (!trimtick.text.includes('text:string = >`')) {
     return failRow('trimtick-canonical-convergence', 'canonical output should use trimticks for multiline strings');
