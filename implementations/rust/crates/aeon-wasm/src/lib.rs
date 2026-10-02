@@ -1437,6 +1437,23 @@ mod tests {
     }
 
     #[test]
+    fn canonical_response_preserves_strict_string_and_prose_literal_families() {
+        let output = process_aeon_json(
+            "aeon:mode = \"strict\"\ndescription:prose = >`approved`\nmessage:string = \"first\\nsecond\"\n",
+            r#"{"validationMode":"strict","finalizeScope":"payload"}"#,
+        )
+        .expect("process aeon");
+        let parsed: JsonValue = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(parsed["errors"], serde_json::json!([]));
+        let canonical = parsed["canonical"].as_str().expect("canonical source");
+        assert!(canonical.contains("description:prose = >`approved`"));
+        assert!(canonical.contains("message:string = \"first\\nsecond\""));
+        let round_trip = aeon_core::compile(canonical, aeon_core::CompileOptions::default());
+        assert!(round_trip.errors.is_empty(), "{:?}", round_trip.errors);
+    }
+
+    #[test]
     fn benchmark_process_retains_the_response_without_serializing_it() {
         let fields =
             benchmark_process_aeon("a:string = \"ok\"\n", "{}").expect("benchmark process aeon");

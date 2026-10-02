@@ -33,20 +33,76 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('a@{"x.y" = 1} = 2', result.text)
         self.assertIn('b = ~["a.b"].@.["x.y"].["z w"]', result.text)
 
-    def test_canonicalizes_multiline_strings_as_trimticks(self) -> None:
+    def test_preserves_quoted_multiline_strings(self) -> None:
         result = canonicalize('text = "Line\\nBreak"')
         self.assertEqual([], result.errors)
-        self.assertIn('text = >`', result.text)
-        self.assertIn('  Line', result.text)
-        self.assertIn('  Break', result.text)
+        self.assertIn('text = "Line\\nBreak"', result.text)
 
-    def test_escapes_trimticks_backslashes_and_controls_in_multiline_output(self) -> None:
+    def test_escapes_controls_without_changing_string_literal_family(self) -> None:
         result = canonicalize('value = "line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b"')
         self.assertEqual([], result.errors)
         self.assertIn(
-            'value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`',
+            'value = "line1\\ntick:` slash:\\\\ tab:\\t backspace:\\u0008"',
             result.text,
         )
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
+    def test_preserves_strict_string_and_prose_literal_families(self) -> None:
+        source = (
+            'aeon:mode = "strict"\n'
+            'description:prose = >`approved`\n'
+            'message:string = "first\\nsecond"\n'
+            'notes:list<trimtick> = [>`one`, >`two`]'
+        )
+        result = canonicalize(source)
+        self.assertEqual([], result.errors)
+        self.assertIn('description:prose = >`approved`', result.text)
+        self.assertIn('message:string = "first\\nsecond"', result.text)
+        self.assertIn('notes:list<trimtick> = [>`one`, >`two`]', result.text)
+        self.assertEqual([], compile_source(result.text).errors)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
+    def test_compact_multiline_trimticks_preserve_payload_indentation(self) -> None:
+        source = 'a@{note:trimtick = >`\n\t first\n\t  second\n`}:number = 1'
+        result = canonicalize(source)
+        self.assertEqual([], result.errors)
+        self.assertIn('note:trimtick = >`\\t first\\n\\t  second`', result.text)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
+    def test_compact_trimticks_preserve_semantic_leading_blank_lines(self) -> None:
+        sources = [
+            'value:trimtick = >`\n\n\t alpha\n\tbeta\n`',
+            'value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`',
+            'value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1',
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                result = canonicalize(source)
+                self.assertEqual([], result.errors)
+                repeated = canonicalize(result.text)
+                self.assertEqual([], repeated.errors)
+                self.assertEqual(result.text, repeated.text)
+
+    def test_ordinary_multiline_backticks_do_not_canonicalize_as_trimticks(self) -> None:
+        result = canonicalize('value = `\nhello\n`')
+        self.assertEqual([], result.errors)
+        self.assertIn('value = "\\nhello\\n"', result.text)
+        self.assertNotIn('value = >`', result.text)
+        repeated = canonicalize(result.text)
+        self.assertEqual([], repeated.errors)
+        self.assertEqual(result.text, repeated.text)
+
+    def test_block_trimticks_use_canonical_space_indentation(self) -> None:
+        result = canonicalize('c=>`\n  hello\n world\n hello\n`')
+        self.assertEqual([], result.errors)
+        self.assertIn('c = >`\n   hello\n  world\n  hello\n`', result.text)
+        self.assertNotIn('\\t', result.text)
         repeated = canonicalize(result.text)
         self.assertEqual([], repeated.errors)
         self.assertEqual(result.text, repeated.text)
@@ -130,6 +186,10 @@ class CanonicalTests(unittest.TestCase):
             'zeroInt:number = +0\n'
             'zeroDec:number = -.0\n'
             'zeroExp:number = -0.0E-0\n'
+            'zeroExpPositive:number = 0e+01\n'
+            'zeroExpNegative:number = 0e-01\n'
+            'negativeZeroExpPositive:number = -0e+01\n'
+            'negativeZeroExpNegative:number = -0e-01\n'
             'mask:radix[10] = %10.00\n'
             'width:radix[10] = %0010.00'
         )
@@ -141,6 +201,10 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('zeroInt:number = 0', result.text)
         self.assertIn('zeroDec:number = -0.0', result.text)
         self.assertIn('zeroExp:number = -0e0', result.text)
+        self.assertIn('zeroExpPositive:number = 0e0', result.text)
+        self.assertIn('zeroExpNegative:number = 0e0', result.text)
+        self.assertIn('negativeZeroExpPositive:number = -0e0', result.text)
+        self.assertIn('negativeZeroExpNegative:number = -0e0', result.text)
         self.assertIn('mask:radix[10] = %10.00', result.text)
         self.assertIn('width:radix[10] = %0010.00', result.text)
 

@@ -52,6 +52,14 @@ changelog prose or create Git commits and tags.
 | `cts-source-lane-runner.mjs` | Shared CLI runner for source, finalization, SANSA-address, and AES path-translation lanes. | `node ./scripts/cts-source-lane-runner.mjs --sut ... --cts ... --lane core` |
 | `aes-path-translation-cts.sh` | Runs recursive AES source/event path translation and synthetic-head rejection vectors across TypeScript, Rust, Python, and PHP. | `bash ./scripts/aes-path-translation-cts.sh` |
 | `canonical-cts.sh` | Canonical conformance composite runner (TS + Rust + cross-implementation parity). | `bash ./scripts/canonical-cts.sh --mode all --brief` |
+| `stress-temporal-flow.py` | Grammar-derived temporal transitions, boundaries, and canonical round-trip parity across TS/Python/Rust. | `python3 ./scripts/stress-temporal-flow.py` |
+| `test-temporal-flow.py` | Independent temporal probe oracle and fixture sanity tests. | `python3 ./scripts/test-temporal-flow.py` |
+| `stress-literal-flow.py` | Number/temporal dispatch, symbols, strings, trimtick gutters, and canonical round trips; failures-only by default. | `python3.14 ./scripts/stress-literal-flow.py --report /tmp/literal-flow.json` |
+| `test-literal-flow.py` | Independent literal decoder, numeric semantics, and matrix sanity checks. | `python3.14 ./scripts/test-literal-flow.py` |
+| `mutate-temporal-flow.py` | Isolated Python source mutations measuring temporal matrix fault detection. | `python3.14 ./scripts/mutate-temporal-flow.py --report /tmp/temporal-mutations.json` |
+| `test-mutate-temporal-flow.py` | Validate mutation anchors and syntax without changing implementation files. | `python3.14 ./scripts/test-mutate-temporal-flow.py` |
+| `temporal-sweep.py` | Quiet seeded numeric date/time range sweep across all three Core compilers; builds workers automatically. | `python3.14 ./scripts/temporal-sweep.py --report /tmp/new-temporal-sweep.json` |
+| `test-temporal-sweep.py` | Numeric sweep oracle, protocol, reproducibility, and output-contract tests. | `python3.14 ./scripts/test-temporal-sweep.py` |
 | `compare-canonical-implementations.py` | Compares TypeScript and Python canonical `fmt` output across fixture corpora. | `python3 ./scripts/compare-canonical-implementations.py` |
 
 ### Implementation and hardening helpers

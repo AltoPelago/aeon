@@ -1553,7 +1553,7 @@ fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) 
         "infinity" => matches!(value, CompactDatatypeValue::Infinity),
         "nan" => matches!(value, CompactDatatypeValue::NaN),
         "string" => matches!(value, CompactDatatypeValue::String),
-        "trimtick" => matches!(value, CompactDatatypeValue::TrimtickString),
+        "trimtick" | "prose" => matches!(value, CompactDatatypeValue::TrimtickString),
         "boolean" | "bool" => matches!(value, CompactDatatypeValue::Boolean),
         "toggle" => matches!(value, CompactDatatypeValue::Toggle),
         "hex" => matches!(value, CompactDatatypeValue::Hex(true)),
@@ -2043,5 +2043,5 @@ fn is_valid_exponent_digits(raw: &str) -> bool {
 }
 
 fn has_invalid_leading_zero(raw: &str) -> bool {
-    raw.len() > 1 && raw.starts_with('0') && !raw.starts_with("0_")
+    raw.len() > 1 && raw.starts_with('0')
 }

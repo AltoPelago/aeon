@@ -149,7 +149,7 @@ def main() -> int:
                 "--sut",
                 str(sut),
                 "--cts",
-                cts_manifest("canonical", "v1", "canonical-cts.v1.json"),
+                cts_manifest("canonical", "v1", "canonical-cts.v1.snapshot-0.3.json"),
                 "--lane",
                 "canonical",
             ],

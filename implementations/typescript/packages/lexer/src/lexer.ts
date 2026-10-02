@@ -415,7 +415,7 @@ export class Lexer {
                 return;
             }
 
-            if (c === '\n' && !isMultiline) {
+            if ((c === '\n' || c === '\r') && !isMultiline) {
                 this.errors.push(new UnterminatedStringError(delimiter, createSpan(start, this.currentPosition())));
                 return;
             }
@@ -1341,7 +1341,7 @@ function matchesTimeCore(value: string, allowHourPrecisionMarker: boolean): bool
 
 function matchesDateTimeCore(value: string): boolean {
     if (value.length === 2) {
-        return /^\d{2}$/.test(value);
+        return /^\d{2}$/.test(value) && isValidHour(Number.parseInt(value, 10));
     }
     return matchesTimeCore(value, false);
 }

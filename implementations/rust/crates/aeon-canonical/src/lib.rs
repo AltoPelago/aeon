@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use aeon_core::{Diagnostic, Position, Span, strip_leading_bom};
+use aeon_core::{Diagnostic, Position, Span, normalize_number_literal, strip_leading_bom};
 
 pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
@@ -46,7 +46,10 @@ enum Value {
         datatype: Option<String>,
         value: Box<Value>,
     },
-    String(String),
+    String {
+        value: String,
+        trimticks: bool,
+    },
     Symbol(String),
     Number(String),
     Infinity(String),
@@ -173,10 +176,34 @@ fn merge_header_bindings(structured: &mut Vec<Binding>, shorthand: Vec<Binding>)
 
 fn default_header() -> Vec<Binding> {
     vec![
-        Binding::scalar("encoding", Value::String(String::from("utf-8"))),
-        Binding::scalar("mode", Value::String(String::from("transport"))),
-        Binding::scalar("profile", Value::String(String::from("core"))),
-        Binding::scalar("version", Value::String(String::from("1.0"))),
+        Binding::scalar(
+            "encoding",
+            Value::String {
+                value: String::from("utf-8"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "mode",
+            Value::String {
+                value: String::from("transport"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "profile",
+            Value::String {
+                value: String::from("core"),
+                trimticks: false,
+            },
+        ),
+        Binding::scalar(
+            "version",
+            Value::String {
+                value: String::from("1.0"),
+                trimticks: false,
+            },
+        ),
     ]
 }
 
@@ -234,8 +261,11 @@ fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
                 lines
             }
         }
-        Value::String(value) if value.contains('\n') => {
-            let rendered = render_string_lines(value, indent);
+        Value::String {
+            value,
+            trimticks: true,
+        } if value.contains('\n') => {
+            let rendered = render_trimtick_lines(value, indent);
             let mut lines = vec![format!("{left} = {}", rendered[0])];
             lines.extend(rendered.into_iter().skip(1));
             lines
@@ -300,8 +330,11 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
                 vec![format!("{prefix}{head} = ")]
             }
         }
-        Value::String(value) if value.contains('\n') => {
-            let mut lines = render_string_lines(value, indent);
+        Value::String {
+            value,
+            trimticks: true,
+        } if value.contains('\n') => {
+            let mut lines = render_trimtick_lines(value, indent);
             if let Some(first) = lines.first_mut() {
                 *first = format!("{prefix}{first}");
             }
@@ -454,7 +487,13 @@ fn render_value_inline(value: &Value) -> String {
                 render_value_inline(value)
             )
         }
-        Value::String(value) => format!("\"{}\"", escape_string(value)),
+        Value::String { value, trimticks } => {
+            if *trimticks {
+                format_compact_trimtick(value)
+            } else {
+                format!("\"{}\"", escape_string(value))
+            }
+        }
         Value::Symbol(value) => format_symbol(value),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
@@ -549,7 +588,7 @@ fn render_structural_identity(structural_id: Option<&str>) -> String {
 fn is_simple_scalar(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_scalar(value),
-        Value::String(value) => !value.contains('\n'),
+        Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
         | Value::Number(_)
         | Value::Infinity(_)
@@ -562,7 +601,7 @@ fn is_simple_scalar(value: &Value) -> bool {
 fn is_simple_value(value: &Value) -> bool {
     match value {
         Value::Attributed { value, .. } => is_simple_value(value),
-        Value::String(value) => !value.contains('\n'),
+        Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
         | Value::Number(_)
         | Value::Infinity(_)
@@ -614,11 +653,14 @@ fn format_symbol(value: &str) -> String {
     out
 }
 
-fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
+fn render_trimtick_lines(value: &str, indent: usize) -> Vec<String> {
     if !value.contains('\n') {
-        return vec![format!("\"{}\"", escape_string(value))];
+        return vec![format_compact_trimtick(value)];
     }
-
+    let nonblank = value.split('\n').filter(|line| !line.is_empty());
+    if nonblank.clone().next().is_some() && nonblank.clone().all(|line| line.starts_with(' ')) {
+        return vec![format_compact_trimtick(value)];
+    }
     let prefix = " ".repeat(indent);
     let body_prefix = " ".repeat(indent + 2);
     let mut lines = vec![String::from(">`")];
@@ -631,12 +673,43 @@ fn render_string_lines(value: &str, indent: usize) -> Vec<String> {
     lines
 }
 
+fn format_compact_trimtick(value: &str) -> String {
+    if !value.contains('\n') {
+        return format!(">`{}`", escape_trimtick_line(value));
+    }
+    let first_nonblank = value
+        .split('\n')
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let gutter = if first_nonblank.starts_with(' ') {
+        '\t'
+    } else {
+        ' '
+    };
+    let mut protected_value = value
+        .split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{gutter}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if value.starts_with('\n') {
+        protected_value.insert(0, '\n');
+    }
+    format!(">`{}`", escape_trimtick_line(&protected_value))
+}
+
 fn escape_trimtick_line(value: &str) -> String {
     let mut out = String::new();
     for ch in value.chars() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '`' => out.push_str("\\`"),
+            '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
@@ -705,59 +778,7 @@ fn is_blank_trimtick_line(line: &str) -> bool {
 }
 
 fn normalize_number(raw: &str) -> String {
-    let mut value = raw.replace('_', "").replace('E', "e");
-    if value.starts_with('.') {
-        value = format!("0{value}");
-    }
-    if value.starts_with("-.") {
-        value = value.replacen("-.", "-0.", 1);
-    }
-    if value.starts_with("+.") {
-        value = value.replacen("+.", "0.", 1);
-    }
-    if value.starts_with('+') && value.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
-        value.remove(0);
-    }
-
-    let (mut mantissa, exponent) = match value.split_once('e') {
-        Some((mantissa, exponent)) => (mantissa.to_owned(), Some(exponent.to_owned())),
-        None => (value, None),
-    };
-
-    if let Some((int_part, frac_part_raw)) = mantissa.split_once('.') {
-        let mut frac_part = frac_part_raw.trim_end_matches('0').to_owned();
-        if frac_part.is_empty() {
-            frac_part = String::from("0");
-        }
-        if exponent.is_some() && frac_part == "0" {
-            mantissa = int_part.to_owned();
-        } else {
-            mantissa = format!("{int_part}.{frac_part}");
-        }
-    }
-
-    if let Some(mut exponent) = exponent {
-        if exponent.starts_with('+') {
-            exponent.remove(0);
-        }
-        let negative = exponent.starts_with('-');
-        let digits = if negative {
-            &exponent[1..]
-        } else {
-            &exponent[..]
-        };
-        let trimmed = digits.trim_start_matches('0');
-        let normalized = if trimmed.is_empty() { "0" } else { trimmed };
-        if normalized == "0" {
-            format!("{mantissa}e0")
-        } else if negative {
-            format!("{mantissa}e-{normalized}")
-        } else {
-            format!("{mantissa}e{normalized}")
-        }
-    } else {
-        mantissa
-    }
+    normalize_number_literal(raw)
 }
 
 fn is_rejected_nonfinite_literal(raw: &str) -> bool {
@@ -1004,38 +1025,39 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
             && bytes[..2].iter().all(u8::is_ascii_digit)
             && bytes[3..5].iter().all(u8::is_ascii_digit)
             && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5]
-                .parse::<u32>()
-                .ok()
-                .is_some_and(is_valid_minute_or_second);
+            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute);
     }
     matches_hms(value)
 }
 
 fn matches_datetime_core(value: &str) -> bool {
     if value.len() == 2 {
-        return value.as_bytes().iter().all(u8::is_ascii_digit);
+        return value.as_bytes().iter().all(u8::is_ascii_digit)
+            && value.parse::<u32>().ok().is_some_and(is_valid_hour);
     }
     matches_time_core(value, false)
 }
 
 fn matches_hms(value: &str) -> bool {
-    let bytes = value.as_bytes();
+    let whole = match value.split_once('.') {
+        Some((whole, fraction)) => {
+            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+                return false;
+            }
+            whole
+        }
+        None => value,
+    };
+    let bytes = whole.as_bytes();
     bytes.len() == 8
         && bytes[2] == b':'
         && bytes[5] == b':'
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && bytes[6..8].iter().all(u8::is_ascii_digit)
-        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
-        && value[6..8]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && whole[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+        && whole[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
+        && whole[6..8].parse::<u32>().ok().is_some_and(is_valid_second)
 }
 
 fn matches_offset(value: &str) -> bool {
@@ -1045,10 +1067,7 @@ fn matches_offset(value: &str) -> bool {
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
 }
 
 fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
@@ -1073,8 +1092,12 @@ fn is_valid_hour(value: u32) -> bool {
     value <= 23
 }
 
-fn is_valid_minute_or_second(value: u32) -> bool {
+fn is_valid_minute(value: u32) -> bool {
     value <= 59
+}
+
+fn is_valid_second(value: u32) -> bool {
+    value <= 60
 }
 
 fn normalize_datatype(raw: &str) -> String {
@@ -1611,9 +1634,15 @@ impl<'a> Parser<'a> {
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
         match self.peek() {
-            Some('"') | Some('\'') | Some('`') => Ok(Value::String(self.parse_quoted_string()?)),
+            Some('"') | Some('\'') | Some('`') => Ok(Value::String {
+                value: self.parse_quoted_string()?,
+                trimticks: false,
+            }),
             Some('|') => Ok(Value::Symbol(self.parse_quoted_string()?)),
-            Some('>') => Ok(Value::String(self.parse_trimtick()?)),
+            Some('>') => Ok(Value::String {
+                value: self.parse_trimtick()?,
+                trimticks: true,
+            }),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_list(),
             Some('(') => self.parse_tuple(),
@@ -2558,13 +2587,13 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_trimtick_to_string_content() {
+    fn preserves_empty_trimtick_literal_family() {
         let result =
             canonicalize("aeon:mode = \"transport\"\nc:trimtick = > ``\nb:string = \"\"\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = \"\"\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\nb:string = \"\"\nc:trimtick = >``\n"
         );
     }
 
@@ -2574,7 +2603,10 @@ mod tests {
         let bindings = Parser::new(source).parse_document().expect("parse");
         assert_eq!(
             bindings[0].value,
-            Value::String(String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"))
+            Value::String {
+                value: String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"),
+                trimticks: true,
+            }
         );
     }
 
@@ -2647,13 +2679,17 @@ mod tests {
              zero_int:number = +0\n\
              zero_dec:number = -.0\n\
              zero_exp:number = -0.0E-0\n\
+             zero_exp_positive:number = 0e+01\n\
+             zero_exp_negative:number = 0e-01\n\
+             negative_zero_exp_positive:number = -0e+01\n\
+             negative_zero_exp_negative:number = -0e-01\n\
              mask:radix[10] = %10.00\n\
              width:radix[10] = %0010.00\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_int:number = 0\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nfraction:number = 10.0\nhalf:number = 0.5\nmask:radix[10] = %10.00\nnegative_zero_exp_negative:number = -0e0\nnegative_zero_exp_positive:number = -0e0\nplain:number = 10\nscientific:number = 1e3\nwidth:radix[10] = %0010.00\nzero_dec:number = -0.0\nzero_exp:number = -0e0\nzero_exp_negative:number = 0e0\nzero_exp_positive:number = 0e0\nzero_int:number = 0\n"
         );
     }
 
@@ -3033,13 +3069,13 @@ mod tests {
     }
 
     #[test]
-    fn escapes_trimtick_delimiters_backslashes_and_controls_in_multiline_output() {
+    fn escapes_controls_without_changing_string_literal_family() {
         let result = canonicalize("value = \"line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b\"");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(
-            result.text.contains(
-                "value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`"
-            )
+            result
+                .text
+                .contains("value = \"line1\\ntick:` slash:\\\\ tab:\\t backspace:\\u0008\"")
         );
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
@@ -3047,27 +3083,152 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_one_line_trimticks_in_lists_to_strings() {
+    fn preserves_one_line_trimticks_in_lists() {
         let result = canonicalize(
             "aeon:mode = \"custom\"\nnotes:list<trimtick> = [\n  > `\n    one\n  `,\n  > `\n    two\n  `\n]\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\nnotes:list<trimtick> = [\"one\", \"two\"]\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\nnotes:list<trimtick> = [>`one`, >`two`]\n"
         );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
     }
 
     #[test]
-    fn canonicalizes_multiline_trimticks_inside_inline_attribute_objects_as_strings() {
+    fn preserves_multiline_trimticks_inside_inline_attribute_objects() {
         let result = canonicalize(
             "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node = <box>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = \"hello\\n\\nworld\" }}:node = <box>\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node = <box>\n"
         );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn compact_multiline_trimticks_preserve_payload_indentation() {
+        let result = canonicalize("a@{note:trimtick = >`\n\t first\n\t  second\n`}:number = 1\n");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("note:trimtick = >`\\t first\\n\\t  second`")
+        );
+        let reparsed = Parser::new(&result.text)
+            .parse_document()
+            .expect("canonical output should parse");
+        let note = reparsed
+            .iter()
+            .find(|binding| binding.key == "a")
+            .expect("a binding")
+            .attributes
+            .get("note")
+            .expect("note attribute");
+        assert!(matches!(
+            &note.value,
+            Value::String {
+                value,
+                trimticks: true,
+            } if value == " first\n  second"
+        ));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn compact_trimticks_preserve_semantic_leading_blank_lines() {
+        let sources = [
+            "value:trimtick = >`\n\n\t alpha\n\tbeta\n`",
+            "value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`",
+            "value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1",
+        ];
+        for source in sources {
+            let result = canonicalize(source);
+            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+            let repeated = canonicalize(&result.text);
+            assert!(
+                repeated.errors.is_empty(),
+                "{source}: {:?}",
+                repeated.errors
+            );
+            assert_eq!(repeated.text, result.text, "{source}");
+        }
+    }
+
+    #[test]
+    fn ordinary_multiline_backticks_do_not_canonicalize_as_trimticks() {
+        let result = canonicalize("value = `\nhello\n`");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("value = \"\\nhello\\n\""));
+        assert!(!result.text.contains("value = >`"));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn block_trimticks_use_canonical_space_indentation() {
+        let result = canonicalize("c=>`\n  hello\n world\n hello\n`");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("c = >`\n   hello\n  world\n  hello\n`")
+        );
+        assert!(!result.text.contains("\\t"));
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn preserves_strict_string_and_prose_literal_families() {
+        let result = canonicalize(
+            "aeon:mode = \"strict\"\ndescription:prose = >`approved`\nmessage:string = \"first\\nsecond\"\n",
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("description:prose = >`approved`"));
+        assert!(result.text.contains("message:string = \"first\\nsecond\""));
+        let compiled = aeon_core::compile(&result.text, aeon_core::CompileOptions::default());
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+
+        let reparsed = Parser::new(&result.text)
+            .parse_document()
+            .expect("canonical output should parse");
+        let description = reparsed
+            .iter()
+            .find(|binding| binding.key == "description")
+            .expect("description binding");
+        assert!(matches!(
+            description.value,
+            Value::String {
+                trimticks: true,
+                ..
+            }
+        ));
+        let message = reparsed
+            .iter()
+            .find(|binding| binding.key == "message")
+            .expect("message binding");
+        assert!(matches!(
+            message.value,
+            Value::String {
+                trimticks: false,
+                ..
+            }
+        ));
+
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
     }
 
     #[test]
@@ -3272,6 +3433,49 @@ mod tests {
         ] {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn preserves_leap_seconds_and_arbitrary_fraction_scale_during_canonicalization() {
+        let source = "aeon:mode = \"strict\"\n\
+                      datetime:datetime = 2016-12-31T23:59:60.340000\n\
+                      time:time = 23:55:60.999999999999999999999999999999999999999999999999\n\
+                      wtc:wtc = 2016-12-31T23:59:60.500000Z&UTC\n";
+        let result = canonicalize(source);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("datetime:datetime = 2016-12-31T23:59:60.340000")
+        );
+        assert!(
+            result
+                .text
+                .contains("time:time = 23:55:60.999999999999999999999999999999999999999999999999")
+        );
+        assert!(
+            result
+                .text
+                .contains("wtc:wtc = 2016-12-31T23:59:60.500000Z&UTC")
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn rejects_temporal_components_outside_core_structural_bounds() {
+        for source in [
+            "bad:time = 24:00\n",
+            "bad:time = 23:60\n",
+            "bad:time = 23:59:61\n",
+            "bad:datetime = 2024-T24\n",
+            "bad:datetime = 2024-12-21T10:10:00+02:60\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}: {:?}", result.errors);
         }
     }
 

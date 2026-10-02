@@ -18,6 +18,17 @@ test('preserves structural identities on attribute-entry and node heads', () => 
     assert.match(result.text, /<tag\\HEAD\\>/);
 });
 
+test('keeps time scalars inline in lists and tuples', () => {
+    for (const time of ['11:', '11:11', '11:11:60.100', '11:11Z', '11:11-00:00']) {
+        const input = `aeon:mode = "strict"\na:list<time> = [${time}]\nb:tuple<time> = (${time},)`;
+        const result = canonicalize(input);
+        assert.deepEqual(result.errors, []);
+        assert.ok(result.text.includes(`a:list<time> = [${time}]\n`), result.text);
+        assert.ok(result.text.includes(`b:tuple<time> = (${time})\n`), result.text);
+        assert.equal(canonicalize(result.text).text, result.text);
+    }
+});
+
 test('canonicalizes default header', () => {
     const result = canonicalize('a = 1');
     assert.equal(result.errors.length, 0);
@@ -49,14 +60,12 @@ test('sorts top-level keys and object keys', () => {
     assert.ok(xLine < yLine);
 });
 
-test('normalizes numbers and strings', () => {
+test('normalizes numbers while preserving quoted string literals', () => {
     const input = 'value = 1.2300\ntext = "Line\\nBreak"';
     const result = canonicalize(input);
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('value = 1.23'));
-    assert.ok(result.text.includes('text = >`'));
-    assert.ok(result.text.includes('  Line'));
-    assert.ok(result.text.includes('  Break'));
+    assert.ok(result.text.includes('text = "Line\\nBreak"'));
 });
 
 test('canonicalizes leading-dot decimals with an explicit zero', () => {
@@ -87,13 +96,17 @@ test('canonicalizes number families without collapsing exponent or decimal inten
 });
 
 test('preserves radix representation while canonicalizing number zero families', () => {
-    const input = 'a:number = +0\nb:number = -.0\nc:number = 0.0e+0\nd:number = -0.0E-0\nmask:radix[10] = %10.00\nwidth:radix[10] = %0010.00';
+    const input = 'a:number = +0\nb:number = -.0\nc:number = 0.0e+0\nd:number = -0.0E-0\ne:number = 0e+01\nf:number = 0e-01\ng:number = -0e+01\nh:number = -0e-01\nmask:radix[10] = %10.00\nwidth:radix[10] = %0010.00';
     const result = canonicalize(input);
     assert.equal(result.errors.length, 0);
     assert.ok(result.text.includes('a:number = 0'));
     assert.ok(result.text.includes('b:number = -0.0'));
     assert.ok(result.text.includes('c:number = 0e0'));
     assert.ok(result.text.includes('d:number = -0e0'));
+    assert.ok(result.text.includes('e:number = 0e0'));
+    assert.ok(result.text.includes('f:number = 0e0'));
+    assert.ok(result.text.includes('g:number = -0e0'));
+    assert.ok(result.text.includes('h:number = -0e0'));
     assert.ok(result.text.includes('mask:radix[10] = %10.00'));
     assert.ok(result.text.includes('width:radix[10] = %0010.00'));
 });
@@ -130,7 +143,7 @@ test('canonicalizes SANSA address literals', () => {
     assert.ok(result.text.includes('external:sansa = $.value:type<type>["arg"]'));
 });
 
-test('canonicalizes multiline strings as spaces-only trimticks', () => {
+test('canonicalizes multiline trimticks without losing payload indentation', () => {
     const input = [
         'class = {',
         '  text = >`',
@@ -161,19 +174,22 @@ test('canonicalizes multiline strings as spaces-only trimticks', () => {
         '  `',
         '}',
     ].join('\n') + '\n');
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
 });
 
-test('escapes trimtick delimiters, backslashes, and controls in multiline output', () => {
+test('escapes delimiters, backslashes, and controls without changing string literal family', () => {
     const result = canonicalize('value = "line1\\ntick:\\` slash:\\\\ tab:\\t backspace:\\b"');
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('value = >`\n  line1\n  tick:\\` slash:\\\\ tab:\\t backspace:\\u0008\n`'));
+    assert.ok(result.text.includes('value = "line1\\ntick:` slash:\\\\ tab:\\t backspace:\\u0008"'));
     const repeated = canonicalize(result.text);
     assert.equal(repeated.errors.length, 0);
     assert.equal(repeated.text, result.text);
 });
 
-test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
+test('preserves one-line trimticks in lists', () => {
     const input = [
         'notes:list<trimtick> = [',
         '  > `',
@@ -187,10 +203,13 @@ test('canonicalizes one-line trimticks in lists to ordinary strings', () => {
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('notes:list<trimtick> = ["one", "two"]'));
+    assert.ok(result.text.includes('notes:list<trimtick> = [>`one`, >`two`]'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
 });
 
-test('canonicalizes multiline trimticks inside inline attribute objects as escaped strings', () => {
+test('preserves multiline trimticks inside inline attribute objects', () => {
     const input = [
         'a@{ nested:object = { note:trimtick = > `',
         '    hello',
@@ -201,7 +220,96 @@ test('canonicalizes multiline trimticks inside inline attribute objects as escap
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('a@{nested:object = { note:trimtick = "hello\\n\\nworld" }}:node = <box>'));
+    assert.ok(result.text.includes('a@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node = <box>'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
+});
+
+test('compact multiline trimticks preserve payload indentation after tab-gutter trimming', () => {
+    const input = 'a@{note:trimtick = >`\n\t first\n\t  second\n`}:number = 1';
+    const result = canonicalize(input);
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('note:trimtick = >`\\t first\\n\\t  second`'));
+    const lexed = tokenize(result.text);
+    assert.deepEqual(lexed.errors, []);
+    const parsed = parse(lexed.tokens);
+    assert.deepEqual(parsed.errors, []);
+    const note = parsed.document?.bindings[0]?.attributes[0]?.entries.get('note')?.value;
+    assert.equal(note?.type, 'StringLiteral');
+    assert.ok(note?.type === 'StringLiteral' && note.trimticks);
+    assert.equal(note?.type === 'StringLiteral' ? note.value : undefined, ' first\n  second');
+
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
+});
+
+test('compact trimticks preserve semantic leading blank lines', () => {
+    const inputs = [
+        'value:trimtick = >`\n\n\t alpha\n\tbeta\n`',
+        'value:trimtick = >`\n\n\n\t alpha\n\tbeta\n`',
+        'value@{note:trimtick = >`\n\n  alpha\n  beta\n`}:number = 1',
+    ];
+
+    for (const input of inputs) {
+        const result = canonicalize(input);
+        assert.deepEqual(result.errors, []);
+        const repeated = canonicalize(result.text);
+        assert.deepEqual(repeated.errors, []);
+        assert.equal(repeated.text, result.text, input);
+    }
+});
+
+test('block trimticks use canonical space indentation when payload begins with a space', () => {
+    const result = canonicalize('c=>`\n  hello\n world\n hello\n`');
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('c = >`\n   hello\n  world\n  hello\n`'));
+    assert.ok(!result.text.includes('\\t'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
+});
+
+test('ordinary multiline backticks do not canonicalize as trimticks', () => {
+    const result = canonicalize('value = `\nhello\n`');
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('value = "\\nhello\\n"'));
+    assert.ok(!result.text.includes('value = >`'));
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
+});
+
+test('preserves strict string and prose literal families across canonical round trips', () => {
+    const input = [
+        'aeon:mode = "strict"',
+        'description:prose = >`approved`',
+        'message:string = "first\\nsecond"',
+    ].join('\n');
+    const result = canonicalize(input);
+
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('description:prose = >`approved`'));
+    assert.ok(result.text.includes('message:string = "first\\nsecond"'));
+
+    const lexed = tokenize(result.text);
+    assert.deepEqual(lexed.errors, []);
+    const parsed = parse(lexed.tokens);
+    assert.deepEqual(parsed.errors, []);
+    const description = parsed.document?.bindings.find((binding) => binding.key === 'description');
+    const message = parsed.document?.bindings.find((binding) => binding.key === 'message');
+    assert.equal(description?.value.type, 'StringLiteral');
+    assert.ok(description?.value.type === 'StringLiteral' && description.value.trimticks);
+    assert.equal(message?.value.type, 'StringLiteral');
+    assert.ok(message?.value.type === 'StringLiteral' && !message.value.trimticks);
+
+    const repeated = canonicalize(result.text);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.text, result.text);
 });
 
 test('renders attributes in sorted order', () => {

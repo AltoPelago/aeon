@@ -1,5 +1,5 @@
 import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
-import { parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
+import { normalizeNumberLiteral, parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
@@ -284,7 +284,9 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return [`${head} = ${first}`, ...rendered.slice(1)];
         }
         case 'StringLiteral':
-            return formatStringLines(value.value, indent);
+            return value.trimticks
+                ? formatTrimticks(value.value, indent)
+                : [formatString(value.value)];
         case 'NumberLiteral':
             return [formatNumber(value.raw)];
         case 'InfinityLiteral':
@@ -439,9 +441,6 @@ function renderAttributes(attributes: readonly Attribute[]): string {
 }
 
 function renderValueInline(value: Value): string {
-    if (value.type === 'StringLiteral' && value.value.includes('\n')) {
-        return formatString(value.value);
-    }
     return renderCompactInlineValue(value);
 }
 
@@ -450,7 +449,9 @@ function renderCompactInlineValue(value: Value): string {
         case 'TypedValue':
             return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
         case 'StringLiteral':
-            return formatString(value.value);
+            return value.trimticks
+                ? formatCompactTrimtick(value.value)
+                : formatString(value.value);
         case 'NumberLiteral':
             return formatNumber(value.raw);
         case 'InfinityLiteral':
@@ -737,14 +738,14 @@ function formatString(value: string): string {
     return `"${out}"`;
 }
 
-function formatStringLines(value: string, indent: number): string[] {
-    if (!value.includes('\n')) {
-        return [formatString(value)];
-    }
-    return formatTrimticks(value, indent);
-}
-
 function formatTrimticks(value: string, indent: number): string[] {
+    if (!value.includes('\n')) {
+        return [formatCompactTrimtick(value)];
+    }
+    const nonblank = value.split('\n').filter((line) => line.length > 0);
+    if (nonblank.length > 0 && nonblank.every((line) => line.startsWith(' '))) {
+        return [formatCompactTrimtick(value)];
+    }
     const prefix = ' '.repeat(indent);
     const bodyPrefix = ' '.repeat(indent + 2);
     return [
@@ -754,12 +755,27 @@ function formatTrimticks(value: string, indent: number): string[] {
     ];
 }
 
+function formatCompactTrimtick(value: string): string {
+    if (!value.includes('\n')) {
+        return `>\`${formatTrimtickLine(value)}\``;
+    }
+    const firstNonblank = value.split('\n').find((line) => line.length > 0) ?? '';
+    const gutter = firstNonblank.startsWith(' ') ? '\t' : ' ';
+    let protectedValue = value
+        .split('\n')
+        .map((line) => line.length === 0 ? '' : `${gutter}${line}`)
+        .join('\n');
+    if (value.startsWith('\n')) protectedValue = `\n${protectedValue}`;
+    return `>\`${formatTrimtickLine(protectedValue)}\``;
+}
+
 function formatTrimtickLine(value: string): string {
     let out = '';
     for (const ch of value) {
         switch (ch) {
             case '\\': out += '\\\\'; break;
             case '`': out += '\\`'; break;
+            case '\n': out += '\\n'; break;
             case '\r': out += '\\r'; break;
             case '\t': out += '\\t'; break;
             default: {
@@ -783,49 +799,7 @@ function formatNullLiteral(value: Extract<Value, { type: 'NullLiteral' }>): stri
 }
 
 function formatNumber(raw: string): string {
-    let value = raw.replace(/_/g, '');
-    value = value.replace(/E/g, 'e');
-    if (value.startsWith('.')) value = `0${value}`;
-    if (value.startsWith('-.')) value = value.replace('-.', '-0.');
-    if (value.startsWith('+.')) value = value.replace('+.', '0.');
-    if (value.startsWith('+') && /\d/.test(value[1] ?? '')) value = value.slice(1);
-    const parts = value.split('e');
-    let mantissa = parts[0] ?? '';
-    let exponent = parts[1];
-
-    if (mantissa.includes('.')) {
-        const [intPart, fracPartRaw] = mantissa.split('.');
-        let fracPart = trimTrailingZeros(fracPartRaw ?? '');
-        if (fracPart.length === 0) {
-            fracPart = '0';
-        }
-        if (exponent !== undefined && fracPart === '0') {
-            mantissa = intPart ?? '';
-        } else {
-            mantissa = `${intPart ?? ''}.${fracPart}`;
-        }
-    }
-
-    if (exponent !== undefined) {
-        exponent = exponent.replace(/^\+/, '');
-        const negative = exponent.startsWith('-');
-        const digits = negative ? exponent.slice(1) : exponent;
-        const normalized = digits.replace(/^0+/, '') || '0';
-        value = normalized === '0'
-            ? `${mantissa}e0`
-            : `${mantissa}e${negative ? '-' : ''}${normalized}`;
-    } else {
-        value = mantissa;
-    }
-    return value;
-}
-
-function trimTrailingZeros(value: string): string {
-    let end = value.length;
-    while (end > 0 && value[end - 1] === '0') {
-        end -= 1;
-    }
-    return value.slice(0, end);
+    return normalizeNumberLiteral(raw);
 }
 
 function formatSeparator(raw: string): string {
@@ -851,7 +825,7 @@ function formatSymbolic(value: string): string {
 }
 
 function isSimpleValue(value: Value): boolean {
-    if (value.type === 'StringLiteral' && value.value.includes('\n')) {
+    if (value.type === 'StringLiteral' && value.trimticks && value.value.includes('\n')) {
         return false;
     }
     if (value.type === 'TypedValue') {
@@ -873,6 +847,7 @@ function isSimpleValue(value: Value): boolean {
         case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
+        case 'TimeLiteral':
         case 'CloneReference':
         case 'PointerReference':
             return true;

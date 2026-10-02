@@ -169,7 +169,7 @@ enum NumberPhase {
     ExponentDigitsRequired,
     ExponentDigits,
     InvalidExponent,
-    Temporal,
+    Temporal { in_context: bool },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -837,7 +837,7 @@ impl<'a> LexerSession<'a> {
                         return false;
                     }
                     if temporal_eligible && matches!(self.peek(), '-' | ':') {
-                        state.phase = NumberPhase::Temporal;
+                        state.phase = NumberPhase::Temporal { in_context: false };
                     } else {
                         state.phase = NumberPhase::AfterInteger;
                     }
@@ -932,15 +932,22 @@ impl<'a> LexerSession<'a> {
                     }
                     return self.fail_number(state.start);
                 }
-                NumberPhase::Temporal => {
+                NumberPhase::Temporal { mut in_context } => {
                     while !self.is_at_end()
                         && !matches!(
                             self.peek(),
                             ' ' | '\t' | '\n' | '\r' | ',' | ']' | ')' | '}'
                         )
                     {
+                        // Before a WTC context, slash belongs to the next token
+                        // (including comments). Within a context it is payload.
+                        if self.peek() == '/' && !in_context {
+                            break;
+                        }
+                        in_context |= self.peek() == '&';
                         self.advance();
                     }
+                    state.phase = NumberPhase::Temporal { in_context };
                     if self.is_at_end() && !final_input {
                         self.number = Some(state);
                         return false;
@@ -2349,6 +2356,61 @@ mod tests {
         );
         assert_eq!(finished.tokens.len(), 1);
         assert_eq!(finished.tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn temporal_comments_match_one_shot_at_every_split() {
+        let options = LexerOptions {
+            include_comments: true,
+            include_newlines: true,
+        };
+        for literal in ["1111-", "11:", "11:11:60.100", "1111-T11Z"] {
+            for comment in ["//A\n", "/*A*/", "/#A#/", "/[A]/"] {
+                let source = format!("v = {literal}{comment}\nnext = 1");
+                let expected = tokenize(&source, options);
+                assert!(
+                    expected.errors.is_empty(),
+                    "{source}: {:?}",
+                    expected.errors
+                );
+                for split in 0..=source.len() {
+                    let actual =
+                        tokenize_chunks_with_options([&source[..split], &source[split..]], options);
+                    assert_eq!(actual, expected, "{source}: split {split}");
+                }
+            }
+        }
+        for literal in ["1111-T11&A/A", "1111-T11&A//A", "1111-T11&A/*A*/"] {
+            let expected = tokenize(literal, options);
+            assert_eq!(
+                expected.errors.is_empty(),
+                literal.ends_with("&A/A"),
+                "{literal}"
+            );
+            for split in 0..=literal.len() {
+                assert_eq!(
+                    tokenize_chunks_with_options([&literal[..split], &literal[split..]], options),
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hour_only_datetime_bounds_with_suffixes() {
+        for date in ["2024-", "2024-02", "2024-02-29"] {
+            for suffix in ["", "Z", "+01:00", "&A"] {
+                for hour in ["00", "23", "24", "99"] {
+                    let source = format!("{date}T{hour}{suffix}");
+                    let result = tokenize(&source, LexerOptions::default());
+                    assert_eq!(
+                        result.errors.is_empty(),
+                        matches!(hour, "00" | "23"),
+                        "{source}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -123,6 +123,19 @@ describe('Lexer', () => {
             assert.strictEqual(result.tokens[0]!.value, 'line1\nline2');
         });
 
+        it('rejects raw LF, CR, and CRLF in non-backtick quoted strings', () => {
+            for (const quote of ['"', "'"]) {
+                for (const newline of ['\n', '\r', '\r\n']) {
+                    const result = tokenize(`${quote}a${newline}b${quote}`);
+                    assert.ok(result.errors.some(error => error.code === 'UNTERMINATED_STRING'));
+                    assert.ok(!result.tokens.some(token => token.type === TokenType.String));
+                }
+            }
+            const escaped = tokenize('"a\\rb"');
+            assert.equal(escaped.errors.length, 0);
+            assert.equal(escaped.tokens[0]!.value, 'a\rb');
+        });
+
         it('should handle escapes inside backtick strings', () => {
             const result = tokenize('`\\``');
             assert.strictEqual(result.tokens[0]!.type, TokenType.String);
@@ -565,6 +578,18 @@ describe('Lexer', () => {
                 const result = tokenize(source);
                 assert.strictEqual(result.errors.length, 0, source);
                 assert.notStrictEqual(result.tokens[0]!.type, TokenType.EOF, source);
+            }
+        });
+
+        it('bounds hour-only datetimes with every suffix', () => {
+            for (const date of ['2024-', '2024-02', '2024-02-29']) {
+                for (const suffix of ['', 'Z', '+01:00', '&A']) {
+                    for (const hour of ['00', '23', '24', '99']) {
+                        const source = `${date}T${hour}${suffix}`;
+                        const result = tokenize(source);
+                        assert.equal(result.errors.length, Number(Number(hour) > 23), source);
+                    }
+                }
             }
         });
 

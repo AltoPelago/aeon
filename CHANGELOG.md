@@ -79,6 +79,26 @@ repositories.
 
 ### Fixed
 
+- Literal-flow checks now cover numeric/temporal dispatch and the symbol,
+  ordinary-string, and trimtick families. Fixed Rust accepting leading zeroes
+  concealed by underscores, rejecting leading zeroes in exponent digits, and
+  accepting non-trimtick values for `prose`; TypeScript now rejects raw carriage
+  returns inside single- and double-quoted strings. Canonical number formatting
+  and portable AES number values now use canonical finite numeric text, including
+  normalizing exponent-family zero with any exponent to `0e0` or `-0e0`.
+- Closed temporal flow gaps: hour-only datetime bounds are enforced across all
+  runtimes, Python temporal fields and WTC contexts require ASCII, Rust preserves
+  comment boundaries after ordinary temporal literals, and TypeScript formats
+  standalone times inline in simple lists and tuples consistently with Python
+  and Rust. A grammar-derived transition and canonical parity matrix guards
+  these behaviors in the canonical CI lane.
+- Canonical writers now preserve the ordinary-string versus trimtick literal
+  family across TypeScript, Python, Rust, and the Rust/WASM response. This
+  keeps strict reserved datatypes such as `string`, `trimtick`, and `prose`
+  valid after canonical round trips, including inline and nested values.
+- Aligned the Rust canonical parser with the Core temporal domain so second
+  `60`, arbitrary fractional-second scale, reduced clock precision, and the
+  four-digit year boundaries survive canonical round trips consistently.
 - Made Rust release verification package coordinated, not-yet-published crate
   versions through explicit local path overrides while retaining registry
   dependencies in the produced crates.

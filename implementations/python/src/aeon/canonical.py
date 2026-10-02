@@ -4,6 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
+from ._numbers import normalize_number_literal
 from .ast import (
     Attribute,
     AttributePathSegment,
@@ -191,7 +192,7 @@ def render_value(value: Value, indent: int, inline_only: bool) -> list[str]:
             return [f"{head} = "]
         return [f"{head} = {rendered[0]}", *rendered[1:]]
     if isinstance(value, StringLiteral):
-        return format_string_lines(value.value, indent)
+        return format_trimticks(value.value, indent) if value.trimticks is not None else [format_string(value.value)]
     if isinstance(value, NumberLiteral):
         return [format_number(value.raw or value.value)]
     if isinstance(value, InfinityLiteral):
@@ -321,8 +322,6 @@ def format_clarifier(value: str | int | float) -> str:
 
 
 def render_value_inline(value: Value) -> str:
-    if isinstance(value, StringLiteral) and "\n" in value.value:
-        return format_string(value.value)
     return render_compact_inline_value(value)
 
 
@@ -330,7 +329,7 @@ def render_compact_inline_value(value: Value) -> str:
     if isinstance(value, TypedValue):
         return f"{render_attributes(value.attributes)}{render_type(value.datatype)} = {render_compact_inline_value(value.value)}"
     if isinstance(value, StringLiteral):
-        return format_string(value.value)
+        return format_compact_trimtick(value.value) if value.trimticks is not None else format_string(value.value)
     if isinstance(value, NumberLiteral):
         return format_number(value.raw or value.value)
     if isinstance(value, InfinityLiteral):
@@ -460,12 +459,27 @@ def format_symbolic(value: str) -> str:
     return "|" + "".join(out) + "|"
 
 
-def format_string_lines(value: str, indent: int) -> list[str]:
+def format_trimticks(value: str, indent: int) -> list[str]:
     if "\n" not in value:
-        return [format_string(value)]
+        return [format_compact_trimtick(value)]
+    nonblank = [line for line in value.split("\n") if line]
+    if nonblank and all(line.startswith(" ") for line in nonblank):
+        return [format_compact_trimtick(value)]
     prefix = " " * indent
     body_prefix = " " * (indent + 2)
     return [">`", *(f"{body_prefix}{format_trimtick_line(line)}" for line in value.split("\n")), f"{prefix}`"]
+
+
+def format_compact_trimtick(value: str) -> str:
+    if "\n" not in value:
+        return f">`{format_trimtick_line(value)}`"
+    lines = value.split("\n")
+    first_nonblank = next((line for line in lines if line), "")
+    gutter = "\t" if first_nonblank.startswith(" ") else " "
+    protected_value = "\n".join("" if not line else f"{gutter}{line}" for line in lines)
+    if value.startswith("\n"):
+        protected_value = "\n" + protected_value
+    return f">`{format_trimtick_line(protected_value)}`"
 
 
 def format_trimtick_line(value: str) -> str:
@@ -475,6 +489,8 @@ def format_trimtick_line(value: str) -> str:
             out.append("\\\\")
         elif char == "`":
             out.append("\\`")
+        elif char == "\n":
+            out.append("\\n")
         elif char == "\r":
             out.append("\\r")
         elif char == "\t":
@@ -487,38 +503,7 @@ def format_trimtick_line(value: str) -> str:
 
 
 def format_number(raw: str) -> str:
-    value = raw.replace("_", "").replace("E", "e")
-    if value.startswith("."):
-        value = f"0{value}"
-    if value.startswith("-."):
-        value = value.replace("-.", "-0.", 1)
-    if value.startswith("+."):
-        value = value.replace("+.", "0.", 1)
-    if value.startswith("+") and len(value) > 1 and value[1].isdigit():
-        value = value[1:]
-
-    parts = value.split("e", 1)
-    mantissa = parts[0]
-    exponent = parts[1] if len(parts) == 2 else None
-    if "." in mantissa:
-        int_part, frac_part = mantissa.split(".", 1)
-        frac_part = frac_part.rstrip("0")
-        if not frac_part:
-            frac_part = "0"
-        if exponent is not None and frac_part == "0":
-            mantissa = int_part
-        else:
-            mantissa = f"{int_part}.{frac_part}"
-    if exponent is not None:
-        exponent = re.sub(r"^\+", "", exponent)
-        negative = exponent.startswith("-")
-        digits = exponent[1:] if negative else exponent
-        normalized = digits.lstrip("0") or "0"
-        if normalized == "0":
-            return f"{mantissa}e0"
-        sign = "-" if negative else ""
-        return f"{mantissa}e{sign}{normalized}"
-    return mantissa
+    return normalize_number_literal(raw)
 
 
 def format_separator(raw: str) -> str:
@@ -528,7 +513,7 @@ def format_separator(raw: str) -> str:
 def is_simple_value(value: Value) -> bool:
     if isinstance(value, TypedValue):
         return value.value is not None and is_simple_value(value.value)
-    if isinstance(value, StringLiteral) and "\n" in value.value:
+    if isinstance(value, StringLiteral) and value.trimticks is not None and "\n" in value.value:
         return False
     return isinstance(
         value,

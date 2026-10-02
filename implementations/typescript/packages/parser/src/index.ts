@@ -8,3 +8,4 @@ export * from './ast.js';
 export * from './parser.js';
 export * from './errors.js';
 export * from './trimticks.js';
+export * from './number.js';

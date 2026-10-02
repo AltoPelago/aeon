@@ -2215,11 +2215,11 @@ fn is_valid_digit_group(raw: &str) -> bool {
 }
 
 fn has_invalid_leading_zero(raw: &str) -> bool {
-    raw.len() > 1 && raw.starts_with('0') && !raw.starts_with("0_")
+    raw.len() > 1 && raw.starts_with('0')
 }
 
 fn is_valid_exponent_digits(raw: &str) -> bool {
-    is_valid_digit_group(raw) && !has_invalid_leading_zero(raw)
+    is_valid_digit_group(raw)
 }
 
 #[cfg(test)]

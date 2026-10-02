@@ -600,6 +600,21 @@ class CoreCompileTests(unittest.TestCase):
                 result = compile_source(source)
                 self.assertEqual([], result.errors)
 
+    def test_hour_only_datetime_bounds_with_suffixes(self) -> None:
+        for date in ("2024-", "2024-02", "2024-02-29"):
+            for suffix in ("", "Z", "+01:00", "&A"):
+                for hour in ("00", "23", "24", "99"):
+                    with self.subTest(date=date, suffix=suffix, hour=hour):
+                        result = compile_source(f"v = {date}T{hour}{suffix}")
+                        self.assertEqual(int(hour) > 23, bool(result.errors))
+
+    def test_temporal_fields_and_contexts_require_ascii(self) -> None:
+        for literal in ("111١-", "1111-1١", "1111-11-1١", "1١:", "11:1١",
+                        "11:11:1١", "11:11:11.١", "1111-T1١", "1111-T11+1١:11",
+                        "1111-T11&Aé", "1111-T11&A١"):
+            with self.subTest(literal=literal):
+                self.assertTrue(compile_source(f"v = {literal}").errors)
+
     def test_temporal_fraction_leap_second_and_year_boundaries(self) -> None:
         accepted = (
             "t:time = 23:59:59.340000",
