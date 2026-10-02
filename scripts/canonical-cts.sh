@@ -32,6 +32,7 @@ Runs the canonical conformance lane:
   5. Cross-implementation canonical snippet parity
   6. Cross-implementation real-document canonical corpus parity
   7. Cross-implementation diagnostic snippet parity
+  8. Grammar-derived temporal flow and canonical parity
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -106,7 +107,7 @@ for sut in \
   node "$ROOT_DIR/scripts/run-with-repo-paths.mjs" \
     node "$ROOT_DIR/scripts/cts-source-lane-runner.mjs" \
     --sut "$sut" \
-    --cts "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.json" \
+    --cts "$ROOT_DIR/cts/canonical/v1/canonical-cts.v1.snapshot-0.2.json" \
     --lane canonical
 done
 echo
@@ -133,3 +134,8 @@ if [[ "$brief" -eq 1 ]]; then
   diag_cmd+=(--brief)
 fi
 "${diag_cmd[@]}"
+echo
+
+echo "-- Grammar-derived temporal flow and canonical parity"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/test-temporal-flow.py"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/stress-temporal-flow.py"

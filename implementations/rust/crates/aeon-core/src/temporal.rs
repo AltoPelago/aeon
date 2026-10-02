@@ -252,7 +252,8 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
 
 fn matches_datetime_core(value: &str) -> bool {
     if value.len() == 2 {
-        return value.as_bytes().iter().all(u8::is_ascii_digit);
+        return value.as_bytes().iter().all(u8::is_ascii_digit)
+            && value.parse::<u32>().ok().is_some_and(is_valid_hour);
     }
     matches_time_core(value, false)
 }

@@ -18,6 +18,17 @@ test('preserves structural identities on attribute-entry and node heads', () => 
     assert.match(result.text, /<tag\\HEAD\\>/);
 });
 
+test('keeps time scalars inline in lists and tuples', () => {
+    for (const time of ['11:', '11:11', '11:11:60.100', '11:11Z', '11:11-00:00']) {
+        const input = `aeon:mode = "strict"\na:list<time> = [${time}]\nb:tuple<time> = (${time},)`;
+        const result = canonicalize(input);
+        assert.deepEqual(result.errors, []);
+        assert.ok(result.text.includes(`a:list<time> = [${time}]\n`), result.text);
+        assert.ok(result.text.includes(`b:tuple<time> = (${time})\n`), result.text);
+        assert.equal(canonicalize(result.text).text, result.text);
+    }
+});
+
 test('canonicalizes default header', () => {
     const result = canonicalize('a = 1');
     assert.equal(result.errors.length, 0);

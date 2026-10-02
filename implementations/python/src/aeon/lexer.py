@@ -674,6 +674,8 @@ class Lexer:
 
     @staticmethod
     def is_valid_date_literal(value: str) -> bool:
+        if not value.isascii():
+            return False
         if len(value) == 5 and value.endswith("-") and value[:4].isdigit():
             year = int(value[:4])
             return 1 <= year <= 9999
@@ -685,6 +687,8 @@ class Lexer:
 
     @staticmethod
     def is_valid_full_date_literal(value: str) -> bool:
+        if not value.isascii():
+            return False
         if not (len(value) == 10 and value[4] == "-" and value[7] == "-" and value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()):
             return False
         year = int(value[:4])
@@ -694,11 +698,11 @@ class Lexer:
 
     @classmethod
     def is_valid_time_literal(cls, value: str) -> bool:
-        return cls.matches_time_core(value, allow_hour_precision_marker=True) or cls.matches_zoned_time(value)
+        return value.isascii() and (cls.matches_time_core(value, allow_hour_precision_marker=True) or cls.matches_zoned_time(value))
 
     @classmethod
     def is_valid_datetime_literal(cls, value: str) -> bool:
-        if "T" not in value:
+        if not value.isascii() or "T" not in value:
             return False
         date, rest = value.split("T", 1)
         if not cls.is_valid_date_literal(date):
@@ -714,6 +718,8 @@ class Lexer:
     def is_valid_wtc_reference(reference: str) -> bool:
         return (
             bool(reference)
+            and reference.isascii()
+            and all(char.isalnum() or char in "/_+-." for char in reference)
             and (reference == "local" or reference.lower() != "local")
             and not reference.startswith("/")
             and not reference.endswith("/")
@@ -778,7 +784,7 @@ class Lexer:
     @staticmethod
     def matches_datetime_core(value: str) -> bool:
         if len(value) == 2:
-            return value.isdigit()
+            return value.isascii() and value.isdigit() and Lexer.is_valid_hour(int(value))
         return Lexer.matches_time_core(value, allow_hour_precision_marker=False)
 
     @staticmethod

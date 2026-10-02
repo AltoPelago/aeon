@@ -36,7 +36,7 @@
         },
         {
           "surface": "canonical",
-          "snapshot_id": "canonical-cts-v1-snapshot-0.1",
+          "snapshot_id": "canonical-cts-v1-snapshot-0.2",
           "status": "claimed",
           "command": "pnpm test:cts:canonical"
         },
@@ -76,6 +76,12 @@
           "snapshot_id": "aes-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
+        },
+        {
+          "surface": "canonical",
+          "snapshot_id": "canonical-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py canonical"
         },
         {
           "surface": "finalize-json",
@@ -131,6 +137,12 @@
           "snapshot_id": "aes-cts-v1-snapshot-0.4",
           "status": "claimed",
           "command": "python3 tools/run_cts.py aes"
+        },
+        {
+          "surface": "canonical",
+          "snapshot_id": "canonical-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "python3 tools/run_cts.py canonical"
         },
         {
           "surface": "finalize-json",

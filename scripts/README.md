@@ -52,6 +52,8 @@ changelog prose or create Git commits and tags.
 | `cts-source-lane-runner.mjs` | Shared CLI runner for source, finalization, SANSA-address, and AES path-translation lanes. | `node ./scripts/cts-source-lane-runner.mjs --sut ... --cts ... --lane core` |
 | `aes-path-translation-cts.sh` | Runs recursive AES source/event path translation and synthetic-head rejection vectors across TypeScript, Rust, Python, and PHP. | `bash ./scripts/aes-path-translation-cts.sh` |
 | `canonical-cts.sh` | Canonical conformance composite runner (TS + Rust + cross-implementation parity). | `bash ./scripts/canonical-cts.sh --mode all --brief` |
+| `stress-temporal-flow.py` | Grammar-derived temporal transitions, boundaries, and canonical round-trip parity across TS/Python/Rust. | `python3 ./scripts/stress-temporal-flow.py` |
+| `test-temporal-flow.py` | Independent temporal probe oracle and fixture sanity tests. | `python3 ./scripts/test-temporal-flow.py` |
 | `compare-canonical-implementations.py` | Compares TypeScript and Python canonical `fmt` output across fixture corpora. | `python3 ./scripts/compare-canonical-implementations.py` |
 
 ### Implementation and hardening helpers

@@ -1078,38 +1078,39 @@ fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
             && bytes[..2].iter().all(u8::is_ascii_digit)
             && bytes[3..5].iter().all(u8::is_ascii_digit)
             && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5]
-                .parse::<u32>()
-                .ok()
-                .is_some_and(is_valid_minute_or_second);
+            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute);
     }
     matches_hms(value)
 }
 
 fn matches_datetime_core(value: &str) -> bool {
     if value.len() == 2 {
-        return value.as_bytes().iter().all(u8::is_ascii_digit);
+        return value.as_bytes().iter().all(u8::is_ascii_digit)
+            && value.parse::<u32>().ok().is_some_and(is_valid_hour);
     }
     matches_time_core(value, false)
 }
 
 fn matches_hms(value: &str) -> bool {
-    let bytes = value.as_bytes();
+    let whole = match value.split_once('.') {
+        Some((whole, fraction)) => {
+            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+                return false;
+            }
+            whole
+        }
+        None => value,
+    };
+    let bytes = whole.as_bytes();
     bytes.len() == 8
         && bytes[2] == b':'
         && bytes[5] == b':'
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && bytes[6..8].iter().all(u8::is_ascii_digit)
-        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
-        && value[6..8]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && whole[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
+        && whole[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
+        && whole[6..8].parse::<u32>().ok().is_some_and(is_valid_second)
 }
 
 fn matches_offset(value: &str) -> bool {
@@ -1119,10 +1120,7 @@ fn matches_offset(value: &str) -> bool {
         && bytes[..2].iter().all(u8::is_ascii_digit)
         && bytes[3..5].iter().all(u8::is_ascii_digit)
         && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5]
-            .parse::<u32>()
-            .ok()
-            .is_some_and(is_valid_minute_or_second)
+        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
 }
 
 fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
@@ -1147,8 +1145,12 @@ fn is_valid_hour(value: u32) -> bool {
     value <= 23
 }
 
-fn is_valid_minute_or_second(value: u32) -> bool {
+fn is_valid_minute(value: u32) -> bool {
     value <= 59
+}
+
+fn is_valid_second(value: u32) -> bool {
+    value <= 60
 }
 
 fn normalize_datatype(raw: &str) -> String {
@@ -3434,6 +3436,49 @@ mod tests {
         ] {
             let result = canonicalize(source);
             assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn preserves_leap_seconds_and_arbitrary_fraction_scale_during_canonicalization() {
+        let source = "aeon:mode = \"strict\"\n\
+                      datetime:datetime = 2016-12-31T23:59:60.340000\n\
+                      time:time = 23:55:60.999999999999999999999999999999999999999999999999\n\
+                      wtc:wtc = 2016-12-31T23:59:60.500000Z&UTC\n";
+        let result = canonicalize(source);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains("datetime:datetime = 2016-12-31T23:59:60.340000")
+        );
+        assert!(
+            result
+                .text
+                .contains("time:time = 23:55:60.999999999999999999999999999999999999999999999999")
+        );
+        assert!(
+            result
+                .text
+                .contains("wtc:wtc = 2016-12-31T23:59:60.500000Z&UTC")
+        );
+        let repeated = canonicalize(&result.text);
+        assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
+        assert_eq!(repeated.text, result.text);
+    }
+
+    #[test]
+    fn rejects_temporal_components_outside_core_structural_bounds() {
+        for source in [
+            "bad:time = 24:00\n",
+            "bad:time = 23:60\n",
+            "bad:time = 23:59:61\n",
+            "bad:datetime = 2024-T24\n",
+            "bad:datetime = 2024-12-21T10:10:00+02:60\n",
+        ] {
+            let result = canonicalize(source);
+            assert_eq!(result.text, "", "{source}");
+            assert_eq!(result.errors.len(), 1, "{source}: {:?}", result.errors);
         }
     }
 

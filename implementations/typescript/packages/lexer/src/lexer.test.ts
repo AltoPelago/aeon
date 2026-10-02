@@ -568,6 +568,18 @@ describe('Lexer', () => {
             }
         });
 
+        it('bounds hour-only datetimes with every suffix', () => {
+            for (const date of ['2024-', '2024-02', '2024-02-29']) {
+                for (const suffix of ['', 'Z', '+01:00', '&A']) {
+                    for (const hour of ['00', '23', '24', '99']) {
+                        const source = `${date}T${hour}${suffix}`;
+                        const result = tokenize(source);
+                        assert.equal(result.errors.length, Number(Number(hour) > 23), source);
+                    }
+                }
+            }
+        });
+
         it('should reject temporal literals with invalid ranges', () => {
             for (const source of [
                 '24:00',

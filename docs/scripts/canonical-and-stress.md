@@ -7,6 +7,7 @@ Primary scripts:
 - `scripts/stress-canonical-corpus.py`
 - `scripts/stress-canonical-snippets.py`
 - `scripts/stress-diagnostic-snippets.py`
+- `scripts/stress-temporal-flow.py`
 - `scripts/stress-positive-snippets.py`
 - `scripts/stress-negative-snippets.py`
 - `scripts/stress-whitespace-mutations.py`
@@ -30,6 +31,7 @@ Pipeline:
 5. Cross-implementation canonical snippet parity
 6. Cross-implementation real-document canonical corpus parity
 7. Cross-implementation diagnostic snippet parity
+8. Grammar-derived temporal flow and canonical parity
 
 `--brief` keeps failure output concise for CI or quick local loops.
 
@@ -76,6 +78,11 @@ Use these for focused regressions:
 - fast smoke across implementations: `stress-smoke.sh`
 
 ## Boundary note
+
+The [temporal flow analysis](temporal-flow.md) maps the grammar into representative
+state transitions, complete paths, range checks, and source boundaries. Run
+`python3 scripts/stress-temporal-flow.py` to verify acceptance, exact portable
+values, canonical parity, and round trips across TypeScript, Python, and Rust.
 
 These scripts validate implementation behavior and cross-implementation alignment.
 They do not redefine AEON Core, AES, or CTS authority.

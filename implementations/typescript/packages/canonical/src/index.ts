@@ -888,6 +888,7 @@ function isSimpleValue(value: Value): boolean {
         case 'SansaAddressLiteral':
         case 'DateLiteral':
         case 'DateTimeLiteral':
+        case 'TimeLiteral':
         case 'CloneReference':
         case 'PointerReference':
             return true;

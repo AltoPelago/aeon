@@ -1341,7 +1341,7 @@ function matchesTimeCore(value: string, allowHourPrecisionMarker: boolean): bool
 
 function matchesDateTimeCore(value: string): boolean {
     if (value.length === 2) {
-        return /^\d{2}$/.test(value);
+        return /^\d{2}$/.test(value) && isValidHour(Number.parseInt(value, 10));
     }
     return matchesTimeCore(value, false);
 }
