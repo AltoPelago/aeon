@@ -8,6 +8,14 @@ repositories.
 
 ## Unreleased
 
+### Breaking
+
+- Aligned the TypeScript SANSA namespace adapter with complete portable AES
+  topology. Representation kinds now use their normative PascalCase names,
+  node tags occupy explicit `NodeHead` bindings, node content addresses gain
+  the head index, and reference values use translated absolute portable paths.
+  Binding/key metadata and node-head/tag metadata now remain distinct.
+
 ### Added
 
 - Expanded the native `altopelago-aeon` CPython package with canonical AEON
@@ -15,6 +23,9 @@ repositories.
   AEOS schema validation, and direct Telex decoding/materialisation. Load
   results retain compile, finalisation, and validation diagnostics, including
   loose-mode lossy-materialisation warnings.
+- Added a document-projection contract fixture covering namespace scopes,
+  source-to-portable path translation, complete node topology, metadata
+  separation, scalar values, references, attributes, and capability states.
 
 ## 0.14.0 - 2026-10-01
 

@@ -14,7 +14,7 @@
     ],
     "sansaEventBackedDefault": "aes-event"
   },
-  "legacyNamespaceSnapshotAddressDomain": "aeon-source",
+  "namespaceSnapshotAddressDomain": "aes-event",
   "fidelityDimensions": [
     "telex-event",
     "profile-relative-semantic",
@@ -103,13 +103,16 @@
     "transportSidecar",
     "lineage"
   ],
-  "legacyNamespaceProjectionFields": [
+  "namespaceProjectionFields": [
     "address",
     "parent",
     "name",
     "index",
     "identity",
     "semanticType",
+    "datatype",
+    "generics",
+    "clarifiers",
     "representationKind",
     "scalarKind",
     "nullReason",
@@ -119,6 +122,8 @@
     "value",
     "nodeTag",
     "sourcePlane",
+    "origin",
+    "span",
     "children",
     "attributeSpace"
   ],
@@ -176,7 +181,7 @@
         "payload": [
           {
             "address": "$",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "children": [
               "$.target",
               "$.targetClone",
@@ -191,7 +196,10 @@
             "parent": "$",
             "name": "target",
             "semanticType": "number",
-            "representationKind": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "7",
             "value": "7",
@@ -203,14 +211,15 @@
             "parent": "$",
             "name": "targetClone",
             "semanticType": "number",
-            "representationKind": "cloneReference",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "CloneReference",
             "scalarKind": "referenceForm",
             "value": {
               "type": "CloneReference",
-              "path": [
-                "target"
-              ],
-              "canonical": "~target"
+              "path": "$.target",
+              "canonical": "~$.target"
             },
             "sourcePlane": "body",
             "children": []
@@ -220,14 +229,15 @@
             "parent": "$",
             "name": "targetPointer",
             "semanticType": "number",
-            "representationKind": "pointerReference",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "PointerReference",
             "scalarKind": "referenceForm",
             "value": {
               "type": "PointerReference",
-              "path": [
-                "target"
-              ],
-              "canonical": "~>target"
+              "path": "$.target",
+              "canonical": "~>$.target"
             },
             "sourcePlane": "body",
             "children": []
@@ -237,7 +247,10 @@
             "parent": "$",
             "name": "types",
             "semanticType": "object",
-            "representationKind": "object",
+            "datatype": "object",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ObjectNode",
             "sourcePlane": "body",
             "children": [
               "$.types.precise",
@@ -265,7 +278,10 @@
             "parent": "$.types",
             "name": "precise",
             "semanticType": "number",
-            "representationKind": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "9007199254740993",
             "value": "9007199254740993",
@@ -277,7 +293,10 @@
             "parent": "$.types",
             "name": "price",
             "semanticType": "decimal",
-            "representationKind": "radix",
+            "datatype": "decimal",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "RadixLiteral",
             "scalarKind": "radix",
             "radixBase": 10,
             "radixScale": 4,
@@ -289,8 +308,16 @@
             "address": "$.types.bits",
             "parent": "$.types",
             "name": "bits",
-            "semanticType": "radix[2]",
-            "representationKind": "radix",
+            "semanticType": "radix",
+            "datatype": "radix",
+            "generics": [],
+            "clarifiers": [
+              {
+                "kind": "NumberLiteral",
+                "value": "2"
+              }
+            ],
+            "representationKind": "RadixLiteral",
             "scalarKind": "radix",
             "radixBase": 2,
             "radixScale": 2,
@@ -303,7 +330,10 @@
             "parent": "$.types",
             "name": "active",
             "semanticType": "boolean",
-            "representationKind": "boolean",
+            "datatype": "boolean",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "BooleanLiteral",
             "value": true,
             "sourcePlane": "body",
             "children": []
@@ -313,7 +343,10 @@
             "parent": "$.types",
             "name": "consent",
             "semanticType": "toggle",
-            "representationKind": "toggle",
+            "datatype": "toggle",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ToggleLiteral",
             "scalarKind": "toggle",
             "value": "yes",
             "sourcePlane": "body",
@@ -324,7 +357,10 @@
             "parent": "$.types",
             "name": "color",
             "semanticType": "hex",
-            "representationKind": "hex",
+            "datatype": "hex",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "HexLiteral",
             "scalarKind": "hex",
             "value": "ff00aa",
             "sourcePlane": "body",
@@ -335,7 +371,10 @@
             "parent": "$.types",
             "name": "payload",
             "semanticType": "encoding",
-            "representationKind": "encoding",
+            "datatype": "encoding",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "EncodingLiteral",
             "scalarKind": "encoding",
             "value": "QmFzZTY0IQ==",
             "sourcePlane": "body",
@@ -345,8 +384,16 @@
             "address": "$.types.version",
             "parent": "$.types",
             "name": "version",
-            "semanticType": "sep[\".\"]",
-            "representationKind": "separator",
+            "semanticType": "sep",
+            "datatype": "sep",
+            "generics": [],
+            "clarifiers": [
+              {
+                "kind": "StringLiteral",
+                "value": "."
+              }
+            ],
+            "representationKind": "SeparatorLiteral",
             "scalarKind": "separator",
             "value": "0.11.0",
             "sourcePlane": "body",
@@ -357,7 +404,10 @@
             "parent": "$.types",
             "name": "stage",
             "semanticType": "symbol",
-            "representationKind": "symbol",
+            "datatype": "symbol",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "SymbolicLiteral",
             "scalarKind": "symbol",
             "value": "approved",
             "sourcePlane": "body",
@@ -368,7 +418,10 @@
             "parent": "$.types",
             "name": "selector",
             "semanticType": "sansa",
-            "representationKind": "sansa",
+            "datatype": "sansa",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "SansaAddressLiteral",
             "scalarKind": "sansaAddress",
             "value": {
               "type": "SansaAddressLiteral",
@@ -383,7 +436,10 @@
             "parent": "$.types",
             "name": "released",
             "semanticType": "date",
-            "representationKind": "date",
+            "datatype": "date",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "DateLiteral",
             "scalarKind": "date",
             "value": "2026-07-25",
             "sourcePlane": "body",
@@ -394,7 +450,10 @@
             "parent": "$.types",
             "name": "window",
             "semanticType": "time",
-            "representationKind": "time",
+            "datatype": "time",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "TimeLiteral",
             "scalarKind": "time",
             "value": "09:30:00Z",
             "sourcePlane": "body",
@@ -405,7 +464,10 @@
             "parent": "$.types",
             "name": "stamp",
             "semanticType": "datetime",
-            "representationKind": "datetime",
+            "datatype": "datetime",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "DateTimeLiteral",
             "scalarKind": "datetime",
             "value": "2026-07-25T09:30:00Z",
             "sourcePlane": "body",
@@ -416,7 +478,10 @@
             "parent": "$.types",
             "name": "zone",
             "semanticType": "wtc",
-            "representationKind": "wtc",
+            "datatype": "wtc",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "WTCDateTimeLiteral",
             "scalarKind": "wtc",
             "value": "2026-07-25T09:30:00Z&Australia/Melbourne",
             "sourcePlane": "body",
@@ -426,8 +491,17 @@
             "address": "$.types.metric",
             "parent": "$.types",
             "name": "metric",
-            "semanticType": "nan<number>",
-            "representationKind": "nan",
+            "semanticType": "nan",
+            "datatype": "nan",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "NaNLiteral",
             "scalarKind": "nan",
             "value": {
               "$nonFinite": "nan"
@@ -439,8 +513,17 @@
             "address": "$.types.ceiling",
             "parent": "$.types",
             "name": "ceiling",
-            "semanticType": "infinity<number>",
-            "representationKind": "infinity",
+            "semanticType": "infinity",
+            "datatype": "infinity",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "InfinityLiteral",
             "scalarKind": "infinity",
             "value": {
               "$nonFinite": "positive-infinity"
@@ -452,8 +535,17 @@
             "address": "$.types.floor",
             "parent": "$.types",
             "name": "floor",
-            "semanticType": "infinity<number>",
-            "representationKind": "infinity",
+            "semanticType": "infinity",
+            "datatype": "infinity",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "InfinityLiteral",
             "scalarKind": "infinity",
             "value": {
               "$nonFinite": "negative-infinity"
@@ -465,8 +557,17 @@
             "address": "$.types.unavailable",
             "parent": "$.types",
             "name": "unavailable",
-            "semanticType": "null<string>",
-            "representationKind": "null",
+            "semanticType": "null",
+            "datatype": "null",
+            "generics": [
+              {
+                "datatype": "string",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "NullLiteral",
             "scalarKind": "null",
             "nullReason": "notApplicable",
             "value": null,
@@ -478,7 +579,10 @@
             "parent": "$",
             "name": "containers",
             "semanticType": "object",
-            "representationKind": "object",
+            "datatype": "object",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ObjectNode",
             "sourcePlane": "body",
             "children": [
               "$.containers.series",
@@ -490,8 +594,17 @@
             "address": "$.containers.series",
             "parent": "$.containers",
             "name": "series",
-            "semanticType": "list<number>",
-            "representationKind": "list",
+            "semanticType": "list",
+            "datatype": "list",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "ListNode",
             "sourcePlane": "body",
             "children": [
               "$.containers.series[0]",
@@ -503,7 +616,7 @@
             "parent": "$.containers.series",
             "index": 0,
             "semanticType": "number",
-            "representationKind": "number",
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "1",
             "value": "1",
@@ -515,7 +628,7 @@
             "parent": "$.containers.series",
             "index": 1,
             "semanticType": "number",
-            "representationKind": "number",
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "2",
             "value": "2",
@@ -527,7 +640,10 @@
             "parent": "$.containers",
             "name": "pair",
             "semanticType": "tuple",
-            "representationKind": "tuple",
+            "datatype": "tuple",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "TupleLiteral",
             "sourcePlane": "body",
             "children": [
               "$.containers.pair[0]",
@@ -539,7 +655,7 @@
             "parent": "$.containers.pair",
             "index": 0,
             "semanticType": "string",
-            "representationKind": "string",
+            "representationKind": "StringLiteral",
             "value": "x",
             "sourcePlane": "body",
             "children": []
@@ -549,7 +665,7 @@
             "parent": "$.containers.pair",
             "index": 1,
             "semanticType": "number",
-            "representationKind": "number",
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "1",
             "value": "1",
@@ -561,7 +677,10 @@
             "parent": "$.containers",
             "name": "nodeValue",
             "semanticType": "node",
-            "representationKind": "node",
+            "datatype": "node",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NodeLiteral",
             "nodeTag": "tag",
             "sourcePlane": "body",
             "children": [
@@ -572,8 +691,20 @@
             "address": "$.containers.nodeValue[0]",
             "parent": "$.containers.nodeValue",
             "index": 0,
+            "representationKind": "NodeHead",
+            "value": "tag",
+            "nodeTag": "tag",
+            "sourcePlane": "body",
+            "children": [
+              "$.containers.nodeValue[0][0]"
+            ]
+          },
+          {
+            "address": "$.containers.nodeValue[0][0]",
+            "parent": "$.containers.nodeValue[0]",
+            "index": 0,
             "semanticType": "string",
-            "representationKind": "string",
+            "representationKind": "StringLiteral",
             "value": "hello",
             "sourcePlane": "body",
             "children": []
@@ -584,7 +715,10 @@
             "name": "annotated",
             "identity": "ROOT",
             "semanticType": "number",
-            "representationKind": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "1",
             "value": "1",
@@ -606,8 +740,12 @@
             "name": "meta",
             "identity": "META",
             "semanticType": "string",
-            "representationKind": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
             "value": "source",
+            "sourcePlane": "body",
             "children": [],
             "attributeSpace": "$.annotated.@.meta.@"
           },
@@ -625,10 +763,11 @@
             "name": "deep",
             "identity": "DEEP",
             "semanticType": "number",
-            "representationKind": "number",
+            "representationKind": "NumberLiteral",
             "scalarKind": "number",
             "numericLexeme": "3",
             "value": "3",
+            "sourcePlane": "body",
             "children": []
           }
         ]
@@ -642,7 +781,7 @@
         "payload": [
           {
             "address": "$",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "children": [
               "$.[\"aeon:mode\"]"
             ]
@@ -652,7 +791,10 @@
             "parent": "$",
             "name": "aeon:mode",
             "semanticType": "string",
-            "representationKind": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
             "value": "payload",
             "sourcePlane": "body",
             "children": []
@@ -661,7 +803,7 @@
         "header": [
           {
             "address": "$",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "children": [
               "$.[\"aeon:mode\"]"
             ]
@@ -671,7 +813,10 @@
             "parent": "$",
             "name": "aeon:mode",
             "semanticType": "string",
-            "representationKind": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
             "value": "strict",
             "sourcePlane": "header",
             "children": []
@@ -680,7 +825,7 @@
         "full": [
           {
             "address": "$",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "children": [
               "$.header",
               "$.body"
@@ -690,7 +835,7 @@
             "address": "$.header",
             "parent": "$",
             "name": "header",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "sourcePlane": "header",
             "children": [
               "$.header.[\"aeon:mode\"]"
@@ -701,7 +846,10 @@
             "parent": "$.header",
             "name": "aeon:mode",
             "semanticType": "string",
-            "representationKind": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
             "value": "strict",
             "sourcePlane": "header",
             "children": []
@@ -710,7 +858,7 @@
             "address": "$.body",
             "parent": "$",
             "name": "body",
-            "representationKind": "object",
+            "representationKind": "ObjectNode",
             "sourcePlane": "body",
             "children": [
               "$.body.[\"aeon:mode\"]"
@@ -721,7 +869,10 @@
             "parent": "$.body",
             "name": "aeon:mode",
             "semanticType": "string",
-            "representationKind": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
             "value": "payload",
             "sourcePlane": "body",
             "children": []

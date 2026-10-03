@@ -1,5 +1,10 @@
-import { aeonRadixBaseFromDatatype, aeonRadixScale, formatPath, type CompileResult } from '@altopelago/aeon-core';
-import type { SansaResolveBinding, SansaResolveNamespace } from '@altopelago/sansa';
+import {
+  adaptTypeScriptAssignmentEventsToPortableAes,
+  aeonRadixBaseFromDatatype,
+  aeonRadixScale,
+  type CompileResult,
+} from '@altopelago/aeon-core';
+import { parseAddress, type SansaResolveBinding, type SansaResolveNamespace } from '@altopelago/sansa';
 import {
   indexEventsByPath,
   readAeon,
@@ -8,11 +13,7 @@ import {
 } from './index.js';
 
 export type AeonAssignmentEvent = CompileResult['events'][number];
-type AeonValue = AeonAssignmentEvent['value'];
-type UnwrappedAeonValue = Exclude<AeonValue, { readonly type: 'TypedValue' }>;
-type AeonAttributeEntry = NonNullable<AeonAssignmentEvent['annotations']> extends ReadonlyMap<string, infer TEntry>
-  ? TEntry
-  : never;
+type PortableAeonEvent = ReturnType<typeof adaptTypeScriptAssignmentEventsToPortableAes>['events'][number];
 
 export type AeonNamespaceScope = 'payload' | 'header' | 'full';
 export type AeonNumericMaterialization = 'lossless' | 'native';
@@ -45,6 +46,8 @@ export interface AeonSansaBinding extends SansaResolveBinding {
   attributeSpace?: AeonSansaBinding;
   nodeTag?: string;
   sourcePlane?: 'header' | 'body';
+  origin?: string;
+  span?: string;
 }
 
 export type AeonSansaNamespace = SansaResolveNamespace<AeonSansaBinding> & {
@@ -62,9 +65,10 @@ export interface ReadAeonNamespaceResult extends ReadAeonResult {
 /**
  * Adapt compiled AEON assignment events into a queryable SANSA namespace.
  *
- * Scalar AST values are exposed without losing finite-number precision while
- * AEON datatype, representation, null, identity, and attribute metadata are
- * kept on the corresponding binding.
+ * Native assignment events are first projected into complete portable AES
+ * topology. This keeps binding and NodeHead occurrences distinct, translates
+ * reference targets through node-head levels, and exposes normative portable
+ * representation kinds without losing finite-number precision.
  */
 export function createAeonNamespace(
   events: readonly AeonAssignmentEvent[],
@@ -74,7 +78,7 @@ export function createAeonNamespace(
   const numericMaterialization = options.numericMaterialization ?? 'lossless';
   const root: AeonSansaBinding = {
     address: '$',
-    representationKind: 'object',
+    representationKind: 'ObjectNode',
     children: [],
   };
   const byAddress = new Map<string, AeonSansaBinding>([['$', root]]);
@@ -87,7 +91,7 @@ export function createAeonNamespace(
         address,
         name: sourcePlane,
         sourcePlane,
-        representationKind: 'object',
+        representationKind: 'ObjectNode',
         children: [],
       };
       root.children.push(planeRoot);
@@ -96,28 +100,77 @@ export function createAeonNamespace(
     }
   }
 
-  for (const event of events) {
-    if (!eventIsInScope(event, scope)) continue;
-
-    const sourcePlane = event.sourcePlane === 'header' ? 'header' : 'body';
-    const eventAddress = formatPath(event.path);
-    const eventParentAddress = parentPathAddress(event.path);
-    const address = scope === 'full' ? addressInPlane(sourcePlane, eventAddress) : eventAddress;
-    const parentAddress = scope === 'full' ? addressInPlane(sourcePlane, eventParentAddress) : eventParentAddress;
-    const parent = byAddress.get(parentAddress);
-    if (!parent) {
-      throw new Error(`AEON event '${address}' has no parent binding '${parentAddress}' in the selected '${scope}' scope.`);
-    }
-
+  const portableEvents = adaptTypeScriptAssignmentEventsToPortableAes(events, { includeHeaders: true }).events;
+  for (const event of portableEvents) {
+    const location = portableEventLocation(event);
+    if (!planeIsInScope(location.sourcePlane, scope)) continue;
+    const address = scope === 'full'
+      ? addressInPlane(location.sourcePlane, location.path)
+      : location.path;
     const existing = byAddress.get(address);
     if (existing) {
       throw new Error(`AEON events contain more than one binding at '${address}'.`);
     }
 
-    const binding = bindingFromEvent(event, address, parents, numericMaterialization);
+    const parsed = parseAddress(address);
+    if (!parsed.ok || !parsed.address.isExact) {
+      const message = parsed.ok
+        ? `Portable AES path is not exact: ${address}`
+        : parsed.errors[0]?.message ?? `Invalid portable AES path: ${address}`;
+      throw new Error(message);
+    }
+    const selectors = parsed.address.selectors;
+    const final = selectors[selectors.length - 1];
+    if (final?.type !== 'member' && final?.type !== 'position') {
+      throw new Error(`Portable AES event path must end in a member or index: ${address}`);
+    }
+
+    let currentAddress = '$';
+    let parent = root;
+    for (const selector of selectors.slice(0, -1)) {
+      if (selector.type === 'attributeSpace') {
+        const spaceAddress = `${currentAddress}.@`;
+        let space = byAddress.get(spaceAddress);
+        if (!space) {
+          space = {
+            address: spaceAddress,
+            representationKind: 'attributeSpace',
+            children: [],
+          };
+          byAddress.set(spaceAddress, space);
+          parents.set(space, parent);
+          parent.attributeSpace = space;
+        }
+        currentAddress = spaceAddress;
+        parent = space;
+        continue;
+      }
+      if (selector.type !== 'member' && selector.type !== 'position') {
+        throw new Error(`Portable AES event path contains a non-structural selector: ${address}`);
+      }
+      currentAddress = selector.type === 'member'
+        ? appendMember(currentAddress, selector.name)
+        : `${currentAddress}[${selector.index}]`;
+      const nextParent = byAddress.get(currentAddress);
+      if (!nextParent) {
+        throw new Error(`AEON event '${address}' has no parent binding '${currentAddress}' in the selected '${scope}' scope.`);
+      }
+      parent = nextParent;
+    }
+
+    const binding = bindingFromPortableEvent(
+      event,
+      address,
+      location.sourcePlane,
+      final.type === 'member' ? { name: final.name } : { index: final.index },
+      numericMaterialization,
+    );
     byAddress.set(address, binding);
     parents.set(binding, parent);
     parent.children.push(binding);
+    if (binding.representationKind === 'NodeHead' && parent.representationKind === 'NodeLiteral') {
+      if (binding.nodeTag !== undefined) parent.nodeTag = binding.nodeTag;
+    }
   }
 
   return {
@@ -158,235 +211,98 @@ export function readAeonNamespace(
   };
 }
 
-function eventIsInScope(event: AeonAssignmentEvent, scope: AeonNamespaceScope): boolean {
-  if (scope === 'full') return true;
-  if (scope === 'header') return event.sourcePlane === 'header';
-  return event.sourcePlane !== 'header';
-}
-
-function parentPathAddress(path: AeonAssignmentEvent['path']): string {
-  if (path.segments.length <= 1) return '$';
-  return formatPath({ segments: path.segments.slice(0, -1) });
-}
-
 function addressInPlane(sourcePlane: 'header' | 'body', address: string): string {
   const planeRoot = appendMember('$', sourcePlane);
   return address === '$' ? planeRoot : `${planeRoot}${address.slice(1)}`;
 }
 
-function bindingFromEvent(
-  event: AeonAssignmentEvent,
+function portableEventLocation(event: PortableAeonEvent): {
+  readonly path: string;
+  readonly sourcePlane: 'header' | 'body';
+} {
+  if ('header' in event && typeof event.header === 'string') {
+    return { path: event.header, sourcePlane: 'header' };
+  }
+  if ('path' in event && typeof event.path === 'string') {
+    return { path: event.path, sourcePlane: 'body' };
+  }
+  throw new Error('Portable AES event is missing both path and header location.');
+}
+
+function planeIsInScope(sourcePlane: 'header' | 'body', scope: AeonNamespaceScope): boolean {
+  return scope === 'full'
+    || (scope === 'header' ? sourcePlane === 'header' : sourcePlane === 'body');
+}
+
+function bindingFromPortableEvent(
+  event: PortableAeonEvent,
   address: string,
-  parents: Map<AeonSansaBinding, AeonSansaBinding | undefined>,
+  sourcePlane: 'header' | 'body',
+  segment: { readonly name: string } | { readonly index: number },
   numericMaterialization: AeonNumericMaterialization,
 ): AeonSansaBinding {
-  const segment = event.path.segments[event.path.segments.length - 1];
-  const semanticType = event.datatype ?? semanticTypeFromValue(event.value);
+  const semanticType = event.datatype ?? portableSemanticType(event.kind);
   const binding: AeonSansaBinding = {
     address,
     children: [],
-    representationKind: representationKindFromValue(event.value, semanticType),
-    ...(event.structuralId !== undefined && event.structuralId !== null ? { identity: event.structuralId } : {}),
-    ...(event.sourcePlane ? { sourcePlane: event.sourcePlane } : {}),
-    ...(semanticType ? { semanticType } : {}),
+    representationKind: event.kind,
+    sourcePlane,
+    ...('name' in segment ? { name: segment.name } : { index: segment.index }),
+    ...(event.identity !== undefined ? { identity: event.identity } : {}),
+    ...(semanticType !== undefined ? { semanticType } : {}),
+    ...(event.datatype !== undefined ? { datatype: event.datatype } : {}),
+    ...(event.generics !== undefined ? { generics: event.generics } : {}),
+    ...(event.clarifiers !== undefined ? { clarifiers: event.clarifiers } : {}),
+    ...(event.origin !== undefined ? { origin: event.origin } : {}),
+    ...(event.span !== undefined ? { span: event.span } : {}),
   };
 
-  if (segment?.type === 'member') binding.name = segment.key;
-  if (segment?.type === 'index') binding.index = segment.index;
-
-  const scalarKind = scalarKindFromValue(event.value, semanticType);
+  const scalarKind = portableScalarKind(event.kind);
   if (scalarKind !== undefined) binding.scalarKind = scalarKind;
-  const nullReason = nullReasonFromValue(event.value);
-  if (nullReason !== undefined) binding.nullReason = nullReason;
-  const numericLexeme = numericLexemeFromValue(event.value);
-  if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
-  const radixBase = radixBaseFromValue(event.value, semanticType);
+  if (event.kind === 'NullLiteral' && event.value !== undefined) binding.nullReason = event.value;
+  if (event.kind === 'NumberLiteral' && event.value !== undefined) binding.numericLexeme = event.value;
+  const radixBase = radixBaseFromPortableEvent(event);
   if (radixBase !== undefined) binding.radixBase = radixBase;
-  const radixScale = radixScaleFromValue(event.value, radixBase);
-  if (radixScale !== undefined) binding.radixScale = radixScale;
-  const scalar = scalarFromAeonValue(event.value, numericMaterialization);
-  if (scalar.ok) binding.value = scalar.value;
-
-  const unwrapped = unwrapTypedValue(event.value);
-  if (unwrapped.type === 'NodeLiteral') binding.nodeTag = unwrapped.tag;
-  if (event.annotations?.size) {
-    binding.attributeSpace = buildAttributeSpace(address, event.annotations, binding, parents, numericMaterialization);
+  if (event.kind === 'RadixLiteral' && event.value !== undefined) {
+    const radixScale = aeonRadixScale(event.value, radixBase);
+    if (radixScale !== null) binding.radixScale = radixScale;
   }
+  const scalar = scalarFromPortableEvent(event, numericMaterialization);
+  if (scalar.ok) binding.value = scalar.value;
+  if (event.kind === 'NodeHead' && event.value !== undefined) binding.nodeTag = event.value;
 
   return binding;
 }
 
-function buildAttributeSpace(
-  ownerAddress: string,
-  annotations: ReadonlyMap<string, AeonAttributeEntry>,
-  owner: AeonSansaBinding,
-  parents: Map<AeonSansaBinding, AeonSansaBinding | undefined>,
-  numericMaterialization: AeonNumericMaterialization,
-): AeonSansaBinding {
-  const space: AeonSansaBinding = {
-    address: `${ownerAddress}.@`,
-    representationKind: 'attributeSpace',
-    children: [],
-  };
-
-  for (const [name, entry] of annotations) {
-    const semanticType = entry.datatype ?? semanticTypeFromValue(entry.value);
-    const binding: AeonSansaBinding = {
-      address: appendMember(space.address, name),
-      name,
-      children: [],
-      representationKind: representationKindFromValue(entry.value, semanticType),
-      ...(entry.structuralId !== undefined && entry.structuralId !== null ? { identity: entry.structuralId } : {}),
-      ...(semanticType ? { semanticType } : {}),
-    };
-    const scalarKind = scalarKindFromValue(entry.value, semanticType);
-    if (scalarKind !== undefined) binding.scalarKind = scalarKind;
-    const nullReason = nullReasonFromValue(entry.value);
-    if (nullReason !== undefined) binding.nullReason = nullReason;
-    const numericLexeme = numericLexemeFromValue(entry.value);
-    if (numericLexeme !== undefined) binding.numericLexeme = numericLexeme;
-    const radixBase = radixBaseFromValue(entry.value, binding.semanticType);
-    if (radixBase !== undefined) binding.radixBase = radixBase;
-    const radixScale = radixScaleFromValue(entry.value, radixBase);
-    if (radixScale !== undefined) binding.radixScale = radixScale;
-    const scalar = scalarFromAeonValue(entry.value, numericMaterialization);
-    if (scalar.ok) binding.value = scalar.value;
-    if (entry.annotations?.size) {
-      binding.attributeSpace = buildAttributeSpace(
-        binding.address,
-        entry.annotations,
-        binding,
-        parents,
-        numericMaterialization,
-      );
-    }
-    parents.set(binding, space);
-    space.children.push(binding);
-  }
-
-  parents.set(space, owner);
-  return space;
-}
-
-function unwrapTypedValue(value: AeonValue): UnwrappedAeonValue {
-  return value.type === 'TypedValue' ? unwrapTypedValue(value.value) : value;
-}
-
-function semanticTypeFromValue(value: AeonValue): string | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  switch (unwrapped.type) {
-    case 'StringLiteral': return 'string';
-    case 'NumberLiteral': return 'number';
-    case 'InfinityLiteral': return 'infinity';
-    case 'NaNLiteral': return 'nan';
-    case 'BooleanLiteral': return 'boolean';
-    case 'NullLiteral': return 'null';
-    case 'ToggleLiteral': return 'toggle';
-    case 'HexLiteral': return 'hex';
-    case 'RadixLiteral': return 'radix';
-    case 'EncodingLiteral': return 'encoding';
-    case 'SeparatorLiteral': return 'sep';
-    case 'SymbolicLiteral': return 'symbol';
-    case 'SansaAddressLiteral': return 'sansa';
-    case 'DateLiteral': return 'date';
-    case 'TimeLiteral': return 'time';
-    case 'DateTimeLiteral': return unwrapped.raw.includes('&') ? 'wtc' : 'datetime';
-    case 'ObjectNode':
-    case 'ListNode':
-    case 'TupleLiteral':
-    case 'NodeLiteral':
-    case 'CloneReference':
-    case 'PointerReference':
-      return undefined;
-  }
-}
-
-function representationKindFromValue(value: AeonValue, semanticType?: string): string {
-  const unwrapped = unwrapTypedValue(value);
-  switch (unwrapped.type) {
-    case 'ObjectNode': return 'object';
-    case 'ListNode': return 'list';
-    case 'TupleLiteral': return 'tuple';
-    case 'NodeLiteral': return 'node';
-    case 'StringLiteral': return 'string';
-    case 'NumberLiteral': return 'number';
-    case 'InfinityLiteral': return 'infinity';
-    case 'NaNLiteral': return 'nan';
-    case 'BooleanLiteral': return 'boolean';
-    case 'NullLiteral': return 'null';
-    case 'ToggleLiteral': return 'toggle';
-    case 'HexLiteral': return 'hex';
-    case 'RadixLiteral': return 'radix';
-    case 'EncodingLiteral': return 'encoding';
-    case 'SeparatorLiteral': return 'separator';
-    case 'SymbolicLiteral': return 'symbol';
-    case 'SansaAddressLiteral': return 'sansa';
-    case 'DateLiteral': return 'date';
-    case 'TimeLiteral': return temporalKindFromSemanticType(semanticType);
-    case 'DateTimeLiteral': return temporalKindFromSemanticType(semanticType);
-    case 'CloneReference': return 'cloneReference';
-    case 'PointerReference': return 'pointerReference';
-  }
-}
-
-function scalarKindFromValue(value: AeonValue, semanticType?: string): string | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  switch (unwrapped.type) {
-    case 'NullLiteral': return 'null';
-    case 'InfinityLiteral': return 'infinity';
-    case 'NaNLiteral': return 'nan';
-    case 'ToggleLiteral': return 'toggle';
-    case 'HexLiteral': return 'hex';
-    case 'RadixLiteral': return 'radix';
-    case 'EncodingLiteral': return 'encoding';
-    case 'SeparatorLiteral': return 'separator';
-    case 'SymbolicLiteral': return 'symbol';
-    case 'SansaAddressLiteral': return 'sansaAddress';
-    case 'NumberLiteral': return 'number';
-    case 'DateLiteral': return 'date';
-    case 'TimeLiteral': return temporalKindFromSemanticType(semanticType);
-    case 'DateTimeLiteral': return temporalKindFromSemanticType(semanticType);
-    case 'CloneReference':
-    case 'PointerReference':
-      return 'referenceForm';
-    case 'StringLiteral':
-    case 'BooleanLiteral':
-    case 'ObjectNode':
-    case 'ListNode':
-    case 'TupleLiteral':
-    case 'NodeLiteral':
-      return undefined;
-  }
-}
-
-function scalarFromAeonValue(
-  value: AeonValue,
+function scalarFromPortableEvent(
+  event: PortableAeonEvent,
   numericMaterialization: AeonNumericMaterialization,
 ): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
-  const unwrapped = unwrapTypedValue(value);
-  switch (unwrapped.type) {
+  switch (event.kind) {
     case 'StringLiteral':
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'WTCDateTimeLiteral':
     case 'HexLiteral':
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
     case 'SymbolicLiteral':
     case 'ToggleLiteral':
-      return { ok: true, value: unwrapped.value };
+    case 'NodeHead':
+      return { ok: true, value: event.value ?? '' };
     case 'NumberLiteral':
       return {
         ok: true,
-        value: numericMaterialization === 'native' ? Number(unwrapped.value) : unwrapped.value,
+        value: numericMaterialization === 'native' ? Number(event.value ?? '') : event.value ?? '',
       };
     case 'InfinityLiteral':
-      return { ok: true, value: unwrapped.value === '-Infinity' ? -Infinity : Infinity };
+      return { ok: true, value: event.value === '-Infinity' ? -Infinity : Infinity };
     case 'NaNLiteral':
       return { ok: true, value: Number.NaN };
     case 'BooleanLiteral':
-      return { ok: true, value: unwrapped.value };
+      return { ok: true, value: event.value === 'true' };
     case 'NullLiteral':
       return { ok: true, value: null };
     case 'SansaAddressLiteral':
@@ -394,8 +310,8 @@ function scalarFromAeonValue(
         ok: true,
         value: {
           type: 'SansaAddressLiteral',
-          address: unwrapped.canonical,
-          canonical: unwrapped.canonical,
+          address: event.value ?? '',
+          canonical: event.value ?? '',
         },
       };
     case 'CloneReference':
@@ -403,9 +319,9 @@ function scalarFromAeonValue(
       return {
         ok: true,
         value: {
-          type: unwrapped.type,
-          path: unwrapped.path,
-          canonical: `${unwrapped.type === 'PointerReference' ? '~>' : '~'}${formatReferencePath(unwrapped.path)}`,
+          type: event.kind,
+          path: event.value ?? '',
+          canonical: `${event.kind === 'PointerReference' ? '~>' : '~'}${event.value ?? ''}`,
         },
       };
     case 'ObjectNode':
@@ -416,30 +332,85 @@ function scalarFromAeonValue(
   }
 }
 
-function numericLexemeFromValue(value: AeonValue): string | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  return unwrapped.type === 'NumberLiteral' ? unwrapped.value : undefined;
+function portableSemanticType(kind: PortableAeonEvent['kind']): string | undefined {
+  switch (kind) {
+    case 'StringLiteral': return 'string';
+    case 'NumberLiteral': return 'number';
+    case 'InfinityLiteral': return 'infinity';
+    case 'NaNLiteral': return 'nan';
+    case 'NullLiteral': return 'null';
+    case 'BooleanLiteral': return 'boolean';
+    case 'ToggleLiteral': return 'toggle';
+    case 'HexLiteral': return 'hex';
+    case 'RadixLiteral': return 'radix';
+    case 'EncodingLiteral': return 'encoding';
+    case 'SeparatorLiteral': return 'sep';
+    case 'SymbolicLiteral': return 'symbol';
+    case 'SansaAddressLiteral': return 'sansa';
+    case 'DateLiteral': return 'date';
+    case 'TimeLiteral': return 'time';
+    case 'DateTimeLiteral': return 'datetime';
+    case 'WTCDateTimeLiteral': return 'wtc';
+    case 'ObjectNode':
+    case 'ListNode':
+    case 'TupleLiteral':
+    case 'NodeLiteral':
+    case 'NodeHead':
+    case 'CloneReference':
+    case 'PointerReference':
+      return undefined;
+  }
 }
 
-function radixBaseFromValue(value: AeonValue, semanticType?: string): number | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  return unwrapped.type === 'RadixLiteral' ? aeonRadixBaseFromDatatype(semanticType) : undefined;
+function portableScalarKind(kind: PortableAeonEvent['kind']): string | undefined {
+  switch (kind) {
+    case 'NumberLiteral': return 'number';
+    case 'NullLiteral': return 'null';
+    case 'InfinityLiteral': return 'infinity';
+    case 'NaNLiteral': return 'nan';
+    case 'ToggleLiteral': return 'toggle';
+    case 'HexLiteral': return 'hex';
+    case 'RadixLiteral': return 'radix';
+    case 'EncodingLiteral': return 'encoding';
+    case 'SeparatorLiteral': return 'separator';
+    case 'SymbolicLiteral': return 'symbol';
+    case 'SansaAddressLiteral': return 'sansaAddress';
+    case 'DateLiteral': return 'date';
+    case 'TimeLiteral': return 'time';
+    case 'DateTimeLiteral': return 'datetime';
+    case 'WTCDateTimeLiteral': return 'wtc';
+    case 'CloneReference':
+    case 'PointerReference':
+      return 'referenceForm';
+    case 'StringLiteral':
+    case 'BooleanLiteral':
+    case 'ObjectNode':
+    case 'ListNode':
+    case 'TupleLiteral':
+    case 'NodeLiteral':
+    case 'NodeHead':
+      return undefined;
+  }
 }
 
-function radixScaleFromValue(value: AeonValue, radixBase?: number): number | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  if (unwrapped.type !== 'RadixLiteral') return undefined;
-  return aeonRadixScale(unwrapped.value, radixBase) ?? undefined;
+function radixBaseFromPortableEvent(event: PortableAeonEvent): number | undefined {
+  if (event.kind !== 'RadixLiteral') return undefined;
+  const fromDatatype = aeonRadixBaseFromDatatype(event.datatype);
+  if (fromDatatype !== undefined) return fromDatatype;
+  if (event.datatype !== 'radix' || event.clarifiers?.length !== 1) return undefined;
+  const clarifier = event.clarifiers[0];
+  if (!isTaggedNumberLiteral(clarifier)) return undefined;
+  const base = Number(clarifier.value);
+  return Number.isInteger(base) && base >= 2 && base <= 64 ? base : undefined;
 }
 
-function nullReasonFromValue(value: AeonValue): string | undefined {
-  const unwrapped = unwrapTypedValue(value);
-  return unwrapped.type === 'NullLiteral' ? unwrapped.value : undefined;
-}
-
-function temporalKindFromSemanticType(semanticType?: string): string {
-  const base = semanticType?.split(/[<[]/u, 1)[0];
-  return base && ['date', 'time', 'datetime', 'wtc'].includes(base) ? base : 'datetime';
+function isTaggedNumberLiteral(value: unknown): value is { readonly kind: 'NumberLiteral'; readonly value: string } {
+  return typeof value === 'object'
+    && value !== null
+    && 'kind' in value
+    && value.kind === 'NumberLiteral'
+    && 'value' in value
+    && typeof value.value === 'string';
 }
 
 function representationKindMatches(actual: string | undefined, expected: string): boolean {
@@ -469,6 +440,7 @@ function representationAlias(kind: string): string | undefined {
     case 'ListNode': return 'list';
     case 'TupleLiteral': return 'tuple';
     case 'NodeLiteral': return 'node';
+    case 'NodeHead': return 'nodeHead';
     case 'CloneReference': return 'cloneReference';
     case 'PointerReference': return 'pointerReference';
     default: return undefined;
@@ -483,26 +455,4 @@ function appendMember(base: string, name: string): string {
   return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)
     ? `${base}.${name}`
     : `${base}.[${JSON.stringify(name)}]`;
-}
-
-function formatReferencePath(path: readonly (string | number | { readonly type: 'attr'; readonly key: string })[]): string {
-  let output = '';
-  for (let index = 0; index < path.length; index += 1) {
-    const segment = path[index]!;
-    if (typeof segment === 'number') {
-      output += `[${segment}]`;
-      continue;
-    }
-    if (typeof segment === 'object') {
-      output += /^[A-Za-z_][A-Za-z0-9_]*$/u.test(segment.key)
-        ? `.@.${segment.key}`
-        : `.@.[${JSON.stringify(segment.key)}]`;
-      continue;
-    }
-    const rendered = /^[A-Za-z_][A-Za-z0-9_]*$/u.test(segment)
-      ? segment
-      : `[${JSON.stringify(segment)}]`;
-    output += index === 0 ? rendered : `.${rendered}`;
-  }
-  return output;
 }

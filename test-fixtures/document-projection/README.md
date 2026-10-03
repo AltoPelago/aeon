@@ -26,24 +26,18 @@ from `aes-event` addresses by default so source and complete-Telex ingestion
 expose the same namespace. Pytonic may offer source-oriented navigation without
 pretending that a synthetic node head has a source spelling.
 
-The binding snapshots in v1 record the existing TypeScript adapter baseline,
-which uses the `aeon-source` domain. `portableTopologyCases` separately locks
-the required source-to-event translation and explicit node-head topology. A
-future graph runner will combine both into bindings carrying both addresses;
-the baseline snapshot must not be interpreted as permission to omit node
-heads.
+The binding snapshots use the `aes-event` domain and the complete portable node
+topology. The TypeScript adapter first projects native assignment events into
+that shape, retaining distinct binding, node-head, and content occurrences.
+`portableTopologyCases` separately locks the underlying source-to-event path
+translation.
 
-The baseline adapter is older than the complete AES node projection. It keeps
-the tag as `nodeTag` on the outer binding, but it does not create the distinct
-head binding needed to retain head identity, datatype, and attributes alongside
-independent key identity, datatype, and attributes. The topology case therefore
-uses metadata on both occurrences and treats the portable expansion as the
-target behavior.
-
-`legacyNamespaceProjectionFields` describes only those baseline snapshots.
+`namespaceProjectionFields` describes the SANSA-facing snapshots.
 `documentGraphRequiredFields` is the target graph contract and includes
 structured datatype, provenance, transport, and lineage data that the legacy
-adapter does not expose.
+namespace surface did not expose. The current TypeScript namespace exposes the
+portable topology, structured datatype components, origin, and span; transport
+and lineage remain document-graph capabilities rather than SANSA binding fields.
 
 ## Snapshot shape
 

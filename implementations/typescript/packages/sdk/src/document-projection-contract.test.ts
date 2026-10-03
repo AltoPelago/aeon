@@ -55,13 +55,13 @@ interface DocumentProjectionContract {
     readonly conditional: readonly string[];
     readonly sansaEventBackedDefault: string;
   };
-  readonly legacyNamespaceSnapshotAddressDomain: string;
+  readonly namespaceSnapshotAddressDomain: string;
   readonly fidelityDimensions: readonly string[];
   readonly capabilityStates: readonly CapabilityState[];
   readonly capabilities: readonly ContractCapability[];
   readonly capabilityScenarios: readonly CapabilityScenario[];
   readonly documentGraphRequiredFields: readonly string[];
-  readonly legacyNamespaceProjectionFields: readonly string[];
+  readonly namespaceProjectionFields: readonly string[];
   readonly portableTopologyCases: readonly PortableTopologyCase[];
   readonly fixtures: readonly ContractFixture[];
 }
@@ -117,13 +117,16 @@ const EXPECTED_DOCUMENT_GRAPH_FIELDS = [
   'lineage',
 ] as const;
 
-const EXPECTED_LEGACY_PROJECTION_FIELDS = [
+const EXPECTED_NAMESPACE_PROJECTION_FIELDS = [
   'address',
   'parent',
   'name',
   'index',
   'identity',
   'semanticType',
+  'datatype',
+  'generics',
+  'clarifiers',
   'representationKind',
   'scalarKind',
   'nullReason',
@@ -133,6 +136,8 @@ const EXPECTED_LEGACY_PROJECTION_FIELDS = [
   'value',
   'nodeTag',
   'sourcePlane',
+  'origin',
+  'span',
   'children',
   'attributeSpace',
 ] as const;
@@ -147,7 +152,7 @@ test('document-projection contract declares independent fidelity capabilities', 
     conditional: ['aeon-source', 'aes-event'],
     sansaEventBackedDefault: 'aes-event',
   });
-  assert.equal(contract.legacyNamespaceSnapshotAddressDomain, 'aeon-source');
+  assert.equal(contract.namespaceSnapshotAddressDomain, 'aes-event');
   assert.deepEqual(contract.fidelityDimensions, [
     'telex-event',
     'profile-relative-semantic',
@@ -156,14 +161,14 @@ test('document-projection contract declares independent fidelity capabilities', 
   assert.deepEqual(contract.capabilityStates, EXPECTED_CAPABILITY_STATES);
   assert.deepEqual(contract.capabilities.map(({ id }) => id), EXPECTED_CAPABILITIES);
   assert.deepEqual(contract.documentGraphRequiredFields, EXPECTED_DOCUMENT_GRAPH_FIELDS);
-  assert.deepEqual(contract.legacyNamespaceProjectionFields, EXPECTED_LEGACY_PROJECTION_FIELDS);
+  assert.deepEqual(contract.namespaceProjectionFields, EXPECTED_NAMESPACE_PROJECTION_FIELDS);
 
   assert.equal(new Set(contract.capabilityStates).size, contract.capabilityStates.length);
   assert.equal(new Set(contract.capabilities.map(({ id }) => id)).size, contract.capabilities.length);
   assert.equal(new Set(contract.documentGraphRequiredFields).size, contract.documentGraphRequiredFields.length);
   assert.equal(
-    new Set(contract.legacyNamespaceProjectionFields).size,
-    contract.legacyNamespaceProjectionFields.length,
+    new Set(contract.namespaceProjectionFields).size,
+    contract.namespaceProjectionFields.length,
   );
   for (const capability of contract.capabilities) assert.notEqual(capability.description.trim(), '');
 
@@ -221,6 +226,9 @@ function snapshotNamespace(namespace: AeonSansaNamespace): readonly unknown[] {
       ...(binding.index !== undefined ? { index: binding.index } : {}),
       ...(binding.identity !== undefined ? { identity: binding.identity } : {}),
       ...(binding.semanticType !== undefined ? { semanticType: binding.semanticType } : {}),
+      ...(binding.datatype !== undefined ? { datatype: binding.datatype } : {}),
+      ...(binding.generics !== undefined ? { generics: binding.generics } : {}),
+      ...(binding.clarifiers !== undefined ? { clarifiers: binding.clarifiers } : {}),
       ...(binding.representationKind !== undefined ? { representationKind: binding.representationKind } : {}),
       ...(binding.scalarKind !== undefined ? { scalarKind: binding.scalarKind } : {}),
       ...(binding.nullReason !== undefined ? { nullReason: binding.nullReason } : {}),
@@ -230,6 +238,8 @@ function snapshotNamespace(namespace: AeonSansaNamespace): readonly unknown[] {
       ...(binding.value !== undefined ? { value: jsonSafeValue(binding.value) } : {}),
       ...(binding.nodeTag !== undefined ? { nodeTag: binding.nodeTag } : {}),
       ...(binding.sourcePlane !== undefined ? { sourcePlane: binding.sourcePlane } : {}),
+      ...(binding.origin !== undefined ? { origin: binding.origin } : {}),
+      ...(binding.span !== undefined ? { span: binding.span } : {}),
       children: binding.children.map(({ address }) => address),
       ...(binding.attributeSpace !== undefined ? { attributeSpace: binding.attributeSpace.address } : {}),
     });

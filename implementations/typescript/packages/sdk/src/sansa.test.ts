@@ -134,7 +134,7 @@ test('infers WTC metadata for an untyped temporal context claim', () => {
   const world = bindingAt(namespace, '$.world');
 
   assert.equal(world.semanticType, 'wtc');
-  assert.equal(world.representationKind, 'wtc');
+  assert.equal(world.representationKind, 'WTCDateTimeLiteral');
   assert.equal(world.scalarKind, 'wtc');
 });
 
@@ -154,7 +154,7 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   const price = bindingAt(namespace, '$.types.price');
   assert.equal(price.value, '19.9900');
   assert.equal(price.semanticType, 'decimal');
-  assert.equal(price.representationKind, 'radix');
+  assert.equal(price.representationKind, 'RadixLiteral');
   assert.equal(price.radixBase, 10);
   assert.equal(price.radixScale, 4);
 
@@ -169,7 +169,7 @@ test('adapts every AEON scalar family without erasing representation metadata', 
   assert.equal(bindingAt(namespace, '$.types.active').value, true);
   assert.deepEqual(
     [bindingAt(namespace, '$.types.consent').representationKind, bindingAt(namespace, '$.types.consent').value],
-    ['toggle', 'yes'],
+    ['ToggleLiteral', 'yes'],
   );
   assert.deepEqual(
     [bindingAt(namespace, '$.types.color').scalarKind, bindingAt(namespace, '$.types.color').value],
@@ -194,7 +194,7 @@ test('adapts every AEON scalar family without erasing representation metadata', 
       bindingAt(namespace, '$.types.stage').scalarKind,
       bindingAt(namespace, '$.types.stage').value,
     ],
-    ['symbol', 'symbol', 'symbol', 'approved'],
+    ['symbol', 'SymbolicLiteral', 'symbol', 'approved'],
   );
   assert.deepEqual(bindingAt(namespace, '$.types.selector').value, {
     type: 'SansaAddressLiteral',
@@ -234,19 +234,24 @@ test('adapts references, containers, identities, and nested attributes', () => {
 
   assert.deepEqual(bindingAt(namespace, '$.targetClone').value, {
     type: 'CloneReference',
-    path: ['target'],
-    canonical: '~target',
+    path: '$.target',
+    canonical: '~$.target',
   });
   assert.deepEqual(bindingAt(namespace, '$.targetPointer').value, {
     type: 'PointerReference',
-    path: ['target'],
-    canonical: '~>target',
+    path: '$.target',
+    canonical: '~>$.target',
   });
-  assert.equal(bindingAt(namespace, '$.containers.series').representationKind, 'list');
-  assert.equal(bindingAt(namespace, '$.containers.pair').representationKind, 'tuple');
+  assert.equal(bindingAt(namespace, '$.containers.series').representationKind, 'ListNode');
+  assert.equal(bindingAt(namespace, '$.containers.pair').representationKind, 'TupleLiteral');
   const node = bindingAt(namespace, '$.containers.nodeValue');
-  assert.equal(node.representationKind, 'node');
+  assert.equal(node.representationKind, 'NodeLiteral');
   assert.equal(node.nodeTag, 'tag');
+  const head = bindingAt(namespace, '$.containers.nodeValue[0]');
+  assert.equal(head.representationKind, 'NodeHead');
+  assert.equal(head.nodeTag, 'tag');
+  assert.equal(head.value, 'tag');
+  assert.equal(bindingAt(namespace, '$.containers.nodeValue[0][0]').value, 'hello');
 
   const annotated = bindingAt(namespace, '$.annotated');
   assert.equal(annotated.identity, 'ROOT');
@@ -258,6 +263,44 @@ test('adapts references, containers, identities, and nested attributes', () => {
   assert.equal(deep.value, '3');
   assert.equal(deep.numericLexeme, '3');
   assert.equal(namespace.parent?.(deep), meta.attributeSpace);
+});
+
+test('separates binding, node-head, and content metadata in portable topology', () => {
+  const source = String.raw`value\BINDING\@{keyMeta\KEY_META\ = "outer"} = <tag\HEAD\@{role\ROLE\ = "button"}:node(\CHILD\ = "hello")>`;
+  const { namespace } = readAeonNamespace(source, { compile: { maxAttributeDepth: 8 } });
+
+  const node = bindingAt(namespace, '$.value');
+  assert.equal(node.identity, 'BINDING');
+  assert.equal(node.representationKind, 'NodeLiteral');
+  assert.equal(bindingAt(namespace, '$.value.@.keyMeta').identity, 'KEY_META');
+
+  const head = bindingAt(namespace, '$.value[0]');
+  assert.equal(head.identity, 'HEAD');
+  assert.equal(head.representationKind, 'NodeHead');
+  assert.equal(head.datatype, 'node');
+  assert.equal(head.value, 'tag');
+  assert.equal(bindingAt(namespace, '$.value[0].@.role').identity, 'ROLE');
+
+  const content = bindingAt(namespace, '$.value[0][0]');
+  assert.equal(content.identity, 'CHILD');
+  assert.equal(content.value, 'hello');
+});
+
+test('resolves explicit node heads and translates references across their portable level', () => {
+  const { namespace } = readAeonNamespace(String.raw`value = <tag("first", "second")>
+copy = ~value[0]`);
+
+  const head = resolveAddress('$.value[0]%NodeHead', namespace);
+  assert.equal(head.ok, true);
+  if (!head.ok) return;
+  assert.equal(head.bindings.length, 1);
+  assert.equal(head.bindings[0]?.value, 'tag');
+
+  assert.deepEqual(bindingAt(namespace, '$.copy').value, {
+    type: 'CloneReference',
+    path: '$.value[0][0]',
+    canonical: '~$.value[0][0]',
+  });
 });
 
 test('requires explicit opt-in for native JavaScript number materialization', () => {

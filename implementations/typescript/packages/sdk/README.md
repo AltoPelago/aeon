@@ -46,9 +46,15 @@ const result = evaluateQuery(
 ```
 
 `readAeonNamespace()` requires successful compilation before returning. It
-keeps finalization diagnostics alongside the lossless AES-backed namespace, so
-AEON values that are not representable in strict JSON remain queryable. The
-namespace exposes payload bindings by default; pass
+keeps finalization diagnostics alongside a portable AES-backed namespace, so
+AEON values that are not representable in strict JSON remain queryable. Native
+assignment events are first projected through the complete portable AES
+topology: a node binding is a `NodeLiteral`, its tag is a distinct `NodeHead`
+child, and node content appears beneath that head. The adapter uses normative
+PascalCase representation kinds, preserves datatype components and provenance,
+and translates reference targets into the same portable address domain.
+
+The namespace exposes payload bindings by default; pass
 `{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
 Full scope exposes explicit `$.header` and `$.body` roots so valid bindings with
 the same canonical path in both planes remain independently addressable.
@@ -61,6 +67,12 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
   `identity`, when present, is separate opaque structural-occurrence metadata;
   SANSA mutation adapters can combine it with observed-state checks to reject
   stale targets.
+- Namespace addresses follow complete portable AES event paths. In particular,
+  `<tag("value")>` exposes the outer node at its assignment address, its head at
+  `[0]`, and its first content value at `[0][0]`. Binding/key metadata remains
+  on the outer occurrence; tag metadata remains on the `NodeHead` occurrence.
+  References are translated through these levels so their targets stay in the
+  same address domain as resolution.
 - AES retains the source numeric lexeme. The namespace exposes finite AEON
   numbers as canonical strings by default and supplies the same lexeme to
   SANSA's exact numeric comparator. Pass
