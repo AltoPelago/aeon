@@ -106,6 +106,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "altopelago-aeon-document"
+version = "0.14.0"
+dependencies = [
+ "altopelago-aeon-core",
+ "altopelago-aes-telex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "altopelago-aeon-finalize"
 version = "0.14.0"
 dependencies = [
