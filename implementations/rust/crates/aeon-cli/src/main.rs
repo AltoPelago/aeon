@@ -6141,7 +6141,7 @@ mod tests {
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
             output,
-            "aeon:header = {\n  mode = \"strict\"\n}\nc:trimtick = \"\"\npair:tuple<int32, int32> = (1, 2)\nvalues:list = [1e6, 1000e-3]\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nc:trimtick = >``\npair:tuple<int32, int32> = (1, 2)\nvalues:list = [1e6, 1000e-3]\n"
         );
     }
 

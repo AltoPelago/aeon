@@ -1,20 +1,31 @@
 use std::borrow::Cow;
 use std::time::Instant;
 
+use aeon_aeos::{
+    ResultEnvelope, ValidationEnvelope, ValidationOptions, validate, validate_telex_records,
+};
+use aeon_canonical::{canonicalize, canonicalize_telex};
 use aeon_core::{
     BehaviorMode, CompileOptions, CompileResult as CoreCompileResult, DatatypePolicy,
     Diagnostic as CoreDiagnostic, ExportTelexOptions, SourcePlane, Span as CoreSpan, Value,
     aeon_compile_limits, compile_sofia_owned, export_telex_owned, format_path, load_aeonic_limits,
     project_aes_event_records_taken,
 };
+use aeon_finalize::{
+    FinalizeMode, FinalizeOptions, FinalizePortableJsonOptions, FinalizeScope, Materialization,
+    finalize_json, finalize_portable_json,
+};
+use aeon_sdk::{assignment_events_to_aeos, load_schema_str};
 use aes_telex::{
-    encode_aes_event_records_with_projection_and_limits,
+    encode_aes_event_records_with_projection_and_limits, parse_telex_with_limits,
     validate_aes_event_records_with_projection_and_limits,
+    validate_telex_records_with_projection_and_limits,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyModule, PyTuple};
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 
 type PackedSpan = (usize, usize, usize, usize, usize, usize);
 type PackedEvent = (
@@ -402,11 +413,124 @@ struct PositionRecord {
     offset: usize,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FinalizationEnvelope {
+    errors: Vec<DiagnosticRecord>,
+    warnings: Vec<DiagnosticRecord>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadEnvelope {
+    compile: CompileEnvelope,
+    document: Option<JsonValue>,
+    finalization: Option<FinalizationEnvelope>,
+    validation: Option<ResultEnvelope>,
+    schema_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TelexLoadEnvelope {
+    ok: bool,
+    document: Option<JsonValue>,
+    finalization: Option<FinalizationEnvelope>,
+    validation: Option<ResultEnvelope>,
+    error_kind: Option<&'static str>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TelexErrorEnvelope {
+    code: &'static str,
+    message: String,
+    line: Option<usize>,
+}
+
 #[pyfunction]
 fn compile_json(py: Python<'_>, source: &str) -> PyResult<Py<PyBytes>> {
     let source = source.to_owned();
     let encoded = py
         .detach(move || encode_compile_result(source))
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
+}
+
+#[pyfunction]
+fn canonicalize_native(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> {
+    let source = source.to_owned();
+    let (ok, encoded) = py
+        .detach(move || {
+            let result = canonicalize(&source);
+            if result.errors.is_empty() {
+                return Ok((true, result.text.into_bytes()));
+            }
+            serde_json::to_vec(
+                &result
+                    .errors
+                    .iter()
+                    .map(diagnostic_record)
+                    .collect::<Vec<_>>(),
+            )
+            .map(|payload| (false, payload))
+            .map_err(|error| format!("failed to serialize canonical diagnostics: {error}"))
+        })
+        .map_err(PyRuntimeError::new_err)?;
+    Ok((ok, PyBytes::new(py, &encoded).unbind()))
+}
+
+#[pyfunction]
+fn canonicalize_telex_native(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> {
+    let source = source.to_owned();
+    let (ok, encoded) = py
+        .detach(move || match canonicalize_telex(&source) {
+            Ok(text) => Ok((true, text.into_bytes())),
+            Err(error) => serde_json::to_vec(&TelexErrorEnvelope {
+                code: error.code,
+                message: error.to_string(),
+                line: error.line,
+            })
+            .map(|payload| (false, payload))
+            .map_err(|json_error| format!("failed to serialize Telex error: {json_error}")),
+        })
+        .map_err(PyRuntimeError::new_err)?;
+    Ok((ok, PyBytes::new(py, &encoded).unbind()))
+}
+
+#[pyfunction(signature = (source, mode="strict", scope="payload", schema=None))]
+fn load_json(
+    py: Python<'_>,
+    source: &str,
+    mode: &str,
+    scope: &str,
+    schema: Option<&str>,
+) -> PyResult<Py<PyBytes>> {
+    let source = source.to_owned();
+    let mode = parse_finalize_mode(mode).map_err(PyRuntimeError::new_err)?;
+    let scope = parse_finalize_scope(scope).map_err(PyRuntimeError::new_err)?;
+    let schema = schema.map(str::to_owned);
+    let encoded = py
+        .detach(move || encode_load_result(source, mode, scope, schema.as_deref()))
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
+}
+
+#[pyfunction(signature = (source, mode="strict", scope="payload", schema=None))]
+fn load_telex_json(
+    py: Python<'_>,
+    source: &str,
+    mode: &str,
+    scope: &str,
+    schema: Option<&str>,
+) -> PyResult<Py<PyBytes>> {
+    let source = source.to_owned();
+    let mode = parse_finalize_mode(mode).map_err(PyRuntimeError::new_err)?;
+    let scope = parse_finalize_scope(scope).map_err(PyRuntimeError::new_err)?;
+    let schema = schema.map(str::to_owned);
+    let encoded = py
+        .detach(move || encode_telex_load_result(&source, mode, scope, schema.as_deref()))
         .map_err(PyRuntimeError::new_err)?;
     Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
 }
@@ -564,6 +688,10 @@ fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(compile_native, module)?)?;
     module.add_function(wrap_pyfunction!(compile_telex, module)?)?;
     module.add_function(wrap_pyfunction!(compile_telex_profile, module)?)?;
+    module.add_function(wrap_pyfunction!(canonicalize_native, module)?)?;
+    module.add_function(wrap_pyfunction!(canonicalize_telex_native, module)?)?;
+    module.add_function(wrap_pyfunction!(load_json, module)?)?;
+    module.add_function(wrap_pyfunction!(load_telex_json, module)?)?;
     Ok(())
 }
 
@@ -651,6 +779,179 @@ fn encode_compile_result(source: String) -> Result<String, String> {
     let result = compile_sofia_owned(source, CompileOptions::default());
     serde_json::to_string(&compile_envelope(&result))
         .map_err(|error| format!("failed to serialize compile result: {error}"))
+}
+
+fn encode_load_result(
+    source: String,
+    mode: FinalizeMode,
+    scope: FinalizeScope,
+    schema_source: Option<&str>,
+) -> Result<String, String> {
+    let result = compile_sofia_owned(source, CompileOptions::default());
+    let compile = compile_envelope(&result);
+    if !result.errors.is_empty() {
+        return serialize_load_envelope(LoadEnvelope {
+            compile,
+            document: None,
+            finalization: None,
+            validation: None,
+            schema_error: None,
+        });
+    }
+
+    let mut schema_error = None;
+    let validation = schema_source.and_then(|source| match load_schema_str(source) {
+        Ok(schema) => Some(validate(&ValidationEnvelope {
+            aes: assignment_events_to_aeos(&result.events),
+            schema: Some(schema),
+            options: ValidationOptions::default(),
+        })),
+        Err(error) => {
+            schema_error = Some(error.to_string());
+            None
+        }
+    });
+    let finalized = finalize_json(
+        &result.events,
+        FinalizeOptions {
+            mode,
+            materialization: Materialization::All,
+            include_paths: Vec::new(),
+            scope,
+            header: result.header.clone(),
+            max_materialized_weight: None,
+            max_reference_depth: None,
+        },
+    );
+    let finalization = finalization_envelope(&finalized.meta);
+    serialize_load_envelope(LoadEnvelope {
+        compile,
+        document: Some(finalized.document),
+        finalization: Some(finalization),
+        validation,
+        schema_error,
+    })
+}
+
+fn serialize_load_envelope(envelope: LoadEnvelope) -> Result<String, String> {
+    serde_json::to_string(&envelope)
+        .map_err(|error| format!("failed to serialize AEON load result: {error}"))
+}
+
+fn encode_telex_load_result(
+    source: &str,
+    mode: FinalizeMode,
+    scope: FinalizeScope,
+    schema_source: Option<&str>,
+) -> Result<String, String> {
+    let schema = match schema_source {
+        Some(source) => match load_schema_str(source) {
+            Ok(schema) => Some(schema),
+            Err(error) => {
+                return serialize_telex_load_envelope(TelexLoadEnvelope {
+                    ok: false,
+                    document: None,
+                    finalization: None,
+                    validation: None,
+                    error_kind: Some("schema"),
+                    error: Some(error.to_string()),
+                });
+            }
+        },
+        None => None,
+    };
+    let mut finalize = FinalizePortableJsonOptions {
+        mode,
+        scope,
+        ..FinalizePortableJsonOptions::default()
+    };
+    let parsed = match parse_telex_with_limits(source, &finalize.limits) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return serialize_telex_load_envelope(TelexLoadEnvelope {
+                ok: false,
+                document: None,
+                finalization: None,
+                validation: None,
+                error_kind: Some("telex_syntax"),
+                error: Some(error.to_string()),
+            });
+        }
+    };
+    let portable = validate_telex_records_with_projection_and_limits(
+        &parsed.records,
+        &parsed.profile,
+        parsed.projection.as_deref(),
+        &[],
+        &finalize.limits,
+    );
+    if !portable.valid {
+        let message = portable
+            .diagnostics
+            .iter()
+            .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return serialize_telex_load_envelope(TelexLoadEnvelope {
+            ok: false,
+            document: None,
+            finalization: None,
+            validation: None,
+            error_kind: Some("telex_validation"),
+            error: Some(message),
+        });
+    }
+    let validation = schema.map(|schema| {
+        validate_telex_records(&parsed.records, Some(schema), ValidationOptions::default())
+    });
+    finalize.profile = parsed.profile;
+    finalize.projection = parsed.projection;
+    let finalized = finalize_portable_json(&parsed.records, finalize);
+    let ok = finalized.meta.errors.is_empty()
+        && validation
+            .as_ref()
+            .is_none_or(|result| result.errors.is_empty());
+    serialize_telex_load_envelope(TelexLoadEnvelope {
+        ok,
+        document: Some(finalized.document),
+        finalization: Some(finalization_envelope(&finalized.meta)),
+        validation,
+        error_kind: None,
+        error: None,
+    })
+}
+
+fn serialize_telex_load_envelope(envelope: TelexLoadEnvelope) -> Result<String, String> {
+    serde_json::to_string(&envelope)
+        .map_err(|error| format!("failed to serialize Telex load result: {error}"))
+}
+
+fn finalization_envelope(meta: &aeon_finalize::FinalizeMeta) -> FinalizationEnvelope {
+    FinalizationEnvelope {
+        errors: meta.errors.iter().map(diagnostic_record).collect(),
+        warnings: meta.warnings.iter().map(diagnostic_record).collect(),
+    }
+}
+
+fn parse_finalize_mode(value: &str) -> Result<FinalizeMode, String> {
+    match value {
+        "strict" => Ok(FinalizeMode::Strict),
+        "loose" => Ok(FinalizeMode::Loose),
+        _ => Err(format!(
+            "unsupported finalization mode {value:?}; expected 'strict' or 'loose'"
+        )),
+    }
+}
+
+fn parse_finalize_scope(value: &str) -> Result<FinalizeScope, String> {
+    match value {
+        "payload" => Ok(FinalizeScope::Payload),
+        "header" => Ok(FinalizeScope::Header),
+        "full" => Ok(FinalizeScope::Full),
+        _ => Err(format!(
+            "unsupported finalization scope {value:?}; expected 'payload', 'header', or 'full'"
+        )),
+    }
 }
 
 fn encode_telex_result(source: String) -> Result<(bool, Vec<u8>), String> {
