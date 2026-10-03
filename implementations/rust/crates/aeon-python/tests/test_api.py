@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 import altopelago.aeon as aeon
@@ -81,6 +83,107 @@ class CompileTests(unittest.TestCase):
             aeon.compile_to_telex('name = "unterminated')
 
         self.assertEqual(raised.exception.diagnostics[0].code, "UNTERMINATED_STRING")
+
+    def test_canonicalize_uses_native_canonical_writer(self) -> None:
+        rendered = aeon.canonicalize("b=2\na=1\n")
+
+        self.assertIn("a = 1\nb = 2", rendered)
+        self.assertEqual(aeon.canonicalize(rendered), rendered)
+
+    def test_canonicalize_raises_compile_error(self) -> None:
+        with self.assertRaises(aeon.CompileError):
+            aeon.canonicalize('name = "unterminated')
+
+    def test_load_text_materializes_and_retains_reports(self) -> None:
+        loaded = aeon.load_text('name = "Sofia"\ncount = 2\n')
+
+        self.assertTrue(loaded.ok)
+        self.assertIs(loaded.require_ok(), loaded)
+        self.assertEqual(loaded.document, {"count": 2, "name": "Sofia"})
+        self.assertEqual(loaded.get("$.name"), "Sofia")
+        self.assertEqual(loaded.require("$.count"), 2)
+        self.assertIsInstance(loaded.compile, aeon.CompileResult)
+
+    def test_load_text_preserves_lossy_materialization_diagnostics(self) -> None:
+        strict = aeon.load_text("status = |approved|\n")
+        loose = aeon.load_text("status = |approved|\n", mode="loose")
+
+        self.assertFalse(strict.ok)
+        self.assertEqual(
+            strict.finalization_errors[0].code, "FINALIZE_JSON_PROFILE_SYMBOL"
+        )
+        with self.assertRaises(aeon.AeonLoadError):
+            strict.require_ok()
+        self.assertTrue(loose.ok)
+        self.assertEqual(loose.document, {"status": "approved"})
+        self.assertEqual(
+            loose.finalization_warnings[0].code, "FINALIZE_JSON_PROFILE_SYMBOL"
+        )
+
+    def test_load_text_runs_aeos_validation(self) -> None:
+        schema = json.dumps(
+            {
+                "schema_id": "com.example.native-python-test",
+                "schema_version": "1",
+                "rules": [
+                    {
+                        "path": "$.count",
+                        "constraints": {"type": "StringLiteral"},
+                    }
+                ]
+            }
+        )
+        loaded = aeon.load_text("count = 2\n", schema=schema)
+
+        self.assertFalse(loaded.ok)
+        self.assertTrue(loaded.validation_errors)
+        with self.assertRaises(aeon.AeonLoadError):
+            loaded.require_ok()
+
+    def test_load_text_surfaces_invalid_schema(self) -> None:
+        loaded = aeon.load_text("count = 2\n", schema="{}")
+
+        self.assertFalse(loaded.ok)
+        self.assertIn("schema_id", loaded.schema_error or "")
+
+    def test_load_file_reads_utf8_source(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory, "example.aeon")
+            path.write_text('name = "Sofia"\n', encoding="utf-8")
+
+            self.assertEqual(aeon.load_file(path).document, {"name": "Sofia"})
+
+    def test_telex_can_be_canonicalized_and_loaded(self) -> None:
+        encoded = aeon.compile_to_telex('name = "Sofia"\n')
+        canonical = aeon.canonicalize_telex(encoded)
+        loaded = aeon.load_telex_text(canonical)
+
+        self.assertTrue(loaded.ok)
+        self.assertEqual(loaded.document, {"name": "Sofia"})
+        self.assertEqual(aeon.canonicalize_telex(canonical), canonical)
+
+    def test_invalid_telex_is_a_result_until_required(self) -> None:
+        loaded = aeon.load_telex_text("not telex")
+
+        self.assertFalse(loaded.ok)
+        self.assertEqual(loaded.error_kind, "telex_syntax")
+        with self.assertRaises(aeon.TelexError):
+            loaded.require_ok()
+
+    def test_telex_loading_retains_lossy_materialization_reports(self) -> None:
+        encoded = aeon.compile_to_telex("status = |approved|\n")
+        strict = aeon.load_telex_text(encoded)
+        loose = aeon.load_telex_text(encoded, mode="loose")
+
+        self.assertFalse(strict.ok)
+        self.assertEqual(
+            strict.finalization_errors[0].code, "FINALIZE_JSON_PROFILE_SYMBOL"
+        )
+        self.assertTrue(loose.ok)
+        self.assertEqual(loose.document, {"status": "approved"})
+        self.assertEqual(
+            loose.finalization_warnings[0].code, "FINALIZE_JSON_PROFILE_SYMBOL"
+        )
 
 
 if __name__ == "__main__":

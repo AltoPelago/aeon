@@ -167,7 +167,7 @@ pub fn load_str<T: DeserializeOwned>(
 
     let validation = if let Some(schema) = schema {
         let result = validate(&ValidationEnvelope {
-            aes: core_events_to_aeos(&compiled.events),
+            aes: assignment_events_to_aeos(&compiled.events),
             schema: Some(schema),
             options: options.validation,
         });
@@ -746,7 +746,9 @@ fn escape_regex(value: &str) -> String {
     escaped
 }
 
-fn core_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
+/// Project compiled assignment events into the public AEOS validation shape.
+#[must_use]
+pub fn assignment_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
     events
         .iter()
         .map(|event| AesEvent {
@@ -1005,7 +1007,7 @@ mod tests {
         )
         .expect("load success");
 
-        let events = core_events_to_aeos(&loaded.compiled.events);
+        let events = assignment_events_to_aeos(&loaded.compiled.events);
         let by_key = events
             .iter()
             .map(|event| (event.key.as_str(), &event.value))
@@ -1029,7 +1031,7 @@ mod tests {
             load_str::<BTreeMap<String, JsonValue>>("color = #Ff_00_Aa\n", LoadOptions::default())
                 .expect("load success");
 
-        let events = core_events_to_aeos(&loaded.compiled.events);
+        let events = assignment_events_to_aeos(&loaded.compiled.events);
         let by_key = events
             .iter()
             .map(|event| (event.key.as_str(), &event.value))
@@ -1050,7 +1052,7 @@ mod tests {
         )
         .expect("load success");
 
-        let events = core_events_to_aeos(&loaded.compiled.events);
+        let events = assignment_events_to_aeos(&loaded.compiled.events);
         let by_key = events
             .iter()
             .map(|event| (event.key.as_str(), &event.value))

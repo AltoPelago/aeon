@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "altopelago-aeon"
 version = "0.14.0"
-description = "Native Rust implementation of the AEON parser for CPython"
+description = "Native Rust AEON runtime for CPython"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = "MIT"

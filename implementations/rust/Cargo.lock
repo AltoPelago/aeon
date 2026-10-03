@@ -39,7 +39,11 @@ dependencies = [
 name = "aeon-python"
 version = "0.14.0"
 dependencies = [
+ "aeon-canonical",
+ "altopelago-aeon",
+ "altopelago-aeon-aeos",
  "altopelago-aeon-core",
+ "altopelago-aeon-finalize",
  "altopelago-aes-telex",
  "pyo3",
  "serde",

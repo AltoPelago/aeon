@@ -8,6 +8,14 @@ repositories.
 
 ## Unreleased
 
+### Added
+
+- Expanded the native `altopelago-aeon` CPython package with canonical AEON
+  and Telex formatting, JSON-profile document loading, file helpers, optional
+  AEOS schema validation, and direct Telex decoding/materialisation. Load
+  results retain compile, finalisation, and validation diagnostics, including
+  loose-mode lossy-materialisation warnings.
+
 ## 0.14.0 - 2026-10-01
 
 ### Breaking
