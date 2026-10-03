@@ -1,18 +1,18 @@
-use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use aeon_aeos::{
-    AesEvent, AesSourcePlane, EventPath, EventValue, OffsetOnly, PathSegmentInput,
-    ReferencePathSegment, ResultEnvelope, Schema, SpanInput, ValidationEnvelope, ValidationOptions,
-    validate, validate_telex_records as validate_aeos_telex_records,
+    AesEvent, AesSourcePlane, AttributeEntry as AeosAttributeEntry, EventPath, EventValue,
+    OffsetOnly, PathSegmentInput, ReferencePathSegment, ResultEnvelope, Schema, SpanInput,
+    ValidationEnvelope, ValidationOptions, validate,
+    validate_telex_records as validate_aeos_telex_records,
 };
 use aeon_core::{
-    AeonCompileLimits, AeonicLimitsV1, AssignmentEvent, CompileOptions, DatatypePolicy, Diagnostic,
-    EffectiveTelexConfiguration, LimitsDiagnostic, NullLiteralMode, PathSegment, ReferenceSegment,
-    Value, aeon_compile_limits, compile, compile_to_telex, effective_telex_configuration,
-    normalize_number_literal,
+    AeonCompileLimits, AeonicLimitsV1, AssignmentEvent, AttributeValue, CompileOptions,
+    DatatypePolicy, Diagnostic, EffectiveTelexConfiguration, LimitsDiagnostic, NullLiteralMode,
+    PathSegment, ReferenceSegment, Value, aeon_compile_limits, compile, compile_to_telex,
+    effective_telex_configuration, normalize_number_literal,
 };
 use aeon_finalize::{
     FinalizeOptions, FinalizePortableJsonOptions, MaterializeError, finalize_into,
@@ -780,7 +780,11 @@ pub fn assignment_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
             structural_id: event.structural_id.clone(),
             datatype: event.datatype.clone(),
             value: core_value_to_aeos(&event.value),
-            annotations: BTreeMap::new(),
+            annotations: event
+                .annotations
+                .iter()
+                .map(|(key, entry)| (key.clone(), core_attribute_to_aeos(entry)))
+                .collect(),
             span: Some(SpanInput::Object {
                 start: OffsetOnly {
                     offset: event.span.start.offset,
@@ -791,6 +795,30 @@ pub fn assignment_events_to_aeos(events: &[AssignmentEvent]) -> Vec<AesEvent> {
             }),
         })
         .collect()
+}
+
+fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
+    AeosAttributeEntry {
+        structural_id: entry.structural_id.clone(),
+        value: entry
+            .value
+            .as_ref()
+            .map(core_value_to_aeos)
+            .unwrap_or(EventValue {
+                value_type: String::from("ObjectNode"),
+                raw: None,
+                value: None,
+                path: None,
+                elements: Vec::new(),
+                bindings: Vec::new(),
+            }),
+        datatype: entry.datatype.clone(),
+        annotations: entry
+            .nested_attrs
+            .iter()
+            .map(|(key, nested)| (key.clone(), core_attribute_to_aeos(nested)))
+            .collect(),
+    }
 }
 
 fn core_value_to_aeos(value: &Value) -> EventValue {
@@ -1068,6 +1096,31 @@ mod tests {
             by_key["b"].value,
             Some(JsonValue::String(String::from("12.34")))
         );
+    }
+
+    #[test]
+    fn aeos_projection_preserves_event_and_nested_attributes() {
+        let compiled = compile(
+            "value@{\n  unit:string = \"cm\"\n  note@{lang:string = \"en\"}:string = \"label\"\n}:number = 3\n",
+            CompileOptions {
+                max_attribute_depth: 2,
+                ..CompileOptions::default()
+            },
+        );
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+
+        let projected = assignment_events_to_aeos(&compiled.events);
+        let event = projected
+            .iter()
+            .find(|event| event.key == "value")
+            .expect("value event");
+        let unit = event.annotations.get("unit").expect("unit attribute");
+        assert_eq!(unit.datatype.as_deref(), Some("string"));
+        assert_eq!(unit.value.value_type, "StringLiteral");
+        assert_eq!(unit.value.value, Some(json!("cm")));
+        let note = event.annotations.get("note").expect("note attribute");
+        let lang = note.annotations.get("lang").expect("nested lang attribute");
+        assert_eq!(lang.value.value, Some(json!("en")));
     }
 
     #[test]

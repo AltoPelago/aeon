@@ -58,6 +58,8 @@ class LoadedDocument:
         return self
 
     def get(self, path: str, default: Any = None) -> Any:
+        if self.document is None:
+            return default
         current = self.document
         for segment in _document_path(path):
             if isinstance(segment, int):
@@ -122,24 +124,55 @@ class LoadedTelexDocument:
 def _document_path(path: str) -> tuple[str | int, ...]:
     if path == "$":
         return ()
-    if not path.startswith("$."):
-        raise ValueError("document paths must start with '$.'")
+    if not path.startswith("$"):
+        raise ValueError("document paths must start with '$'")
     segments: list[str | int] = []
-    for component in path[2:].split("."):
-        if not component:
-            raise ValueError(f"invalid document path: {path!r}")
-        name, separator, remainder = component.partition("[")
-        if name:
-            segments.append(name)
-        while separator:
-            index, close, tail = remainder.partition("]")
-            if not close or not index.isdecimal():
+    cursor = 1
+    while cursor < len(path):
+        if path.startswith('.["', cursor):
+            member, cursor = _quoted_member(path, cursor + 3)
+            segments.append(member)
+            continue
+        if path[cursor] == ".":
+            start = cursor + 1
+            cursor = start
+            while cursor < len(path) and (
+                path[cursor] == "_" or path[cursor].isascii() and path[cursor].isalnum()
+            ):
+                cursor += 1
+            member = path[start:cursor]
+            if not member or not (member[0] == "_" or member[0].isascii() and member[0].isalpha()):
+                raise ValueError(f"invalid document path: {path!r}")
+            segments.append(member)
+            continue
+        if path[cursor] == "[":
+            end = path.find("]", cursor + 1)
+            index = path[cursor + 1 : end] if end >= 0 else ""
+            if end < 0 or not index.isdecimal():
                 raise ValueError(f"invalid document path: {path!r}")
             segments.append(int(index))
-            separator, remainder = tail.partition("[")
-            if tail and not separator:
-                raise ValueError(f"invalid document path: {path!r}")
+            cursor = end + 1
+            continue
+        raise ValueError(f"invalid document path: {path!r}")
     return tuple(segments)
+
+
+def _quoted_member(path: str, cursor: int) -> tuple[str, int]:
+    value: list[str] = []
+    while cursor < len(path):
+        character = path[cursor]
+        if character == "\\":
+            cursor += 1
+            if cursor >= len(path) or path[cursor] not in {'"', "\\"}:
+                raise ValueError(f"invalid document path: {path!r}")
+            value.append(path[cursor])
+            cursor += 1
+            continue
+        if character == '"' and path.startswith('"]', cursor):
+            return "".join(value), cursor + 2
+        value.append(character)
+        cursor += 1
+    raise ValueError(f"invalid document path: {path!r}")
 
 
 __all__ = ("LoadedDocument", "LoadedTelexDocument")

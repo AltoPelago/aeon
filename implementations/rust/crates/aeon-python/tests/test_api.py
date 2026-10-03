@@ -104,6 +104,27 @@ class CompileTests(unittest.TestCase):
         self.assertEqual(loaded.require("$.count"), 2)
         self.assertIsInstance(loaded.compile, aeon.CompileResult)
 
+    def test_loaded_document_supports_indexed_and_quoted_member_paths(self) -> None:
+        loaded = aeon.load_text(
+            'items = [1, [2, 3]]\n"a.b" = "dot"\n"quote\\\"slash\\\\" = "escaped"\n'
+        ).require_ok()
+
+        self.assertEqual(loaded.get("$.items[0]"), 1)
+        self.assertEqual(loaded.get("$.items[1][1]"), 3)
+        self.assertEqual(loaded.require('$.["a.b"]'), "dot")
+        self.assertEqual(loaded.require('$.["quote\\\"slash\\\\"]'), "escaped")
+        for malformed in ("$.items[]", "$.items[-1]", "$.items[0", "$.items[0]tail"):
+            with self.subTest(path=malformed), self.assertRaises(ValueError):
+                loaded.get(malformed)
+
+    def test_missing_document_uses_lookup_default_at_root(self) -> None:
+        loaded = aeon.load_text('name = "unterminated')
+        sentinel = object()
+
+        self.assertIs(loaded.get("$", sentinel), sentinel)
+        with self.assertRaises(aeon.AeonLoadError):
+            loaded.require("$")
+
     def test_load_text_preserves_lossy_materialization_diagnostics(self) -> None:
         strict = aeon.load_text("status = |approved|\n")
         loose = aeon.load_text("status = |approved|\n", mode="loose")
@@ -139,6 +160,39 @@ class CompileTests(unittest.TestCase):
         self.assertTrue(loaded.validation_errors)
         with self.assertRaises(aeon.AeonLoadError):
             loaded.require_ok()
+
+    def test_source_and_telex_validation_preserve_attributes(self) -> None:
+        source = 'value@{unit:string = "cm"}:number = 3\n'
+        schema = json.dumps(
+            {
+                "schema_id": "com.example.native-python-attributes",
+                "schema_version": "1",
+                "rules": [
+                    {
+                        "path": "$.value",
+                        "constraints": {
+                            "type": "NumberLiteral",
+                            "attributes": {
+                                "unit": {
+                                    "required": True,
+                                    "type": "StringLiteral",
+                                    "datatype": "string",
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+
+        source_loaded = aeon.load_text(source, schema=schema)
+        telex_loaded = aeon.load_telex_text(
+            aeon.compile_to_telex(source), schema=schema
+        )
+
+        self.assertTrue(source_loaded.ok)
+        self.assertTrue(telex_loaded.ok)
+        self.assertEqual(source_loaded.validation_errors, telex_loaded.validation_errors)
 
     def test_load_text_surfaces_invalid_schema(self) -> None:
         loaded = aeon.load_text("count = 2\n", schema="{}")
