@@ -1,0 +1,715 @@
+{
+  "id": "aeon.document-projection.v1",
+  "status": "local-implementation-contract",
+  "addressDomains": {
+    "namespace": "Document-scoped canonical navigation address; required for every binding, including synthetic roots.",
+    "aeon-source": "Native compiler path domain; unavailable for synthetic NodeHead bindings.",
+    "aes-event": "Portable AES occurrence-path domain; retained for event-backed bindings."
+  },
+  "documentGraphAddressContract": {
+    "required": "namespace",
+    "conditional": [
+      "aeon-source",
+      "aes-event"
+    ],
+    "sansaEventBackedDefault": "aes-event"
+  },
+  "legacyNamespaceSnapshotAddressDomain": "aeon-source",
+  "fidelityDimensions": [
+    "telex-event",
+    "profile-relative-semantic",
+    "exact-source"
+  ],
+  "capabilityStates": [
+    "complete",
+    "partial",
+    "not-supplied",
+    "not-collected",
+    "not-applicable"
+  ],
+  "capabilities": [
+    {
+      "id": "source.bytes",
+      "description": "Exact retained AEON source bytes, including BOM and original line endings when present."
+    },
+    {
+      "id": "source.authored-lexemes",
+      "description": "Authored token spelling retained independently of canonical semantic values."
+    },
+    {
+      "id": "provenance.origin",
+      "description": "Portable origin identifiers supplied by the source or transport."
+    },
+    {
+      "id": "provenance.span",
+      "description": "Exact portable source spans supplied with matching origin identifiers."
+    },
+    {
+      "id": "aes.portable-extensions",
+      "description": "Significant portable AES extensions retained for semantic round trips."
+    },
+    {
+      "id": "telex.unknown-fields",
+      "description": "Unknown ordered Telex fields retained opaquely for compatible re-emission."
+    },
+    {
+      "id": "aes.event-order",
+      "description": "Authoritative supplied event order retained independently of tree traversal order."
+    },
+    {
+      "id": "lineage.events",
+      "description": "Bindings retain their relationship to originating or synthetic events."
+    }
+  ],
+  "capabilityScenarios": [
+    {
+      "id": "complete-telex-with-provenance-without-source",
+      "inputRoute": "complete-telex",
+      "states": {
+        "source.bytes": "not-supplied",
+        "source.authored-lexemes": "not-supplied",
+        "provenance.origin": "complete",
+        "provenance.span": "complete",
+        "aes.portable-extensions": "complete",
+        "telex.unknown-fields": "complete",
+        "aes.event-order": "complete",
+        "lineage.events": "complete"
+      }
+    }
+  ],
+  "documentGraphRequiredFields": [
+    "nodeId",
+    "address",
+    "sourceAddress",
+    "eventAddress",
+    "parentNodeId",
+    "childNodeIds",
+    "bindingName",
+    "position",
+    "sourcePlane",
+    "representationKind",
+    "valueKind",
+    "datatype",
+    "identity",
+    "decodedValue",
+    "canonicalLexeme",
+    "authoredLexeme",
+    "nullReason",
+    "reference",
+    "attributeSpaceNodeId",
+    "origin",
+    "span",
+    "portableExtensions",
+    "transportSidecar",
+    "lineage"
+  ],
+  "legacyNamespaceProjectionFields": [
+    "address",
+    "parent",
+    "name",
+    "index",
+    "identity",
+    "semanticType",
+    "representationKind",
+    "scalarKind",
+    "nullReason",
+    "numericLexeme",
+    "radixBase",
+    "radixScale",
+    "value",
+    "nodeTag",
+    "sourcePlane",
+    "children",
+    "attributeSpace"
+  ],
+  "portableTopologyCases": [
+    {
+      "id": "node-head-address-translation",
+      "source": "value:node = <tag(\"hello\")>",
+      "sourceToEventPaths": {
+        "$.value": "$.value",
+        "$.value[0]": "$.value[0][0]"
+      },
+      "events": [
+        {
+          "path": "$.value",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.value[0]",
+          "kind": "NodeHead"
+        },
+        {
+          "path": "$.value[0][0]",
+          "kind": "StringLiteral"
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "value-families-topology-and-metadata",
+      "source": "target:number = 7\ntargetClone:number = ~target\ntargetPointer:number = ~>target\n\ntypes:object = {\n  precise:number = 9007199254740993\n  price:decimal = %19.9900\n  bits:radix[2] = %101.01\n  active:boolean = true\n  consent:toggle = yes\n  color:hex = #ff00aa\n  payload:encoding = &QmFzZTY0IQ==\n  version:sep[\".\"] = ^0.11.0\n  stage:symbol = |approved|\n  selector:sansa = $.types.*.sku\n  released:date = 2026-07-25\n  window:time = 09:30:00Z\n  stamp:datetime = 2026-07-25T09:30:00Z\n  zone:wtc = 2026-07-25T09:30:00Z&Australia/Melbourne\n  metric:nan<number> = NaN\n  ceiling:infinity<number> = Infinity\n  floor:infinity<number> = -Infinity\n  unavailable:null<string> = !notApplicable\n}\n\ncontainers:object = {\n  series:list<number> = [1, 2]\n  pair:tuple = (\"x\", 1)\n  nodeValue:node = <tag(\"hello\")>\n}\n\nannotated\\ROOT\\@{meta\\META\\@{deep\\DEEP\\ = 3}:string = \"source\"}:number = 1",
+      "compileOptions": {
+        "datatypePolicy": "allow_custom",
+        "maxAttributeDepth": 8
+      },
+      "scopes": {
+        "payload": [
+          {
+            "address": "$",
+            "representationKind": "object",
+            "children": [
+              "$.target",
+              "$.targetClone",
+              "$.targetPointer",
+              "$.types",
+              "$.containers",
+              "$.annotated"
+            ]
+          },
+          {
+            "address": "$.target",
+            "parent": "$",
+            "name": "target",
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "7",
+            "value": "7",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.targetClone",
+            "parent": "$",
+            "name": "targetClone",
+            "semanticType": "number",
+            "representationKind": "cloneReference",
+            "scalarKind": "referenceForm",
+            "value": {
+              "type": "CloneReference",
+              "path": [
+                "target"
+              ],
+              "canonical": "~target"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.targetPointer",
+            "parent": "$",
+            "name": "targetPointer",
+            "semanticType": "number",
+            "representationKind": "pointerReference",
+            "scalarKind": "referenceForm",
+            "value": {
+              "type": "PointerReference",
+              "path": [
+                "target"
+              ],
+              "canonical": "~>target"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types",
+            "parent": "$",
+            "name": "types",
+            "semanticType": "object",
+            "representationKind": "object",
+            "sourcePlane": "body",
+            "children": [
+              "$.types.precise",
+              "$.types.price",
+              "$.types.bits",
+              "$.types.active",
+              "$.types.consent",
+              "$.types.color",
+              "$.types.payload",
+              "$.types.version",
+              "$.types.stage",
+              "$.types.selector",
+              "$.types.released",
+              "$.types.window",
+              "$.types.stamp",
+              "$.types.zone",
+              "$.types.metric",
+              "$.types.ceiling",
+              "$.types.floor",
+              "$.types.unavailable"
+            ]
+          },
+          {
+            "address": "$.types.precise",
+            "parent": "$.types",
+            "name": "precise",
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "9007199254740993",
+            "value": "9007199254740993",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.price",
+            "parent": "$.types",
+            "name": "price",
+            "semanticType": "decimal",
+            "representationKind": "radix",
+            "scalarKind": "radix",
+            "radixBase": 10,
+            "radixScale": 4,
+            "value": "19.9900",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.bits",
+            "parent": "$.types",
+            "name": "bits",
+            "semanticType": "radix[2]",
+            "representationKind": "radix",
+            "scalarKind": "radix",
+            "radixBase": 2,
+            "radixScale": 2,
+            "value": "101.01",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.active",
+            "parent": "$.types",
+            "name": "active",
+            "semanticType": "boolean",
+            "representationKind": "boolean",
+            "value": true,
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.consent",
+            "parent": "$.types",
+            "name": "consent",
+            "semanticType": "toggle",
+            "representationKind": "toggle",
+            "scalarKind": "toggle",
+            "value": "yes",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.color",
+            "parent": "$.types",
+            "name": "color",
+            "semanticType": "hex",
+            "representationKind": "hex",
+            "scalarKind": "hex",
+            "value": "ff00aa",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.payload",
+            "parent": "$.types",
+            "name": "payload",
+            "semanticType": "encoding",
+            "representationKind": "encoding",
+            "scalarKind": "encoding",
+            "value": "QmFzZTY0IQ==",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.version",
+            "parent": "$.types",
+            "name": "version",
+            "semanticType": "sep[\".\"]",
+            "representationKind": "separator",
+            "scalarKind": "separator",
+            "value": "0.11.0",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.stage",
+            "parent": "$.types",
+            "name": "stage",
+            "semanticType": "symbol",
+            "representationKind": "symbol",
+            "scalarKind": "symbol",
+            "value": "approved",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.selector",
+            "parent": "$.types",
+            "name": "selector",
+            "semanticType": "sansa",
+            "representationKind": "sansa",
+            "scalarKind": "sansaAddress",
+            "value": {
+              "type": "SansaAddressLiteral",
+              "address": "$.types.*.sku",
+              "canonical": "$.types.*.sku"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.released",
+            "parent": "$.types",
+            "name": "released",
+            "semanticType": "date",
+            "representationKind": "date",
+            "scalarKind": "date",
+            "value": "2026-07-25",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.window",
+            "parent": "$.types",
+            "name": "window",
+            "semanticType": "time",
+            "representationKind": "time",
+            "scalarKind": "time",
+            "value": "09:30:00Z",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.stamp",
+            "parent": "$.types",
+            "name": "stamp",
+            "semanticType": "datetime",
+            "representationKind": "datetime",
+            "scalarKind": "datetime",
+            "value": "2026-07-25T09:30:00Z",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.zone",
+            "parent": "$.types",
+            "name": "zone",
+            "semanticType": "wtc",
+            "representationKind": "wtc",
+            "scalarKind": "wtc",
+            "value": "2026-07-25T09:30:00Z&Australia/Melbourne",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.metric",
+            "parent": "$.types",
+            "name": "metric",
+            "semanticType": "nan<number>",
+            "representationKind": "nan",
+            "scalarKind": "nan",
+            "value": {
+              "$nonFinite": "nan"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.ceiling",
+            "parent": "$.types",
+            "name": "ceiling",
+            "semanticType": "infinity<number>",
+            "representationKind": "infinity",
+            "scalarKind": "infinity",
+            "value": {
+              "$nonFinite": "positive-infinity"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.floor",
+            "parent": "$.types",
+            "name": "floor",
+            "semanticType": "infinity<number>",
+            "representationKind": "infinity",
+            "scalarKind": "infinity",
+            "value": {
+              "$nonFinite": "negative-infinity"
+            },
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.types.unavailable",
+            "parent": "$.types",
+            "name": "unavailable",
+            "semanticType": "null<string>",
+            "representationKind": "null",
+            "scalarKind": "null",
+            "nullReason": "notApplicable",
+            "value": null,
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.containers",
+            "parent": "$",
+            "name": "containers",
+            "semanticType": "object",
+            "representationKind": "object",
+            "sourcePlane": "body",
+            "children": [
+              "$.containers.series",
+              "$.containers.pair",
+              "$.containers.nodeValue"
+            ]
+          },
+          {
+            "address": "$.containers.series",
+            "parent": "$.containers",
+            "name": "series",
+            "semanticType": "list<number>",
+            "representationKind": "list",
+            "sourcePlane": "body",
+            "children": [
+              "$.containers.series[0]",
+              "$.containers.series[1]"
+            ]
+          },
+          {
+            "address": "$.containers.series[0]",
+            "parent": "$.containers.series",
+            "index": 0,
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.containers.series[1]",
+            "parent": "$.containers.series",
+            "index": 1,
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "2",
+            "value": "2",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.containers.pair",
+            "parent": "$.containers",
+            "name": "pair",
+            "semanticType": "tuple",
+            "representationKind": "tuple",
+            "sourcePlane": "body",
+            "children": [
+              "$.containers.pair[0]",
+              "$.containers.pair[1]"
+            ]
+          },
+          {
+            "address": "$.containers.pair[0]",
+            "parent": "$.containers.pair",
+            "index": 0,
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "x",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.containers.pair[1]",
+            "parent": "$.containers.pair",
+            "index": 1,
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.containers.nodeValue",
+            "parent": "$.containers",
+            "name": "nodeValue",
+            "semanticType": "node",
+            "representationKind": "node",
+            "nodeTag": "tag",
+            "sourcePlane": "body",
+            "children": [
+              "$.containers.nodeValue[0]"
+            ]
+          },
+          {
+            "address": "$.containers.nodeValue[0]",
+            "parent": "$.containers.nodeValue",
+            "index": 0,
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "hello",
+            "sourcePlane": "body",
+            "children": []
+          },
+          {
+            "address": "$.annotated",
+            "parent": "$",
+            "name": "annotated",
+            "identity": "ROOT",
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "children": [],
+            "attributeSpace": "$.annotated.@"
+          },
+          {
+            "address": "$.annotated.@",
+            "parent": "$.annotated",
+            "representationKind": "attributeSpace",
+            "children": [
+              "$.annotated.@.meta"
+            ]
+          },
+          {
+            "address": "$.annotated.@.meta",
+            "parent": "$.annotated.@",
+            "name": "meta",
+            "identity": "META",
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "source",
+            "children": [],
+            "attributeSpace": "$.annotated.@.meta.@"
+          },
+          {
+            "address": "$.annotated.@.meta.@",
+            "parent": "$.annotated.@.meta",
+            "representationKind": "attributeSpace",
+            "children": [
+              "$.annotated.@.meta.@.deep"
+            ]
+          },
+          {
+            "address": "$.annotated.@.meta.@.deep",
+            "parent": "$.annotated.@.meta.@",
+            "name": "deep",
+            "identity": "DEEP",
+            "semanticType": "number",
+            "representationKind": "number",
+            "scalarKind": "number",
+            "numericLexeme": "3",
+            "value": "3",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "document-plane-scopes",
+      "source": "aeon:header = {\n  mode:string = \"strict\"\n}\n\n\"aeon:mode\":string = \"payload\"",
+      "compileOptions": {},
+      "scopes": {
+        "payload": [
+          {
+            "address": "$",
+            "representationKind": "object",
+            "children": [
+              "$.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.[\"aeon:mode\"]",
+            "parent": "$",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "payload",
+            "sourcePlane": "body",
+            "children": []
+          }
+        ],
+        "header": [
+          {
+            "address": "$",
+            "representationKind": "object",
+            "children": [
+              "$.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.[\"aeon:mode\"]",
+            "parent": "$",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "strict",
+            "sourcePlane": "header",
+            "children": []
+          }
+        ],
+        "full": [
+          {
+            "address": "$",
+            "representationKind": "object",
+            "children": [
+              "$.header",
+              "$.body"
+            ]
+          },
+          {
+            "address": "$.header",
+            "parent": "$",
+            "name": "header",
+            "representationKind": "object",
+            "sourcePlane": "header",
+            "children": [
+              "$.header.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.header.[\"aeon:mode\"]",
+            "parent": "$.header",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "strict",
+            "sourcePlane": "header",
+            "children": []
+          },
+          {
+            "address": "$.body",
+            "parent": "$",
+            "name": "body",
+            "representationKind": "object",
+            "sourcePlane": "body",
+            "children": [
+              "$.body.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.body.[\"aeon:mode\"]",
+            "parent": "$.body",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "representationKind": "string",
+            "value": "payload",
+            "sourcePlane": "body",
+            "children": []
+          }
+        ]
+      }
+    }
+  ]
+}
