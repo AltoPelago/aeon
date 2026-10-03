@@ -33,6 +33,13 @@ future graph runner will combine both into bindings carrying both addresses;
 the baseline snapshot must not be interpreted as permission to omit node
 heads.
 
+The baseline adapter is older than the complete AES node projection. It keeps
+the tag as `nodeTag` on the outer binding, but it does not create the distinct
+head binding needed to retain head identity, datatype, and attributes alongside
+independent key identity, datatype, and attributes. The topology case therefore
+uses metadata on both occurrences and treats the portable expansion as the
+target behavior.
+
 `legacyNamespaceProjectionFields` describes only those baseline snapshots.
 `documentGraphRequiredFields` is the target graph contract and includes
 structured datatype, provenance, transport, and lineage data that the legacy

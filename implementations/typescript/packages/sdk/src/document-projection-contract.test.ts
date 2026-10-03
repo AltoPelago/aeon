@@ -35,6 +35,9 @@ interface PortableTopologyCase {
   readonly events: readonly {
     readonly path: string;
     readonly kind: string;
+    readonly identity?: string;
+    readonly datatype?: string;
+    readonly value?: string;
   }[];
 }
 
@@ -183,7 +186,13 @@ for (const fixture of contract.portableTopologyCases) {
     assert.deepEqual(compile.errors, []);
     assert.deepEqual(Object.fromEntries(createPortableEventPathMap(compile.events)), fixture.sourceToEventPaths);
     assert.deepEqual(
-      projectPortableEvents(compile.events).map(({ path, kind }) => ({ path, kind })),
+      projectPortableEvents(compile.events).map(({ path, kind, identity, datatype, value }) => ({
+        path,
+        kind,
+        ...(identity !== undefined ? { identity } : {}),
+        ...(datatype !== undefined ? { datatype } : {}),
+        ...(value !== undefined ? { value } : {}),
+      })),
       fixture.events,
     );
   });

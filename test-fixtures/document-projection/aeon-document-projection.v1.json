@@ -125,7 +125,7 @@
   "portableTopologyCases": [
     {
       "id": "node-head-address-translation",
-      "source": "value:node = <tag(\"hello\")>",
+      "source": "value\\BINDING\\@{keyMeta\\KEY_META\\ = \"outer\"} = <tag\\HEAD\\@{role\\ROLE\\ = \"button\"}:node(\\CHILD\\ = \"hello\")>",
       "sourceToEventPaths": {
         "$.value": "$.value",
         "$.value[0]": "$.value[0][0]"
@@ -133,15 +133,33 @@
       "events": [
         {
           "path": "$.value",
-          "kind": "NodeLiteral"
+          "kind": "NodeLiteral",
+          "identity": "BINDING"
+        },
+        {
+          "path": "$.value.@.keyMeta",
+          "kind": "StringLiteral",
+          "identity": "KEY_META",
+          "value": "outer"
         },
         {
           "path": "$.value[0]",
-          "kind": "NodeHead"
+          "kind": "NodeHead",
+          "identity": "HEAD",
+          "datatype": "node",
+          "value": "tag"
+        },
+        {
+          "path": "$.value[0].@.role",
+          "kind": "StringLiteral",
+          "identity": "ROLE",
+          "value": "button"
         },
         {
           "path": "$.value[0][0]",
-          "kind": "StringLiteral"
+          "kind": "StringLiteral",
+          "identity": "CHILD",
+          "value": "hello"
         }
       ]
     }
