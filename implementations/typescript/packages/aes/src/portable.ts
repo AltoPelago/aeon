@@ -213,11 +213,7 @@ interface PortableEventWithLocalSpan {
 function projectPortableEventsWithLocalSpans(
     events: readonly AssignmentEvent[],
 ): readonly PortableEventWithLocalSpan[] {
-    const nodeSourcePaths = new Set(
-        events
-            .filter((event) => unwrapTypedValue(event.value).type === 'NodeLiteral')
-            .map((event) => formatPath(event.path)),
-    );
+    const nodeSourcePaths = collectNodeSourcePaths(events);
     const projected: PortableEventWithLocalSpan[] = [];
 
     for (const event of events) {
@@ -251,11 +247,7 @@ function projectPortableEventsWithLocalSpans(
  * not have a native AssignmentEvent counterpart and are therefore absent.
  */
 export function createPortableEventPathMap(events: readonly AssignmentEvent[]): ReadonlyMap<string, string> {
-    const nodeSourcePaths = new Set(
-        events
-            .filter((event) => unwrapTypedValue(event.value).type === 'NodeLiteral')
-            .map((event) => formatPath(event.path)),
-    );
+    const nodeSourcePaths = collectNodeSourcePaths(events);
     return new Map(events.map((event) => [
         formatPath(event.path),
         formatPath(translateNodePath(event.path, nodeSourcePaths)),
@@ -526,17 +518,16 @@ function translateReferenceTarget(
     segments: Extract<Value, { type: 'CloneReference' | 'PointerReference' }>['path'],
     nodeSourcePaths: ReadonlySet<string>,
 ): string {
-    const sourceSegments: PathSegment[] = [{ type: 'root' }];
-    let sourcePathIsTrackable = true;
+    let sourcePath = '$';
     let out = '$';
 
     for (const segment of segments) {
         if (typeof segment === 'number') {
-            if (sourcePathIsTrackable && nodeSourcePaths.has(formatPath({ segments: sourceSegments }))) {
+            if (nodeSourcePaths.has(sourcePath)) {
                 out += '[0]';
             }
             out += `[${segment}]`;
-            if (sourcePathIsTrackable) sourceSegments.push({ type: 'index', index: segment });
+            sourcePath += `[${segment}]`;
             continue;
         }
 
@@ -544,14 +535,83 @@ function translateReferenceTarget(
         const member = formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
         if (typeof segment === 'string') {
             out += member;
-            if (sourcePathIsTrackable) sourceSegments.push({ type: 'member', key: segment });
+            sourcePath += member;
         } else {
             out += `.@${member}`;
-            sourcePathIsTrackable = false;
+            sourcePath += `.@${member}`;
         }
     }
 
     return out;
+}
+
+function collectNodeSourcePaths(events: readonly AssignmentEvent[]): ReadonlySet<string> {
+    const paths = new Set<string>();
+    for (const event of events) {
+        const path = formatPath(event.path);
+        collectValueNodeSourcePaths(event.value, path, paths);
+        collectMappedAttributeNodeSourcePaths(event.annotations, path, paths);
+    }
+    return paths;
+}
+
+function collectValueNodeSourcePaths(rawValue: Value, path: string, paths: Set<string>): void {
+    if (rawValue.type === 'TypedValue') {
+        collectParserAttributeNodeSourcePaths(rawValue.attributes, path, paths);
+        collectValueNodeSourcePaths(rawValue.value, path, paths);
+        return;
+    }
+
+    switch (rawValue.type) {
+        case 'ObjectNode':
+            for (const binding of rawValue.bindings) {
+                const childPath = appendMember(path, binding.key);
+                collectParserAttributeNodeSourcePaths(binding.attributes, childPath, paths);
+                collectValueNodeSourcePaths(binding.value, childPath, paths);
+            }
+            return;
+        case 'ListNode':
+        case 'TupleLiteral':
+            for (let index = 0; index < rawValue.elements.length; index += 1) {
+                collectValueNodeSourcePaths(rawValue.elements[index]!, `${path}[${index}]`, paths);
+            }
+            return;
+        case 'NodeLiteral':
+            paths.add(path);
+            for (let index = 0; index < rawValue.children.length; index += 1) {
+                collectValueNodeSourcePaths(rawValue.children[index]!, `${path}[${index}]`, paths);
+            }
+            return;
+        default:
+            return;
+    }
+}
+
+function collectMappedAttributeNodeSourcePaths(
+    attributes: ReadonlyMap<string, AttributeEntry> | undefined,
+    ownerPath: string,
+    paths: Set<string>,
+): void {
+    if (!attributes) return;
+    for (const [key, entry] of attributes) {
+        const path = appendAttribute(ownerPath, key);
+        collectValueNodeSourcePaths(entry.value, path, paths);
+        collectMappedAttributeNodeSourcePaths(entry.annotations, path, paths);
+    }
+}
+
+function collectParserAttributeNodeSourcePaths(
+    attributes: readonly Attribute[],
+    ownerPath: string,
+    paths: Set<string>,
+): void {
+    for (const attribute of attributes) {
+        for (const [key, entry] of attribute.entries) {
+            const path = appendAttribute(ownerPath, key);
+            collectValueNodeSourcePaths(entry.value, path, paths);
+            collectParserAttributeNodeSourcePaths(entry.attributes, path, paths);
+        }
+    }
 }
 
 function isLegacyHeaderEvent(

@@ -7,3 +7,7 @@ tests reproducible in standalone checkouts.
 `AltoPelago/aes` at commit `8816c403e698f2a6fd1dd47b08cfc44b099f4740`.
 The AES repository remains authoritative; update this snapshot deliberately
 when the pinned AES revision changes.
+
+`document-projection/` defines the local, non-authoritative cross-runtime
+namespace-projection contract for the planned immutable Rust document graph,
+Pytonic views, and AEON's SANSA adapter.

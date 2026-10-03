@@ -1,0 +1,962 @@
+{
+  "id": "aeon.document-projection.v1",
+  "status": "local-implementation-contract",
+  "addressDomains": {
+    "namespace": "Document-scoped canonical navigation address; required for every binding, including synthetic roots.",
+    "aeon-source": "Native compiler path domain; unavailable for synthetic NodeHead bindings.",
+    "aes-event": "Portable AES occurrence-path domain; retained for event-backed bindings."
+  },
+  "documentGraphAddressContract": {
+    "required": "namespace",
+    "conditional": [
+      "aeon-source",
+      "aes-event"
+    ],
+    "sansaEventBackedDefault": "aes-event"
+  },
+  "namespaceSnapshotAddressDomain": "aes-event",
+  "fidelityDimensions": [
+    "telex-event",
+    "profile-relative-semantic",
+    "exact-source"
+  ],
+  "capabilityStates": [
+    "complete",
+    "partial",
+    "not-supplied",
+    "not-collected",
+    "not-applicable"
+  ],
+  "capabilities": [
+    {
+      "id": "source.bytes",
+      "description": "Exact retained AEON source bytes, including BOM and original line endings when present."
+    },
+    {
+      "id": "source.authored-lexemes",
+      "description": "Authored token spelling retained independently of canonical semantic values."
+    },
+    {
+      "id": "provenance.origin",
+      "description": "Portable origin identifiers supplied by the source or transport."
+    },
+    {
+      "id": "provenance.span",
+      "description": "Exact portable source spans supplied with matching origin identifiers."
+    },
+    {
+      "id": "aes.portable-extensions",
+      "description": "Significant portable AES extensions retained for semantic round trips."
+    },
+    {
+      "id": "telex.unknown-fields",
+      "description": "Unknown ordered Telex fields retained opaquely for compatible re-emission."
+    },
+    {
+      "id": "aes.event-order",
+      "description": "Authoritative supplied event order retained independently of tree traversal order."
+    },
+    {
+      "id": "lineage.events",
+      "description": "Bindings retain their relationship to originating or synthetic events."
+    }
+  ],
+  "capabilityScenarios": [
+    {
+      "id": "complete-telex-with-provenance-without-source",
+      "inputRoute": "complete-telex",
+      "states": {
+        "source.bytes": "not-supplied",
+        "source.authored-lexemes": "not-supplied",
+        "provenance.origin": "complete",
+        "provenance.span": "complete",
+        "aes.portable-extensions": "complete",
+        "telex.unknown-fields": "complete",
+        "aes.event-order": "complete",
+        "lineage.events": "complete"
+      }
+    }
+  ],
+  "documentGraphRequiredFields": [
+    "nodeId",
+    "address",
+    "sourceAddress",
+    "eventAddress",
+    "parentNodeId",
+    "childNodeIds",
+    "bindingName",
+    "position",
+    "sourcePlane",
+    "representationKind",
+    "valueKind",
+    "datatype",
+    "identity",
+    "decodedValue",
+    "canonicalLexeme",
+    "authoredLexeme",
+    "nullReason",
+    "reference",
+    "attributeSpaceNodeId",
+    "origin",
+    "span",
+    "portableExtensions",
+    "transportSidecar",
+    "lineage"
+  ],
+  "namespaceProjectionFields": [
+    "address",
+    "parent",
+    "name",
+    "index",
+    "identity",
+    "semanticType",
+    "datatype",
+    "generics",
+    "clarifiers",
+    "representationKind",
+    "scalarKind",
+    "nullReason",
+    "numericLexeme",
+    "radixBase",
+    "radixScale",
+    "value",
+    "nodeTag",
+    "sourcePlane",
+    "origin",
+    "span",
+    "children",
+    "attributeSpace"
+  ],
+  "portableTopologyCases": [
+    {
+      "id": "node-head-address-translation",
+      "source": "value\\BINDING\\@{keyMeta\\KEY_META\\ = \"outer\"} = <tag\\HEAD\\@{role\\ROLE\\ = \"button\"}:node(\\CHILD\\ = \"hello\")>",
+      "sourceToEventPaths": {
+        "$.value": "$.value",
+        "$.value[0]": "$.value[0][0]"
+      },
+      "events": [
+        {
+          "path": "$.value",
+          "kind": "NodeLiteral",
+          "identity": "BINDING"
+        },
+        {
+          "path": "$.value.@.keyMeta",
+          "kind": "StringLiteral",
+          "identity": "KEY_META",
+          "value": "outer"
+        },
+        {
+          "path": "$.value[0]",
+          "kind": "NodeHead",
+          "identity": "HEAD",
+          "datatype": "node",
+          "value": "tag"
+        },
+        {
+          "path": "$.value[0].@.role",
+          "kind": "StringLiteral",
+          "identity": "ROLE",
+          "value": "button"
+        },
+        {
+          "path": "$.value[0][0]",
+          "kind": "StringLiteral",
+          "identity": "CHILD",
+          "value": "hello"
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "value-families-topology-and-metadata",
+      "source": "target:number = 7\ntargetClone:number = ~target\ntargetPointer:number = ~>target\n\ntypes:object = {\n  precise:number = 9007199254740993\n  price:decimal = %19.9900\n  bits:radix[2] = %101.01\n  active:boolean = true\n  consent:toggle = yes\n  color:hex = #ff00aa\n  payload:encoding = &QmFzZTY0IQ==\n  version:sep[\".\"] = ^0.11.0\n  stage:symbol = |approved|\n  selector:sansa = $.types.*.sku\n  released:date = 2026-07-25\n  window:time = 09:30:00Z\n  stamp:datetime = 2026-07-25T09:30:00Z\n  zone:wtc = 2026-07-25T09:30:00Z&Australia/Melbourne\n  metric:nan<number> = NaN\n  ceiling:infinity<number> = Infinity\n  floor:infinity<number> = -Infinity\n  unavailable:null<string> = !notApplicable\n}\n\ncontainers:object = {\n  series:list<number> = [1, 2]\n  pair:tuple = (\"x\", 1)\n  nodeValue:node = <tag(\"hello\")>\n}\n\nannotated\\ROOT\\@{meta\\META\\@{deep\\DEEP\\ = 3}:string = \"source\"}:number = 1",
+      "compileOptions": {
+        "datatypePolicy": "allow_custom",
+        "maxAttributeDepth": 8
+      },
+      "scopes": {
+        "payload": [
+          {
+            "address": "$",
+            "representationKind": "ObjectNode",
+            "children": [
+              "$.target",
+              "$.targetClone",
+              "$.targetPointer",
+              "$.types",
+              "$.containers",
+              "$.annotated"
+            ]
+          },
+          {
+            "address": "$.target",
+            "parent": "$",
+            "name": "target",
+            "semanticType": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "7",
+            "value": "7",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "0:17",
+            "children": []
+          },
+          {
+            "address": "$.targetClone",
+            "parent": "$",
+            "name": "targetClone",
+            "semanticType": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "CloneReference",
+            "scalarKind": "referenceForm",
+            "value": {
+              "type": "CloneReference",
+              "path": "$.target",
+              "canonical": "~$.target"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "18:46",
+            "children": []
+          },
+          {
+            "address": "$.targetPointer",
+            "parent": "$",
+            "name": "targetPointer",
+            "semanticType": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "PointerReference",
+            "scalarKind": "referenceForm",
+            "value": {
+              "type": "PointerReference",
+              "path": "$.target",
+              "canonical": "~>$.target"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "47:78",
+            "children": []
+          },
+          {
+            "address": "$.types",
+            "parent": "$",
+            "name": "types",
+            "semanticType": "object",
+            "datatype": "object",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ObjectNode",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "80:676",
+            "children": [
+              "$.types.precise",
+              "$.types.price",
+              "$.types.bits",
+              "$.types.active",
+              "$.types.consent",
+              "$.types.color",
+              "$.types.payload",
+              "$.types.version",
+              "$.types.stage",
+              "$.types.selector",
+              "$.types.released",
+              "$.types.window",
+              "$.types.stamp",
+              "$.types.zone",
+              "$.types.metric",
+              "$.types.ceiling",
+              "$.types.floor",
+              "$.types.unavailable"
+            ]
+          },
+          {
+            "address": "$.types.precise",
+            "parent": "$.types",
+            "name": "precise",
+            "semanticType": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "9007199254740993",
+            "value": "9007199254740993",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "99:132",
+            "children": []
+          },
+          {
+            "address": "$.types.price",
+            "parent": "$.types",
+            "name": "price",
+            "semanticType": "decimal",
+            "datatype": "decimal",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "RadixLiteral",
+            "scalarKind": "radix",
+            "radixBase": 10,
+            "radixScale": 4,
+            "value": "19.9900",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "135:159",
+            "children": []
+          },
+          {
+            "address": "$.types.bits",
+            "parent": "$.types",
+            "name": "bits",
+            "semanticType": "radix",
+            "datatype": "radix",
+            "generics": [],
+            "clarifiers": [
+              {
+                "kind": "NumberLiteral",
+                "value": "2"
+              }
+            ],
+            "representationKind": "RadixLiteral",
+            "scalarKind": "radix",
+            "radixBase": 2,
+            "radixScale": 2,
+            "value": "101.01",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "162:185",
+            "children": []
+          },
+          {
+            "address": "$.types.active",
+            "parent": "$.types",
+            "name": "active",
+            "semanticType": "boolean",
+            "datatype": "boolean",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "BooleanLiteral",
+            "value": true,
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "188:209",
+            "children": []
+          },
+          {
+            "address": "$.types.consent",
+            "parent": "$.types",
+            "name": "consent",
+            "semanticType": "toggle",
+            "datatype": "toggle",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ToggleLiteral",
+            "scalarKind": "toggle",
+            "value": "yes",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "212:232",
+            "children": []
+          },
+          {
+            "address": "$.types.color",
+            "parent": "$.types",
+            "name": "color",
+            "semanticType": "hex",
+            "datatype": "hex",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "HexLiteral",
+            "scalarKind": "hex",
+            "value": "ff00aa",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "235:254",
+            "children": []
+          },
+          {
+            "address": "$.types.payload",
+            "parent": "$.types",
+            "name": "payload",
+            "semanticType": "encoding",
+            "datatype": "encoding",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "EncodingLiteral",
+            "scalarKind": "encoding",
+            "value": "QmFzZTY0IQ==",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "257:289",
+            "children": []
+          },
+          {
+            "address": "$.types.version",
+            "parent": "$.types",
+            "name": "version",
+            "semanticType": "sep",
+            "datatype": "sep",
+            "generics": [],
+            "clarifiers": [
+              {
+                "kind": "StringLiteral",
+                "value": "."
+              }
+            ],
+            "representationKind": "SeparatorLiteral",
+            "scalarKind": "separator",
+            "value": "0.11.0",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "292:318",
+            "children": []
+          },
+          {
+            "address": "$.types.stage",
+            "parent": "$.types",
+            "name": "stage",
+            "semanticType": "symbol",
+            "datatype": "symbol",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "SymbolicLiteral",
+            "scalarKind": "symbol",
+            "value": "approved",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "321:346",
+            "children": []
+          },
+          {
+            "address": "$.types.selector",
+            "parent": "$.types",
+            "name": "selector",
+            "semanticType": "sansa",
+            "datatype": "sansa",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "SansaAddressLiteral",
+            "scalarKind": "sansaAddress",
+            "value": {
+              "type": "SansaAddressLiteral",
+              "address": "$.types.*.sku",
+              "canonical": "$.types.*.sku"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "349:379",
+            "children": []
+          },
+          {
+            "address": "$.types.released",
+            "parent": "$.types",
+            "name": "released",
+            "semanticType": "date",
+            "datatype": "date",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "DateLiteral",
+            "scalarKind": "date",
+            "value": "2026-07-25",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "382:408",
+            "children": []
+          },
+          {
+            "address": "$.types.window",
+            "parent": "$.types",
+            "name": "window",
+            "semanticType": "time",
+            "datatype": "time",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "TimeLiteral",
+            "scalarKind": "time",
+            "value": "09:30:00Z",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "411:434",
+            "children": []
+          },
+          {
+            "address": "$.types.stamp",
+            "parent": "$.types",
+            "name": "stamp",
+            "semanticType": "datetime",
+            "datatype": "datetime",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "DateTimeLiteral",
+            "scalarKind": "datetime",
+            "value": "2026-07-25T09:30:00Z",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "437:474",
+            "children": []
+          },
+          {
+            "address": "$.types.zone",
+            "parent": "$.types",
+            "name": "zone",
+            "semanticType": "wtc",
+            "datatype": "wtc",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "WTCDateTimeLiteral",
+            "scalarKind": "wtc",
+            "value": "2026-07-25T09:30:00Z&Australia/Melbourne",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "477:528",
+            "children": []
+          },
+          {
+            "address": "$.types.metric",
+            "parent": "$.types",
+            "name": "metric",
+            "semanticType": "nan",
+            "datatype": "nan",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "NaNLiteral",
+            "scalarKind": "nan",
+            "value": {
+              "$nonFinite": "nan"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "531:555",
+            "children": []
+          },
+          {
+            "address": "$.types.ceiling",
+            "parent": "$.types",
+            "name": "ceiling",
+            "semanticType": "infinity",
+            "datatype": "infinity",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "InfinityLiteral",
+            "scalarKind": "infinity",
+            "value": {
+              "$nonFinite": "positive-infinity"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "558:593",
+            "children": []
+          },
+          {
+            "address": "$.types.floor",
+            "parent": "$.types",
+            "name": "floor",
+            "semanticType": "infinity",
+            "datatype": "infinity",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "InfinityLiteral",
+            "scalarKind": "infinity",
+            "value": {
+              "$nonFinite": "negative-infinity"
+            },
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "596:630",
+            "children": []
+          },
+          {
+            "address": "$.types.unavailable",
+            "parent": "$.types",
+            "name": "unavailable",
+            "semanticType": "null",
+            "datatype": "null",
+            "generics": [
+              {
+                "datatype": "string",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "NullLiteral",
+            "scalarKind": "null",
+            "nullReason": "notApplicable",
+            "value": null,
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "633:674",
+            "children": []
+          },
+          {
+            "address": "$.containers",
+            "parent": "$",
+            "name": "containers",
+            "semanticType": "object",
+            "datatype": "object",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "ObjectNode",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "678:790",
+            "children": [
+              "$.containers.series",
+              "$.containers.pair",
+              "$.containers.nodeValue"
+            ]
+          },
+          {
+            "address": "$.containers.series",
+            "parent": "$.containers",
+            "name": "series",
+            "semanticType": "list",
+            "datatype": "list",
+            "generics": [
+              {
+                "datatype": "number",
+                "generics": [],
+                "clarifiers": []
+              }
+            ],
+            "clarifiers": [],
+            "representationKind": "ListNode",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "702:730",
+            "children": [
+              "$.containers.series[0]",
+              "$.containers.series[1]"
+            ]
+          },
+          {
+            "address": "$.containers.series[0]",
+            "parent": "$.containers.series",
+            "index": 0,
+            "semanticType": "number",
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "725:726",
+            "children": []
+          },
+          {
+            "address": "$.containers.series[1]",
+            "parent": "$.containers.series",
+            "index": 1,
+            "semanticType": "number",
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "2",
+            "value": "2",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "728:729",
+            "children": []
+          },
+          {
+            "address": "$.containers.pair",
+            "parent": "$.containers",
+            "name": "pair",
+            "semanticType": "tuple",
+            "datatype": "tuple",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "TupleLiteral",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "733:754",
+            "children": [
+              "$.containers.pair[0]",
+              "$.containers.pair[1]"
+            ]
+          },
+          {
+            "address": "$.containers.pair[0]",
+            "parent": "$.containers.pair",
+            "index": 0,
+            "semanticType": "string",
+            "representationKind": "StringLiteral",
+            "value": "x",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "747:750",
+            "children": []
+          },
+          {
+            "address": "$.containers.pair[1]",
+            "parent": "$.containers.pair",
+            "index": 1,
+            "semanticType": "number",
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "752:753",
+            "children": []
+          },
+          {
+            "address": "$.containers.nodeValue",
+            "parent": "$.containers",
+            "name": "nodeValue",
+            "semanticType": "node",
+            "datatype": "node",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NodeLiteral",
+            "nodeTag": "tag",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "757:788",
+            "children": [
+              "$.containers.nodeValue[0]"
+            ]
+          },
+          {
+            "address": "$.containers.nodeValue[0]",
+            "parent": "$.containers.nodeValue",
+            "index": 0,
+            "representationKind": "NodeHead",
+            "value": "tag",
+            "nodeTag": "tag",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "775:778",
+            "children": [
+              "$.containers.nodeValue[0][0]"
+            ]
+          },
+          {
+            "address": "$.containers.nodeValue[0][0]",
+            "parent": "$.containers.nodeValue[0]",
+            "index": 0,
+            "semanticType": "string",
+            "representationKind": "StringLiteral",
+            "value": "hello",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "779:786",
+            "children": []
+          },
+          {
+            "address": "$.annotated",
+            "parent": "$",
+            "name": "annotated",
+            "identity": "ROOT",
+            "semanticType": "number",
+            "datatype": "number",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "1",
+            "value": "1",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "792:866",
+            "children": [],
+            "attributeSpace": "$.annotated.@"
+          },
+          {
+            "address": "$.annotated.@",
+            "parent": "$.annotated",
+            "representationKind": "attributeSpace",
+            "children": [
+              "$.annotated.@.meta"
+            ]
+          },
+          {
+            "address": "$.annotated.@.meta",
+            "parent": "$.annotated.@",
+            "name": "meta",
+            "identity": "META",
+            "semanticType": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
+            "value": "source",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "809:854",
+            "children": [],
+            "attributeSpace": "$.annotated.@.meta.@"
+          },
+          {
+            "address": "$.annotated.@.meta.@",
+            "parent": "$.annotated.@.meta",
+            "representationKind": "attributeSpace",
+            "children": [
+              "$.annotated.@.meta.@.deep"
+            ]
+          },
+          {
+            "address": "$.annotated.@.meta.@.deep",
+            "parent": "$.annotated.@.meta.@",
+            "name": "deep",
+            "identity": "DEEP",
+            "semanticType": "number",
+            "representationKind": "NumberLiteral",
+            "scalarKind": "number",
+            "numericLexeme": "3",
+            "value": "3",
+            "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "821:835",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "document-plane-scopes",
+      "source": "aeon:header = {\n  mode:string = \"strict\"\n}\n\n\"aeon:mode\":string = \"payload\"",
+      "compileOptions": {},
+      "scopes": {
+        "payload": [
+          {
+            "address": "$",
+            "representationKind": "ObjectNode",
+            "children": [
+              "$.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.[\"aeon:mode\"]",
+            "parent": "$",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
+            "value": "payload",
+            "sourcePlane": "body",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "44:74",
+            "children": []
+          }
+        ],
+        "header": [
+          {
+            "address": "$",
+            "representationKind": "ObjectNode",
+            "children": [
+              "$.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.[\"aeon:mode\"]",
+            "parent": "$",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
+            "value": "strict",
+            "sourcePlane": "header",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "18:40",
+            "children": []
+          }
+        ],
+        "full": [
+          {
+            "address": "$",
+            "representationKind": "ObjectNode",
+            "children": [
+              "$.header",
+              "$.body"
+            ]
+          },
+          {
+            "address": "$.header",
+            "parent": "$",
+            "name": "header",
+            "representationKind": "ObjectNode",
+            "sourcePlane": "header",
+            "children": [
+              "$.header.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.header.[\"aeon:mode\"]",
+            "parent": "$.header",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
+            "value": "strict",
+            "sourcePlane": "header",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "18:40",
+            "children": []
+          },
+          {
+            "address": "$.body",
+            "parent": "$",
+            "name": "body",
+            "representationKind": "ObjectNode",
+            "sourcePlane": "body",
+            "children": [
+              "$.body.[\"aeon:mode\"]"
+            ]
+          },
+          {
+            "address": "$.body.[\"aeon:mode\"]",
+            "parent": "$.body",
+            "name": "aeon:mode",
+            "semanticType": "string",
+            "datatype": "string",
+            "generics": [],
+            "clarifiers": [],
+            "representationKind": "StringLiteral",
+            "value": "payload",
+            "sourcePlane": "body",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "44:74",
+            "children": []
+          }
+        ]
+      }
+    }
+  ]
+}
