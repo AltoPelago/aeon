@@ -129,6 +129,17 @@ test('keeps colliding header and body paths distinct in full document scope', ()
   assert.equal(bindingAt(full, '$.body.["aeon:mode"]').value, 'payload');
 });
 
+test('prefixes reference targets with their namespace plane in full scope', () => {
+  const { compile } = readAeon('target = 1\ncopy = ~target');
+  const full = createAeonNamespace(compile.events, { scope: 'full' });
+
+  assert.deepEqual(bindingAt(full, '$.body.copy').value, {
+    type: 'CloneReference',
+    path: '$.body.target',
+    canonical: '~$.body.target',
+  });
+});
+
 test('infers WTC metadata for an untyped temporal context claim', () => {
   const { namespace } = readAeonNamespace('world = 2026-07-25T09:30:00Z&Australia/Melbourne');
   const world = bindingAt(namespace, '$.world');
@@ -301,6 +312,34 @@ copy = ~value[0]`);
     path: '$.value[0][0]',
     canonical: '~$.value[0][0]',
   });
+});
+
+test('translates references into node-valued attribute content', () => {
+  const { namespace } = readAeonNamespace('a@{x = <tag("child")>} = 1\ncopy = ~a.@.x[0]');
+
+  assert.deepEqual(bindingAt(namespace, '$.copy').value, {
+    type: 'CloneReference',
+    path: '$.a.@.x[0][0]',
+    canonical: '~$.a.@.x[0][0]',
+  });
+  assert.equal(bindingAt(namespace, '$.a.@.x[0][0]').value, 'child');
+});
+
+test('derives portable provenance from exact source text', () => {
+  const source = 'a = "😀"';
+  const { namespace } = readAeonNamespace(source);
+  const binding = bindingAt(namespace, '$.a');
+
+  assert.match(binding.origin ?? '', /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(binding.span, '0:10');
+
+  const { compile } = readAeon(source);
+  assert.equal(bindingAt(createAeonNamespace(compile.events), '$.a').origin, undefined);
+  const explicit = bindingAt(createAeonNamespace(compile.events, {
+    sourceBytes: new TextEncoder().encode(source),
+  }), '$.a');
+  assert.equal(explicit.origin, binding.origin);
+  assert.equal(explicit.span, binding.span);
 });
 
 test('requires explicit opt-in for native JavaScript number materialization', () => {

@@ -23,10 +23,12 @@ export interface CreateAeonNamespaceOptions {
   readonly scope?: AeonNamespaceScope;
   /** Materialize finite numbers as canonical strings or JavaScript numbers. Defaults to `lossless`. */
   readonly numericMaterialization?: AeonNumericMaterialization;
+  /** Exact UTF-8 source artifact corresponding to `events`, used to derive portable origin and byte spans. */
+  readonly sourceBytes?: Uint8Array;
 }
 
 export interface ReadAeonNamespaceOptions extends ReadAeonOptions {
-  readonly namespace?: CreateAeonNamespaceOptions;
+  readonly namespace?: Omit<CreateAeonNamespaceOptions, 'sourceBytes'>;
 }
 
 export interface AeonSansaBinding extends SansaResolveBinding {
@@ -100,7 +102,10 @@ export function createAeonNamespace(
     }
   }
 
-  const portableEvents = adaptTypeScriptAssignmentEventsToPortableAes(events, { includeHeaders: true }).events;
+  const portableEvents = adaptTypeScriptAssignmentEventsToPortableAes(events, {
+    includeHeaders: true,
+    ...(options.sourceBytes !== undefined ? { sourceBytes: options.sourceBytes } : {}),
+  }).events;
   for (const event of portableEvents) {
     const location = portableEventLocation(event);
     if (!planeIsInScope(location.sourcePlane, scope)) continue;
@@ -164,6 +169,7 @@ export function createAeonNamespace(
       location.sourcePlane,
       final.type === 'member' ? { name: final.name } : { index: final.index },
       numericMaterialization,
+      scope,
     );
     byAddress.set(address, binding);
     parents.set(binding, parent);
@@ -207,7 +213,10 @@ export function readAeonNamespace(
   return {
     ...result,
     eventsByPath: indexEventsByPath(result.compile.events),
-    namespace: createAeonNamespace(result.compile.events, namespaceOptions),
+    namespace: createAeonNamespace(result.compile.events, {
+      ...namespaceOptions,
+      sourceBytes: new TextEncoder().encode(input),
+    }),
   };
 }
 
@@ -240,6 +249,7 @@ function bindingFromPortableEvent(
   sourcePlane: 'header' | 'body',
   segment: { readonly name: string } | { readonly index: number },
   numericMaterialization: AeonNumericMaterialization,
+  scope: AeonNamespaceScope,
 ): AeonSansaBinding {
   const semanticType = event.datatype ?? portableSemanticType(event.kind);
   const binding: AeonSansaBinding = {
@@ -267,7 +277,7 @@ function bindingFromPortableEvent(
     const radixScale = aeonRadixScale(event.value, radixBase);
     if (radixScale !== null) binding.radixScale = radixScale;
   }
-  const scalar = scalarFromPortableEvent(event, numericMaterialization);
+  const scalar = scalarFromPortableEvent(event, numericMaterialization, sourcePlane, scope);
   if (scalar.ok) binding.value = scalar.value;
   if (event.kind === 'NodeHead' && event.value !== undefined) binding.nodeTag = event.value;
 
@@ -277,6 +287,8 @@ function bindingFromPortableEvent(
 function scalarFromPortableEvent(
   event: PortableAeonEvent,
   numericMaterialization: AeonNumericMaterialization,
+  sourcePlane: 'header' | 'body',
+  scope: AeonNamespaceScope,
 ): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
   switch (event.kind) {
     case 'StringLiteral':
@@ -315,15 +327,19 @@ function scalarFromPortableEvent(
         },
       };
     case 'CloneReference':
-    case 'PointerReference':
+    case 'PointerReference': {
+      const referencePath = scope === 'full'
+        ? addressInPlane(sourcePlane, event.value ?? '')
+        : event.value ?? '';
       return {
         ok: true,
         value: {
           type: event.kind,
-          path: event.value ?? '',
-          canonical: `${event.kind === 'PointerReference' ? '~>' : '~'}${event.value ?? ''}`,
+          path: referencePath,
+          canonical: `${event.kind === 'PointerReference' ? '~>' : '~'}${referencePath}`,
         },
       };
+    }
     case 'ObjectNode':
     case 'ListNode':
     case 'TupleLiteral':

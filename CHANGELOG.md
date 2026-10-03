@@ -14,6 +14,8 @@ repositories.
   topology. Representation kinds now use their normative PascalCase names,
   node tags occupy explicit `NodeHead` bindings, node content addresses gain
   the head index, and reference values use translated absolute portable paths.
+  Full-document references include their header/body namespace plane, and
+  references into node-valued attributes follow the same head expansion.
   Binding/key metadata and node-head/tag metadata now remain distinct.
 
 ### Added
@@ -26,6 +28,9 @@ repositories.
 - Added a document-projection contract fixture covering namespace scopes,
   source-to-portable path translation, complete node topology, metadata
   separation, scalar values, references, attributes, and capability states.
+- Source-backed TypeScript SANSA reads now derive portable origin identifiers
+  and UTF-8 byte spans. Event-only callers can supply the exact source artifact
+  explicitly through `CreateAeonNamespaceOptions.sourceBytes`.
 
 ## 0.14.0 - 2026-10-01
 

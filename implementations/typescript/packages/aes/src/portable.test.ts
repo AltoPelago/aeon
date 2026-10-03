@@ -228,6 +228,12 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.strictEqual(events.find((event) => event.path === '$.alias')?.value, '$.a[0][0]');
     });
 
+    it('translates reference targets across nodes inside attribute value trees', () => {
+        const events = project('a@{x = <tag("child")>} = 1\ncopy = ~a.@.x[0]');
+
+        assert.strictEqual(events.find((event) => event.path === '$.copy')?.value, '$.a.@.x[0][0]');
+    });
+
     it('flattens nested binding, node-head, and anonymous-child attributes in preorder', () => {
         const events = project(String.raw`a\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }} = <tag\HEAD\@{role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>`);
 

@@ -51,14 +51,17 @@ AEON values that are not representable in strict JSON remain queryable. Native
 assignment events are first projected through the complete portable AES
 topology: a node binding is a `NodeLiteral`, its tag is a distinct `NodeHead`
 child, and node content appears beneath that head. The adapter uses normative
-PascalCase representation kinds, preserves datatype components and provenance,
-and translates reference targets into the same portable address domain.
+PascalCase representation kinds, preserves datatype components, translates
+reference targets into the same portable address domain, and derives portable
+origin and UTF-8 byte spans from the exact source text.
 
 The namespace exposes payload bindings by default; pass
 `{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
 Full scope exposes explicit `$.header` and `$.body` roots so valid bindings with
 the same canonical path in both planes remain independently addressable.
 Use `createAeonNamespace(events)` when the source has already been compiled.
+Pass its exact UTF-8 artifact as `sourceBytes` when provenance is required;
+without those bytes, event bindings deliberately omit `origin` and `span`.
 
 #### Semantics and limits
 
@@ -119,8 +122,10 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
 - `createAeonNamespace(events, options?)` from `@altopelago/aeon-sdk/sansa`
 - `readAeonNamespace(input, options?)` from `@altopelago/aeon-sdk/sansa`
 
-`CreateAeonNamespaceOptions` accepts `scope` and `numericMaterialization`.
-The latter is `lossless` by default and may be set to `native` explicitly.
+`CreateAeonNamespaceOptions` accepts `scope`, `numericMaterialization`, and
+optional exact `sourceBytes` for portable provenance.
+`numericMaterialization` is `lossless` by default and may be set to `native`
+explicitly.
 
 ## Notes
 

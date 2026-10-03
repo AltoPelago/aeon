@@ -204,6 +204,8 @@
             "numericLexeme": "7",
             "value": "7",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "0:17",
             "children": []
           },
           {
@@ -222,6 +224,8 @@
               "canonical": "~$.target"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "18:46",
             "children": []
           },
           {
@@ -240,6 +244,8 @@
               "canonical": "~>$.target"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "47:78",
             "children": []
           },
           {
@@ -252,6 +258,8 @@
             "clarifiers": [],
             "representationKind": "ObjectNode",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "80:676",
             "children": [
               "$.types.precise",
               "$.types.price",
@@ -286,6 +294,8 @@
             "numericLexeme": "9007199254740993",
             "value": "9007199254740993",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "99:132",
             "children": []
           },
           {
@@ -302,6 +312,8 @@
             "radixScale": 4,
             "value": "19.9900",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "135:159",
             "children": []
           },
           {
@@ -323,6 +335,8 @@
             "radixScale": 2,
             "value": "101.01",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "162:185",
             "children": []
           },
           {
@@ -336,6 +350,8 @@
             "representationKind": "BooleanLiteral",
             "value": true,
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "188:209",
             "children": []
           },
           {
@@ -350,6 +366,8 @@
             "scalarKind": "toggle",
             "value": "yes",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "212:232",
             "children": []
           },
           {
@@ -364,6 +382,8 @@
             "scalarKind": "hex",
             "value": "ff00aa",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "235:254",
             "children": []
           },
           {
@@ -378,6 +398,8 @@
             "scalarKind": "encoding",
             "value": "QmFzZTY0IQ==",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "257:289",
             "children": []
           },
           {
@@ -397,6 +419,8 @@
             "scalarKind": "separator",
             "value": "0.11.0",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "292:318",
             "children": []
           },
           {
@@ -411,6 +435,8 @@
             "scalarKind": "symbol",
             "value": "approved",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "321:346",
             "children": []
           },
           {
@@ -429,6 +455,8 @@
               "canonical": "$.types.*.sku"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "349:379",
             "children": []
           },
           {
@@ -443,6 +471,8 @@
             "scalarKind": "date",
             "value": "2026-07-25",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "382:408",
             "children": []
           },
           {
@@ -457,6 +487,8 @@
             "scalarKind": "time",
             "value": "09:30:00Z",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "411:434",
             "children": []
           },
           {
@@ -471,6 +503,8 @@
             "scalarKind": "datetime",
             "value": "2026-07-25T09:30:00Z",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "437:474",
             "children": []
           },
           {
@@ -485,6 +519,8 @@
             "scalarKind": "wtc",
             "value": "2026-07-25T09:30:00Z&Australia/Melbourne",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "477:528",
             "children": []
           },
           {
@@ -507,6 +543,8 @@
               "$nonFinite": "nan"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "531:555",
             "children": []
           },
           {
@@ -529,6 +567,8 @@
               "$nonFinite": "positive-infinity"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "558:593",
             "children": []
           },
           {
@@ -551,6 +591,8 @@
               "$nonFinite": "negative-infinity"
             },
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "596:630",
             "children": []
           },
           {
@@ -572,6 +614,8 @@
             "nullReason": "notApplicable",
             "value": null,
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "633:674",
             "children": []
           },
           {
@@ -584,6 +628,8 @@
             "clarifiers": [],
             "representationKind": "ObjectNode",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "678:790",
             "children": [
               "$.containers.series",
               "$.containers.pair",
@@ -606,6 +652,8 @@
             "clarifiers": [],
             "representationKind": "ListNode",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "702:730",
             "children": [
               "$.containers.series[0]",
               "$.containers.series[1]"
@@ -621,6 +669,8 @@
             "numericLexeme": "1",
             "value": "1",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "725:726",
             "children": []
           },
           {
@@ -633,6 +683,8 @@
             "numericLexeme": "2",
             "value": "2",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "728:729",
             "children": []
           },
           {
@@ -645,6 +697,8 @@
             "clarifiers": [],
             "representationKind": "TupleLiteral",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "733:754",
             "children": [
               "$.containers.pair[0]",
               "$.containers.pair[1]"
@@ -658,6 +712,8 @@
             "representationKind": "StringLiteral",
             "value": "x",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "747:750",
             "children": []
           },
           {
@@ -670,6 +726,8 @@
             "numericLexeme": "1",
             "value": "1",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "752:753",
             "children": []
           },
           {
@@ -683,6 +741,8 @@
             "representationKind": "NodeLiteral",
             "nodeTag": "tag",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "757:788",
             "children": [
               "$.containers.nodeValue[0]"
             ]
@@ -695,6 +755,8 @@
             "value": "tag",
             "nodeTag": "tag",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "775:778",
             "children": [
               "$.containers.nodeValue[0][0]"
             ]
@@ -707,6 +769,8 @@
             "representationKind": "StringLiteral",
             "value": "hello",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "779:786",
             "children": []
           },
           {
@@ -723,6 +787,8 @@
             "numericLexeme": "1",
             "value": "1",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "792:866",
             "children": [],
             "attributeSpace": "$.annotated.@"
           },
@@ -746,6 +812,8 @@
             "representationKind": "StringLiteral",
             "value": "source",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "809:854",
             "children": [],
             "attributeSpace": "$.annotated.@.meta.@"
           },
@@ -768,6 +836,8 @@
             "numericLexeme": "3",
             "value": "3",
             "sourcePlane": "body",
+            "origin": "sha256:e7916a728b5ce822e9af3ad66a69fdf5b2d11605f7e8bf8dbc70f40b535a40da",
+            "span": "821:835",
             "children": []
           }
         ]
@@ -797,6 +867,8 @@
             "representationKind": "StringLiteral",
             "value": "payload",
             "sourcePlane": "body",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "44:74",
             "children": []
           }
         ],
@@ -819,6 +891,8 @@
             "representationKind": "StringLiteral",
             "value": "strict",
             "sourcePlane": "header",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "18:40",
             "children": []
           }
         ],
@@ -852,6 +926,8 @@
             "representationKind": "StringLiteral",
             "value": "strict",
             "sourcePlane": "header",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "18:40",
             "children": []
           },
           {
@@ -875,6 +951,8 @@
             "representationKind": "StringLiteral",
             "value": "payload",
             "sourcePlane": "body",
+            "origin": "sha256:2cdbbc8012c02df376fbd23cf006bfde16b809546c6dc48b5d3db44928a4ab8a",
+            "span": "44:74",
             "children": []
           }
         ]
