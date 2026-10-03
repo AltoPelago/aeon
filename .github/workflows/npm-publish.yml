@@ -103,7 +103,9 @@ jobs:
 
       - name: Read package version
         id: package-version
-        run: echo "version=$(node -p \"require('./packages/core/package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(node -p 'require("./packages/core/package.json").version')"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish packages to npm
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
