@@ -167,6 +167,40 @@
           "value": "hello"
         }
       ]
+    },
+    {
+      "id": "attribute-value-node-reference-translation",
+      "source": "a@{x = <tag(\"child\")>} = 1\ncopy = ~a.@.x[0]",
+      "sourceToEventPaths": {
+        "$.a": "$.a",
+        "$.copy": "$.copy"
+      },
+      "events": [
+        {
+          "path": "$.a",
+          "kind": "NumberLiteral",
+          "value": "1"
+        },
+        {
+          "path": "$.a.@.x",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.a.@.x[0]",
+          "kind": "NodeHead",
+          "value": "tag"
+        },
+        {
+          "path": "$.a.@.x[0][0]",
+          "kind": "StringLiteral",
+          "value": "child"
+        },
+        {
+          "path": "$.copy",
+          "kind": "CloneReference",
+          "value": "$.a.@.x[0][0]"
+        }
+      ]
     }
   ],
   "fixtures": [

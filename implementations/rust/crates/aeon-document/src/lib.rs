@@ -771,6 +771,7 @@ mod tests {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct TopologyCase {
+        id: String,
         source: String,
         events: Vec<ExpectedEvent>,
     }
@@ -832,48 +833,47 @@ mod tests {
 
     #[test]
     fn builds_fixture_backed_node_head_topology() {
-        let case = fixture_contract()
-            .portable_topology_cases
-            .into_iter()
-            .next()
-            .expect("portable topology case");
-        let document = AeonDocument::compile(
-            &case.source,
-            CompileOptions {
-                datatype_policy: Some(DatatypePolicy::AllowCustom),
-                max_attribute_depth: 8,
-                ..CompileOptions::default()
-            },
-        )
-        .expect("compile document");
+        for case in fixture_contract().portable_topology_cases {
+            let document = AeonDocument::compile(
+                &case.source,
+                CompileOptions {
+                    datatype_policy: Some(DatatypePolicy::AllowCustom),
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("compile topology case {}: {error}", case.id));
 
-        for expected in case.events {
-            let id = document
-                .at(DocumentScope::Payload, &expected.path)
-                .unwrap_or_else(|| panic!("missing fixture event {}", expected.path));
-            let node = document.node(id).expect("fixture node");
-            assert_eq!(node.representation_kind(), expected.kind);
-            assert_eq!(node.identity(), expected.identity.as_deref());
-            assert_eq!(node.datatype(), expected.datatype.as_deref());
-            assert_eq!(node.value(), expected.value.as_deref());
+            for expected in case.events {
+                let id = document
+                    .at(DocumentScope::Payload, &expected.path)
+                    .unwrap_or_else(|| panic!("missing fixture event {}", expected.path));
+                let node = document.node(id).expect("fixture node");
+                assert_eq!(node.representation_kind(), expected.kind);
+                assert_eq!(node.identity(), expected.identity.as_deref());
+                assert_eq!(node.datatype(), expected.datatype.as_deref());
+                assert_eq!(node.value(), expected.value.as_deref());
+            }
+
+            if case.id == "node-head-address-translation" {
+                let head = document
+                    .at(DocumentScope::Payload, "$.value[0]")
+                    .expect("node head");
+                let child = document
+                    .at(DocumentScope::Payload, "$.value[0][0]")
+                    .expect("node child");
+                assert_eq!(document.node(child).expect("child").parent(), Some(head));
+                let navigated_child = document
+                    .payload()
+                    .member("value")
+                    .expect("value member")
+                    .position(0)
+                    .expect("node head")
+                    .position(0)
+                    .expect("node child");
+                assert_eq!(navigated_child.id(), child);
+            }
         }
-
-        let head = document
-            .at(DocumentScope::Payload, "$.value[0]")
-            .expect("node head");
-        let child = document
-            .at(DocumentScope::Payload, "$.value[0][0]")
-            .expect("node child");
-        assert_eq!(document.node(child).expect("child").parent(), Some(head));
-        let navigated_child = document
-            .payload()
-            .member("value")
-            .expect("value member")
-            .position(0)
-            .expect("node head")
-            .position(0)
-            .expect("node child");
-        assert_eq!(navigated_child.id(), child);
     }
 
     #[test]

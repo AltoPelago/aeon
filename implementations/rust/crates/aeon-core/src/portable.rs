@@ -2035,24 +2035,12 @@ mod tests {
 
     #[test]
     fn translates_reference_targets_across_nodes_inside_attribute_value_trees() {
-        let result = compile(
-            "a@{x = <tag(\"child\")>} = 1",
-            CompileOptions {
-                max_attribute_depth: 8,
-                ..CompileOptions::default()
-            },
-        );
-        assert!(result.errors.is_empty(), "{:?}", result.errors);
-        let node_source_paths = collect_node_source_paths(&result.events);
-        let target = translate_reference_target(
-            &[
-                ReferenceSegment::Key(String::from("a")),
-                ReferenceSegment::Attr(String::from("x")),
-                ReferenceSegment::Index(0),
-            ],
-            &node_source_paths,
-        );
-        assert_eq!(target, "$.a.@.x[0][0]");
+        let events = project("a@{x = <tag(\"child\")>} = 1\ncopy = ~a.@.x[0]");
+        let reference = events
+            .iter()
+            .find(|event| event.path == "$.copy")
+            .expect("copy reference");
+        assert_eq!(reference.value.as_deref(), Some("$.a.@.x[0][0]"));
     }
 
     #[test]
