@@ -2849,11 +2849,11 @@ mod tests {
 
     #[test]
     fn preserves_padded_base64url_encoding_literals() {
-        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = &abc-_==\n");
+        let result = canonicalize("aeon:mode = \"transport\"\npayload:base64 = &YWJjLQ==\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = &abc-_==\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\npayload:base64 = &YWJjLQ==\n"
         );
     }
 

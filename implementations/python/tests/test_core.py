@@ -1069,6 +1069,27 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("payload:base64 = &abc+/==")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
+    def test_valid_padded_and_unpadded_base64url_literals_are_accepted(self) -> None:
+        for source in ("payload:base64 = &YWJjLQ==", "payload:base64 = &YWJjLQ"):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.errors)
+                self.assertEqual(1, len(result.events))
+
+    def test_invalid_base64url_lengths_and_tail_bits_are_rejected(self) -> None:
+        for source in ("payload:base64 = &abcde", "payload:base64 = &Zh==", "payload:base64 = &Zm9="):
+            with self.subTest(source=source):
+                result = compile_source(source)
+                self.assertEqual([], result.events)
+                self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_opaque_encoding_aliases_are_independent_of_base64_validation(self) -> None:
+        for datatype in ("encoding", "inline", "embed"):
+            with self.subTest(datatype=datatype):
+                result = compile_source(f"payload:{datatype} = &abcde")
+                self.assertEqual([], result.errors)
+                self.assertEqual(1, len(result.events))
+
     def test_asterisk_delimited_preprocessor_placeholder_is_rejected(self) -> None:
         result = compile_source("password = *secret-key*")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])

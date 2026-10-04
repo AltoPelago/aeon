@@ -772,6 +772,31 @@ describe('Core - compile()', () => {
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
+        it('should accept padded and unpadded valid base64url literals', () => {
+            for (const source of ['payload:base64 = &YWJjLQ==', 'payload:base64 = &YWJjLQ']) {
+                const result = compile(source);
+                assert.deepStrictEqual(result.errors, []);
+                assert.strictEqual(result.events.length, 1);
+            }
+        });
+
+        it('should reject invalid base64url lengths and non-zero tail bits', () => {
+            for (const source of ['payload:base64 = &abcde', 'payload:base64 = &Zh==', 'payload:base64 = &Zm9=']) {
+                const result = compile(source);
+                assert.strictEqual(result.events.length, 0);
+                assert.strictEqual(result.errors.length, 1);
+                assert.strictEqual(result.errors[0]!.code, 'DATATYPE_LITERAL_MISMATCH');
+            }
+        });
+
+        it('should leave opaque encoding aliases independent of base64 validation', () => {
+            for (const datatype of ['encoding', 'inline', 'embed']) {
+                const result = compile(`payload:${datatype} = &abcde`);
+                assert.deepStrictEqual(result.errors, []);
+                assert.strictEqual(result.events.length, 1);
+            }
+        });
+
         it('should report unterminated string spans on the correct line and column', () => {
             const result = compile('a = 1\nb = "unterminated');
 

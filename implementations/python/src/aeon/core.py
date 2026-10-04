@@ -906,7 +906,7 @@ def enforce_mode(
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))
             continue
         expected = expected_kinds_for_reserved_datatype(binding.datatype)
-        actual_kind = datatype_check_kind(binding, lookup)
+        actual_kind = datatype_check_kind(binding, lookup, binding.datatype)
         if datatype_base(binding.datatype) == "switch" and actual_kind == "ToggleLiteral":
             errors.append(
                 CustomToggleAliasNotAllowedError(
@@ -969,7 +969,7 @@ def validate_anonymous_typed_values(
         if datatype is not None and value.value is not None:
             expected = expected_kinds_for_reserved_datatype(datatype)
             actual_value = resolve_reference_value(value.value, lookup) or value.value
-            actual_kind = value_kind(actual_value)
+            actual_kind = datatype_value_kind(datatype, actual_value)
             if datatype_base(datatype) == "switch" and actual_kind == "ToggleLiteral":
                 errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
             elif mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
@@ -1070,16 +1070,21 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
     return errors
 
 
-def datatype_check_kind(binding: ResolvedBinding, lookup: dict[str, ResolvedBinding], stack: tuple[str, ...] = ()) -> str:
+def datatype_check_kind(
+    binding: ResolvedBinding,
+    lookup: dict[str, ResolvedBinding],
+    datatype: str,
+    stack: tuple[str, ...] = (),
+) -> str:
     resolved = resolve_reference_value(binding.value, lookup)
     if resolved is None:
-        return value_kind(unwrap_typed_value(binding.value))
+        return datatype_value_kind(datatype, binding.value)
     if isinstance(resolved, (CloneReference, PointerReference)):
         resolution = resolve_mode_reference_target(resolved.path, lookup)
         if resolution is None or resolution[0] in stack:
             return value_kind(resolved)
-        return datatype_check_kind(resolution[1], lookup, (*stack, resolution[0]))
-    return value_kind(unwrap_typed_value(resolved))
+        return datatype_check_kind(resolution[1], lookup, datatype, (*stack, resolution[0]))
+    return datatype_value_kind(datatype, resolved)
 
 
 def validate_annotation_entries(
@@ -1109,7 +1114,7 @@ def validate_annotation_entries(
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
                 if value is not None and hasattr(value, "type"):
-                    actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
+                    actual_kind = datatype_value_kind(datatype, resolve_reference_value(value, lookup) or value)
                     if expected is None:
                         expected = expected_kinds_for_custom_datatype(datatype)
                     if expected is not None and actual_kind not in expected:
@@ -1438,6 +1443,13 @@ def value_kind(value: Value) -> str:
     return getattr(value, "type")
 
 
+def datatype_value_kind(datatype: str, value: Value) -> str:
+    value = unwrap_typed_value(value)
+    if datatype_base(datatype) == "base64" and isinstance(value, EncodingLiteral):
+        return "EncodingLiteral" if has_valid_base64url_literal(value.raw) else "InvalidEncodingLiteral"
+    return value_kind(value)
+
+
 def unwrap_typed_value(value: Value) -> Value:
     if isinstance(value, TypedValue) and value.value is not None:
         return value.value
@@ -1498,6 +1510,39 @@ def has_valid_encoding_literal(raw: str) -> bool:
         return False
     padding_index = body.find("=")
     return padding_index == -1 or all(char == "=" for char in body[padding_index:])
+
+
+def has_valid_base64url_literal(raw: str) -> bool:
+    if not has_valid_encoding_literal(raw):
+        return False
+    body = raw[1:]
+    padding_length = 2 if body.endswith("==") else 1 if body.endswith("=") else 0
+    data = body[:-padding_length] if padding_length else body
+    remainder = len(data) % 4
+    if remainder == 1:
+        return False
+    if padding_length and len(body) % 4 != 0:
+        return False
+    if padding_length == 1 and remainder != 3:
+        return False
+    if padding_length == 2 and remainder != 2:
+        return False
+    last = base64url_sextet(data[-1])
+    if remainder == 2 and last & 0x0F:
+        return False
+    if remainder == 3 and last & 0x03:
+        return False
+    return True
+
+
+def base64url_sextet(char: str) -> int:
+    if "A" <= char <= "Z":
+        return ord(char) - ord("A")
+    if "a" <= char <= "z":
+        return ord(char) - ord("a") + 26
+    if "0" <= char <= "9":
+        return ord(char) - ord("0") + 52
+    return 62 if char == "-" else 63
 
 
 def format_datatype(datatype: TypeAnnotation | None) -> str | None:

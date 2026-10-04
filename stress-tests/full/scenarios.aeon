@@ -261,8 +261,8 @@ test008:o = {
 
 test009:o = {
 	encoding:encoding = &QmFzZTY0IQ==
-	base64:base64 = &abc-_==
-	encoding001:base64 = &FF_FF_FF_
+	base64:base64 = &YWJj-_8=
+	encoding001:base64 = &FF_FF_FF_A
 }
 
 /*
