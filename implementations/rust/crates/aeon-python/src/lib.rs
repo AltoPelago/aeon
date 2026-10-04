@@ -27,6 +27,8 @@ use pyo3::types::{PyBytes, PyModule, PyTuple};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
+mod pytonic;
+
 type PackedSpan = (usize, usize, usize, usize, usize, usize);
 type PackedEvent = (
     String,
@@ -682,6 +684,7 @@ fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyDiagnostic>()?;
     module.add_class::<PyEvent>()?;
     module.add_class::<PyCompileResult>()?;
+    pytonic::register(module)?;
     module.add_function(wrap_pyfunction!(compile_json, module)?)?;
     module.add_function(wrap_pyfunction!(compile_cts_json, module)?)?;
     module.add_function(wrap_pyfunction!(compile_packed, module)?)?;
