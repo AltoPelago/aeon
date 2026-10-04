@@ -170,7 +170,7 @@
     },
     {
       "id": "attribute-value-node-reference-translation",
-      "source": "a@{x = <tag(\"child\")>} = 1\ncopy = ~a.@.x[0]",
+      "source": "a@{x = <tag(1, ~a.@.x[0])>} = 1\ncopy = ~a.@.x[0]",
       "sourceToEventPaths": {
         "$.a": "$.a",
         "$.copy": "$.copy"
@@ -192,8 +192,13 @@
         },
         {
           "path": "$.a.@.x[0][0]",
-          "kind": "StringLiteral",
-          "value": "child"
+          "kind": "NumberLiteral",
+          "value": "1"
+        },
+        {
+          "path": "$.a.@.x[0][1]",
+          "kind": "CloneReference",
+          "value": "$.a.@.x[0][0]"
         },
         {
           "path": "$.copy",

@@ -184,11 +184,29 @@ impl DocumentNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DocumentError {
     Compile(Vec<Diagnostic>),
-    PortableProjection { code: &'static str, detail: String },
-    InvalidEventAddress { address: String, detail: String },
-    UnsupportedEventAddress { address: String },
-    MissingParent { address: String, parent: String },
-    DuplicateAddress { address: String },
+    PortableProjection {
+        code: &'static str,
+        detail: String,
+    },
+    InvalidEventAddress {
+        address: String,
+        detail: String,
+    },
+    UnsupportedEventAddress {
+        address: String,
+    },
+    MissingParent {
+        address: String,
+        parent: String,
+    },
+    InvalidParentTopology {
+        address: String,
+        parent: String,
+        detail: String,
+    },
+    DuplicateAddress {
+        address: String,
+    },
 }
 
 impl fmt::Display for DocumentError {
@@ -214,6 +232,14 @@ impl fmt::Display for DocumentError {
             Self::MissingParent { address, parent } => {
                 write!(formatter, "event '{address}' is missing parent '{parent}'")
             }
+            Self::InvalidParentTopology {
+                address,
+                parent,
+                detail,
+            } => write!(
+                formatter,
+                "event '{address}' cannot be attached to parent '{parent}': {detail}"
+            ),
             Self::DuplicateAddress { address } => {
                 write!(formatter, "duplicate document address '{address}'")
             }
@@ -445,13 +471,14 @@ impl DocumentBuilder {
             header_root: NodeId(0),
             payload_root: NodeId(0),
         };
-        builder.full_root = builder.push_synthetic("$", None, None, None, "ObjectNode");
+        builder.full_root = builder.push_synthetic("$", None, None, None, "ObjectNode", false);
         builder.header_root = builder.push_synthetic(
             "$.header",
             Some(builder.full_root),
             Some("header"),
             Some(DocumentSourcePlane::Header),
             "ObjectNode",
+            true,
         );
         builder.payload_root = builder.push_synthetic(
             "$.body",
@@ -459,6 +486,7 @@ impl DocumentBuilder {
             Some("body"),
             Some(DocumentSourcePlane::Body),
             "ObjectNode",
+            true,
         );
         builder
     }
@@ -470,6 +498,7 @@ impl DocumentBuilder {
         binding_name: Option<&str>,
         source_plane: Option<DocumentSourcePlane>,
         representation_kind: &str,
+        ordinary_child: bool,
     ) -> NodeId {
         let id = NodeId(self.nodes.len());
         self.nodes.push(DocumentNode {
@@ -493,7 +522,7 @@ impl DocumentBuilder {
             lineage: NodeLineage::Synthetic,
         });
         self.full_index.insert(full_address.to_owned(), id);
-        if let Some(parent) = parent {
+        if ordinary_child && let Some(parent) = parent {
             self.nodes[parent.0].children.push(id);
         }
         id
@@ -569,6 +598,13 @@ impl DocumentBuilder {
                     }
                 }
                 SansaSelector::AttributeSpace => {
+                    let owner_address = full_address(plane_name, &prefix);
+                    if self.nodes[parent.0].full_address != owner_address {
+                        return Err(DocumentError::MissingParent {
+                            address: full_address(plane_name, &event_address),
+                            parent: owner_address,
+                        });
+                    }
                     prefix.push_str(".@");
                     let address = full_address(plane_name, &prefix);
                     parent = if let Some(existing) = self.full_index.get(&address).copied() {
@@ -581,6 +617,7 @@ impl DocumentBuilder {
                             None,
                             Some(plane),
                             "attributeSpace",
+                            false,
                         );
                         self.nodes[owner.0].attribute_space = Some(attribute_space);
                         attribute_space
@@ -606,6 +643,13 @@ impl DocumentBuilder {
                 parent: expected_full_parent,
             });
         }
+        validate_parent_topology(
+            &self.nodes[parent.0],
+            final_name.as_deref(),
+            final_position,
+            event.kind,
+            &address,
+        )?;
 
         let id = NodeId(self.nodes.len());
         let identity = event.identity.clone();
@@ -667,6 +711,54 @@ impl DocumentBuilder {
                 lineage: CapabilityState::Complete,
             },
         }
+    }
+}
+
+fn validate_parent_topology(
+    parent: &DocumentNode,
+    binding_name: Option<&str>,
+    position: Option<usize>,
+    child_kind: &str,
+    address: &str,
+) -> Result<(), DocumentError> {
+    let invalid = |detail: String| DocumentError::InvalidParentTopology {
+        address: address.to_owned(),
+        parent: parent.full_address.clone(),
+        detail,
+    };
+    if binding_name.is_some() {
+        if matches!(
+            parent.representation_kind.as_str(),
+            "ObjectNode" | "attributeSpace"
+        ) {
+            return Ok(());
+        }
+        return Err(invalid(format!(
+            "{} cannot own member children",
+            parent.representation_kind
+        )));
+    }
+    let Some(position) = position else {
+        return Err(invalid(String::from(
+            "event address has no final member or position selector",
+        )));
+    };
+    match parent.representation_kind.as_str() {
+        "NodeLiteral" if position == 0 && child_kind == "NodeHead" => Ok(()),
+        "NodeLiteral" => Err(invalid(String::from(
+            "a node literal must contain exactly one NodeHead at position 0",
+        ))),
+        "NodeHead" | "ListNode" | "TupleLiteral" => {
+            let expected = parent.children.len();
+            if position == expected {
+                Ok(())
+            } else {
+                Err(invalid(format!(
+                    "positional children must be contiguous; expected index {expected}, found {position}"
+                )))
+            }
+        }
+        kind => Err(invalid(format!("{kind} cannot own positional children"))),
     }
 }
 
@@ -817,10 +909,14 @@ mod tests {
     }
 
     fn body_event(path: &str) -> PortableAesCompatibilityEvent {
+        body_event_kind(path, "StringLiteral")
+    }
+
+    fn body_event_kind(path: &str, kind: &'static str) -> PortableAesCompatibilityEvent {
         PortableAesCompatibilityEvent {
             path: Some(path.to_owned()),
             header: None,
-            kind: "StringLiteral",
+            kind,
             identity: None,
             datatype: None,
             generics: Vec::new(),
@@ -958,6 +1054,22 @@ mod tests {
             .expect("binding node")
             .attribute_space()
             .expect("attribute space");
+        assert!(
+            document
+                .node(binding)
+                .expect("binding node")
+                .children()
+                .is_empty()
+        );
+        assert_eq!(
+            document
+                .payload()
+                .member("annotated")
+                .expect("binding view")
+                .children()
+                .count(),
+            0
+        );
         assert_eq!(
             document
                 .address(DocumentScope::Payload, attribute_space)
@@ -989,6 +1101,39 @@ mod tests {
         assert!(matches!(
             missing_parent,
             DocumentError::MissingParent { parent, .. } if parent == "$.body.a"
+        ));
+
+        let missing_attribute_owner =
+            AeonDocument::from_portable_events(b"", vec![body_event("$.a.@.x")])
+                .expect_err("missing attribute owner must fail");
+        assert!(matches!(
+            missing_attribute_owner,
+            DocumentError::MissingParent { parent, .. } if parent == "$.body.a"
+        ));
+    }
+
+    #[test]
+    fn rejects_scalar_children_and_sparse_positions() {
+        let scalar_member =
+            AeonDocument::from_portable_events(b"", vec![body_event("$.a"), body_event("$.a.b")])
+                .expect_err("scalar member parent must fail");
+        assert!(matches!(
+            scalar_member,
+            DocumentError::InvalidParentTopology { parent, .. } if parent == "$.body.a"
+        ));
+
+        let sparse_position = AeonDocument::from_portable_events(
+            b"",
+            vec![
+                body_event_kind("$.items", "ListNode"),
+                body_event("$.items[1]"),
+            ],
+        )
+        .expect_err("sparse position must fail");
+        assert!(matches!(
+            sparse_position,
+            DocumentError::InvalidParentTopology { detail, .. }
+                if detail.contains("expected index 0, found 1")
         ));
     }
 

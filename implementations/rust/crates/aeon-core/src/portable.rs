@@ -2035,12 +2035,27 @@ mod tests {
 
     #[test]
     fn translates_reference_targets_across_nodes_inside_attribute_value_trees() {
-        let events = project("a@{x = <tag(\"child\")>} = 1\ncopy = ~a.@.x[0]");
-        let reference = events
+        let events = project("a@{x = <tag(1, ~a.@.x[0])>} = 1\ncopy = ~a.@.x[0]");
+        let nested_reference = events
+            .iter()
+            .find(|event| event.path == "$.a.@.x[0][1]")
+            .expect("nested backward reference");
+        assert_eq!(nested_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+        let external_reference = events
             .iter()
             .find(|event| event.path == "$.copy")
-            .expect("copy reference");
-        assert_eq!(reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+            .expect("external reference");
+        assert_eq!(external_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+
+        let forward = compile(
+            "a@{x = <tag(~a.@.x[1], 1)>} = 1",
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(forward.errors.len(), 1, "{:?}", forward.errors);
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
     }
 
     #[test]
