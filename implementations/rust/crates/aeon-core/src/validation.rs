@@ -606,7 +606,10 @@ pub(crate) enum CompactDatatypeValue {
     Hex(bool),
     Separator,
     Symbolic,
-    Encoding(bool),
+    Encoding {
+        literal_valid: bool,
+        base64_valid: bool,
+    },
     Radix(bool),
     Date,
     DateTime,
@@ -641,7 +644,10 @@ impl CompactDatatypeValue {
             Value::HexLiteral { raw } => Self::Hex(has_valid_literal_underscores(raw)),
             Value::SeparatorLiteral { .. } => Self::Separator,
             Value::SymbolicLiteral { .. } => Self::Symbolic,
-            Value::EncodingLiteral { raw } => Self::Encoding(has_valid_encoding_literal(raw)),
+            Value::EncodingLiteral { raw } => Self::Encoding {
+                literal_valid: has_valid_encoding_literal(raw),
+                base64_valid: has_valid_base64url_literal(raw),
+            },
             Value::RadixLiteral { raw } => Self::Radix(has_valid_radix_literal(raw)),
             Value::DateLiteral { .. } => Self::Date,
             Value::DateTimeLiteral { raw } => {
@@ -686,7 +692,7 @@ impl CompactDatatypeValue {
             Self::Hex(_) => "HexLiteral",
             Self::Separator => "SeparatorLiteral",
             Self::Symbolic => "SymbolicLiteral",
-            Self::Encoding(_) => "EncodingLiteral",
+            Self::Encoding { .. } => "EncodingLiteral",
             Self::Radix(_) => "RadixLiteral",
             Self::Date => "DateLiteral",
             Self::DateTime => "DateTimeLiteral",
@@ -1560,9 +1566,20 @@ fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) 
         "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
             matches!(value, CompactDatatypeValue::Radix(true))
         }
-        "encoding" | "base64" | "embed" | "inline" => {
-            matches!(value, CompactDatatypeValue::Encoding(true))
-        }
+        "base64" => matches!(
+            value,
+            CompactDatatypeValue::Encoding {
+                base64_valid: true,
+                ..
+            }
+        ),
+        "encoding" | "inline" | "embed" => matches!(
+            value,
+            CompactDatatypeValue::Encoding {
+                literal_valid: true,
+                ..
+            }
+        ),
         "date" => matches!(value, CompactDatatypeValue::Date),
         "time" => matches!(value, CompactDatatypeValue::Time),
         "datetime" => matches!(value, CompactDatatypeValue::DateTime),
@@ -1718,6 +1735,49 @@ fn has_valid_encoding_literal(raw: &str) -> bool {
     match body.find('=') {
         None => true,
         Some(index) => body.len() - index <= 2 && body[index..].chars().all(|ch| ch == '='),
+    }
+}
+
+fn has_valid_base64url_literal(raw: &str) -> bool {
+    let Some(body) = raw.strip_prefix('&') else {
+        return false;
+    };
+    let unpadded = body.trim_end_matches('=');
+    let padding = body.len() - unpadded.len();
+    if padding > 2
+        || unpadded.is_empty()
+        || !unpadded
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return false;
+    }
+    let remainder = unpadded.len() % 4;
+    if remainder == 1
+        || (padding != 0 && (unpadded.len() + padding) % 4 != 0)
+        || (padding == 1 && remainder != 3)
+        || (padding == 2 && remainder != 2)
+    {
+        return false;
+    }
+    let Some(last) = unpadded.bytes().last().and_then(base64url_sextet) else {
+        return false;
+    };
+    match remainder {
+        2 => last & 0x0f == 0,
+        3 => last & 0x03 == 0,
+        _ => true,
+    }
+}
+
+fn base64url_sextet(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'-' => Some(62),
+        b'_' => Some(63),
+        _ => None,
     }
 }
 

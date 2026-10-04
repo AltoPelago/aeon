@@ -2960,6 +2960,30 @@ mod tests {
     }
 
     #[test]
+    fn base64_requires_decodable_canonical_base64url() {
+        for value in ["&QmFzZTY0IQ==", "&YWJjLQ", "&YWJjLQ=="] {
+            let source = format!("payload:base64 = {value}\n");
+            let result = compile(&source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{value}: {:?}", result.errors);
+        }
+        for value in ["&abcde", "&abc-_==", "&Zh==", "&Zm9="] {
+            let source = format!("payload:base64 = {value}\n");
+            let result = compile(&source, CompileOptions::default());
+            assert_eq!(result.errors.len(), 1, "{value}: {:?}", result.errors);
+            assert_eq!(result.errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+        }
+    }
+
+    #[test]
+    fn generic_encoding_aliases_do_not_require_decodable_base64() {
+        for datatype in ["encoding", "inline", "embed"] {
+            let source = format!("payload:{datatype} = &abcde\n");
+            let result = compile(&source, CompileOptions::default());
+            assert!(result.errors.is_empty(), "{datatype}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
     fn strict_mode_accepts_prose_as_reserved_trimtick_alias() {
         let result = compile(
             "aeon:mode = \"strict\"\nbody:prose = >`\n  # Heading\n\n  Markdown-ish content.\n`\n",

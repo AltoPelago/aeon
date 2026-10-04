@@ -268,7 +268,7 @@ export function enforceMode(
         }
 
         const expectedKinds = expectedKindsForReservedDatatype(event.datatype);
-        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex) ?? event.value.type;
+        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex, event.datatype) ?? event.value.type;
         if (datatypeBase(event.datatype) === 'switch' && actualKind === 'ToggleLiteral') {
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
@@ -363,6 +363,7 @@ function resolveDatatypeCheckKind(
     event: AssignmentEvent,
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
+    datatype: string,
     stack: readonly string[] = []
 ): string | null {
     const resolved = resolveReferenceValue(event.value, events, pathToIndex);
@@ -378,15 +379,15 @@ function resolveDatatypeCheckKind(
         if (!resolution.event) {
             return resolved.type;
         }
-        return resolveDatatypeCheckKind(resolution.event, events, pathToIndex, [...stack, resolution.targetPath]) ?? resolved.type;
+        return resolveDatatypeCheckKind(resolution.event, events, pathToIndex, datatype, [...stack, resolution.targetPath]) ?? resolved.type;
     }
 
-    return resolvedValueKind(resolved);
+    return resolvedValueKind(resolved, datatype);
 }
 
-function resolvedValueKind(value: Value): string {
+function resolvedValueKind(value: Value, datatype?: string): string {
     if (value.type === 'TypedValue') {
-        return resolvedValueKind(value.value);
+        return resolvedValueKind(value.value, datatype);
     }
     if (value.type === 'StringLiteral') {
         return value.trimticks ? 'TrimtickStringLiteral' : 'StringLiteral';
@@ -404,7 +405,10 @@ function resolvedValueKind(value: Value): string {
         return hasValidRadixLiteral(value.raw) ? 'RadixLiteral' : 'InvalidRadixLiteral';
     }
     if (value.type === 'EncodingLiteral') {
-        return hasValidEncodingLiteral(value.raw) ? 'EncodingLiteral' : 'InvalidEncodingLiteral';
+        const valid = datatype && datatypeBase(datatype) === 'base64'
+            ? hasValidBase64UrlLiteral(value.raw)
+            : hasValidEncodingLiteral(value.raw);
+        return valid ? 'EncodingLiteral' : 'InvalidEncodingLiteral';
     }
     return value.type;
 }
@@ -425,7 +429,7 @@ function validateAnonymousTypedValues(
             const datatype = formatTypeAnnotation(value.datatype);
             const expectedKinds = expectedKindsForReservedDatatype(datatype);
             const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
-            const actualKind = resolvedValueKind(resolved);
+            const actualKind = resolvedValueKind(resolved, datatype);
             if (datatypeBase(datatype) === 'switch' && actualKind === 'ToggleLiteral') {
                 errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
             } else if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
@@ -529,6 +533,30 @@ function hasValidEncodingLiteral(raw: string): boolean {
     return /^=+$/.test(body.slice(firstPadding));
 }
 
+function hasValidBase64UrlLiteral(raw: string): boolean {
+    if (!hasValidEncodingLiteral(raw)) return false;
+    const body = raw.slice(1);
+    const paddingLength = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0;
+    const data = body.slice(0, body.length - paddingLength);
+    const remainder = data.length % 4;
+    if (remainder === 1) return false;
+    if (paddingLength > 0 && body.length % 4 !== 0) return false;
+    if (paddingLength === 1 && remainder !== 3) return false;
+    if (paddingLength === 2 && remainder !== 2) return false;
+
+    const last = base64UrlSextet(data[data.length - 1]!);
+    if (remainder === 2 && (last & 0x0f) !== 0) return false;
+    if (remainder === 3 && (last & 0x03) !== 0) return false;
+    return true;
+}
+
+function base64UrlSextet(char: string): number {
+    if (char >= 'A' && char <= 'Z') return char.charCodeAt(0) - 65;
+    if (char >= 'a' && char <= 'z') return char.charCodeAt(0) - 71;
+    if (char >= '0' && char <= '9') return char.charCodeAt(0) + 4;
+    return char === '-' ? 62 : 63;
+}
+
 function validateAnnotationEntries(
     annotations: ReadonlyMap<string, AttributeEntry> | undefined,
     ownerPath: string,
@@ -557,7 +585,7 @@ function validateAnnotationEntries(
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
                 const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
-                const actualKind = resolvedValueKind(resolved);
+                const actualKind = resolvedValueKind(resolved, entry.datatype);
                 if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         span,

@@ -32,6 +32,13 @@ repositories.
   and UTF-8 byte spans. Event-only callers can supply the exact source artifact
   explicitly through `CreateAeonNamespaceOptions.sourceBytes`.
 
+### Changed
+
+- Reserved `base64` values now require decodable Base64URL, including valid
+  padding and zero unused tail bits. Padded and unpadded spellings remain
+  accepted; the broader `encoding`, `inline`, and `embed` families retain
+  their opaque encoding-literal semantics in Core.
+
 ## 0.14.0 - 2026-10-01
 
 ### Breaking

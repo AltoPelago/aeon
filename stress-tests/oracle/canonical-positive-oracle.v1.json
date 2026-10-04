@@ -4,7 +4,7 @@
     "origin": "stress-tests/snippets (positive-*.aeon-cases)",
     "implementation": "typescript",
     "captured_by": "stress-tests/tools/gen-oracle.mjs",
-    "snapshot": "2026-09-30T11:32:56.876Z"
+    "snapshot": "2026-10-04T17:27:23.575Z"
   },
   "cases": [
     {
@@ -796,7 +796,7 @@
     {
       "id": "canonical-strict-0039",
       "kind": "compile",
-      "source": "payload:base64 = &abc-_==",
+      "source": "payload:base64 = &YWJj-_8=",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -816,7 +816,7 @@
     {
       "id": "canonical-strict-0040",
       "kind": "compile",
-      "source": "blue:base64 = &FF_FF_FF_",
+      "source": "blue:base64 = &FF_FF_FF_A",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -856,7 +856,7 @@
     {
       "id": "canonical-strict-0042",
       "kind": "compile",
-      "source": "a:base64 = &_FF",
+      "source": "a:base64 = &_FE",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {
@@ -2484,7 +2484,7 @@
     {
       "id": "canonical-strict-0118",
       "kind": "compile",
-      "source": "b:base64 = &fff",
+      "source": "b:base64 = &ffg",
       "mode": "strict",
       "source_ref": "positive-strict.aeon-cases",
       "options": {

@@ -118,6 +118,9 @@ Before cutting a TypeScript release:
 - for 0.14.0, the canonical conformance command is intentionally pinned to
   `canonical-cts-v1-snapshot-0.3`; land that immutable CTS snapshot before the
   implementation change so clean CI checkouts can resolve the pin
+- for 0.14.0, Core conformance is pinned to
+  `core-cts-v1-snapshot-0.5`, which requires decodable Base64URL values while
+  preserving the opaque `encoding`, `inline`, and `embed` datatype behavior
 - run:
 
 ```bash
