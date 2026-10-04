@@ -1749,7 +1749,13 @@ fn collect_attribute_targets(
         } else {
             format!("{prefix}{attr_segment}")
         };
-        let _ = targets.insert(format!("{base}{next_prefix}"));
+        let current_path = format!("{base}{next_prefix}");
+        let _ = targets.insert(current_path.clone());
+        if let Some(entry_value) = &value.value {
+            collect_value_target_paths(entry_value, &current_path, &mut |path| {
+                let _ = targets.insert(path);
+            });
+        }
         collect_attribute_targets(
             base,
             &value.nested_attrs,
@@ -1782,6 +1788,11 @@ fn collect_attribute_object_targets(
         let next_prefix = format!("{prefix}{member_segment}");
         let member_path = format!("{base}{next_prefix}");
         let _ = targets.insert(member_path.clone());
+        if let Some(entry_value) = &value.value {
+            collect_value_target_paths(entry_value, &member_path, &mut |path| {
+                let _ = targets.insert(path);
+            });
+        }
         collect_attribute_object_targets(
             base,
             &value.object_members,
@@ -1819,11 +1830,13 @@ fn collect_attribute_reference_steps(
         };
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {
-            steps.push(ValidationReferenceStep::ValidateValue {
-                path: current_path.clone(),
-                owner_path: current_path.clone(),
-                value: Box::new(clone_validation_value(entry_value, shallow_event_values)),
-            });
+            append_ordered_validation_value_steps(
+                entry_value,
+                &current_path,
+                &current_path,
+                shallow_event_values,
+                steps,
+            );
         }
         collect_attribute_object_reference_steps(
             base,
@@ -1860,11 +1873,13 @@ fn collect_attribute_object_reference_steps(
         let next_prefix = format!("{prefix}{}", render_member_segment(key));
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {
-            steps.push(ValidationReferenceStep::ValidateValue {
-                path: current_path.clone(),
-                owner_path: current_path.clone(),
-                value: Box::new(clone_validation_value(entry_value, shallow_event_values)),
-            });
+            append_ordered_validation_value_steps(
+                entry_value,
+                &current_path,
+                &current_path,
+                shallow_event_values,
+                steps,
+            );
         }
         collect_attribute_object_reference_steps(
             base,
@@ -1906,8 +1921,8 @@ fn collect_compact_attribute_reference_steps(
         };
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {
-            append_compact_value_references(
-                unwrap_typed_value(entry_value),
+            append_ordered_compact_value_steps(
+                entry_value,
                 &current_path,
                 &current_path,
                 shallow_event_values,
@@ -1949,8 +1964,8 @@ fn collect_compact_attribute_object_reference_steps(
         let next_prefix = format!("{prefix}{}", render_member_segment(key));
         let current_path = format!("{base}{next_prefix}");
         if let Some(entry_value) = &value.value {
-            append_compact_value_references(
-                unwrap_typed_value(entry_value),
+            append_ordered_compact_value_steps(
+                entry_value,
                 &current_path,
                 &current_path,
                 shallow_event_values,
@@ -1974,6 +1989,175 @@ fn collect_compact_attribute_object_reference_steps(
             next_prefix.clone(),
         );
         steps.push(CompactReferenceStep::VisibleTarget(current_path));
+    }
+}
+
+fn append_ordered_validation_value_steps(
+    raw_value: &Value,
+    current_path: &str,
+    owner_path: &str,
+    shallow_value: bool,
+    steps: &mut Vec<ValidationReferenceStep>,
+) {
+    let value = unwrap_typed_value(raw_value);
+    if shallow_value
+        && matches!(
+            value,
+            Value::ObjectNode { .. }
+                | Value::ListNode { .. }
+                | Value::TupleLiteral { .. }
+                | Value::NodeLiteral { .. }
+        )
+    {
+        return;
+    }
+    match value {
+        Value::NodeLiteral { children, .. } => {
+            let mut head = value.clone();
+            if let Value::NodeLiteral { children, .. } = &mut head {
+                children.clear();
+            }
+            steps.push(ValidationReferenceStep::ValidateValue {
+                path: current_path.to_owned(),
+                owner_path: owner_path.to_owned(),
+                value: Box::new(head),
+            });
+            for (index, child) in children.iter().enumerate() {
+                let child_path = format!("{current_path}[{index}]");
+                append_ordered_validation_value_steps(
+                    child,
+                    &child_path,
+                    current_path,
+                    false,
+                    steps,
+                );
+                steps.push(ValidationReferenceStep::VisibleTarget(child_path));
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for (index, item) in items.iter().enumerate() {
+                let item_path = format!("{current_path}[{index}]");
+                append_ordered_validation_value_steps(item, &item_path, current_path, false, steps);
+                steps.push(ValidationReferenceStep::VisibleTarget(item_path));
+            }
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                let binding_path = format!("{current_path}{}", render_member_segment(&binding.key));
+                steps.push(ValidationReferenceStep::VisibleTarget(binding_path.clone()));
+                append_ordered_validation_value_steps(
+                    &binding.value,
+                    &binding_path,
+                    &binding_path,
+                    false,
+                    steps,
+                );
+                collect_attribute_reference_steps(
+                    &binding_path,
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    steps,
+                    false,
+                    String::new(),
+                );
+            }
+        }
+        _ => steps.push(ValidationReferenceStep::ValidateValue {
+            path: current_path.to_owned(),
+            owner_path: owner_path.to_owned(),
+            value: Box::new(value.clone()),
+        }),
+    }
+}
+
+fn append_ordered_compact_value_steps(
+    raw_value: &Value,
+    current_path: &str,
+    owner_path: &str,
+    shallow_value: bool,
+    steps: &mut Vec<CompactReferenceStep>,
+) {
+    let value = unwrap_typed_value(raw_value);
+    if shallow_value
+        && matches!(
+            value,
+            Value::ObjectNode { .. }
+                | Value::ListNode { .. }
+                | Value::TupleLiteral { .. }
+                | Value::NodeLiteral { .. }
+        )
+    {
+        return;
+    }
+    match value {
+        Value::NodeLiteral { children, .. } => {
+            let mut head = value.clone();
+            if let Value::NodeLiteral { children, .. } = &mut head {
+                children.clear();
+            }
+            append_compact_value_references(&head, current_path, owner_path, false, steps);
+            for (index, child) in children.iter().enumerate() {
+                let child_path = format!("{current_path}[{index}]");
+                append_ordered_compact_value_steps(child, &child_path, current_path, false, steps);
+                steps.push(CompactReferenceStep::VisibleTarget(child_path));
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for (index, item) in items.iter().enumerate() {
+                let item_path = format!("{current_path}[{index}]");
+                append_ordered_compact_value_steps(item, &item_path, current_path, false, steps);
+                steps.push(CompactReferenceStep::VisibleTarget(item_path));
+            }
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                let binding_path = format!("{current_path}{}", render_member_segment(&binding.key));
+                steps.push(CompactReferenceStep::VisibleTarget(binding_path.clone()));
+                append_ordered_compact_value_steps(
+                    &binding.value,
+                    &binding_path,
+                    &binding_path,
+                    false,
+                    steps,
+                );
+                collect_compact_attribute_reference_steps(
+                    &binding_path,
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    steps,
+                    false,
+                    String::new(),
+                );
+            }
+        }
+        _ => append_compact_value_references(value, current_path, owner_path, false, steps),
+    }
+}
+
+fn collect_value_target_paths(raw_value: &Value, base: &str, emit: &mut impl FnMut(String)) {
+    match unwrap_typed_value(raw_value) {
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                let path = format!("{base}{}", render_member_segment(&binding.key));
+                emit(path.clone());
+                collect_value_target_paths(&binding.value, &path, emit);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for (index, item) in items.iter().enumerate() {
+                let path = format!("{base}[{index}]");
+                emit(path.clone());
+                collect_value_target_paths(item, &path, emit);
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                let path = format!("{base}[{index}]");
+                emit(path.clone());
+                collect_value_target_paths(child, &path, emit);
+            }
+        }
+        _ => {}
     }
 }
 

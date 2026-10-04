@@ -422,11 +422,7 @@ pub fn project_aes_event_records_taken(events: &mut [AssignmentEvent]) -> Vec<Ae
         return project_aes_event_records(events);
     }
 
-    let node_source_paths = events
-        .iter()
-        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| event.path.segments.clone())
-        .collect::<NodeSourcePaths>();
+    let node_source_paths = collect_node_source_paths(events);
     let mut records = Vec::with_capacity(events.len());
     for event in events {
         let translated_path = aes_canonical_path(&event.path, &node_source_paths);
@@ -622,14 +618,14 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
 }
 
 #[derive(Default)]
-enum NodeSourcePaths {
+enum StructuralNodeSourcePaths {
     #[default]
     None,
     One(Vec<PathSegment>),
     Many(HashSet<Vec<PathSegment>>),
 }
 
-impl FromIterator<Vec<PathSegment>> for NodeSourcePaths {
+impl FromIterator<Vec<PathSegment>> for StructuralNodeSourcePaths {
     fn from_iter<T: IntoIterator<Item = Vec<PathSegment>>>(iter: T) -> Self {
         let mut paths = iter.into_iter();
         let Some(first) = paths.next() else {
@@ -644,13 +640,29 @@ impl FromIterator<Vec<PathSegment>> for NodeSourcePaths {
     }
 }
 
-impl NodeSourcePaths {
+impl StructuralNodeSourcePaths {
     fn contains(&self, path: &[PathSegment]) -> bool {
         match self {
             Self::None => false,
             Self::One(single) => single == path,
             Self::Many(many) => many.contains(path),
         }
+    }
+}
+
+#[derive(Default)]
+struct NodeSourcePaths {
+    structural: StructuralNodeSourcePaths,
+    references: HashSet<String>,
+}
+
+impl NodeSourcePaths {
+    fn contains(&self, path: &[PathSegment]) -> bool {
+        self.structural.contains(path)
+    }
+
+    fn contains_reference(&self, path: &str) -> bool {
+        self.references.contains(path)
     }
 }
 const MIN_REUSABLE_AES_PATH_DEPTH: usize = 8;
@@ -747,11 +759,7 @@ fn project_portable_events_into<S>(events: &[AssignmentEvent], emit: &mut S)
 where
     S: PortableEventSink + ?Sized,
 {
-    let node_source_paths = events
-        .iter()
-        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| event.path.segments.clone())
-        .collect::<NodeSourcePaths>();
+    let node_source_paths = collect_node_source_paths(events);
     emit.reserve(events.len());
     if events.len() > MAX_REUSABLE_AES_PATH_EVENTS
         || !events
@@ -1456,36 +1464,114 @@ fn translate_reference_target(
     segments: &[ReferenceSegment],
     node_source_paths: &NodeSourcePaths,
 ) -> String {
-    let mut source_segments = vec![PathSegment::Root];
-    let mut source_path_is_trackable = true;
+    let mut source_path = String::from("$");
     let mut output = String::from("$");
 
     for segment in segments {
         match segment {
             ReferenceSegment::Key(key) => {
-                output.push_str(&render_member_segment(key));
-                if source_path_is_trackable {
-                    source_segments.push(PathSegment::Member(key.clone()));
-                }
+                let member = render_member_segment(key);
+                output.push_str(&member);
+                source_path.push_str(&member);
             }
             ReferenceSegment::Index(index) => {
-                if source_path_is_trackable && node_source_paths.contains(&source_segments) {
+                if node_source_paths.contains_reference(&source_path) {
                     output.push_str("[0]");
                 }
-                output.push_str(&format!("[{index}]"));
-                if source_path_is_trackable {
-                    source_segments.push(PathSegment::Index(*index));
-                }
+                let position = format!("[{index}]");
+                output.push_str(&position);
+                source_path.push_str(&position);
             }
             ReferenceSegment::Attr(key) => {
                 output.push_str(".@");
-                output.push_str(&render_member_segment(key));
-                source_path_is_trackable = false;
+                source_path.push_str(".@");
+                let member = render_member_segment(key);
+                output.push_str(&member);
+                source_path.push_str(&member);
             }
         }
     }
 
     output
+}
+
+fn collect_node_source_paths(events: &[AssignmentEvent]) -> NodeSourcePaths {
+    let structural = events
+        .iter()
+        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
+        .map(|event| event.path.segments.clone())
+        .collect::<StructuralNodeSourcePaths>();
+    let mut references = HashSet::new();
+
+    for event in events {
+        let path = AesCanonicalPath::parse(format_path(&event.path))
+            .expect("validated assignment paths are canonical AES paths");
+        collect_value_node_source_paths(&event.value, &path, &mut references);
+        collect_attribute_node_source_paths(&event.annotations, &path, &mut references);
+    }
+
+    NodeSourcePaths {
+        structural,
+        references,
+    }
+}
+
+fn collect_value_node_source_paths(
+    raw_value: &Value,
+    path: &AesCanonicalPath,
+    paths: &mut HashSet<String>,
+) {
+    match raw_value {
+        Value::TypedValue {
+            attributes, value, ..
+        } => {
+            collect_attribute_node_source_paths(attributes, path, paths);
+            collect_value_node_source_paths(value, path, paths);
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                let child_path = append_member(path, &binding.key);
+                collect_attribute_node_source_paths(&binding.attributes, &child_path, paths);
+                collect_value_node_source_paths(&binding.value, &child_path, paths);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for (index, item) in items.iter().enumerate() {
+                collect_value_node_source_paths(item, &append_index(path, index), paths);
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            paths.insert(path.as_str().to_owned());
+            for (index, child) in children.iter().enumerate() {
+                collect_value_node_source_paths(child, &append_index(path, index), paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_attribute_node_source_paths(
+    attributes: &BTreeMap<String, AttributeValue>,
+    owner_path: &AesCanonicalPath,
+    paths: &mut HashSet<String>,
+) {
+    for (key, entry) in attributes {
+        collect_attribute_value_node_source_paths(entry, &append_attribute(owner_path, key), paths);
+    }
+}
+
+fn collect_attribute_value_node_source_paths(
+    entry: &AttributeValue,
+    path: &AesCanonicalPath,
+    paths: &mut HashSet<String>,
+) {
+    if let Some(value) = &entry.value {
+        collect_value_node_source_paths(value, path, paths);
+    }
+    collect_attribute_node_source_paths(&entry.nested_attrs, path, paths);
+    for (member, value) in &entry.object_members {
+        collect_attribute_value_node_source_paths(value, &append_member(path, member), paths);
+    }
 }
 
 fn is_legacy_header_event(event: &AssignmentEvent, _header: Option<&crate::HeaderFields>) -> bool {
@@ -1603,11 +1689,7 @@ fn compatibility_changes(
     header: Option<&crate::HeaderFields>,
 ) -> Vec<PortableAesConversionChange> {
     let mut changes = Vec::new();
-    let node_source_paths = body_events
-        .iter()
-        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| event.path.segments.clone())
-        .collect::<NodeSourcePaths>();
+    let node_source_paths = collect_node_source_paths(body_events);
     let path_map = body_events
         .iter()
         .map(|event| {
@@ -1949,6 +2031,31 @@ mod tests {
         assert_eq!(events[1].value.as_deref(), Some("tag"));
         let span = events[1].span.expect("node-head span");
         assert_eq!(&source[span.start.offset..span.end.offset], r#"tag\HEAD\"#);
+    }
+
+    #[test]
+    fn translates_reference_targets_across_nodes_inside_attribute_value_trees() {
+        let events = project("a@{x = <tag(1, ~a.@.x[0])>} = 1\ncopy = ~a.@.x[0]");
+        let nested_reference = events
+            .iter()
+            .find(|event| event.path == "$.a.@.x[0][1]")
+            .expect("nested backward reference");
+        assert_eq!(nested_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+        let external_reference = events
+            .iter()
+            .find(|event| event.path == "$.copy")
+            .expect("external reference");
+        assert_eq!(external_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+
+        let forward = compile(
+            "a@{x = <tag(~a.@.x[1], 1)>} = 1",
+            CompileOptions {
+                max_attribute_depth: 8,
+                ..CompileOptions::default()
+            },
+        );
+        assert_eq!(forward.errors.len(), 1, "{:?}", forward.errors);
+        assert_eq!(forward.errors[0].code, "FORWARD_REFERENCE");
     }
 
     #[test]
