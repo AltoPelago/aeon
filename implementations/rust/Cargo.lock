@@ -80,6 +80,7 @@ version = "0.14.0"
 dependencies = [
  "altopelago-aeon-aeos",
  "altopelago-aeon-core",
+ "altopelago-aeon-document",
  "altopelago-aeon-finalize",
  "altopelago-aes-telex",
  "serde",

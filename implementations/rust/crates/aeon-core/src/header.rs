@@ -146,6 +146,7 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
     let mut fields = BTreeMap::new();
     let mut order = Vec::new();
     let mut spans = BTreeMap::new();
+    let mut datatypes = BTreeMap::new();
     for binding in bindings {
         if binding.is_header
             && let Some(key) = binding.key.strip_prefix("aeon:")
@@ -153,12 +154,16 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
             order.push(key.to_owned());
             let _ = fields.insert(String::from(key), binding.value.clone());
             let _ = spans.insert(String::from(key), binding.span);
+            if let Some(datatype) = &binding.datatype {
+                let _ = datatypes.insert(String::from(key), datatype.clone());
+            }
         }
     }
     HeaderFields {
         fields,
         order,
         spans,
+        datatypes,
     }
 }
 

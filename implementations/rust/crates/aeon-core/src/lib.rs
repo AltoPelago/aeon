@@ -660,6 +660,7 @@ pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
     pub order: Vec<String>,
     pub spans: BTreeMap<String, Span>,
+    pub datatypes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

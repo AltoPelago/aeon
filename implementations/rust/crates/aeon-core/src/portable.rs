@@ -522,7 +522,7 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
             value,
             ValueTreeMetadata {
                 identity: None,
-                datatype: None,
+                datatype: header.datatypes.get(key),
                 attributes: None,
                 span: header.spans.get(key).copied(),
             },
@@ -1965,7 +1965,7 @@ mod tests {
     fn document_projection_completes_structured_header_containers() {
         let source = concat!(
             "aeon:header = {\n",
-            "  mode = \"transport\"\n",
+            "  mode:string = \"transport\"\n",
             "  conventions = [\"one\", \"two\"]\n",
             "}\n",
             "a = 1\n",
@@ -2005,6 +2005,7 @@ mod tests {
                 "StringLiteral"
             ]
         );
+        assert_eq!(document.events[0].datatype.as_deref(), Some("string"));
         assert_eq!(document.events[4].path.as_deref(), Some("$.a"));
     }
 

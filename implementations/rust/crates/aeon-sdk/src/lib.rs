@@ -25,6 +25,8 @@ use aes_telex::{
 use serde::de::DeserializeOwned;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 
+pub mod sansa_document;
+
 pub use aeon_core::{CompileToTelexOptions, CompileToTelexResult};
 pub use aes_telex::{
     ParsedTelex, TelexLimits, TelexRecord, TelexSyntaxError,
