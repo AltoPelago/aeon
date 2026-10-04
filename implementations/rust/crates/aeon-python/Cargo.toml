@@ -12,6 +12,7 @@ publish = false
 aeon-aeos.workspace = true
 aeon-canonical.workspace = true
 aeon-core = { workspace = true, features = ["sofia"] }
+aeon-document.workspace = true
 aeon-finalize.workspace = true
 aeon-sdk.workspace = true
 aes-telex.workspace = true

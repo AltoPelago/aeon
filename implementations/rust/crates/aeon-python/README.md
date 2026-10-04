@@ -41,10 +41,26 @@ The package supports non-free-threaded CPython 3.12 through 3.14. It
 does not run the WebAssembly build and it does not silently fall back to the
 repository's pure-Python reference implementation.
 
-The higher-level mutable object model and SANSA integration are intentionally
-outside this API. They will be reviewed separately so any future Pytonic layer
-can be designed alongside SANSA rather than baked into the transport/runtime
-facade.
+For metadata-preserving navigation, the opt-in `pytonic` facade exposes
+immutable views over the shared Rust document graph without passing through
+JSON materialisation:
+
+```python
+from altopelago.aeon import pytonic
+
+document = pytonic.loads('status = |approved|')
+status = document["status"]
+print(status.address)        # $.status
+print(status.value.kind)     # SymbolicLiteral
+print(status.value.decoded)  # approved
+```
+
+Bindings retain datatype, identity, source plane, attributes, provenance,
+lineage, and exact canonical scalar payload where supplied. `pytonic` is an
+immutable document-navigation API; it does not claim SANSA Query support.
+
+The higher-level mutable object model and SANSA integration remain outside
+this API and will be reviewed separately.
 
 ## Local development
 

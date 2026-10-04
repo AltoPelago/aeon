@@ -13,6 +13,7 @@ from ._api import (
 from ._loading import LoadedDocument, LoadedTelexDocument
 from ._models import CompileResult, Diagnostic, Event, Position, Span
 from .errors import AeonError, AeonLoadError, CompileError, NativeError, TelexError
+from . import pytonic
 
 __all__ = (
     "AeonError",
@@ -35,4 +36,5 @@ __all__ = (
     "load_telex_file",
     "load_telex_text",
     "load_text",
+    "pytonic",
 )

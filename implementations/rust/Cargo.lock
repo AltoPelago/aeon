@@ -43,6 +43,7 @@ dependencies = [
  "altopelago-aeon",
  "altopelago-aeon-aeos",
  "altopelago-aeon-core",
+ "altopelago-aeon-document",
  "altopelago-aeon-finalize",
  "altopelago-aes-telex",
  "pyo3",
