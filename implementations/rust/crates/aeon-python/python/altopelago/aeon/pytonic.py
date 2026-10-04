@@ -45,7 +45,7 @@ def load(
 ) -> Document:
     """Read UTF-8 AEON source and return an immutable document."""
 
-    source = Path(path).read_text(encoding="utf-8")
+    source = Path(path).read_bytes().decode("utf-8")
     return loads(
         source,
         datatype_policy=datatype_policy,

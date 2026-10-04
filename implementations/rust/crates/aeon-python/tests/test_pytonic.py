@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -80,6 +81,18 @@ class PytonicTests(unittest.TestCase):
             document = pytonic.load(path, datatype_policy="allow_custom")
 
         self.assertEqual(document["value"].datatype, "custom")
+
+    def test_file_loading_preserves_source_bytes_and_provenance(self) -> None:
+        source = "first = 1\r\nsecond = 2\r\n"
+        expected_origin = f"sha256:{hashlib.sha256(source.encode('utf-8')).hexdigest()}"
+        with TemporaryDirectory() as directory:
+            path = Path(directory, "crlf.aeon")
+            path.write_bytes(source.encode("utf-8"))
+            document = pytonic.load(path)
+
+        self.assertEqual(document.source, source)
+        self.assertEqual(document["second"].origin, expected_origin)
+        self.assertEqual(document["second"].span, "11:21")
 
     def test_exposes_structured_datatype_components(self) -> None:
         document = pytonic.loads(
