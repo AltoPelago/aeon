@@ -76,13 +76,13 @@ a:infinity = -Infinity
 ---
 bits:radix = %+9&.!
 ---
-payload:base64 = &abc-_==
+payload:base64 = &YWJj-_8=
 ---
-blue:base64 = &FF_FF_FF_
+blue:base64 = &FF_FF_FF_A
 ---
 a:base64 = &F__F
 ---
-a:base64 = &_FF
+a:base64 = &_FE
 ---
 z5:wtc = 2025-01-01T00:00:00Z&l
 ---
@@ -301,7 +301,7 @@ r:radix12 = %10101
 ---
 e:encoding = &fff
 ---
-b:base64 = &fff
+b:base64 = &ffg
 ---
 i:inline = &inline
 ---
