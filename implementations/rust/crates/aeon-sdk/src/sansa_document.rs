@@ -1,15 +1,20 @@
 //! SANSA namespace projection over the immutable AEON document graph.
 //!
-//! This module supplies host bindings and exact navigation for a future
-//! SANSA runtime. It deliberately does not call the recursively owned Resolve
-//! subset in `aeon-core`, and therefore does not claim SANSA.Resolve or Query.
+//! This module always supplies host bindings and exact graph navigation. With
+//! the optional `sansa` feature it also adapts those handles to the independent
+//! `altopelago-sansa-runtime` crate for Address, Resolve, and Query.
 
 use std::sync::Arc;
 
-use aeon_document::{
-    AeonDocument, DocumentNode, DocumentScope, DocumentSourcePlane, NodeId, NodeLineage,
-};
+pub use aeon_core::CompileOptions;
+pub use aeon_document::{AeonDocument, DocumentError};
+use aeon_document::{DocumentNode, DocumentScope, DocumentSourcePlane, NodeId, NodeLineage};
+#[cfg(feature = "sansa")]
+use aes_telex::format_datatype_descriptor;
 use aes_telex::{ClarifierKind, DatatypeClarifier, DatatypeDescriptor, GenericArgument};
+
+#[cfg(feature = "sansa")]
+pub use sansa_runtime as runtime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AeonSansaScope {
@@ -56,13 +61,18 @@ impl Default for AeonSansaCapabilities {
         Self {
             namespace_projection: AeonSansaCapabilityState::Complete,
             exact_address_lookup: AeonSansaCapabilityState::Complete,
-            address_parsing: AeonSansaCapabilityState::NotExposed,
-            resolve: AeonSansaCapabilityState::NotExposed,
-            query: AeonSansaCapabilityState::NotExposed,
+            address_parsing: SANSA_RUNTIME_CAPABILITY,
+            resolve: SANSA_RUNTIME_CAPABILITY,
+            query: SANSA_RUNTIME_CAPABILITY,
             local_spaces: AeonSansaCapabilityState::NotExposed,
         }
     }
 }
+
+#[cfg(feature = "sansa")]
+const SANSA_RUNTIME_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::Complete;
+#[cfg(not(feature = "sansa"))]
+const SANSA_RUNTIME_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::NotExposed;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AeonSansaNonFinite {
@@ -129,6 +139,17 @@ pub struct AeonSansaNamespace {
 }
 
 impl AeonSansaNamespace {
+    /// Compile AEON source directly into a SANSA-capable document namespace.
+    pub fn compile(
+        source: &str,
+        options: CompileOptions,
+        scope: AeonSansaScope,
+        numeric_materialization: AeonNumericMaterialization,
+    ) -> Result<Self, DocumentError> {
+        AeonDocument::compile(source, options)
+            .map(|document| Self::new(document, scope, numeric_materialization))
+    }
+
     #[must_use]
     pub fn new(
         document: AeonDocument,
@@ -156,11 +177,33 @@ impl AeonSansaNamespace {
         AeonSansaCapabilities {
             namespace_projection: AeonSansaCapabilityState::Complete,
             exact_address_lookup: AeonSansaCapabilityState::Complete,
-            address_parsing: AeonSansaCapabilityState::NotExposed,
-            resolve: AeonSansaCapabilityState::NotExposed,
-            query: AeonSansaCapabilityState::NotExposed,
+            address_parsing: SANSA_RUNTIME_CAPABILITY,
+            resolve: SANSA_RUNTIME_CAPABILITY,
+            query: SANSA_RUNTIME_CAPABILITY,
             local_spaces: AeonSansaCapabilityState::NotExposed,
         }
+    }
+
+    /// Resolve a SANSA address against this document namespace.
+    #[cfg(feature = "sansa")]
+    #[must_use]
+    pub fn resolve_address(
+        &self,
+        address: &str,
+        options: &runtime::resolve::ResolveOptions<AeonSansaBinding>,
+    ) -> runtime::resolve::ResolveOutput<AeonSansaBinding> {
+        runtime::resolve::resolve_address(address, self, options)
+    }
+
+    /// Parse and evaluate a stable SANSA Query against this document namespace.
+    #[cfg(feature = "sansa")]
+    #[must_use]
+    pub fn evaluate_query(
+        &self,
+        query: &str,
+        options: &runtime::evaluate::EvaluateOptions<AeonSansaBinding>,
+    ) -> runtime::evaluate::QueryOutput<AeonSansaBinding> {
+        runtime::evaluate::evaluate_query(query, self, options)
     }
 
     #[must_use]
@@ -201,6 +244,60 @@ impl AeonSansaNamespace {
             id,
             numeric_materialization: self.numeric_materialization,
         }
+    }
+}
+
+#[cfg(feature = "sansa")]
+impl runtime::resolve::Namespace for AeonSansaNamespace {
+    type Binding = AeonSansaBinding;
+
+    fn root(&self) -> Option<Self::Binding> {
+        Some(AeonSansaNamespace::root(self))
+    }
+
+    fn children(&self, binding: &Self::Binding) -> Vec<Self::Binding> {
+        binding.children()
+    }
+
+    fn parent(&self, binding: &Self::Binding) -> runtime::resolve::Navigation<Self::Binding> {
+        binding.parent().map_or(
+            runtime::resolve::Navigation::Missing,
+            runtime::resolve::Navigation::Binding,
+        )
+    }
+
+    fn attribute_space(
+        &self,
+        binding: &Self::Binding,
+    ) -> runtime::resolve::Navigation<Self::Binding> {
+        binding.attribute_space().map_or(
+            runtime::resolve::Navigation::Missing,
+            runtime::resolve::Navigation::Binding,
+        )
+    }
+
+    fn name(&self, binding: &Self::Binding) -> Option<String> {
+        binding.name().map(str::to_owned)
+    }
+
+    fn position(&self, binding: &Self::Binding) -> Option<usize> {
+        binding.index()
+    }
+
+    fn semantic_type(&self, binding: &Self::Binding) -> Option<String> {
+        binding.runtime_semantic_type()
+    }
+
+    fn representation_kind(&self, binding: &Self::Binding) -> Option<String> {
+        Some(binding.representation_kind().to_owned())
+    }
+
+    fn value(&self, binding: &Self::Binding) -> Option<runtime::value_semantics::Value> {
+        binding.runtime_value()
+    }
+
+    fn binding_address(&self, binding: &Self::Binding) -> Option<String> {
+        Some(binding.address())
     }
 }
 
@@ -289,6 +386,19 @@ impl AeonSansaBinding {
         self.node()
             .datatype()
             .or_else(|| semantic_type(self.node().representation_kind()))
+    }
+
+    #[cfg(feature = "sansa")]
+    fn runtime_semantic_type(&self) -> Option<String> {
+        let node = self.node();
+        if let Some(datatype) = node.datatype() {
+            return Some(format_datatype_descriptor(&DatatypeDescriptor {
+                datatype: datatype.to_owned(),
+                generics: node.generics().to_vec(),
+                clarifiers: node.clarifiers().to_vec(),
+            }));
+        }
+        semantic_type(node.representation_kind()).map(str::to_owned)
     }
 
     #[must_use]
@@ -418,6 +528,168 @@ impl AeonSansaBinding {
                 }
             }),
             _ => None,
+        }
+    }
+
+    #[cfg(feature = "sansa")]
+    fn runtime_value(&self) -> Option<runtime::value_semantics::Value> {
+        use runtime::value_semantics::{FiniteNumber, Value};
+
+        let node = self.node();
+        if node.representation_kind() == "NodeLiteral" {
+            return Some(Value::Container {
+                kind: String::from("NodeLiteral"),
+                payload: self.runtime_node_payload(),
+            });
+        }
+        if is_container_kind(node.representation_kind()) {
+            return Some(Value::Container {
+                kind: node.representation_kind().to_owned(),
+                payload: self.runtime_container_payload(),
+            });
+        }
+
+        let payload = node.value();
+        Some(match node.representation_kind() {
+            "StringLiteral" | "NodeHead" => Value::String(payload?.to_owned()),
+            "NumberLiteral" => Value::FiniteNumber(FiniteNumber::parse(payload?).ok()?),
+            "InfinityLiteral" if payload == Some("-Infinity") => Value::NegativeInfinity,
+            "InfinityLiteral" => Value::PositiveInfinity,
+            "NaNLiteral" => Value::Nan,
+            "BooleanLiteral" => Value::Boolean(payload? == "true"),
+            "ToggleLiteral" => Value::Toggle(payload?.to_owned()),
+            "HexLiteral" => Value::Hex(payload?.to_owned()),
+            "RadixLiteral" => Value::Radix {
+                payload: payload?.to_owned(),
+                semantic_type: self
+                    .runtime_semantic_type()
+                    .unwrap_or_else(|| String::from("radix")),
+            },
+            "EncodingLiteral" => Value::Encoding(payload?.to_owned()),
+            "SeparatorLiteral" => Value::Separator(payload?.to_owned()),
+            "SymbolicLiteral" => Value::Symbol(payload?.to_owned()),
+            "SansaAddressLiteral" => Value::SansaAddress(payload?.to_owned()),
+            "DateLiteral" => Value::Temporal {
+                payload: payload?.to_owned(),
+                semantic_type: self
+                    .runtime_semantic_type()
+                    .unwrap_or_else(|| String::from("date")),
+            },
+            "TimeLiteral" => Value::Temporal {
+                payload: payload?.to_owned(),
+                semantic_type: self
+                    .runtime_semantic_type()
+                    .unwrap_or_else(|| String::from("time")),
+            },
+            "DateTimeLiteral" => Value::Temporal {
+                payload: payload?.to_owned(),
+                semantic_type: self
+                    .runtime_semantic_type()
+                    .unwrap_or_else(|| String::from("datetime")),
+            },
+            "WTCDateTimeLiteral" => Value::Temporal {
+                payload: payload?.to_owned(),
+                semantic_type: self
+                    .runtime_semantic_type()
+                    .unwrap_or_else(|| String::from("wtc")),
+            },
+            "NullLiteral" => Value::ExplicitNull {
+                reason: payload.unwrap_or_default().to_owned(),
+            },
+            "CloneReference" | "PointerReference" => {
+                let target = if self.scope == DocumentScope::Full {
+                    address_in_plane(node.source_plane(), payload?)
+                } else {
+                    payload?.to_owned()
+                };
+                Value::ReferenceForm {
+                    kind: node.representation_kind().to_owned(),
+                    target,
+                }
+            }
+            _ => Value::String(payload?.to_owned()),
+        })
+    }
+
+    #[cfg(feature = "sansa")]
+    fn runtime_node_payload(&self) -> runtime::value_semantics::ContainerValue {
+        use std::collections::BTreeMap;
+
+        use runtime::value_semantics::{ContainerValue, Value};
+
+        let head = self
+            .children()
+            .into_iter()
+            .find(|child| child.representation_kind() == "NodeHead");
+        let mut node = BTreeMap::new();
+        let children = if let Some(head) = head {
+            if let Some(tag) = head.node_tag() {
+                node.insert(
+                    String::from("tag"),
+                    ContainerValue::Scalar(Box::new(Value::String(tag.to_owned()))),
+                );
+            }
+            if let Some(attributes) = head.attribute_space() {
+                node.insert(
+                    String::from("attributes"),
+                    attributes.runtime_container_payload(),
+                );
+            }
+            head.children()
+        } else {
+            Vec::new()
+        };
+        node.insert(
+            String::from("children"),
+            ContainerValue::Sequence(
+                children
+                    .iter()
+                    .map(AeonSansaBinding::runtime_container_entry)
+                    .collect(),
+            ),
+        );
+        ContainerValue::Object(node)
+    }
+
+    #[cfg(feature = "sansa")]
+    fn runtime_container_payload(&self) -> runtime::value_semantics::ContainerValue {
+        use std::collections::BTreeMap;
+
+        use runtime::value_semantics::ContainerValue;
+
+        let children = self.children();
+        let sequence = is_sequence_kind(self.representation_kind())
+            || (!children.is_empty() && children.iter().all(|child| child.index().is_some()));
+        if sequence {
+            return ContainerValue::Sequence(
+                children
+                    .iter()
+                    .map(AeonSansaBinding::runtime_container_entry)
+                    .collect(),
+            );
+        }
+
+        let mut entries = BTreeMap::new();
+        for child in children {
+            if let Some(name) = child.name() {
+                entries.insert(name.to_owned(), child.runtime_container_entry());
+            }
+        }
+        ContainerValue::Object(entries)
+    }
+
+    #[cfg(feature = "sansa")]
+    fn runtime_container_entry(&self) -> runtime::value_semantics::ContainerValue {
+        use runtime::value_semantics::ContainerValue;
+
+        if self.node().representation_kind() == "NodeLiteral" {
+            self.runtime_node_payload()
+        } else if is_container_kind(self.node().representation_kind()) {
+            self.runtime_container_payload()
+        } else {
+            self.runtime_value()
+                .map(|value| ContainerValue::Scalar(Box::new(value)))
+                .unwrap_or(ContainerValue::Null)
         }
     }
 
@@ -568,6 +840,19 @@ fn scalar_kind(kind: &str) -> Option<&'static str> {
         "CloneReference" | "PointerReference" => Some("referenceForm"),
         _ => None,
     }
+}
+
+#[cfg(feature = "sansa")]
+fn is_container_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "ObjectNode" | "ListNode" | "TupleLiteral" | "attributeSpace"
+    )
+}
+
+#[cfg(feature = "sansa")]
+fn is_sequence_kind(kind: &str) -> bool {
+    matches!(kind, "ListNode" | "TupleLiteral")
 }
 
 fn address_in_plane(plane: Option<DocumentSourcePlane>, address: &str) -> String {
@@ -764,6 +1049,7 @@ mod tests {
         assert_eq!(quantity.numeric_lexeme(), Some("2"));
     }
 
+    #[cfg(not(feature = "sansa"))]
     #[test]
     fn advertises_projection_without_claiming_resolve_or_query() {
         let document = AeonDocument::compile("value = 1", CompileOptions::default())
@@ -787,6 +1073,248 @@ mod tests {
         );
         assert!(namespace.at_exact("$.value").is_some());
         assert!(namespace.at_exact("$.*").is_none());
+    }
+
+    #[cfg(feature = "sansa")]
+    #[test]
+    fn maps_every_scalar_literal_family_to_exact_runtime_values() {
+        use runtime::value_semantics::{FiniteNumber, Value};
+
+        let namespace = AeonSansaNamespace::compile(
+            r#"
+text = "hello"
+number = 1.20
+positive = Infinity
+negative = -Infinity
+not_number = NaN
+boolean = true
+toggle:toggle = on
+hex:hex = #ff_ff
+radix:radix[16] = %ff
+encoded:encoding = &QmFzZTY0IQ==
+separator:sep["."] = ^1.2
+symbol:symbol = |approved|
+address:sansa = $.text
+date:date = 2024-02-29
+time:time = 10:11:12.123Z
+datetime:datetime = 2024-02-29T10:11:12Z
+wtc:wtc = 2024-02-29T10:11:12Z&Europe/Brussels
+nothing:null = !"postponed"
+copy = ~text
+pointer = ~>text
+"#,
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("compile literal namespace");
+
+        let expected = [
+            ("$.text", Value::String(String::from("hello"))),
+            (
+                "$.number",
+                Value::FiniteNumber(FiniteNumber::parse("1.2").expect("finite number")),
+            ),
+            ("$.positive", Value::PositiveInfinity),
+            ("$.negative", Value::NegativeInfinity),
+            ("$.not_number", Value::Nan),
+            ("$.boolean", Value::Boolean(true)),
+            ("$.toggle", Value::Toggle(String::from("on"))),
+            ("$.hex", Value::Hex(String::from("ffff"))),
+            (
+                "$.radix",
+                Value::Radix {
+                    payload: String::from("ff"),
+                    semantic_type: String::from("radix[16]"),
+                },
+            ),
+            ("$.encoded", Value::Encoding(String::from("QmFzZTY0IQ=="))),
+            ("$.separator", Value::Separator(String::from("1.2"))),
+            ("$.symbol", Value::Symbol(String::from("approved"))),
+            ("$.address", Value::SansaAddress(String::from("$.text"))),
+            (
+                "$.date",
+                Value::Temporal {
+                    payload: String::from("2024-02-29"),
+                    semantic_type: String::from("date"),
+                },
+            ),
+            (
+                "$.time",
+                Value::Temporal {
+                    payload: String::from("10:11:12.123Z"),
+                    semantic_type: String::from("time"),
+                },
+            ),
+            (
+                "$.datetime",
+                Value::Temporal {
+                    payload: String::from("2024-02-29T10:11:12Z"),
+                    semantic_type: String::from("datetime"),
+                },
+            ),
+            (
+                "$.wtc",
+                Value::Temporal {
+                    payload: String::from("2024-02-29T10:11:12Z&Europe/Brussels"),
+                    semantic_type: String::from("wtc"),
+                },
+            ),
+            (
+                "$.nothing",
+                Value::ExplicitNull {
+                    reason: String::from("postponed"),
+                },
+            ),
+            (
+                "$.copy",
+                Value::ReferenceForm {
+                    kind: String::from("CloneReference"),
+                    target: String::from("$.text"),
+                },
+            ),
+            (
+                "$.pointer",
+                Value::ReferenceForm {
+                    kind: String::from("PointerReference"),
+                    target: String::from("$.text"),
+                },
+            ),
+        ];
+
+        for (address, value) in expected {
+            let binding = namespace.at_exact(address).expect("binding should exist");
+            assert_eq!(binding.runtime_value(), Some(value), "{address}");
+        }
+
+        for (address, semantic_type) in [("$.radix", "radix[16]"), ("$.separator", "sep[\".\"]")] {
+            let binding = namespace.at_exact(address).expect("binding should exist");
+            assert_eq!(
+                runtime::resolve::Namespace::semantic_type(&namespace, &binding).as_deref(),
+                Some(semantic_type),
+                "{address}"
+            );
+        }
+    }
+
+    #[cfg(feature = "sansa")]
+    #[test]
+    fn node_equality_includes_tags_attributes_and_ordered_content() {
+        use runtime::evaluate::EvaluateOptions;
+
+        let namespace = AeonSansaNamespace::compile(
+            r#"
+left:node = <alpha@{tone = "warm"}("x", "y")>
+same:node = <alpha@{tone = "warm"}("x", "y")>
+different_tag:node = <beta@{tone = "warm"}("x", "y")>
+different_attribute:node = <alpha@{tone = "cool"}("x", "y")>
+different_child_order:node = <alpha@{tone = "warm"}("y", "x")>
+"#,
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("compile node namespace");
+
+        for (target, expected_matches) in [
+            ("same", 1),
+            ("different_tag", 0),
+            ("different_attribute", 0),
+            ("different_child_order", 0),
+        ] {
+            let query = format!("from $.left\nwhere . == $.{target}\nselect .");
+            let output = namespace.evaluate_query(&query, &EvaluateOptions::default());
+            assert!(output.is_ok(), "{target}: {:?}", output.errors);
+            assert_eq!(output.results.len(), expected_matches, "{target}");
+        }
+
+        let head = namespace
+            .at_exact("$.left[0]")
+            .expect("node head binding should exist");
+        assert_eq!(
+            head.runtime_value(),
+            Some(runtime::value_semantics::Value::String(String::from(
+                "alpha"
+            )))
+        );
+    }
+
+    #[cfg(feature = "sansa")]
+    #[test]
+    fn resolves_and_queries_the_document_through_the_shared_runtime() {
+        use runtime::evaluate::{EvaluateOptions, EvaluatedValue};
+        use runtime::resolve::ResolveOptions;
+
+        let document = AeonDocument::compile(
+            r#"
+inventory = {
+  items = [
+    { sku = "A-100", qty = 2, stage = |approved| },
+    { sku = "B-200", qty = 0, stage = |held| }
+  ]
+}
+left = { code = "same", stage = |approved|, counts = [1, 2] }
+right = { code = "same", stage = |approved|, counts = [1, 2] }
+"#,
+            CompileOptions::default(),
+        )
+        .expect("compile document");
+        let namespace = AeonSansaNamespace::new(
+            document,
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        );
+
+        assert_eq!(
+            namespace.capabilities(),
+            AeonSansaCapabilities {
+                namespace_projection: AeonSansaCapabilityState::Complete,
+                exact_address_lookup: AeonSansaCapabilityState::Complete,
+                address_parsing: AeonSansaCapabilityState::Complete,
+                resolve: AeonSansaCapabilityState::Complete,
+                query: AeonSansaCapabilityState::Complete,
+                local_spaces: AeonSansaCapabilityState::NotExposed,
+            }
+        );
+
+        let resolved =
+            namespace.resolve_address("$.inventory.items.*.sku", &ResolveOptions::default());
+        assert!(resolved.is_ok(), "{:?}", resolved.errors);
+        assert_eq!(
+            resolved
+                .bindings
+                .iter()
+                .map(AeonSansaBinding::address)
+                .collect::<Vec<_>>(),
+            ["$.inventory.items[0].sku", "$.inventory.items[1].sku"]
+        );
+
+        let queried = namespace.evaluate_query(
+            "from $.inventory.items.*\n\
+             where .qty >= 2 and .stage == |approved|\n\
+             select { sku = .sku qty = .qty }",
+            &EvaluateOptions::default(),
+        );
+        assert!(queried.is_ok(), "{:?}", queried.errors);
+        assert_eq!(queried.results.len(), 1);
+        assert_eq!(
+            queried.results[0].candidate.address(),
+            "$.inventory.items[0]"
+        );
+        let EvaluatedValue::Object(fields) = &queried.results[0].value else {
+            panic!("query projection should produce an object")
+        };
+        let EvaluatedValue::Bindings(sku) = &fields[0].1 else {
+            panic!("sku projection should preserve its binding")
+        };
+        assert_eq!(sku[0].address(), "$.inventory.items[0].sku");
+
+        let structural = namespace.evaluate_query(
+            "from $.left\nwhere . == $.right\nselect .",
+            &EvaluateOptions::default(),
+        );
+        assert!(structural.is_ok(), "{:?}", structural.errors);
+        assert_eq!(structural.results.len(), 1);
     }
 
     fn snapshot_namespace(namespace: &AeonSansaNamespace) -> Value {

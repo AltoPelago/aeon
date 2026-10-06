@@ -53,6 +53,7 @@ This workspace is now an active implementation rather than a placeholder scaffol
 The current crates include:
 
 - `aeon-sdk`
+- `aeon-document`
 - `aeon-core`
 - `aeon-annotations`
 - `aeon-aeos`
@@ -61,6 +62,11 @@ The current crates include:
 - `aeon-cli`
 - `aeon-python`
 - `aeon-wasm`
+
+The `altopelago-aeon` facade offers an optional `sansa` feature backed by
+`altopelago-sansa-runtime` 0.13.0. It adapts the immutable document graph to
+stable SANSA Address, Resolve, and Query while leaving local spaces under host
+control.
 
 Current verified status:
 

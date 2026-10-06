@@ -177,7 +177,7 @@ Prefer the CI path for public releases so npm can attach package provenance.
 
 The Rust release workflow is `.github/workflows/rust-publish.yml`. A manual run
 performs version validation and locked package dry runs without publishing.
-Pushing a signed annotated `rust/vX.Y.Z` tag publishes the four AEON crates in
+Pushing a signed annotated `rust/vX.Y.Z` tag publishes the five AEON crates in
 dependency order, but only when the tag version matches the Rust package line
 and its commit is already on `main`.
 
@@ -187,12 +187,30 @@ Configure trusted publishing separately on each existing crates.io project:
 - repository: `aeon`
 - workflow: `rust-publish.yml`
 - environment: `crates-io`
-- crates: `altopelago-aeon-core`, `altopelago-aeon-aeos`,
-  `altopelago-aeon-finalize`, and `altopelago-aeon`
+- crates: `altopelago-aeon-core`, `altopelago-aeon-document`,
+  `altopelago-aeon-aeos`, `altopelago-aeon-finalize`, and `altopelago-aeon`
 
 Create the matching protected GitHub environment and require reviewer approval
-for deployment. After all four trusted-publisher records work, require trusted
+for deployment. After all five trusted-publisher records work, require trusted
 publishing for new versions and revoke any bootstrap crates.io token.
+
+crates.io trusted publishing cannot create a crate. Before the first
+coordinated release that publishes the document graph, bootstrap
+`altopelago-aeon-document` `0.14.0` once from the reviewed `main` commit with a
+narrow, short-lived crates.io API token:
+
+```bash
+cargo login
+cargo publish --locked \
+  --manifest-path implementations/rust/crates/aeon-document/Cargo.toml
+cargo logout
+```
+
+Revoke the token immediately, then configure the trusted publisher listed
+above. This bootstrap publishes only the new document crate; it does not
+republish the existing 0.14.0 Core, AEOS, Finalize, or facade crates. Future
+document-graph versions are published in dependency order by the normal Rust
+workflow.
 
 The workflow gives OIDC permission only to its publish job. It obtains a
 short-lived crates.io token through the official crates.io authentication
