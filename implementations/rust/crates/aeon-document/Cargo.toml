@@ -6,7 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Immutable, capability-aware document graph for AEON."
-publish = false
+readme = "README.md"
+keywords = ["aeon", "document", "configuration", "serialization"]
+categories = ["config", "data-structures"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [dependencies]
 aeon-core.workspace = true

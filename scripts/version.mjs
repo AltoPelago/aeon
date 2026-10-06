@@ -57,6 +57,7 @@ const rustWorkspacePackages = [
   { dependency: 'aeon-canonical', package: 'aeon-canonical' },
   { dependency: 'aeon-cli', package: 'aeon-cli' },
   { dependency: 'aeon-core', package: 'altopelago-aeon-core' },
+  { dependency: 'aeon-document', package: 'altopelago-aeon-document' },
   { dependency: 'aeon-finalize', package: 'altopelago-aeon-finalize' },
   { dependency: 'aeon-sdk', package: 'altopelago-aeon' },
   { dependency: 'aeon-wasm', package: 'aeon-wasm' },

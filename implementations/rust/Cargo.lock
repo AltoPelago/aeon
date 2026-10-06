@@ -83,6 +83,7 @@ dependencies = [
  "altopelago-aeon-document",
  "altopelago-aeon-finalize",
  "altopelago-aes-telex",
+ "altopelago-sansa-runtime",
  "serde",
  "serde_json",
 ]
@@ -133,6 +134,12 @@ version = "0.2.0"
 dependencies = [
  "sha2",
 ]
+
+[[package]]
+name = "altopelago-sansa-runtime"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e025ccd4f265af1c096e36a32d6a8ec145df14276b7768bbeb3ff4c03e172acb"
 
 [[package]]
 name = "base64ct"

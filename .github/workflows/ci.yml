@@ -96,6 +96,42 @@ jobs:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: pnpm test:cts:all
 
+  rust-sdk:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: implementations/rust
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          path: aes
+
+      - name: Link AES beside AEON checkout
+        working-directory: .
+        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.93.1
+          components: rustfmt, clippy
+
+      - name: Rust SDK default surface
+        run: cargo test --locked -p altopelago-aeon --no-default-features
+
+      - name: Rust SDK SANSA integration
+        run: cargo test --locked -p altopelago-aeon --all-features
+
+      - name: Rust SDK lint
+        run: cargo clippy --locked -p altopelago-aeon --all-targets --all-features -- -D warnings
+
   canonical-cts:
     runs-on: ubuntu-latest
     env:

@@ -20,6 +20,15 @@ repositories.
 
 ### Added
 
+- Added an optional `sansa` feature to the Rust `altopelago-aeon` facade. It
+  adapts immutable AEON document handles directly to
+  `altopelago-sansa-runtime` 0.13.0 and exposes stable Address, Resolve, and
+  Query without JSON materialization. Scalar families, exact numbers,
+  references, temporal values, and structural containers retain their SANSA
+  value semantics; local spaces remain explicitly host-mounted.
+- Promoted `altopelago-aeon-document` to a publishable implementation crate so
+  the public Rust facade's document graph dependency can resolve from a clean
+  crates.io consumer.
 - Expanded the native `altopelago-aeon` CPython package with canonical AEON
   and Telex formatting, JSON-profile document loading, file helpers, optional
   AEOS schema validation, and direct Telex decoding/materialisation. Load
