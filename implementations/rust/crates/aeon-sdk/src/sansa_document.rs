@@ -536,7 +536,13 @@ impl AeonSansaBinding {
         use runtime::value_semantics::{FiniteNumber, Value};
 
         let node = self.node();
-        if !node.children().is_empty() || is_container_kind(node.representation_kind()) {
+        if node.representation_kind() == "NodeLiteral" {
+            return Some(Value::Container {
+                kind: String::from("NodeLiteral"),
+                payload: self.runtime_node_payload(),
+            });
+        }
+        if is_container_kind(node.representation_kind()) {
             return Some(Value::Container {
                 kind: node.representation_kind().to_owned(),
                 payload: self.runtime_container_payload(),
@@ -606,6 +612,46 @@ impl AeonSansaBinding {
     }
 
     #[cfg(feature = "sansa")]
+    fn runtime_node_payload(&self) -> runtime::value_semantics::ContainerValue {
+        use std::collections::BTreeMap;
+
+        use runtime::value_semantics::{ContainerValue, Value};
+
+        let head = self
+            .children()
+            .into_iter()
+            .find(|child| child.representation_kind() == "NodeHead");
+        let mut node = BTreeMap::new();
+        let children = if let Some(head) = head {
+            if let Some(tag) = head.node_tag() {
+                node.insert(
+                    String::from("tag"),
+                    ContainerValue::Scalar(Box::new(Value::String(tag.to_owned()))),
+                );
+            }
+            if let Some(attributes) = head.attribute_space() {
+                node.insert(
+                    String::from("attributes"),
+                    attributes.runtime_container_payload(),
+                );
+            }
+            head.children()
+        } else {
+            Vec::new()
+        };
+        node.insert(
+            String::from("children"),
+            ContainerValue::Sequence(
+                children
+                    .iter()
+                    .map(AeonSansaBinding::runtime_container_entry)
+                    .collect(),
+            ),
+        );
+        ContainerValue::Object(node)
+    }
+
+    #[cfg(feature = "sansa")]
     fn runtime_container_payload(&self) -> runtime::value_semantics::ContainerValue {
         use std::collections::BTreeMap;
 
@@ -636,9 +682,9 @@ impl AeonSansaBinding {
     fn runtime_container_entry(&self) -> runtime::value_semantics::ContainerValue {
         use runtime::value_semantics::ContainerValue;
 
-        if !self.node().children().is_empty()
-            || is_container_kind(self.node().representation_kind())
-        {
+        if self.node().representation_kind() == "NodeLiteral" {
+            self.runtime_node_payload()
+        } else if is_container_kind(self.node().representation_kind()) {
             self.runtime_container_payload()
         } else {
             self.runtime_value()
@@ -800,13 +846,13 @@ fn scalar_kind(kind: &str) -> Option<&'static str> {
 fn is_container_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "ObjectNode" | "ListNode" | "TupleLiteral" | "NodeLiteral" | "attributeSpace"
+        "ObjectNode" | "ListNode" | "TupleLiteral" | "attributeSpace"
     )
 }
 
 #[cfg(feature = "sansa")]
 fn is_sequence_kind(kind: &str) -> bool {
-    matches!(kind, "ListNode" | "TupleLiteral" | "NodeLiteral")
+    matches!(kind, "ListNode" | "TupleLiteral")
 }
 
 fn address_in_plane(plane: Option<DocumentSourcePlane>, address: &str) -> String {
@@ -1149,6 +1195,48 @@ pointer = ~>text
                 "{address}"
             );
         }
+    }
+
+    #[cfg(feature = "sansa")]
+    #[test]
+    fn node_equality_includes_tags_attributes_and_ordered_content() {
+        use runtime::evaluate::EvaluateOptions;
+
+        let namespace = AeonSansaNamespace::compile(
+            r#"
+left:node = <alpha@{tone = "warm"}("x", "y")>
+same:node = <alpha@{tone = "warm"}("x", "y")>
+different_tag:node = <beta@{tone = "warm"}("x", "y")>
+different_attribute:node = <alpha@{tone = "cool"}("x", "y")>
+different_child_order:node = <alpha@{tone = "warm"}("y", "x")>
+"#,
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("compile node namespace");
+
+        for (target, expected_matches) in [
+            ("same", 1),
+            ("different_tag", 0),
+            ("different_attribute", 0),
+            ("different_child_order", 0),
+        ] {
+            let query = format!("from $.left\nwhere . == $.{target}\nselect .");
+            let output = namespace.evaluate_query(&query, &EvaluateOptions::default());
+            assert!(output.is_ok(), "{target}: {:?}", output.errors);
+            assert_eq!(output.results.len(), expected_matches, "{target}");
+        }
+
+        let head = namespace
+            .at_exact("$.left[0]")
+            .expect("node head binding should exist");
+        assert_eq!(
+            head.runtime_value(),
+            Some(runtime::value_semantics::Value::String(String::from(
+                "alpha"
+            )))
+        );
     }
 
     #[cfg(feature = "sansa")]
