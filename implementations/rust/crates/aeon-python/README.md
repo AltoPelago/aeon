@@ -48,7 +48,10 @@ JSON materialisation:
 ```python
 from altopelago.aeon import pytonic
 
-document = pytonic.loads('status = |approved|')
+document = pytonic.loads('''
+status = |approved|
+orders = [{ id = "A-100", status = |approved| }]
+''')
 status = document["status"]
 print(status.address)        # $.status
 print(status.value.kind)     # SymbolicLiteral
@@ -61,15 +64,18 @@ select { id = .id status = .status }
 """, max_result_records=100)
 if result.ok:
     for record in result.results:
-        print(record.candidate.address, record.value["id"])
+        print(record.candidate.address, record.value["id"][0].value.decoded)
 ```
 
 Bindings retain datatype, identity, source plane, attributes, provenance,
 lineage, and exact canonical scalar payload where supplied. `pytonic` also
 evaluates stable SANSA Query through the shared Rust runtime. Selected
 document values remain `Binding` views; derived scalar and object values use
-immutable `QueryScalar` and `QueryObject` wrappers. Query failures are returned
-as structured `SansaDiagnostic` values, including policy and budget context.
+immutable `QueryScalar` and `QueryObject` wrappers. Structural values returned
+by functions such as `fallback(...)` use `QueryContainer`, whose recursive
+payload remains accessible without JSON materialisation. Query failures are
+returned as structured `SansaDiagnostic` values, including policy and budget
+context.
 
 Dynamic `path(...)` activation is disabled by default. Callers may opt into
 the Rust runtime's constrained policy with `activation_roots`, an explicit

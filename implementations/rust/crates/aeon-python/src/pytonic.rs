@@ -472,9 +472,12 @@ impl PyBinding {
 
 #[derive(Clone)]
 enum PyQueryValueData {
+    Null,
     Scalar(PyQueryScalar),
     Bindings(Vec<PyBinding>),
+    Sequence(Vec<PyQueryValueData>),
     Object(Vec<(String, PyQueryValueData)>),
+    Container(PyQueryContainer),
 }
 
 #[pyclass(
@@ -525,6 +528,35 @@ impl PyQueryScalar {
             "QueryScalar(family={:?}, canonical={:?}, semantic_type={:?})",
             self.family, self.canonical, self.semantic_type
         )
+    }
+}
+
+#[pyclass(
+    frozen,
+    skip_from_py_object,
+    module = "altopelago.aeon.pytonic",
+    name = "QueryContainer"
+)]
+#[derive(Clone)]
+pub(super) struct PyQueryContainer {
+    kind: String,
+    payload: Box<PyQueryValueData>,
+}
+
+#[pymethods]
+impl PyQueryContainer {
+    #[getter]
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    #[getter]
+    fn payload(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        query_value_object(py, &self.payload)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("QueryContainer(kind={:?})", self.kind)
     }
 }
 
@@ -989,6 +1021,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBinding>()?;
     module.add_class::<PyValue>()?;
     module.add_class::<PyQueryScalar>()?;
+    module.add_class::<PyQueryContainer>()?;
     module.add_class::<PyQueryField>()?;
     module.add_class::<PyQueryObject>()?;
     module.add_class::<PyQueryRecord>()?;
@@ -1036,7 +1069,7 @@ fn python_query_value(
     use runtime::evaluate::EvaluatedValue;
 
     Ok(match value {
-        EvaluatedValue::Scalar(value) => PyQueryValueData::Scalar(python_query_scalar(value)),
+        EvaluatedValue::Scalar(value) => python_query_scalar(value),
         EvaluatedValue::Bindings(bindings) => PyQueryValueData::Bindings(
             bindings
                 .iter()
@@ -1052,68 +1085,94 @@ fn python_query_value(
     })
 }
 
-fn python_query_scalar(value: runtime::value_semantics::Value) -> PyQueryScalar {
+fn python_query_scalar(value: runtime::value_semantics::Value) -> PyQueryValueData {
     use runtime::value_semantics::Value;
 
-    let (family, canonical, semantic_type) = match value {
-        Value::FiniteNumber(value) => (
+    let scalar = |family, canonical, semantic_type| {
+        PyQueryValueData::Scalar(PyQueryScalar {
+            family,
+            canonical,
+            semantic_type,
+        })
+    };
+    match value {
+        Value::FiniteNumber(value) => scalar(
             "finite_number",
             Some(value.as_str().to_owned()),
             Some(String::from("number")),
         ),
-        Value::PositiveInfinity => (
+        Value::PositiveInfinity => scalar(
             "positive_infinity",
             Some(String::from("Infinity")),
             Some(String::from("infinity")),
         ),
-        Value::NegativeInfinity => (
+        Value::NegativeInfinity => scalar(
             "negative_infinity",
             Some(String::from("-Infinity")),
             Some(String::from("infinity")),
         ),
-        Value::Nan => ("nan", Some(String::from("NaN")), Some(String::from("nan"))),
-        Value::String(value) => ("string", Some(value), Some(String::from("string"))),
-        Value::Boolean(value) => (
+        Value::Nan => scalar("nan", Some(String::from("NaN")), Some(String::from("nan"))),
+        Value::String(value) => scalar("string", Some(value), Some(String::from("string"))),
+        Value::Boolean(value) => scalar(
             "boolean",
             Some(if value { "true" } else { "false" }.to_owned()),
             Some(String::from("boolean")),
         ),
-        Value::Toggle(value) => ("toggle", Some(value), Some(String::from("toggle"))),
-        Value::Hex(value) => ("hex", Some(value), Some(String::from("hex"))),
+        Value::Toggle(value) => scalar("toggle", Some(value), Some(String::from("toggle"))),
+        Value::Hex(value) => scalar("hex", Some(value), Some(String::from("hex"))),
         Value::Radix {
             payload,
             semantic_type,
-        } => ("radix", Some(payload), Some(semantic_type)),
-        Value::Encoding(value) => ("encoding", Some(value), Some(String::from("encoding"))),
-        Value::Separator(value) => ("separator", Some(value), Some(String::from("sep"))),
-        Value::Symbol(value) => ("symbol", Some(value), Some(String::from("symbol"))),
-        Value::SansaAddress(value) => ("sansa_address", Some(value), Some(String::from("sansa"))),
-        Value::ReferenceForm { kind, target } => ("reference", Some(target), Some(kind)),
+        } => scalar("radix", Some(payload), Some(semantic_type)),
+        Value::Encoding(value) => scalar("encoding", Some(value), Some(String::from("encoding"))),
+        Value::Separator(value) => scalar("separator", Some(value), Some(String::from("sep"))),
+        Value::Symbol(value) => scalar("symbol", Some(value), Some(String::from("symbol"))),
+        Value::SansaAddress(value) => {
+            scalar("sansa_address", Some(value), Some(String::from("sansa")))
+        }
+        Value::ReferenceForm { kind, target } => scalar("reference", Some(target), Some(kind)),
         Value::Temporal {
             payload,
             semantic_type,
-        } => ("temporal", Some(payload), Some(semantic_type)),
+        } => scalar("temporal", Some(payload), Some(semantic_type)),
         Value::ExplicitNull { reason } => {
-            ("explicit_null", Some(reason), Some(String::from("null")))
+            scalar("explicit_null", Some(reason), Some(String::from("null")))
         }
-        Value::ExplicitAbsence { reason } => (
+        Value::ExplicitAbsence { reason } => scalar(
             "explicit_absence",
             Some(reason),
             Some(String::from("absence")),
         ),
-        Value::Missing => ("missing", None, None),
-        Value::Container { kind, .. } => ("container", None, Some(kind)),
-        Value::BindingSet => ("binding_set", None, None),
-    };
-    PyQueryScalar {
-        family,
-        canonical,
-        semantic_type,
+        Value::Missing => scalar("missing", None, None),
+        Value::Container { kind, payload } => PyQueryValueData::Container(PyQueryContainer {
+            kind,
+            payload: Box::new(python_container_value(payload)),
+        }),
+        Value::BindingSet => scalar("binding_set", None, None),
+    }
+}
+
+fn python_container_value(value: runtime::value_semantics::ContainerValue) -> PyQueryValueData {
+    use runtime::value_semantics::ContainerValue;
+
+    match value {
+        ContainerValue::Null => PyQueryValueData::Null,
+        ContainerValue::Scalar(value) => python_query_scalar(*value),
+        ContainerValue::Sequence(values) => {
+            PyQueryValueData::Sequence(values.into_iter().map(python_container_value).collect())
+        }
+        ContainerValue::Object(fields) => PyQueryValueData::Object(
+            fields
+                .into_iter()
+                .map(|(name, value)| (name, python_container_value(value)))
+                .collect(),
+        ),
     }
 }
 
 fn query_value_object(py: Python<'_>, value: &PyQueryValueData) -> PyResult<Py<PyAny>> {
     match value {
+        PyQueryValueData::Null => Ok(py.None()),
         PyQueryValueData::Scalar(value) => Ok(Py::new(py, value.clone())?.into_any()),
         PyQueryValueData::Bindings(bindings) => {
             let bindings = bindings
@@ -1123,6 +1182,13 @@ fn query_value_object(py: Python<'_>, value: &PyQueryValueData) -> PyResult<Py<P
                 .collect::<PyResult<Vec<_>>>()?;
             Ok(PyTuple::new(py, bindings)?.unbind().into_any())
         }
+        PyQueryValueData::Sequence(values) => {
+            let values = values
+                .iter()
+                .map(|value| query_value_object(py, value))
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(PyTuple::new(py, values)?.unbind().into_any())
+        }
         PyQueryValueData::Object(fields) => Ok(Py::new(
             py,
             PyQueryObject {
@@ -1130,6 +1196,7 @@ fn query_value_object(py: Python<'_>, value: &PyQueryValueData) -> PyResult<Py<P
             },
         )?
         .into_any()),
+        PyQueryValueData::Container(value) => Ok(Py::new(py, value.clone())?.into_any()),
     }
 }
 

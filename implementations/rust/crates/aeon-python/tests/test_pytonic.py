@@ -199,6 +199,25 @@ select { sku = .sku stage = .stage }
         symbol = document.query("from $.item\nselect |approved|").results[0].value
         self.assertEqual(symbol.semantic_type, "symbol")
 
+    def test_query_preserves_recursive_structural_container_payloads(self) -> None:
+        document = pytonic.loads(
+            'item = { name = "A-100", stage = |approved|, values = [1, 2] }\n'
+        )
+
+        result = document.query('from $.item\nselect fallback(., "fallback")')
+
+        self.assertTrue(result.ok, result.errors)
+        container = result.results[0].value
+        self.assertIsInstance(container, pytonic.QueryContainer)
+        self.assertEqual(container.kind, "ObjectNode")
+        self.assertIsInstance(container.payload, pytonic.QueryObject)
+        self.assertEqual(container.payload["name"].decoded, "A-100")
+        self.assertEqual(container.payload["stage"].family, "symbol")
+        self.assertEqual(
+            tuple(value.canonical for value in container.payload["values"]),
+            ("1", "2"),
+        )
+
     def test_query_reports_structured_parse_policy_and_budget_failures(self) -> None:
         document = pytonic.loads("items = [1, 2]\n")
 
