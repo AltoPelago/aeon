@@ -48,19 +48,46 @@ JSON materialisation:
 ```python
 from altopelago.aeon import pytonic
 
-document = pytonic.loads('status = |approved|')
+document = pytonic.loads('''
+status = |approved|
+orders = [{ id = "A-100", status = |approved| }]
+''')
 status = document["status"]
 print(status.address)        # $.status
 print(status.value.kind)     # SymbolicLiteral
 print(status.value.decoded)  # approved
+
+result = document.query("""
+from $.orders.*
+where .status == |approved|
+select { id = .id status = .status }
+""", max_result_records=100)
+if result.ok:
+    for record in result.results:
+        print(record.candidate.address, record.value["id"][0].value.decoded)
 ```
 
 Bindings retain datatype, identity, source plane, attributes, provenance,
-lineage, and exact canonical scalar payload where supplied. `pytonic` is an
-immutable document-navigation API; it does not claim SANSA Query support.
+lineage, and exact canonical scalar payload where supplied. `pytonic` also
+evaluates stable SANSA Query through the shared Rust runtime. Selected
+document values remain `Binding` views; derived scalar and object values use
+immutable `QueryScalar` and `QueryObject` wrappers. Structural values returned
+by functions such as `fallback(...)` use `QueryContainer`, whose recursive
+payload remains accessible without JSON materialisation. Query failures are
+returned as structured `SansaDiagnostic` values, including policy and budget
+context.
 
-The higher-level mutable object model and SANSA integration remain outside
-this API and will be reviewed separately.
+Dynamic `path(...)` activation is disabled by default. Callers may opt into
+the Rust runtime's constrained policy with `activation_roots`, an explicit
+`activation_selectors` allow-list, and optional activation depth and binding
+ceilings. The unrestricted trusted-activation mode is intentionally not
+exposed to Python.
+
+Local spaces and the experimental SANSA Transform, Instruction, and Mutate
+surfaces are not exposed by this initial Python API. A higher-level mutable
+object model also remains outside this API. Inspect
+`document.sansa_capabilities` instead of inferring support from the underlying
+Rust package.
 
 ## Local development
 

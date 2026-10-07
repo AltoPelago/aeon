@@ -1,4 +1,4 @@
-"""Immutable, metadata-preserving views over the Rust AEON document graph."""
+"""Immutable AEON document views with shared Rust SANSA Query evaluation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,14 @@ from ._native import (
     Clarifier,
     Document,
     GenericArgument,
+    QueryContainer,
+    QueryField,
+    QueryObject,
+    QueryRecord,
+    QueryResult,
+    QueryScalar,
+    SansaCapabilities,
+    SansaDiagnostic,
     Value,
     pytonic_loads,
 )
@@ -59,6 +67,14 @@ __all__ = (
     "Clarifier",
     "Document",
     "GenericArgument",
+    "QueryContainer",
+    "QueryField",
+    "QueryObject",
+    "QueryRecord",
+    "QueryResult",
+    "QueryScalar",
+    "SansaCapabilities",
+    "SansaDiagnostic",
     "Value",
     "load",
     "loads",

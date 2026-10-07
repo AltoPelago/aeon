@@ -14,7 +14,7 @@ aeon-canonical.workspace = true
 aeon-core = { workspace = true, features = ["sofia"] }
 aeon-document.workspace = true
 aeon-finalize.workspace = true
-aeon-sdk.workspace = true
+aeon-sdk = { workspace = true, features = ["sansa"] }
 aes-telex.workspace = true
 pyo3 = "0.29.2"
 serde = { version = "1.0.228", features = ["derive"] }

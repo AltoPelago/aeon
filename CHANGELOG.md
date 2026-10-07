@@ -20,6 +20,11 @@ repositories.
 
 ### Added
 
+- Added stable SANSA Query evaluation to the native Python `pytonic` facade.
+  Queries run in the shared Rust runtime over immutable document handles,
+  return Pytonic bindings and typed derived values without JSON
+  materialisation, expose general or validation policy, and retain structured
+  parse, evaluation, candidate, and budget diagnostics.
 - Added an optional `sansa` feature to the Rust `altopelago-aeon` facade. It
   adapts immutable AEON document handles directly to
   `altopelago-sansa-runtime` 0.13.0 and exposes stable Address, Resolve, and
