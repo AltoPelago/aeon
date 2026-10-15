@@ -58,8 +58,10 @@ same document snapshot and scope. Capability fields `mutate_plan` and
 
 Plans are current-process inspection objects. They do not alter the document
 or establish schema or authorization approval. Their native target validator
-currently uses SANSA's temporal grammar: reduced-date datetime/WTC values
-accepted by Core, such as `2024-T10:&Europe`, produce a target diagnostic.
+accepts Core's reduced-date datetime/WTC forms, such as `2024-T10:&Europe`,
+without imposing GP/schema limits on second 60 or fractional precision.
+Temporal relations involving clock-bearing reduced dates conservatively remain
+incomparable; their disjoint calendar completion sets are not yet evaluated.
 
 Rust also omits spans for anonymous sequence occurrences because the current
 native event model supplies only their owner's range; named bindings and node

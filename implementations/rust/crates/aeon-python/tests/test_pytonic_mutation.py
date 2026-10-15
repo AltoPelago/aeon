@@ -235,15 +235,51 @@ class MutationPlanningTests(unittest.TestCase):
             pytonic.MutationPlan()
         self.assertFalse(hasattr(plan, "apply"))
 
-    def test_shared_target_reports_its_reduced_datetime_limitation(self) -> None:
-        document = pytonic.loads("value = 2024-T10:&Europe\n")
-        result = document.plan_mutation({"op": "replace", "target": "$.value", "value": document["value"].value})
-        self.assertTrue(result.ok, result.errors)
-        self.assertEqual(result.plan.operations[0].value.canonical, "2024-T10:&Europe")
-        validation = result.plan.validate_target()
-        self.assertFalse(validation.ok)
-        self.assertEqual(validation.errors[0].phase, "target")
-        self.assertEqual(validation.errors[0].code, "SANSA_MUTATE_TARGET_UNSUPPORTED_VALUE")
+    def test_shared_query_and_target_accept_core_calendar_clock_payloads(self) -> None:
+        for family, canonical in (
+            ("wtc", "2024-T10:&Europe"),
+            ("datetime", "2024-02T10Z"),
+            ("datetime", "2024-T10:"),
+            ("time", "23:55:60.123456789012345678900Z"),
+            ("datetime", "2024-02T10:11:60.123456789012345678900"),
+            ("wtc", "2024-T10:11:12.000&local"),
+            ("wtc", "2024-02T10:+05:30&Europe"),
+        ):
+            with self.subTest(canonical=canonical):
+                source = f"value = {canonical}\n"
+                document = pytonic.loads(source)
+                for value in (document["value"].value, pytonic.scalar(family, canonical)):
+                    result = document.plan_mutation({"op": "replace", "target": "$.value", "value": value})
+                    self.assertTrue(result.ok, result.errors)
+                    self.assertEqual(result.plan.operations[0].value.canonical, canonical)
+                    validation = result.plan.validate_target()
+                    self.assertTrue(validation.ok, validation.errors)
+                    self.assertFalse(result.plan.validate_target("json").ok)
+                query = document.query(f"from $.value\nselect {canonical}")
+                self.assertTrue(query.ok, query.errors)
+                self.assertEqual(query.results[0].value.canonical, canonical)
+                if family in ("datetime", "wtc"):
+                    relation = document.query(f"from $.value\nselect temporalRelation(., {canonical})")
+                    self.assertTrue(relation.ok, relation.errors)
+                    self.assertEqual(relation.results[0].value.decoded, "incomparable")
+                self.assertEqual(document.source, source)
+
+    def test_shared_temporal_targets_still_reject_malformed_payloads(self) -> None:
+        document = pytonic.loads("value = 1\n")
+        for family, canonical in (
+            ("datetime", "2024--T10:"),
+            ("datetime", "2024-02T10::20"),
+            ("wtc", "2024-T10:&Europe//comment"),
+            ("wtc", "2024-T10:&Local"),
+            ("datetime", "2024-02T10Z "),
+        ):
+            with self.subTest(canonical=canonical):
+                result = document.plan_mutation({"op": "replace", "target": "$.value", "value": pytonic.scalar(family, canonical)})
+                self.assertTrue(result.ok, result.errors)
+                validation = result.plan.validate_target()
+                self.assertFalse(validation.ok)
+                self.assertEqual(validation.errors[0].phase, "target")
+                self.assertEqual(validation.errors[0].code, "SANSA_MUTATE_TARGET_UNSUPPORTED_VALUE")
 
     def test_python_boundary_rejects_malformed_and_cyclic_values(self) -> None:
         document = pytonic.loads("value = 1\n")

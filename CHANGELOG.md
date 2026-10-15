@@ -56,6 +56,13 @@ repositories.
 
 ### Changed
 
+- Updated the TypeScript and Rust SANSA dependencies to 0.14.2, aligning Query
+  literals and mutation target validation with Core's reduced-date datetime/WTC
+  forms, exact fractional precision, second 60 and reserved Base64URL rules.
+  Native Rust and Pytonic target checks now accept reduced-date clock payloads;
+  temporal relations for their disjoint completion sets remain incomparable.
+  TypeScript Query retains temporal and other scalar-family semantics when
+  bindings expose normative portable PascalCase representation kinds.
 - Reserved `base64` values now require decodable Base64URL, including valid
   padding and zero unused tail bits. Padded and unpadded spellings remain
   accepted; the broader `encoding`, `inline`, and `embed` families retain

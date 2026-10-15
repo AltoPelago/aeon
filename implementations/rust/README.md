@@ -64,7 +64,7 @@ The current crates include:
 - `aeon-wasm`
 
 The `altopelago-aeon` facade offers an optional `sansa` feature backed by
-`altopelago-sansa-runtime` 0.14.0. It adapts the immutable document graph to
+`altopelago-sansa-runtime` 0.14.2. It adapts the immutable document graph to
 stable SANSA Address, Resolve, and Query, plus experimental immutable mutation
 planning and AEON/JSON target validation. Local spaces remain under host
 control. See the facade and native Python READMEs for plan inspection and
