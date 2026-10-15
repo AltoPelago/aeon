@@ -47,10 +47,10 @@ Recommended branch shapes:
 
 Examples:
 
-- `release/typescript/0.14.0`
-- `release/rust/0.14.0`
-- `release/python/0.14.0`
-- `hotfix/typescript/0.14.0`
+- `release/typescript/0.15.0`
+- `release/rust/0.15.0`
+- `release/python/0.15.0`
+- `hotfix/typescript/0.15.0`
 
 ## Tagging strategy
 
@@ -58,9 +58,9 @@ Use implementation-specific tags instead of a single repo-wide version tag.
 
 Examples:
 
-- `typescript/v0.14.0`
-- `rust/v0.14.0`
-- `python/v0.14.0`
+- `typescript/v0.15.0`
+- `rust/v0.15.0`
+- `python/v0.15.0`
 
 This keeps the release history honest about what was actually shipped.
 
@@ -72,9 +72,11 @@ Normal release flow:
 2. Cut `release/<implementation>/<version>` from `main`.
 3. Run the implementation-specific verification set on that branch.
 4. Apply only release-stabilization fixes there.
-5. Tag the release with a signed implementation-specific tag and verify it
-   locally before pushing.
-6. Merge release-only fixes back into `main`.
+5. Merge the release preparation and stabilization fixes into protected `main`
+   and confirm checks pass on the exact merged commit.
+6. Create signed implementation-specific tags from that checked `main` commit,
+   verify them locally, and push them to trigger publication. Do not tag an
+   unmerged release-branch commit.
 
 Use a release branch when:
 

@@ -8,6 +8,12 @@ repositories.
 
 ## Unreleased
 
+## 0.15.0 - 2026-10-16
+
+Coordinated TypeScript, Rust, and Python implementation release; AEON remains
+on the v1 language line. See the [0.15.0 migration guide](docs/migration-0.15.0.md)
+for TypeScript SANSA adapter changes.
+
 ### Breaking
 
 - Aligned the TypeScript SANSA namespace adapter with complete portable AES
@@ -22,7 +28,7 @@ repositories.
 
 - Added experimental immutable SANSA mutation planning and AEON/JSON target
   validation to the Rust facade and Pytonic, backed by published
-  `altopelago-sansa-runtime` 0.14.0. Plans retain their document snapshot and
+  `altopelago-sansa-runtime` 0.14.2. Plans retain their document snapshot and
   expose exact targets, anchors, preconditions, provenance, budgets, warnings
   and diagnostics. Python accepts structured requests and existing typed value
   descriptors, with an explicit `scalar()` helper for new typed payloads.
@@ -35,7 +41,7 @@ repositories.
   parse, evaluation, candidate, and budget diagnostics.
 - Added an optional `sansa` feature to the Rust `altopelago-aeon` facade. It
   adapts immutable AEON document handles directly to
-  `altopelago-sansa-runtime` 0.13.0 and exposes stable Address, Resolve, and
+  `altopelago-sansa-runtime` 0.14.2 and exposes stable Address, Resolve, and
   Query without JSON materialization. Scalar families, exact numbers,
   references, temporal values, and structural containers retain their SANSA
   value semantics; local spaces remain explicitly host-mounted.
