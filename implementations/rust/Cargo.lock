@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "aeon-annotations"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
 ]
 
 [[package]]
 name = "aeon-canonical"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-cli"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aeon-annotations",
  "aeon-canonical",
@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-python"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aeon-canonical",
  "altopelago-aeon",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "aeon-wasm"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aeon-annotations",
  "aeon-canonical",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aeon"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-aeos",
  "altopelago-aeon-core",
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aeon-aeos"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aeon-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aes-telex",
  "serde_json",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aeon-document"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",
@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aeon-finalize"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",

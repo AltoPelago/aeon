@@ -194,23 +194,13 @@ Create the matching protected GitHub environment and require reviewer approval
 for deployment. After all five trusted-publisher records work, require trusted
 publishing for new versions and revoke any bootstrap crates.io token.
 
-crates.io trusted publishing cannot create a crate. Before the first
-coordinated release that publishes the document graph, bootstrap
-`altopelago-aeon-document` `0.14.0` once from the reviewed `main` commit with a
-narrow, short-lived crates.io API token:
-
-```bash
-cargo login
-cargo publish --locked \
-  --manifest-path implementations/rust/crates/aeon-document/Cargo.toml
-cargo logout
-```
-
-Revoke the token immediately, then configure the trusted publisher listed
-above. This bootstrap publishes only the new document crate; it does not
-republish the existing 0.14.0 Core, AEOS, Finalize, or facade crates. Future
-document-graph versions are published in dependency order by the normal Rust
-workflow.
+crates.io trusted publishing cannot create a crate. The document graph's
+one-time `altopelago-aeon-document` 0.14.0 bootstrap is already complete. Do not
+repeat it for 0.15.0: all five projects now use the normal trusted-publishing
+workflow. A future newly introduced crate needs its own narrowly scoped,
+short-lived token bootstrap from reviewed `main`, followed by logout, token
+revocation and trusted-publisher setup; do not republish existing crates to
+bootstrap one addition.
 
 The workflow gives OIDC permission only to its publish job. It obtains a
 short-lived crates.io token through the official crates.io authentication
@@ -276,12 +266,15 @@ are not masked.
   treat it as an explicit, reviewed exception and document the rationale in this
   section (including the exact commands/env overrides used, e.g.
   `NPM_CONFIG_IGNORE_SCRIPTS=false pnpm install`).
-- The current `typescript 6.0.3` uplift is one such intentional workspace
+- The current `typescript 7.0.2` uplift is one such intentional workspace
   toolchain baseline change and should be reviewed as publish-surface policy,
   even though it is a developer-tooling update.
-- The current `@types/node 25.8.0` uplift is also an intentional workspace
+- The current `@types/node 26.6.4` uplift is also an intentional workspace
   toolchain baseline change and should be reviewed with the same
   publish-surface policy even though it is a developer-tooling update.
+- The TypeScript workspace uses `pnpm 10.34.4`; changing that pin also requires
+  this publish-surface review. These development-tool pins do not change the
+  published packages' declared Node support.
 - If public package names or the package set changes, update this document first.
 - Specs and CTS remain authoritative in sibling repos:
   - [aeonite-specs](https://github.com/aeonite-org/aeonite-specs)
