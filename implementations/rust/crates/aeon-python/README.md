@@ -144,9 +144,11 @@ return `MutationResult(ok=False, plan=None)` and structured errors.
 
 Target validation runs separately and returns `MutationValidation` with `ok`
 and `errors`. It checks representability and does not grant schema approval or
-authorization. The shared SANSA target grammar currently rejects reduced-date
-datetime/WTC payloads that Core accepts, such as `2024-T10:&Europe`; the value
-is preserved and that limitation is surfaced as a target diagnostic.
+authorization. The shared SANSA target grammar accepts Core's reduced-date
+datetime/WTC payloads, such as `2024-T10:&Europe`, and preserves authored
+fractional precision and second 60 without imposing GP/schema limits.
+Temporal relations involving clock-bearing reduced dates conservatively remain
+incomparable; their disjoint calendar completion sets are not yet evaluated.
 
 `document.sansa_capabilities.mutate_plan` and `mutate_target_validation` report
 `"experimental"`, while `mutate_apply` reports `"not_exposed"`. Local spaces,

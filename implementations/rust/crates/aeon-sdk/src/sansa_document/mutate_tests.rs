@@ -66,6 +66,81 @@ fn plans_retain_document_bindings_without_mutating_the_snapshot() {
 }
 
 #[test]
+fn shared_query_and_targets_accept_core_calendar_clock_payloads() {
+    use runtime::evaluate::{EvaluateOptions, EvaluatedValue};
+
+    for (family, payload) in [
+        ("wtc", "2024-T10:&Europe"),
+        ("datetime", "2024-02T10Z"),
+        ("datetime", "2024-T10:"),
+        ("time", "23:55:60.123456789012345678900Z"),
+        ("datetime", "2024-02T10:11:60.123456789012345678900"),
+        ("wtc", "2024-T10:11:12.000&local"),
+        ("wtc", "2024-02T10:+05:30&Europe"),
+    ] {
+        let source = format!("value = {payload}\n");
+        let namespace = namespace(&source);
+        let scalar = Value::Temporal {
+            payload: payload.into(),
+            semantic_type: family.into(),
+        };
+        assert_eq!(
+            namespace
+                .at_exact("$.value")
+                .expect("binding")
+                .runtime_value(),
+            Some(scalar.clone()),
+            "{payload}"
+        );
+        let request = MutationRequest {
+            operations: vec![RequestedMutationOperation::Replace(
+                RequestedReplaceOperation {
+                    target: "$.value".into(),
+                    value: MutationValueIntent {
+                        value: MutationValue::try_scalar(scalar.clone()).expect("scalar"),
+                        datatype: None,
+                        kind: None,
+                    },
+                    provenance: None,
+                },
+            )],
+            ..Default::default()
+        };
+        let AeonMutationPlanResult::Planned(plan) =
+            namespace.plan_mutation(&request, &PlanMutationOptions::default())
+        else {
+            panic!("plan {payload}");
+        };
+        assert!(matches!(
+            plan.validate_target("aeon"),
+            ValidateMutationPlanTargetResult::Validated { .. }
+        ));
+        assert!(matches!(
+            plan.validate_target("json"),
+            ValidateMutationPlanTargetResult::Rejected(_)
+        ));
+        let result = namespace.evaluate_query(
+            &format!("from $.value\nselect {payload}"),
+            &EvaluateOptions::default(),
+        );
+        assert!(result.is_ok(), "{payload}: {:?}", result.errors);
+        assert_eq!(result.results[0].value, EvaluatedValue::Scalar(scalar));
+        if matches!(family, "datetime" | "wtc") {
+            let relation = namespace.evaluate_query(
+                &format!("from $.value\nselect temporalRelation(., {payload})"),
+                &EvaluateOptions::default(),
+            );
+            assert!(relation.is_ok(), "{payload}: {:?}", relation.errors);
+            assert_eq!(
+                relation.results[0].value,
+                EvaluatedValue::Scalar(Value::String("incomparable".into()))
+            );
+        }
+        assert_eq!(namespace.document.source_bytes(), source.as_bytes());
+    }
+}
+
+#[test]
 fn even_empty_plans_retain_the_document() {
     let namespace = namespace("value = 1\n");
     let weak = Arc::downgrade(&namespace.document);

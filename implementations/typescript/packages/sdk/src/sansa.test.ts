@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateQuery, resolveAddress } from '@altopelago/sansa';
+import { evaluateQuery, planMutation, resolveAddress, validateMutationPlanTarget } from '@altopelago/sansa';
 import { readAeon } from './index.js';
 import {
   createAeonNamespace,
@@ -147,6 +147,83 @@ test('infers WTC metadata for an untyped temporal context claim', () => {
   assert.equal(world.semanticType, 'wtc');
   assert.equal(world.representationKind, 'WTCDateTimeLiteral');
   assert.equal(world.scalarKind, 'wtc');
+});
+
+test('shared Query and target validation accept Core calendar/clock payloads', () => {
+  for (const [family, payload] of [
+    ['wtc', '2024-T10:&Europe'],
+    ['datetime', '2024-02T10Z'],
+    ['datetime', '2024-T10:'],
+    ['time', '23:55:60.123456789012345678900Z'],
+    ['datetime', '2024-02T10:11:60.123456789012345678900'],
+    ['wtc', '2024-T10:11:12.000&local'],
+    ['wtc', '2024-02T10:+05:30&Europe'],
+  ] as const) {
+    const { namespace } = readAeonNamespace(`value = ${payload}\n`);
+    const binding = bindingAt(namespace, '$.value');
+    assert.equal(binding.scalarKind, family, payload);
+    assert.equal(binding.value, payload);
+    const query = evaluateQuery(`from $.value select ${payload}`, namespace);
+    if (!query.ok) assert.fail(JSON.stringify(query.errors));
+    assert.deepEqual(query.results[0]?.value, { type: 'scalar', value: payload });
+    if (family === 'datetime' || family === 'wtc') {
+      const relation = evaluateQuery(`from $.value select temporalRelation(., ${payload})`, namespace);
+      if (!relation.ok) assert.fail(JSON.stringify(relation.errors));
+      assert.deepEqual(relation.results[0]?.value, { type: 'scalar', value: 'incomparable' });
+    }
+    const planned = planMutation({ op: 'replace', target: '$.value', value: payload, datatype: family }, namespace);
+    if (!planned.ok) assert.fail(JSON.stringify(planned.errors));
+    assert.equal(validateMutationPlanTarget(planned.plan, 'aeon').ok, true, payload);
+    assert.equal(validateMutationPlanTarget(planned.plan, 'json').ok, false, payload);
+    assert.equal(binding.value, payload);
+  }
+});
+
+test('shared temporal target validation still rejects malformed descriptors', () => {
+  const { namespace } = readAeonNamespace('value = 1\n');
+  for (const [family, payload] of [
+    ['datetime', '2024--T10:'],
+    ['datetime', '2024-02T10::20'],
+    ['wtc', '2024-T10:&Europe//comment'],
+    ['wtc', '2024-T10:&Local'],
+    ['datetime', '2024-02T10Z '],
+  ] as const) {
+    const planned = planMutation({ op: 'replace', target: '$.value', value: payload, datatype: family }, namespace);
+    if (!planned.ok) assert.fail(JSON.stringify(planned.errors));
+    const validation = validateMutationPlanTarget(planned.plan, 'aeon');
+    assert.equal(validation.ok, false, payload);
+    assert.equal(validation.errors[0]?.code, 'SANSA_MUTATE_TARGET_UNSUPPORTED_VALUE');
+  }
+});
+
+test('portable temporal and symbolic bindings retain non-string Query semantics', () => {
+  const { namespace } = readAeonNamespace(`
+day = 2024-02-29
+clock = 10:20:30Z
+stamp = 2024-02-29T10:20:30Z
+world = 2024-02-29T10:20:30Z&Europe
+status = |approved|
+`);
+  const relations = evaluateQuery(`from $ select {
+    day = temporalRelation($.day, 2024-02-29)
+    clock = temporalRelation($.clock, 10:20:30Z)
+    stamp = temporalRelation($.stamp, 2024-02-29T10:20:30Z)
+    world = temporalRelation($.world, 2024-02-29T10:20:30Z&Europe)
+  }`, namespace);
+  if (!relations.ok) assert.fail(JSON.stringify(relations.errors));
+  assert.deepEqual(relations.results[0]?.value, {
+    type: 'object', value: { day: 'equal', clock: 'equal', stamp: 'equal', world: 'equal' },
+  });
+  const symbol = evaluateQuery('from $.status where . == |approved| select .', namespace);
+  if (!symbol.ok) assert.fail(JSON.stringify(symbol.errors));
+  assert.equal(symbol.results.length, 1);
+  for (const source of [
+    'from $.day where . == "2024-02-29" select .',
+    'from $.status where . == "approved" select .',
+    'from $.status select lower(.)',
+  ]) {
+    assert.equal(evaluateQuery(source, namespace).ok, false, source);
+  }
 });
 
 test('adapts every AEON scalar family without erasing representation metadata', () => {
