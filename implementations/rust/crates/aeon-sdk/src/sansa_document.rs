@@ -2,9 +2,13 @@
 //!
 //! This module always supplies host bindings and exact graph navigation. With
 //! the optional `sansa` feature it also adapts those handles to the independent
-//! `altopelago-sansa-runtime` crate for Address, Resolve, and Query.
+//! `altopelago-sansa-runtime` crate for Address, Resolve, Query, and experimental
+//! immutable mutation planning and target validation.
 
 use std::sync::Arc;
+
+#[cfg(all(test, feature = "sansa"))]
+mod mutate_tests;
 
 pub use aeon_core::CompileOptions;
 pub use aeon_document::{AeonDocument, DocumentError};
@@ -43,6 +47,7 @@ pub enum AeonNumericMaterialization {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AeonSansaCapabilityState {
     Complete,
+    Experimental,
     NotExposed,
 }
 
@@ -53,6 +58,9 @@ pub struct AeonSansaCapabilities {
     pub address_parsing: AeonSansaCapabilityState,
     pub resolve: AeonSansaCapabilityState,
     pub query: AeonSansaCapabilityState,
+    pub mutate_plan: AeonSansaCapabilityState,
+    pub mutate_target_validation: AeonSansaCapabilityState,
+    pub mutate_apply: AeonSansaCapabilityState,
     pub local_spaces: AeonSansaCapabilityState,
 }
 
@@ -64,6 +72,9 @@ impl Default for AeonSansaCapabilities {
             address_parsing: SANSA_RUNTIME_CAPABILITY,
             resolve: SANSA_RUNTIME_CAPABILITY,
             query: SANSA_RUNTIME_CAPABILITY,
+            mutate_plan: SANSA_MUTATE_CAPABILITY,
+            mutate_target_validation: SANSA_MUTATE_CAPABILITY,
+            mutate_apply: AeonSansaCapabilityState::NotExposed,
             local_spaces: AeonSansaCapabilityState::NotExposed,
         }
     }
@@ -73,6 +84,49 @@ impl Default for AeonSansaCapabilities {
 const SANSA_RUNTIME_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::Complete;
 #[cfg(not(feature = "sansa"))]
 const SANSA_RUNTIME_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::NotExposed;
+
+#[cfg(feature = "sansa")]
+const SANSA_MUTATE_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::Experimental;
+#[cfg(not(feature = "sansa"))]
+const SANSA_MUTATE_CAPABILITY: AeonSansaCapabilityState = AeonSansaCapabilityState::NotExposed;
+
+/// Immutable plan retaining its originating document namespace, even when empty.
+#[cfg(feature = "sansa")]
+#[derive(Debug, Clone)]
+pub struct AeonMutationPlan {
+    namespace: AeonSansaNamespace,
+    plan: runtime::mutate::MutationPlan<AeonSansaBinding>,
+}
+
+#[cfg(feature = "sansa")]
+impl AeonMutationPlan {
+    #[must_use]
+    pub const fn namespace(&self) -> &AeonSansaNamespace {
+        &self.namespace
+    }
+
+    /// Borrow the current-process plan. Its storage remains immutable.
+    #[must_use]
+    pub const fn plan(&self) -> &runtime::mutate::MutationPlan<AeonSansaBinding> {
+        &self.plan
+    }
+
+    /// Check representability independently of planning, schema, and authority.
+    #[must_use]
+    pub fn validate_target(
+        &self,
+        target: &str,
+    ) -> runtime::mutate_target::ValidateMutationPlanTargetResult {
+        runtime::mutate_target::validate_mutation_plan_target(&self.plan, target)
+    }
+}
+
+#[cfg(feature = "sansa")]
+#[derive(Debug, Clone)]
+pub enum AeonMutationPlanResult {
+    Planned(AeonMutationPlan),
+    Rejected(Vec<runtime::mutate::MutationDiagnostic>),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AeonSansaNonFinite {
@@ -180,6 +234,9 @@ impl AeonSansaNamespace {
             address_parsing: SANSA_RUNTIME_CAPABILITY,
             resolve: SANSA_RUNTIME_CAPABILITY,
             query: SANSA_RUNTIME_CAPABILITY,
+            mutate_plan: SANSA_MUTATE_CAPABILITY,
+            mutate_target_validation: SANSA_MUTATE_CAPABILITY,
+            mutate_apply: AeonSansaCapabilityState::NotExposed,
             local_spaces: AeonSansaCapabilityState::NotExposed,
         }
     }
@@ -204,6 +261,38 @@ impl AeonSansaNamespace {
         options: &runtime::evaluate::EvaluateOptions<AeonSansaBinding>,
     ) -> runtime::evaluate::QueryOutput<AeonSansaBinding> {
         runtime::evaluate::evaluate_query(query, self, options)
+    }
+
+    /// Build experimental change intent against this immutable document.
+    #[cfg(feature = "sansa")]
+    #[must_use]
+    pub fn plan_mutation(
+        &self,
+        request: &runtime::mutate::MutationRequest,
+        options: &runtime::mutate::PlanMutationOptions<AeonSansaBinding>,
+    ) -> AeonMutationPlanResult {
+        if let Some(binding) = &options.resolve.contextual_root
+            && (!Arc::ptr_eq(&binding.document, &self.document) || binding.scope != self.scope)
+        {
+            return AeonMutationPlanResult::Rejected(vec![
+                runtime::mutate::MutationDiagnostic::new(
+                    "SANSA_MUTATE_INVALID_TARGET",
+                    "Contextual target belongs to another document snapshot or scope",
+                    runtime::mutate::MutationPhase::Plan,
+                ),
+            ]);
+        }
+        match runtime::mutate::plan_mutation(request, self, options) {
+            runtime::mutate::PlanMutationResult::Planned(plan) => {
+                AeonMutationPlanResult::Planned(AeonMutationPlan {
+                    namespace: self.clone(),
+                    plan,
+                })
+            }
+            runtime::mutate::PlanMutationResult::Rejected(errors) => {
+                AeonMutationPlanResult::Rejected(errors)
+            }
+        }
     }
 
     #[must_use]
@@ -1068,6 +1157,9 @@ mod tests {
                 address_parsing: AeonSansaCapabilityState::NotExposed,
                 resolve: AeonSansaCapabilityState::NotExposed,
                 query: AeonSansaCapabilityState::NotExposed,
+                mutate_plan: AeonSansaCapabilityState::NotExposed,
+                mutate_target_validation: AeonSansaCapabilityState::NotExposed,
+                mutate_apply: AeonSansaCapabilityState::NotExposed,
                 local_spaces: AeonSansaCapabilityState::NotExposed,
             }
         );
@@ -1273,6 +1365,9 @@ right = { code = "same", stage = |approved|, counts = [1, 2] }
                 address_parsing: AeonSansaCapabilityState::Complete,
                 resolve: AeonSansaCapabilityState::Complete,
                 query: AeonSansaCapabilityState::Complete,
+                mutate_plan: AeonSansaCapabilityState::Experimental,
+                mutate_target_validation: AeonSansaCapabilityState::Experimental,
+                mutate_apply: AeonSansaCapabilityState::NotExposed,
                 local_spaces: AeonSansaCapabilityState::NotExposed,
             }
         );

@@ -1,4 +1,4 @@
-"""Immutable AEON document views with shared Rust SANSA Query evaluation."""
+"""Immutable AEON views, shared Rust Query, and experimental mutation plans."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ from ._native import (
     Clarifier,
     Document,
     GenericArgument,
+    MutationDiagnostic,
+    MutationOperation,
+    MutationPlan,
+    MutationPrecondition,
+    MutationResult,
+    MutationTarget,
+    MutationValidation,
     QueryContainer,
     QueryField,
     QueryObject,
@@ -21,6 +28,7 @@ from ._native import (
     SansaDiagnostic,
     Value,
     pytonic_loads,
+    scalar,
 )
 from .errors import NativeError
 
@@ -67,6 +75,13 @@ __all__ = (
     "Clarifier",
     "Document",
     "GenericArgument",
+    "MutationDiagnostic",
+    "MutationOperation",
+    "MutationPlan",
+    "MutationPrecondition",
+    "MutationResult",
+    "MutationTarget",
+    "MutationValidation",
     "QueryContainer",
     "QueryField",
     "QueryObject",
@@ -78,4 +93,5 @@ __all__ = (
     "Value",
     "load",
     "loads",
+    "scalar",
 )

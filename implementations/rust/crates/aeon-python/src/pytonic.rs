@@ -19,6 +19,8 @@ use pyo3::types::{PyAny, PyModule, PyTuple};
 
 use super::python_diagnostic;
 
+mod mutation;
+
 #[pyclass(frozen, module = "altopelago.aeon.pytonic", name = "Document")]
 pub(super) struct PyDocument {
     document: Arc<AeonDocument>,
@@ -26,6 +28,35 @@ pub(super) struct PyDocument {
 
 #[pymethods]
 impl PyDocument {
+    /// Plan experimental structured change intent against this immutable snapshot.
+    /// Malformed Python envelopes raise TypeError/ValueError; SANSA planning
+    /// failures return a MutationResult with structured diagnostics.
+    #[pyo3(signature = (request, *, scope="payload", profile="aeon.value.default.v1", budget=None, max_bindings=100_000, max_position_index=999_999, plan_id=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plan_mutation(
+        &self,
+        py: Python<'_>,
+        request: &Bound<'_, PyAny>,
+        scope: &str,
+        profile: &str,
+        budget: Option<&Bound<'_, PyAny>>,
+        max_bindings: usize,
+        max_position_index: usize,
+        plan_id: Option<String>,
+    ) -> PyResult<mutation::PyMutationResult> {
+        mutation::plan_document(
+            self,
+            py,
+            request,
+            scope,
+            profile,
+            budget,
+            max_bindings,
+            max_position_index,
+            plan_id,
+        )
+    }
+
     #[getter]
     fn source(&self) -> String {
         String::from_utf8_lossy(self.document.source_bytes()).into_owned()
@@ -69,7 +100,10 @@ impl PyDocument {
             local_spaces: "not_exposed",
             transform: "not_exposed",
             instruction: "not_exposed",
-            mutate: "not_exposed",
+            mutate: "experimental",
+            mutate_plan: "experimental",
+            mutate_target_validation: "experimental",
+            mutate_apply: "not_exposed",
         }
     }
 
@@ -345,9 +379,20 @@ impl PyBinding {
 
     #[getter]
     fn value(&self) -> PyValue {
+        let namespace = AeonSansaNamespace::from_shared(
+            Arc::clone(&self.document),
+            sansa_scope(self.scope),
+            AeonNumericMaterialization::Lossless,
+        );
+        let native = self
+            .node()
+            .value()
+            .and_then(|_| namespace.at_exact(&self.address()))
+            .and_then(|binding| runtime::resolve::Namespace::value(&namespace, &binding));
         PyValue {
             kind: self.node().representation_kind().to_owned(),
             canonical: self.node().value().map(str::to_owned),
+            native,
         }
     }
 
@@ -491,6 +536,7 @@ pub(super) struct PyQueryScalar {
     family: &'static str,
     canonical: Option<String>,
     semantic_type: Option<String>,
+    native: runtime::value_semantics::Value,
 }
 
 #[pymethods]
@@ -705,6 +751,12 @@ pub(super) struct PySansaCapabilities {
     instruction: &'static str,
     #[pyo3(get)]
     mutate: &'static str,
+    #[pyo3(get)]
+    mutate_plan: &'static str,
+    #[pyo3(get)]
+    mutate_target_validation: &'static str,
+    #[pyo3(get)]
+    mutate_apply: &'static str,
 }
 
 impl From<runtime::Diagnostic> for PySansaDiagnostic {
@@ -789,10 +841,24 @@ impl PyBinding {
     module = "altopelago.aeon.pytonic",
     name = "Value"
 )]
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub(super) struct PyValue {
     kind: String,
     canonical: Option<String>,
+    native: Option<runtime::value_semantics::Value>,
+}
+
+impl PartialEq for PyValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.canonical == other.canonical
+    }
+}
+impl Eq for PyValue {}
+impl Hash for PyValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.canonical.hash(state);
+    }
 }
 
 #[pymethods]
@@ -1017,6 +1083,7 @@ fn loads(
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    mutation::register(module)?;
     module.add_class::<PyDocument>()?;
     module.add_class::<PyBinding>()?;
     module.add_class::<PyValue>()?;
@@ -1088,11 +1155,13 @@ fn python_query_value(
 fn python_query_scalar(value: runtime::value_semantics::Value) -> PyQueryValueData {
     use runtime::value_semantics::Value;
 
+    let native = value.clone();
     let scalar = |family, canonical, semantic_type| {
         PyQueryValueData::Scalar(PyQueryScalar {
             family,
             canonical,
             semantic_type,
+            native: native.clone(),
         })
     };
     match value {

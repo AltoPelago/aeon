@@ -83,11 +83,71 @@ the Rust runtime's constrained policy with `activation_roots`, an explicit
 ceilings. The unrestricted trusted-activation mode is intentionally not
 exposed to Python.
 
-Local spaces and the experimental SANSA Transform, Instruction, and Mutate
-surfaces are not exposed by this initial Python API. A higher-level mutable
-object model also remains outside this API. Inspect
-`document.sansa_capabilities` instead of inferring support from the underlying
-Rust package.
+Experimental mutation planning uses structured dictionaries:
+
+```python
+result = document.plan_mutation({
+    "op": "replace", "target": "$.status",
+    "value": pytonic.scalar("symbol", "held"),
+})
+if result.ok:
+    plan = result.plan
+    operation = plan.operations[0]
+    print(operation.target.canonical_address, operation.value.family)
+    aeon_target = plan.validate_target("aeon")
+    json_target = plan.validate_target("json-compatible")
+```
+
+The surface supports exact `create`, `replace`, `remove`, ordered `insert`
+and same-container `move`. Create uses `parent` and `name`; replace/remove use
+`target`; insert/move use `container`; move also uses `source`. Ordered placement
+is `"first"`, `"last"`, or `{"kind": "before"/"after", "anchor": "$.items[0]"}`.
+For a batch, pass `{"operations": [...], "preconditions": [{"expression":
+". == 1", "target": "$.count"}], "provenance": {...}}`. Operation provenance
+is also supported and remains inert data.
+
+Plans and all their views are frozen. Targets expose original and canonical
+addresses, representation kind and a `binding` that retains the source snapshot.
+Operations retain value intent, anchors and provenance. Preconditions, warnings
+and diagnostics remain inspectable tuples. Plan views remain valid after the
+original `Document` variable is dropped; plans cannot be constructed or pickled
+as replayable artifacts. Planning does not change the document.
+
+Values cross directly into Rust as `None`, bool, exact int, float, str,
+ordered dict, list or tuple. Ordinary strings are never parsed as AEON or SANSA.
+Existing scalar `binding.value` and `QueryScalar` descriptors preserve their
+native families. `pytonic.scalar(family, canonical, *, semantic_type=None)`
+constructs a `QueryScalar` explicitly. Families are `string`, `finite_number`,
+`boolean` (`"true"`/`"false"`), `toggle`, `hex`, `radix`, `encoding`, `separator`,
+`symbol`, `sansa_address`, `date`, `time`, `datetime`, `wtc`, `clone_reference`,
+`pointer_reference`, and `explicit_null`. Only radix accepts `semantic_type`,
+for metadata such as `"radix[16]"`. Exact decimals use `finite_number` text;
+Python floats already have Python's native precision. Derived values are
+inspected through `QueryScalar`, `QueryObject` and tuples; no JSON conversion
+occurs. Structural `Value`/`QueryContainer` descriptors are not accepted as
+mutation scalars: supply explicit nested dictionaries/lists/tuples instead.
+
+`plan_mutation` accepts `scope` (`payload`, `header`, `full`), `profile`,
+`plan_id`, `max_bindings` (default 100,000), `max_position_index` (999,999), and
+a `budget` dictionary with `max_operations` (10,000), `max_preconditions`
+(1,000), `max_value_nodes` (100,000), `max_value_depth` (128) and
+`max_string_length` (1,048,576). Python conversion has independent safety
+ceilings of 128 nested levels and 100,000 value nodes across supplied values
+and provenance, plus 100,000 operations/preconditions; raising a planner budget
+does not disable these conversion ceilings. Malformed Python envelopes and
+conversion failures raise `TypeError`/`ValueError`. SANSA planning failures
+return `MutationResult(ok=False, plan=None)` and structured errors.
+
+Target validation runs separately and returns `MutationValidation` with `ok`
+and `errors`. It checks representability and does not grant schema approval or
+authorization. The shared SANSA target grammar currently rejects reduced-date
+datetime/WTC payloads that Core accepts, such as `2024-T10:&Europe`; the value
+is preserved and that limitation is surfaced as a target diagnostic.
+
+`document.sansa_capabilities.mutate_plan` and `mutate_target_validation` report
+`"experimental"`, while `mutate_apply` reports `"not_exposed"`. Local spaces,
+Transform, Instruction, policy filtering and apply are not exposed. Inspect
+the capability fields for the individual surfaces.
 
 ## Local development
 

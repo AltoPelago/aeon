@@ -46,7 +46,10 @@ class PytonicTests(unittest.TestCase):
             document.sansa_capabilities.dynamic_address_activation, "constrained"
         )
         self.assertEqual(document.sansa_capabilities.transform, "not_exposed")
-        self.assertEqual(document.sansa_capabilities.mutate, "not_exposed")
+        self.assertEqual(document.sansa_capabilities.mutate, "experimental")
+        self.assertEqual(document.sansa_capabilities.mutate_plan, "experimental")
+        self.assertEqual(document.sansa_capabilities.mutate_target_validation, "experimental")
+        self.assertEqual(document.sansa_capabilities.mutate_apply, "not_exposed")
 
     def test_scopes_and_address_lookup_are_explicit(self) -> None:
         document = pytonic.loads(

@@ -44,6 +44,23 @@ assert!(result.is_ok());
 ```
 
 Local spaces remain host-mounted and are not invented by the document adapter.
+
+The same feature exposes experimental `namespace.plan_mutation(&request,
+&options)` using the structured types in `runtime::mutate`. The returned
+`AeonMutationPlanResult::Planned(plan)` retains the originating namespace and
+document, including for an empty plan. `plan.plan()` provides immutable native
+operation, target, anchor, precondition and diagnostic views;
+`plan.validate_target("aeon")` or `plan.validate_target("json")` performs the
+separate representability check. Contextual root handles must belong to the
+same document snapshot and scope. Capability fields `mutate_plan` and
+`mutate_target_validation` report `Experimental`, while `mutate_apply` reports
+`NotExposed`.
+
+Plans are current-process inspection objects. They do not alter the document
+or establish schema or authorization approval. Their native target validator
+currently uses SANSA's temporal grammar: reduced-date datetime/WTC values
+accepted by Core, such as `2024-T10:&Europe`, produce a target diagnostic.
+
 Rust also omits spans for anonymous sequence occurrences because the current
 native event model supplies only their owner's range; named bindings and node
 heads retain their exact source spans.
