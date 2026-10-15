@@ -20,6 +20,14 @@ repositories.
 
 ### Added
 
+- Added experimental immutable SANSA mutation planning and AEON/JSON target
+  validation to the Rust facade and Pytonic, backed by published
+  `altopelago-sansa-runtime` 0.14.0. Plans retain their document snapshot and
+  expose exact targets, anchors, preconditions, provenance, budgets, warnings
+  and diagnostics. Python accepts structured requests and existing typed value
+  descriptors, with an explicit `scalar()` helper for new typed payloads.
+  Planning and target validation have separate capability fields; apply is
+  not exposed.
 - Added stable SANSA Query evaluation to the native Python `pytonic` facade.
   Queries run in the shared Rust runtime over immutable document handles,
   return Pytonic bindings and typed derived values without JSON
