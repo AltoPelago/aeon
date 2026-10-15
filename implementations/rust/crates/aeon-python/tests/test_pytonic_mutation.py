@@ -269,6 +269,29 @@ class MutationPlanningTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             document.plan_mutation({"op": "replace", "target": "$.value", "value": [None] * 100_001})
 
+    def test_conversion_bounds_cumulative_copied_bytes(self) -> None:
+        document = pytonic.loads("value = 1\n")
+        large = "x" * (2 * 1024 * 1024)
+        # Small Python inputs sharing one payload must not amplify into unbounded Rust copies.
+        bound_value = pytonic.loads('value = "' + "x" * (512 * 1024) + '"\n')["value"].value
+        for payload in (large, "\U0001f600" * (512 * 1024), pytonic.scalar("symbol", large), pytonic.scalar("radix", "a", semantic_type=large)):
+            with self.subTest(kind=type(payload).__name__), self.assertRaisesRegex(ValueError, "cumulative UTF-8 payload bytes"):
+                document.plan_mutation({"op": "replace", "target": "$.value", "value": [payload] * 9})
+        with self.assertRaisesRegex(ValueError, "cumulative UTF-8 payload bytes"):
+            document.plan_mutation({"op": "replace", "target": "$.value", "value": [bound_value] * 33})
+        requests = (
+            {"op": "replace", "target": "$.value", "value": [{large: None}] * 9},
+            {"op": "replace", "target": "$.value", "value": [large] * 4, "provenance": [large] * 4},
+            {"operations": [{"op": "replace", "target": "$.value", "value": [large] * 4}], "provenance": [large] * 4},
+            {"operations": [{"op": "replace", "target": "$.value", "value": large}] * 8},
+            {"operations": [], "preconditions": [{"expression": large}] * 9},
+        )
+        for request in requests:
+            with self.subTest(fields=tuple(request)), self.assertRaisesRegex(ValueError, "cumulative UTF-8 payload bytes"):
+                document.plan_mutation(request, budget={"max_string_length": 32 * 1024 * 1024})
+        with self.assertRaisesRegex(ValueError, "cumulative UTF-8 payload bytes"):
+            document.plan_mutation({"op": "replace", "target": "$.value", "value": [large] * 7}, plan_id=large)
+
 
 if __name__ == "__main__":
     unittest.main()

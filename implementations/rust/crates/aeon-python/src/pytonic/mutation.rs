@@ -5,6 +5,7 @@ use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 use runtime::mutate::*;
 
 type NativeTarget = MutationTarget<AeonSansaBinding>;
+const MAX_CONVERSION_BYTES: usize = 16 * 1024 * 1024;
 
 #[pyclass(frozen, module = "altopelago.aeon.pytonic", name = "MutationResult")]
 pub(super) struct PyMutationResult {
@@ -447,8 +448,83 @@ fn value_object(py: Python<'_>, value: Option<&MutationValue>) -> PyResult<Py<Py
 #[derive(Default)]
 struct Conversion {
     nodes: usize,
+    bytes: usize,
 }
 impl Conversion {
+    fn charge_bytes(&mut self, bytes: usize) -> PyResult<()> {
+        if bytes > MAX_CONVERSION_BYTES - self.bytes {
+            return Err(PyValueError::new_err(
+                "mutation input conversion exceeds 16777216 cumulative UTF-8 payload bytes",
+            ));
+        }
+        self.bytes += bytes;
+        Ok(())
+    }
+
+    fn copy_text(&mut self, value: &str) -> PyResult<String> {
+        self.charge_bytes(value.len())?;
+        Ok(value.to_owned())
+    }
+
+    fn string(&mut self, input: &Bound<'_, PyAny>) -> PyResult<String> {
+        // Borrow CPython's UTF-8 view; enforce the ceiling before making a Rust copy.
+        self.copy_text(input.cast::<PyString>()?.to_str()?)
+    }
+
+    fn text(&mut self, input: &Bound<'_, PyDict>, field: &str) -> PyResult<String> {
+        self.string(&required(input, field)?)
+    }
+
+    fn optional_text(
+        &mut self,
+        input: &Bound<'_, PyDict>,
+        field: &str,
+    ) -> PyResult<Option<String>> {
+        input
+            .get_item(field)?
+            .map(|value| self.string(&value))
+            .transpose()
+    }
+
+    fn scalar(&mut self, value: &runtime::value_semantics::Value) -> PyResult<MutationValue> {
+        use runtime::value_semantics::Value;
+        match value {
+            Value::FiniteNumber(value) => self.charge_bytes(value.as_str().len())?,
+            Value::String(value)
+            | Value::Toggle(value)
+            | Value::Hex(value)
+            | Value::Encoding(value)
+            | Value::Separator(value)
+            | Value::Symbol(value)
+            | Value::SansaAddress(value) => self.charge_bytes(value.len())?,
+            Value::Radix {
+                payload,
+                semantic_type,
+            }
+            | Value::Temporal {
+                payload,
+                semantic_type,
+            } => {
+                self.charge_bytes(payload.len())?;
+                self.charge_bytes(semantic_type.len())?;
+            }
+            Value::ReferenceForm { kind, target } => {
+                self.charge_bytes(kind.len())?;
+                self.charge_bytes(target.len())?;
+            }
+            Value::ExplicitNull { reason } | Value::ExplicitAbsence { reason } => {
+                self.charge_bytes(reason.len())?;
+            }
+            Value::Container { .. } | Value::BindingSet | Value::Missing => {
+                return Err(PyTypeError::new_err(
+                    "mutation values require scalar descriptors",
+                ));
+            }
+            Value::PositiveInfinity | Value::NegativeInfinity | Value::Nan | Value::Boolean(_) => {}
+        }
+        wrap_scalar(value.clone())
+    }
+
     fn value(&mut self, input: &Bound<'_, PyAny>, depth: usize) -> PyResult<MutationValue> {
         self.nodes += 1;
         if depth > 128 || self.nodes > 100_000 {
@@ -460,10 +536,10 @@ impl Conversion {
             return Ok(MutationValue::Null);
         }
         if let Ok(value) = input.extract::<PyRef<'_, PyQueryScalar>>() {
-            return wrap_scalar(value.native.clone());
+            return self.scalar(&value.native);
         }
         if let Ok(value) = input.extract::<PyRef<'_, PyValue>>() {
-            return wrap_scalar(value.native.clone().ok_or_else(|| {
+            return self.scalar(value.native.as_ref().ok_or_else(|| {
                 PyTypeError::new_err(
                     "container Value descriptors cannot be used as scalar mutation values",
                 )
@@ -478,9 +554,8 @@ impl Conversion {
                 .py()
                 .get_type::<PyInt>()
                 .getattr("__repr__")?
-                .call1((input,))?
-                .extract::<String>()?;
-            return finite_scalar(&text);
+                .call1((input,))?;
+            return finite_scalar(&self.string(&text)?);
         }
         if input.is_instance_of::<PyFloat>() {
             let value = input.extract::<f64>()?;
@@ -495,21 +570,18 @@ impl Conversion {
                     .py()
                     .get_type::<PyFloat>()
                     .getattr("__repr__")?
-                    .call1((input,))?
-                    .extract::<String>()?;
-                finite_scalar(&text)
+                    .call1((input,))?;
+                finite_scalar(&self.string(&text)?)
             };
         }
         if input.is_instance_of::<PyString>() {
-            return wrap_scalar(runtime::value_semantics::Value::String(input.extract()?));
+            return wrap_scalar(runtime::value_semantics::Value::String(self.string(input)?));
         }
         if let Ok(fields) = input.cast::<PyDict>() {
             self.check_width(fields.len())?;
             return fields
                 .iter()
-                .map(|(name, value)| {
-                    Ok((name.extract::<String>()?, self.value(&value, depth + 1)?))
-                })
+                .map(|(name, value)| Ok((self.string(&name)?, self.value(&value, depth + 1)?)))
                 .collect::<PyResult<Vec<_>>>()
                 .map(MutationValue::Object);
         }
@@ -562,11 +634,12 @@ fn dict<'py>(input: &'py Bound<'py, PyAny>) -> PyResult<&'py Bound<'py, PyDict>>
     })
 }
 fn closed(input: &Bound<'_, PyDict>, allowed: &[&str]) -> PyResult<()> {
-    for key in input.keys() {
-        let name = key.extract::<String>()?;
-        if !allowed.contains(&name.as_str()) {
+    for (key, _) in input.iter() {
+        let name = key.cast::<PyString>()?.to_str()?;
+        if !allowed.contains(&name) {
+            let preview: String = name.chars().take(80).collect();
             return Err(PyValueError::new_err(format!(
-                "unsupported mutation field {name:?}"
+                "unsupported mutation field {preview:?}"
             )));
         }
     }
@@ -576,15 +649,6 @@ fn required<'py>(input: &Bound<'py, PyDict>, field: &str) -> PyResult<Bound<'py,
     input
         .get_item(field)?
         .ok_or_else(|| PyValueError::new_err(format!("missing mutation field {field:?}")))
-}
-fn text(input: &Bound<'_, PyDict>, field: &str) -> PyResult<String> {
-    required(input, field)?.extract()
-}
-fn optional_text(input: &Bound<'_, PyDict>, field: &str) -> PyResult<Option<String>> {
-    input
-        .get_item(field)?
-        .map(|value| value.extract())
-        .transpose()
 }
 fn optional_value(
     input: &Bound<'_, PyDict>,
@@ -599,18 +663,24 @@ fn optional_value(
 fn intent(input: &Bound<'_, PyDict>, conversion: &mut Conversion) -> PyResult<MutationValueIntent> {
     Ok(MutationValueIntent {
         value: conversion.value(&required(input, "value")?, 1)?,
-        datatype: optional_text(input, "datatype")?,
-        kind: optional_text(input, "kind")?,
+        datatype: conversion.optional_text(input, "datatype")?,
+        kind: conversion.optional_text(input, "kind")?,
     })
 }
-fn placement(input: &Bound<'_, PyDict>) -> PyResult<RequestedMutationPlacement> {
+fn placement(
+    input: &Bound<'_, PyDict>,
+    conversion: &mut Conversion,
+) -> PyResult<RequestedMutationPlacement> {
     let value = required(input, "placement")?;
-    let (kind, anchor) = if let Ok(kind) = value.extract::<String>() {
-        (kind, None)
+    let (kind, anchor) = if value.is_instance_of::<PyString>() {
+        (conversion.string(&value)?, None)
     } else {
         let value = dict(&value)?;
         closed(value, &["kind", "anchor"])?;
-        (text(value, "kind")?, optional_text(value, "anchor")?)
+        (
+            conversion.text(value, "kind")?,
+            conversion.optional_text(value, "anchor")?,
+        )
     };
     match (kind.as_str(), anchor) {
         ("first", None) => Ok(RequestedMutationPlacement::First),
@@ -627,7 +697,7 @@ fn operation(
     conversion: &mut Conversion,
 ) -> PyResult<RequestedMutationOperation> {
     let input = dict(input)?;
-    let op = text(input, "op")?;
+    let op = conversion.text(input, "op")?;
     let allowed: &[&str] = match op.as_str() {
         "create" => &[
             "op",
@@ -660,30 +730,30 @@ fn operation(
     let provenance = optional_value(input, "provenance", conversion)?;
     Ok(match op.as_str() {
         "create" => RequestedMutationOperation::Create(RequestedCreateOperation {
-            parent: text(input, "parent")?.into(),
-            name: text(input, "name")?,
+            parent: conversion.text(input, "parent")?.into(),
+            name: conversion.text(input, "name")?,
             value: intent(input, conversion)?,
             provenance,
         }),
         "replace" => RequestedMutationOperation::Replace(RequestedReplaceOperation {
-            target: text(input, "target")?.into(),
+            target: conversion.text(input, "target")?.into(),
             value: intent(input, conversion)?,
             provenance,
         }),
         "remove" => RequestedMutationOperation::Remove(RequestedRemoveOperation {
-            target: text(input, "target")?.into(),
+            target: conversion.text(input, "target")?.into(),
             provenance,
         }),
         "insert" => RequestedMutationOperation::Insert(RequestedInsertOperation {
-            container: text(input, "container")?.into(),
-            placement: placement(input)?,
+            container: conversion.text(input, "container")?.into(),
+            placement: placement(input, conversion)?,
             value: intent(input, conversion)?,
             provenance,
         }),
         "move" => RequestedMutationOperation::Move(RequestedMoveOperation {
-            source: text(input, "source")?.into(),
-            container: text(input, "container")?.into(),
-            placement: placement(input)?,
+            source: conversion.text(input, "source")?.into(),
+            container: conversion.text(input, "container")?.into(),
+            placement: placement(input, conversion)?,
             provenance,
         }),
         _ => unreachable!("operation checked above"),
@@ -706,12 +776,11 @@ fn sequence<'py>(input: &Bound<'py, PyAny>) -> PyResult<Vec<Bound<'py, PyAny>>> 
         "operations and preconditions must be lists or tuples",
     ))
 }
-fn request(input: &Bound<'_, PyAny>) -> PyResult<MutationRequest> {
+fn request(input: &Bound<'_, PyAny>, conversion: &mut Conversion) -> PyResult<MutationRequest> {
     let input_dict = dict(input)?;
-    let mut conversion = Conversion::default();
     if input_dict.contains("op")? {
         return Ok(MutationRequest {
-            operations: vec![operation(input, &mut conversion)?],
+            operations: vec![operation(input, conversion)?],
             ..Default::default()
         });
     }
@@ -722,7 +791,7 @@ fn request(input: &Bound<'_, PyAny>) -> PyResult<MutationRequest> {
     }
     let operations = operations
         .iter()
-        .map(|input| operation(input, &mut conversion))
+        .map(|input| operation(input, conversion))
         .collect::<PyResult<Vec<_>>>()?;
     let mut preconditions = Vec::new();
     if let Some(values) = input_dict.get_item("preconditions")? {
@@ -736,15 +805,15 @@ fn request(input: &Bound<'_, PyAny>) -> PyResult<MutationRequest> {
             let value = dict(&value)?;
             closed(value, &["expression", "target"])?;
             preconditions.push(RequestedMutationPrecondition {
-                expression: text(value, "expression")?,
-                target: optional_text(value, "target")?.map(Into::into),
+                expression: conversion.text(value, "expression")?,
+                target: conversion.optional_text(value, "target")?.map(Into::into),
             });
         }
     }
     Ok(MutationRequest {
         operations,
         preconditions,
-        provenance: optional_value(input_dict, "provenance", &mut conversion)?,
+        provenance: optional_value(input_dict, "provenance", conversion)?,
     })
 }
 
@@ -758,10 +827,11 @@ pub(super) fn plan_document(
     budget: Option<&Bound<'_, PyAny>>,
     max_bindings: usize,
     max_position_index: usize,
-    plan_id: Option<String>,
+    plan_id: Option<&str>,
 ) -> PyResult<PyMutationResult> {
     let scope = parse_scope(scope)?;
-    let request = request(input)?;
+    let mut conversion = Conversion::default();
+    let request = request(input, &mut conversion)?;
     let mut limits = MutationBudget {
         max_operations: Some(10_000),
         max_preconditions: Some(1_000),
@@ -802,7 +872,9 @@ pub(super) fn plan_document(
             .map_err(|error| PyValueError::new_err(error.message))?,
         budget: limits,
         max_position_index,
-        plan_id,
+        plan_id: plan_id
+            .map(|value| conversion.copy_text(value))
+            .transpose()?,
     };
     let namespace = AeonSansaNamespace::from_shared(
         Arc::clone(&document.document),

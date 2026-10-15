@@ -42,7 +42,7 @@ impl PyDocument {
         budget: Option<&Bound<'_, PyAny>>,
         max_bindings: usize,
         max_position_index: usize,
-        plan_id: Option<String>,
+        plan_id: Option<&str>,
     ) -> PyResult<mutation::PyMutationResult> {
         mutation::plan_document(
             self,

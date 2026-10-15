@@ -143,6 +143,11 @@ jobs:
           assert len(wheels) == 1, wheels;
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
 
+      - name: Installed-wheel typing contract
+        run: |
+          python -m pip install mypy==1.19.1
+          python -m mypy --strict implementations/rust/crates/aeon-python/tests/typing/mutation.py
+
       - name: Installed-wheel Core CTS and pure-Python differential
         run: >-
           python scripts/check-installed-python-differential.py

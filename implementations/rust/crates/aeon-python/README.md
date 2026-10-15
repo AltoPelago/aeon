@@ -132,8 +132,12 @@ mutation scalars: supply explicit nested dictionaries/lists/tuples instead.
 a `budget` dictionary with `max_operations` (10,000), `max_preconditions`
 (1,000), `max_value_nodes` (100,000), `max_value_depth` (128) and
 `max_string_length` (1,048,576). Python conversion has independent safety
-ceilings of 128 nested levels and 100,000 value nodes across supplied values
-and provenance, plus 100,000 operations/preconditions; raising a planner budget
+ceilings of 128 nested levels, 100,000 value nodes and 16 MiB cumulative UTF-8
+payload bytes, plus 100,000 operations/preconditions. Byte accounting is shared
+across values (including typed descriptors), object keys, provenance, request
+text fields and plan ID, and is checked before copying text or cloning typed
+descriptors into the request.
+Repeated references count on every occurrence. Raising a planner budget
 does not disable these conversion ceilings. Malformed Python envelopes and
 conversion failures raise `TypeError`/`ValueError`. SANSA planning failures
 return `MutationResult(ok=False, plan=None)` and structured errors.
@@ -156,6 +160,15 @@ Create and activate a virtual environment, install maturin, and then run:
 ```bash
 maturin develop --release
 python -m unittest discover -s tests
+```
+
+The wheel includes read-only native API stubs and a `py.typed` marker. To check
+the typed mutation example against the installed package (also run by the
+Python Wheels verification workflow):
+
+```bash
+python -m pip install mypy==1.19.1
+python -m mypy --strict tests/typing/mutation.py
 ```
 
 `compile()` copies the input into Rust before releasing Python's interpreter
