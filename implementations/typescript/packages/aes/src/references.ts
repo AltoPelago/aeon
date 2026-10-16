@@ -11,10 +11,8 @@
 
 import type { Span } from '@altopelago/aeon-lexer';
 import type { AssignmentEvent } from './events.js';
-import type { ReferencePathSegment } from '@altopelago/aeon-parser';
 import { indexReferenceOrder, isReferenceToSelf } from './reference-order.js';
 import { formatReferenceTargetPath } from './reference-target.js';
-import { formatPath } from './paths.js';
 
 export type ReferenceValidationErrorCode =
     | 'MISSING_REFERENCE_TARGET'
@@ -140,15 +138,7 @@ export function validateReferences(
     const { targets, claims } = indexReferenceOrder(events);
     // Preserve the public diagnostic indices as AssignmentEvent indices. The
     // finer occurrence ordinals above are private validation state only.
-    const eventIndices = new Map(events.map((event, index) => [formatPath(event.path), index]));
-    const eventIndex = (path: readonly ReferencePathSegment[]): number => {
-        for (let length = path.length; length > 0; length -= 1) {
-            const index = eventIndices.get(formatReferenceTargetPath(path.slice(0, length)));
-            if (index !== undefined) return index;
-        }
-        return -1;
-    };
-    for (const { reference, path, ordinal } of claims) {
+    for (const { reference, path, ordinal, eventIndex } of claims) {
         const sourcePath = formatReferenceTargetPath(path);
         const targetPath = formatReferenceTargetPath(reference.path);
         const depth = reference.path.filter(segment => typeof segment === 'object').length;
@@ -160,8 +150,8 @@ export function validateReferences(
             const target = targets.get(targetPath);
             if (target === undefined) {
                 errors.push(new MissingReferenceTargetError(reference.span, sourcePath, targetPath));
-            } else if (target > ordinal) {
-                errors.push(new ForwardReferenceError(reference.span, sourcePath, targetPath, eventIndex(path), eventIndex(reference.path)));
+            } else if (target.ordinal > ordinal) {
+                errors.push(new ForwardReferenceError(reference.span, sourcePath, targetPath, eventIndex, target.eventIndex));
             }
         }
     }

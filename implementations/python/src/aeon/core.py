@@ -1035,8 +1035,18 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
     # Index actual occurrences, including metadata members, rather than assigning
     # every metadata target the ordinal of its enclosing payload binding.
     targets: dict[str, int] = {}
+    candidates: dict[tuple[str, str], tuple[int, list[object], int]] = {}
+    payloads: dict[str, tuple[str, int]] = {}
     claims: list[tuple[CloneReference | PointerReference, list[object], int]] = []
     ordinal = 0
+    plane = "body"
+    event_index = 0
+
+    for index, binding in enumerate(bindings):
+        key = format_path(binding.path)
+        previous = payloads.get(key)
+        if previous is None or (previous[0] == "header" and binding.source_plane == "body"):
+            payloads[key] = (binding.source_plane, index)
 
     def raw_attributes(attributes: list[Attribute], path: list[object], targetable=True, owner=None) -> None:
         for attribute in attributes:
@@ -1045,7 +1055,7 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
                 raw_attributes(entry.attributes, child, targetable, child if targetable else owner)
                 headed(entry.value, child, targetable=targetable, owner=child if targetable else owner)
 
-    def headed(value: Value | None, path: list[object], annotations=None, targetable=True, owner=None) -> None:
+    def headed(value: Value | None, path: list[object], annotations=None, targetable=True, owner=None, descend=True) -> None:
         nonlocal ordinal
         owner = path if owner is None else owner
         for key, entry in (annotations or {}).items():
@@ -1062,10 +1072,16 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
             claims.append((value, path if targetable else owner, ordinal))
             ordinal += 1
         if targetable:
-            targets.setdefault(format_reference_target_path(path), ordinal)
+            candidates.setdefault((plane, format_reference_target_path(path)), (ordinal, path, event_index))
         ordinal += 1
+        if not descend:
+            return
         if isinstance(value, ObjectNode):
+            seen: set[str] = set()
             for binding in value.bindings:
+                if binding.key in seen:
+                    continue
+                seen.add(binding.key)
                 child = [*path, binding.key]
                 raw_attributes(binding.attributes, child, targetable, child if targetable else owner)
                 headed(binding.value, child, targetable=targetable, owner=child if targetable else owner)
@@ -1075,19 +1091,31 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
                 child_path = [*path, index]
                 headed(child, child_path, targetable=targetable, owner=child_path if targetable else owner)
 
-    paths = {(binding.source_plane, format_path(binding.path)) for binding in bindings}
-    for binding in bindings:
-        segments = binding.path.segments
-        if any(
-            (binding.source_plane, format_path(CanonicalPath(segments=segments[:length]))) in paths
-            for length in range(len(segments) - 1, 1, -1)
-        ):
+    # Resolved bindings already encode retained payload subtrees and paths.
+    # Recurse only through metadata, which has no independent event stream.
+    seen_events: set[tuple[str, str]] = set()
+    for index, binding in enumerate(bindings):
+        plane = binding.source_plane
+        event_index = index
+        key = (plane, format_path(binding.path))
+        if key in seen_events:
             continue
+        seen_events.add(key)
+        segments = binding.path.segments
         path = [
             segment.key if segment.type == "member" else segment.index
             for segment in segments if segment.type != "root"
         ]
-        headed(binding.value, path, binding.annotations)
+        headed(binding.value, path, binding.annotations, descend=False)
+
+    for (candidate_plane, key), (target_ordinal, path, index) in candidates.items():
+        for length in range(len(path), 0, -1):
+            payload = payloads.get(format_reference_target_path(path[:length]))
+            if payload is None:
+                continue
+            if payload == (candidate_plane, index):
+                targets[key] = target_ordinal
+            break
 
     errors: list[AeonError] = []
     for reference, path, source_index in claims:
