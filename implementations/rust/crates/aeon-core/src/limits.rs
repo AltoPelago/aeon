@@ -124,6 +124,59 @@ pub struct AeonCompileLimits {
     pub max_events: Option<usize>,
 }
 
+impl Default for AeonCompileLimits {
+    fn default() -> Self {
+        Self::from(&CompileOptions::default())
+    }
+}
+
+impl From<&CompileOptions> for AeonCompileLimits {
+    fn from(options: &CompileOptions) -> Self {
+        Self {
+            max_attribute_depth: options.max_attribute_depth,
+            max_clarifier_values: options.effective_max_clarifier_values(),
+            max_generic_depth: options.max_generic_depth,
+            max_generic_arguments: options.max_generic_arguments,
+            max_datatype_components: options.max_datatype_components,
+            max_value_nesting_depth: options.effective_max_value_nesting_depth(),
+            max_path_depth: options.max_path_depth,
+            max_string_codepoints: options.max_string_codepoints,
+            max_key_segment_codepoints: options.max_key_segment_codepoints,
+            max_list_items: options.max_list_items,
+            max_tuple_items: options.max_tuple_items,
+            max_path_characters: options.max_path_characters,
+            max_numeric_literal_characters: options.max_numeric_literal_characters,
+            max_structured_comment_characters: options.max_structured_comment_characters,
+            max_input_bytes: options.max_input_bytes,
+            max_events: options.max_events,
+        }
+    }
+}
+
+impl AeonCompileLimits {
+    pub(crate) fn compile_options(&self) -> CompileOptions {
+        CompileOptions {
+            max_attribute_depth: self.max_attribute_depth,
+            max_clarifier_values: Some(self.max_clarifier_values),
+            max_generic_depth: self.max_generic_depth,
+            max_generic_arguments: self.max_generic_arguments,
+            max_datatype_components: self.max_datatype_components,
+            max_value_nesting_depth: Some(self.max_value_nesting_depth),
+            max_path_depth: self.max_path_depth,
+            max_string_codepoints: self.max_string_codepoints,
+            max_key_segment_codepoints: self.max_key_segment_codepoints,
+            max_list_items: self.max_list_items,
+            max_tuple_items: self.max_tuple_items,
+            max_path_characters: self.max_path_characters,
+            max_numeric_literal_characters: self.max_numeric_literal_characters,
+            max_structured_comment_characters: self.max_structured_comment_characters,
+            max_input_bytes: self.max_input_bytes,
+            max_events: self.max_events,
+            ..CompileOptions::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FinalizationLimits {
     pub max_reference_depth: Option<usize>,

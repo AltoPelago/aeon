@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+mod document;
 mod engine;
 mod flatten;
 mod header;
@@ -19,6 +20,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 
+pub use document::parse_document;
 pub use engine::{
     Compiler, CompilerConfig, CompilerError, CompilerOperation, CompilerProgress, CompilerState,
     EventBatch, EventBatches, SourceRetention,
@@ -1914,6 +1916,12 @@ mod tests {
         expected_code: &str,
         expected_phase: Option<u8>,
     ) {
+        assert!(
+            parse_document(source, &AeonCompileLimits::from(&at_boundary)).is_ok(),
+            "native document must accept its boundary for {name}",
+        );
+        let native_errors = parse_document(source, &AeonCompileLimits::from(&beyond_boundary))
+            .expect_err("native document must reject beyond its resource boundary");
         let baseline_at = compile_owned_with_implementation(
             source.to_owned(),
             at_boundary.clone(),
@@ -1960,6 +1968,10 @@ mod tests {
         );
         assert_eq!(diagnostic.phase, expected_phase, "phase drift for {name}");
         assert!(diagnostic.span.is_some(), "missing span for {name}");
+        assert_eq!(
+            native_errors[0], *diagnostic,
+            "native document diagnostic drift for {name}"
+        );
     }
 
     #[test]
