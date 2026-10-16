@@ -9,7 +9,8 @@ use std::fmt;
 
 use aeon_core::{
     AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, NullLiteralMode,
-    ReferenceSegment, SourcePlane, Span, Value, compile, format_path, normalize_number_literal,
+    RadixBaseResolution, ReferenceSegment, SourcePlane, Span, Value, compile, format_path,
+    normalize_number_literal, resolve_radix_base_from_datatype,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
@@ -799,14 +800,21 @@ fn value_to_json_with_active_key(
         Value::EncodingLiteral { raw } => JsonValue::String(raw.trim_start_matches('&').to_owned()),
         Value::RadixLiteral { raw } => {
             let normalized = raw.trim_start_matches('%').replace('_', "");
-            if let Some(base) = declared_radix_base(datatype)
-                && exceeds_declared_radix(&normalized, base)
-            {
-                let diag = Diagnostic::new(
-                    "FINALIZE_INVALID_RADIX_BASE",
-                    format!("Radix literal exceeds declared radix {base}: {raw}"),
-                )
-                .at_path(path);
+            let resolved = resolve_radix_base_from_datatype(datatype);
+            let message = match resolved {
+                RadixBaseResolution::Invalid => Some(
+                    "Invalid declared radix base: expected one integral number from 2 to 64"
+                        .to_owned(),
+                ),
+                RadixBaseResolution::Base(base) if exceeds_declared_radix(&normalized, base) => {
+                    Some(format!(
+                        "Radix literal exceeds declared radix {base}: {raw}"
+                    ))
+                }
+                _ => None,
+            };
+            if let Some(message) = message {
+                let diag = Diagnostic::new("FINALIZE_INVALID_RADIX_BASE", message).at_path(path);
                 let diag = if let Some(span) = source_span {
                     diag.with_span(span)
                 } else {
@@ -1787,21 +1795,6 @@ fn object_attribute_members_to_json(
         object.insert(String::from("@"), JsonValue::Object(attrs));
     }
     JsonValue::Object(object)
-}
-
-fn declared_radix_base(datatype: Option<&str>) -> Option<usize> {
-    match datatype?.trim() {
-        "decimal" => Some(10),
-        "radix2" => Some(2),
-        "radix6" => Some(6),
-        "radix8" => Some(8),
-        "radix12" => Some(12),
-        value => {
-            let body = value.strip_prefix("radix[")?.strip_suffix(']')?;
-            let base = body.parse::<usize>().ok()?;
-            (2..=64).contains(&base).then_some(base)
-        }
-    }
 }
 
 fn exceeds_declared_radix(value: &str, base: usize) -> bool {

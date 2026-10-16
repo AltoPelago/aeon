@@ -1,6 +1,6 @@
 import {
   adaptTypeScriptAssignmentEventsToPortableAes,
-  aeonRadixBaseFromDatatype,
+  resolveAeonRadixBaseFromComponents,
   aeonRadixScale,
   type CompileResult,
 } from '@altopelago/aeon-core';
@@ -411,22 +411,8 @@ function portableScalarKind(kind: PortableAeonEvent['kind']): string | undefined
 
 function radixBaseFromPortableEvent(event: PortableAeonEvent): number | undefined {
   if (event.kind !== 'RadixLiteral') return undefined;
-  const fromDatatype = aeonRadixBaseFromDatatype(event.datatype);
-  if (fromDatatype !== undefined) return fromDatatype;
-  if (event.datatype !== 'radix' || event.clarifiers?.length !== 1) return undefined;
-  const clarifier = event.clarifiers[0];
-  if (!isTaggedNumberLiteral(clarifier)) return undefined;
-  const base = Number(clarifier.value);
-  return Number.isInteger(base) && base >= 2 && base <= 64 ? base : undefined;
-}
-
-function isTaggedNumberLiteral(value: unknown): value is { readonly kind: 'NumberLiteral'; readonly value: string } {
-  return typeof value === 'object'
-    && value !== null
-    && 'kind' in value
-    && value.kind === 'NumberLiteral'
-    && 'value' in value
-    && typeof value.value === 'string';
+  const resolved = resolveAeonRadixBaseFromComponents(event.datatype, event.clarifiers);
+  return resolved.kind === 'base' ? resolved.base : undefined;
 }
 
 function representationKindMatches(actual: string | undefined, expected: string): boolean {

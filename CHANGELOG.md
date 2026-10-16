@@ -8,6 +8,37 @@ repositories.
 
 ## Unreleased
 
+### Breaking
+
+- AEON source generic arguments now require datatype descriptors. Bare numeric
+  arguments such as `custom<1.0>` are rejected, including nested and node-head
+  forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.
+  The broader AES/Telex transport descriptor format is unchanged.
+- TypeScript and pure-Python parsers now represent numeric datatype clarifiers
+  as exact `NumberLiteral` AST nodes rather than native numbers. Consumers
+  inspecting those arrays must read the node's string `value` (or `raw` for
+  source spelling); quoted clarifiers remain strings. Caller-constructed
+  annotations still accept native numbers. Portable AES retains its existing
+  tagged numeric-string representation.
+
+### Fixed
+
+- Radix-base consumers now interpret integral decimal and exponent clarifiers
+  exactly without changing their preserved spelling. Finalization, AEOS radix
+  constraints, and SDK/SANSA metadata agree that `2.00`, `2e0`, and `20e-1`
+  mean base 2, while `2.0000000000000001` does not. Source and portable JSON
+  finalization diagnose invalid explicit bases rather than treating them as
+  unspecified; AEOS does not let `allow_unspecified_radix` bypass that check.
+  Reserved datatype names are matched case-sensitively: custom names such as
+  `Radix` and `Decimal` do not acquire reserved radix semantics.
+  This does not change Core parsing or the separate GP clarifier validator.
+- Numeric datatype clarifiers now follow value-number normalization without
+  host floating-point conversion. Large integers, long decimals, signed zero,
+  and large exponents retain their exact values across TypeScript, Python,
+  Rust, and WASM canonicalization. For example, `custom[1.00]` becomes
+  `custom[1.0]`, while `custom[1e3]` stays `custom[1e3]`. The same rules apply
+  inside nested generic descriptors as well as binding and value heads.
+
 ## 0.15.0 - 2026-10-16
 
 Coordinated TypeScript, Rust, and Python implementation release; AEON remains

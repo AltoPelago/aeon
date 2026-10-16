@@ -10,7 +10,7 @@ import { ErrorCodes } from '../diag/codes.js';
 import type { Span } from '../types/spans.js';
 import type { RuleIndex } from './schemaIndex.js';
 import { countIntegerDigits, isNegative } from '../util/digits.js';
-import { declaredRadixFromDatatype } from '../util/datatypes.js';
+import { declaredRadixFromDatatype, invalidDeclaredRadix } from '../util/datatypes.js';
 import { compareNumericValues } from '../util/numericBounds.js';
 import { aeonRadixDigitValue } from '@altopelago/aeon-aes';
 
@@ -96,7 +96,7 @@ export function checkNumericForm(
 
         if (event.type === 'RadixLiteral' && radix !== undefined) {
             const declaredRadix = declaredRadixFromDatatype(event.datatype);
-            if (declaredRadix === null && rule.constraints.allow_unspecified_radix !== true) {
+            if (invalidDeclaredRadix(event.datatype) || declaredRadix === null && rule.constraints.allow_unspecified_radix !== true) {
                 emitError(ctx, createDiag(
                     path,
                     event.span,

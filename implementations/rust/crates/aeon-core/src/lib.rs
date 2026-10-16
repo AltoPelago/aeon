@@ -9,6 +9,7 @@ mod limits;
 mod pathing;
 mod portable;
 mod progressive;
+mod radix;
 mod resource_limits;
 mod sansa;
 mod temporal;
@@ -37,6 +38,10 @@ pub use portable::{
     RUST_PORTABLE_AES_ADAPTER_VERSION_V1, adapt_rust_assignment_events_to_portable_aes,
     compile_to_telex, export_telex, export_telex_owned, project_aes_event_records,
     project_aes_event_records_taken, project_portable_events, project_telex_records,
+};
+pub use radix::{
+    RadixBaseResolution, radix_base_from_number, resolve_radix_base_from_components,
+    resolve_radix_base_from_datatype,
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,

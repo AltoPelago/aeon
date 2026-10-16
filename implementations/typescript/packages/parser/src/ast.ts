@@ -56,7 +56,9 @@ export interface TypeAnnotation extends ASTNode {
     readonly clarifiers: readonly ClarifierValue[];
 }
 
-export type ClarifierValue = string | number;
+/** Parsed numeric clarifiers are exact NumberLiteral nodes; native numbers
+ * remain accepted for annotations constructed by callers. */
+export type ClarifierValue = string | number | NumberLiteral;
 
 /**
  * Attribute (@{...})

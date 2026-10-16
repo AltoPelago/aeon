@@ -664,12 +664,7 @@ function validateNodeHeadDatatypes(
 }
 
 function formatTypeAnnotation(datatype: NonNullable<Extract<Value, { type: 'NodeLiteral' }>['datatype']>): string {
-    const name = datatype.name;
-    const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-    const clarifiers = datatype.clarifiers.length > 0
-        ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
-        : '';
-    return `${name}${generics}${clarifiers}`;
+    return formatDatatypeAnnotation(datatype);
 }
 
 type ResolutionContext = {

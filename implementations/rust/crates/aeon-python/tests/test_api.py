@@ -6,10 +6,71 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import altopelago.aeon as aeon
-from altopelago.aeon import _native
+from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_reserved_radix_names_are_case_sensitive(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text())
+        for fixture in fixtures:
+            for payload, digit in (("1", 1), ("A", 10)):
+                source = f"mask:{fixture['datatype']}=%{payload}"
+                with self.subTest(source=source):
+                    self.assertTrue(aeon.compile(source).ok)
+                    legacy = aeon.load_text(source, mode="strict")
+                    portable = aeon.load_telex_text(aeon.compile_to_telex(source), mode="strict")
+                    self.assertEqual(legacy.document, portable.document)
+                    base = fixture["base"]
+                    expected = fixture["invalid"] or (base is not None and digit >= base)
+                    for result in (legacy, portable):
+                        self.assertEqual(expected, any(d.code == "FINALIZE_INVALID_RADIX_BASE" for d in result.finalization_errors))
+
+    def test_exact_radix_source_and_telex_finalization(self) -> None:
+        for literal, invalid in (("2.00", False), ("2e0", False), ("20e-1", False), ("2.0000000000000001", True)):
+            for payload in ("1", "2"):
+                source = f"mask:radix[{literal}]=%{payload}"
+                self.assertTrue(aeon.compile(source).ok)
+                legacy = aeon.load_text(source, mode="strict")
+                portable = aeon.load_telex_text(aeon.compile_to_telex(source), mode="strict")
+                self.assertEqual(legacy.document, portable.document)
+                for result in (legacy, portable):
+                    self.assertEqual(invalid or payload == "2", any(d.code == "FINALIZE_INVALID_RADIX_BASE" for d in result.finalization_errors))
+
+    def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text())
+        for fixture in fixtures:
+            source = fixture["source"]
+            with self.subTest(source=source):
+                compiled = aeon.compile(source)
+                self.assertEqual(compiled.ok, fixture["ok"], compiled.errors)
+                if fixture["ok"]:
+                    canonical = aeon.canonicalize(source)
+                    self.assertIn(fixture["fragment"], canonical)
+                    self.assertEqual(canonical, aeon.canonicalize(canonical))
+                else:
+                    self.assertIn("SYNTAX_ERROR", [error.code for error in compiled.errors])
+                    with self.assertRaises(aeon.CompileError):
+                        aeon.canonicalize(source)
+
+    def test_exact_numeric_clarifiers_through_canonical_and_telex_apis(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/numeric-clarifiers.json").read_text())
+        for fixture in fixtures:
+            raw, normalized = fixture["raw"], fixture["normalized"]
+            with self.subTest(raw=raw):
+                source = f"x:custom[{raw}]={raw}"
+                compiled = aeon.compile(source)
+                self.assertTrue(compiled.ok, compiled.errors)
+                self.assertEqual(compiled.events[0].datatype, f"custom[{normalized}]")
+                canonical = aeon.canonicalize(source)
+                self.assertIn(f"custom[{normalized}]", canonical)
+                self.assertEqual(aeon.canonicalize(canonical), canonical)
+                document = pytonic.loads(source)
+                self.assertEqual(document["x"].clarifiers[0].kind, "NumberLiteral")
+                self.assertEqual(document["x"].clarifiers[0].value, normalized)
+                encoded = aeon.compile_to_telex(source)
+                loaded = aeon.load_telex_text(encoded, mode="loose")
+                loaded.require_ok()
+
     def test_private_extension_identifies_sofia_engine(self) -> None:
         self.assertEqual(_native.ENGINE, "sofia")
 

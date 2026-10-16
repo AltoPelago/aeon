@@ -6,6 +6,8 @@ import re
 from typing import Iterable
 
 from ._compat import dataclass
+from ._numbers import format_clarifier
+from ._radix import resolve_radix_base_from_datatype
 MAX_SAFE_INTEGER = 9007199254740991
 RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children", "__proto__", "constructor", "prototype"}
 
@@ -373,12 +375,13 @@ def null_to_json(value: dict[str, object], ctx: JsonContext, path: str) -> objec
 def radix_to_json(value: dict[str, object], ctx: JsonContext, path: str, datatype: object) -> str:
     raw = str(value.get("value", ""))
     normalized = raw.replace("_", "")
-    base = declared_radix_base(datatype)
-    if base is not None and exceeds_declared_radix(normalized, base):
+    resolved = resolve_radix_base_from_datatype(render_datatype(datatype))
+    base = resolved.base
+    if resolved.invalid or base is not None and exceeds_declared_radix(normalized, base):
         ctx.emit(
             "error" if ctx.strict else "warning",
             "FINALIZE_INVALID_RADIX_BASE",
-            f"Radix literal exceeds declared radix {base}: %{raw}",
+            "Invalid declared radix base: expected one integral number from 2 to 64" if resolved.invalid else f"Radix literal exceeds declared radix {base}: %{raw}",
             path,
             value.get("span"),
         )
@@ -781,29 +784,7 @@ def normalize_projection_path(path: str) -> str:
 
 
 def declared_radix_base(datatype: object) -> int | None:
-    rendered = render_datatype(datatype)
-    if rendered is None:
-        return None
-    trimmed = rendered.strip()
-    if trimmed == "decimal":
-        return 10
-    if trimmed == "radix2":
-        return 2
-    if trimmed == "radix6":
-        return 6
-    if trimmed == "radix8":
-        return 8
-    if trimmed == "radix12":
-        return 12
-    if not trimmed.startswith("radix[") or not trimmed.endswith("]"):
-        return None
-    body = trimmed[6:-1]
-    if not body.isdigit():
-        return None
-    base = int(body)
-    if 2 <= base <= 64:
-        return base
-    return None
+    return resolve_radix_base_from_datatype(render_datatype(datatype)).base
 
 
 def render_datatype(datatype: object) -> str | None:
@@ -822,7 +803,7 @@ def render_datatype(datatype: object) -> str | None:
     suffix = ""
     clarifiers = datatype.get("clarifiers")
     if isinstance(clarifiers, list):
-        suffix = "[" + ", ".join(format_clarifier(item) for item in clarifiers if isinstance(item, (str, int, float))) + "]" if clarifiers else ""
+        suffix = "[" + ", ".join(format_clarifier(item) for item in clarifiers) + "]" if clarifiers else ""
     else:
         radix_base = datatype.get("radixBase")
         radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
@@ -831,12 +812,6 @@ def render_datatype(datatype: object) -> str | None:
             suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
         suffix = f"{radix}{suffix}"
     return f"{name}{generic}{suffix}"
-
-
-def format_clarifier(value: str | int | float) -> str:
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
 
 
 def exceeds_declared_radix(value: str, base: int) -> bool:

@@ -1,0 +1,547 @@
+[
+  {
+    "source": "x:custom<0>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<0>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<0>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<0>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<0>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<0>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<0>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<1>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<1>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<1>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<1>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<1>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<-1>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<-1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<-1>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<-1>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<-1>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<-1>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<-1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<+1>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<+1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<+1>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<+1>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<+1>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<+1>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<+1>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<1.00>[1.00]=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<1.00>[1.00]=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<1.00>[1.00]=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<1.00>[1.00]=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<1.00>[1.00]=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<1.00>[1.00]=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<1.00>[1.00]=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<.5>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<.5>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<.5>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<.5>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<.5>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<.5>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<.5>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<1e3>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<1e3>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<1e3>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<1e3>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<1e3>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<1e3>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<1e3>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<9007199254740993>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<9007199254740993>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<9007199254740993>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<9007199254740993>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<9007199254740993>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<9007199254740993>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<9007199254740993>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<n,1.00>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<n,1.00>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<n,1.00>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<n,1.00>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<n,1.00>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<n,1.00>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<n,1.00>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<child<1.00>>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<child<1.00>>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<child<1.00>>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<child<1.00>>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<child<1.00>>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<child<1.00>>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<child<1.00>>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<child[1.00],1.00>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<child[1.00],1.00>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<child[1.00],1.00>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<child[1.00],1.00>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<child[1.00],1.00>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<child[1.00],1.00>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<child[1.00],1.00>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<\"n\">=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<\"n\">=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<\"n\">=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<\"n\">=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<\"n\">=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<\"n\">=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<\"n\">=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<|n|>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<|n|>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<|n|>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<|n|>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<|n|>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<|n|>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<|n|>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<[1.00]>=[0]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x={n:custom<[1.00]>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x@{n:custom<[1.00]>=[0]}=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=[:custom<[1.00]>=[0]]",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=(:custom<[1.00]>=[0])",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag(:custom<[1.00]>=[0])>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "aeon:header={x:custom<[1.00]>=[0]}",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<1.00>[1.00]=0",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag:node<1.00>>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x=<tag:node<child<1.00>>>",
+    "ok": false,
+    "fragment": ""
+  },
+  {
+    "source": "x:custom<n>[1.00]=[0]",
+    "ok": true,
+    "fragment": "custom<n>[1.0]"
+  },
+  {
+    "source": "x:list<custom[1.00]>=[0]",
+    "ok": true,
+    "fragment": "list<custom[1.0]>"
+  },
+  {
+    "source": "x:custom<child<n>[1.00]>[2.00]=[0]",
+    "ok": true,
+    "fragment": "custom<child<n>[1.0]>[2.0]"
+  },
+  {
+    "source": "x:custom<child[1.00],other[2.00]>[3.00]=[0]",
+    "ok": true,
+    "fragment": "custom<child[1.0], other[2.0]>[3.0]"
+  },
+  {
+    "source": "x:custom<child[\"1.00\"]>[1.00]=[0]",
+    "ok": true,
+    "fragment": "custom<child[\"1.00\"]>[1.0]"
+  },
+  {
+    "source": "x:custom<child>[1e+003]=[0]",
+    "ok": true,
+    "fragment": "custom<child>[1e3]"
+  },
+  {
+    "source": "x:custom<yes>[1.00]=[0]",
+    "ok": true,
+    "fragment": "custom<yes>[1.0]"
+  },
+  {
+    "source": "x:list<custom[-0.00]>=[0]",
+    "ok": true,
+    "fragment": "list<custom[-0.0]>"
+  }
+]

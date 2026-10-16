@@ -17,7 +17,7 @@ import { checkTypes } from './rules/typeCheck.js';
 import { checkReferenceForms } from './rules/referenceForm.js';
 import { checkNumericForm } from './rules/numericForm.js';
 import { checkStringForm, checkPatterns, matchesPortablePattern } from './rules/stringForm.js';
-import { datatypeBase, declaredRadixFromDatatype, parseClarifierValues } from './util/datatypes.js';
+import { datatypeBase, declaredRadixFromDatatype, invalidDeclaredRadix, parseClarifierValues } from './util/datatypes.js';
 import { compareNumericValues } from './util/numericBounds.js';
 import type { ConstraintsV1, ResourcePolicyV1 } from './types/schema.js';
 import {
@@ -1368,7 +1368,8 @@ function validateAttributeEntry(
         }
         if (entry.type === 'RadixLiteral' && effectiveConstraints.radix !== undefined) {
             const declaredRadix = declaredRadixFromDatatype(entry.datatype);
-            if ((declaredRadix === null && effectiveConstraints.allow_unspecified_radix !== true)
+            if (invalidDeclaredRadix(entry.datatype)
+                || (declaredRadix === null && effectiveConstraints.allow_unspecified_radix !== true)
                 || (declaredRadix !== null && declaredRadix !== effectiveConstraints.radix)) {
                 emitError(ctx, createDiag(
                     path,
@@ -1706,7 +1707,7 @@ function isDigitFormLiteral(type: string): boolean {
 function radixConstraintMatches(datatype: string | undefined, raw: string, constraints: ConstraintsV1): boolean {
     if (constraints.radix === undefined) return true;
     const declaredRadix = declaredRadixFromDatatype(datatype);
-    if (declaredRadix === null && constraints.allow_unspecified_radix !== true) return false;
+    if (invalidDeclaredRadix(datatype) || declaredRadix === null && constraints.allow_unspecified_radix !== true) return false;
     if (declaredRadix !== null && declaredRadix !== constraints.radix) return false;
     return firstInvalidRadixDigit(raw, constraints.radix) === null;
 }

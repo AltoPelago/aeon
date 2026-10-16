@@ -693,10 +693,6 @@ impl<'a> TokenParser<'a> {
                     kind if is_bare_key_kind(kind) => {
                         self.parse_datatype_annotation(generic_depth + 1, component_count)?;
                     }
-                    TokenKind::Number => {
-                        let span = self.advance().span;
-                        self.count_datatype_component(component_count, span)?;
-                    }
                     _ => {
                         return Err(self.error_at_current("Expected generic argument"));
                     }
@@ -3071,7 +3067,7 @@ group:object = {
     fn incremental_datatypes_match_both_parsers_at_every_scalar_split() {
         let source = r#"payload:custom<
   tuple<string, number>,
-  3
+  domain[3]
 >["x", 1_0] = 1
 items:list<string> = ["one", "two"]"#;
         let mut splits = source
@@ -3089,7 +3085,7 @@ items:list<string> = ["one", "two"]"#;
             }
             assert_eq!(
                 expected[0].datatype.as_deref(),
-                Some(r#"custom<tuple<string,number>,3>["x",10]"#)
+                Some(r#"custom<tuple<string,number>,domain[3]>["x",10]"#)
             );
             assert_eq!(expected[1].datatype.as_deref(), Some("list<string>"));
         }
@@ -3132,7 +3128,13 @@ items:list<string> = ["one", "two"]"#;
 
     #[test]
     fn malformed_incremental_datatypes_match_one_shot_errors() {
-        for source in ["value:custom[] = 1", "value:outer<inner = 1"] {
+        for source in [
+            "value:custom[] = 1",
+            "value:outer<inner = 1",
+            "value:custom<1.00>[1.00] = 0",
+            "value:custom<child<1>> = 0",
+            "value = <tag:node<1.00>>",
+        ] {
             let mut splits = source
                 .char_indices()
                 .map(|(index, _)| index)

@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Iterable
 
-from ._numbers import normalize_number_literal
+from ._numbers import normalize_number_literal, format_clarifier
 from .telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_datatype_descriptor
 
 
@@ -468,12 +468,6 @@ def format_datatype(datatype: object) -> str | None:
     if isinstance(clarifiers, list) and clarifiers:
         name += "[" + ", ".join(format_clarifier(value) for value in clarifiers) + "]"
     return name
-
-
-def format_clarifier(value: object) -> str:
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
 
 
 def translate_node_path(path: str, node_source_paths: set[str]) -> str:

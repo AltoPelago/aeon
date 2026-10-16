@@ -4,6 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
+from ._radix import resolve_radix_base_from_datatype
 from .sansa import parse_address as parse_sansa_address, resolve_address as resolve_sansa_address
 
 
@@ -1043,8 +1044,9 @@ def check_numeric_form(rule_index: dict[str, dict[str, object]], events: dict[st
             emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
             continue
         if event_type == "RadixLiteral" and isinstance(radix, int):
-            declared_radix = declared_radix_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
-            if declared_radix is None and constraints.get("allow_unspecified_radix") is not True:
+            resolved_radix = resolve_radix_base_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
+            declared_radix = resolved_radix.base
+            if resolved_radix.invalid or (declared_radix is None and constraints.get("allow_unspecified_radix") is not True):
                 emit_error(ctx, create_diag(path, event.get("span"), f"Numeric form violation: radix literal requires declared radix {radix}", ERROR_CODES["numeric_form_violation"]))
                 continue
             if declared_radix is not None and declared_radix != radix:
@@ -1275,8 +1277,9 @@ def validate_attribute_entry(path: str, entry: dict[str, object], constraints: d
         if isinstance(max_digits, int) and digit_count > max_digits:
             emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected max {max_digits} digits, got {digit_count}", ERROR_CODES["numeric_form_violation"]))
         if actual_type == "RadixLiteral" and isinstance(radix, int):
-            declared_radix = declared_radix_from_datatype(datatype if isinstance(datatype, str) else None)
-            if declared_radix is None and effective_constraints.get("allow_unspecified_radix") is not True:
+            resolved_radix = resolve_radix_base_from_datatype(datatype if isinstance(datatype, str) else None)
+            declared_radix = resolved_radix.base
+            if resolved_radix.invalid or (declared_radix is None and effective_constraints.get("allow_unspecified_radix") is not True):
                 emit_error(ctx, create_diag(path, span, f"Numeric form violation: radix literal requires declared radix {radix}", ERROR_CODES["numeric_form_violation"]))
             if declared_radix is not None and declared_radix != radix:
                 emit_error(ctx, create_diag(path, span, f"Numeric form violation: expected radix {radix}, got declared radix {declared_radix}", ERROR_CODES["numeric_form_violation"]))
@@ -1689,8 +1692,9 @@ def constraint_branch_matches_event(constraints: dict[str, object], event: dict[
             return False
         radix = constraints.get("radix")
         if actual_type == "RadixLiteral" and isinstance(radix, int):
-            declared_radix = declared_radix_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
-            if declared_radix is None and constraints.get("allow_unspecified_radix") is not True:
+            resolved_radix = resolve_radix_base_from_datatype(event.get("datatype") if isinstance(event.get("datatype"), str) else None)
+            declared_radix = resolved_radix.base
+            if resolved_radix.invalid or (declared_radix is None and constraints.get("allow_unspecified_radix") is not True):
                 return False
             if declared_radix is not None and declared_radix != radix:
                 return False
@@ -2128,20 +2132,7 @@ def is_form_negative(raw: str) -> bool:
 
 
 def declared_radix_from_datatype(datatype: str | None) -> int | None:
-    if datatype is None:
-        return None
-    trimmed = datatype.strip()
-    if trimmed.lower() == "decimal":
-        return 10
-    lowered = trimmed.lower()
-    aliases = {"radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
-    if lowered in aliases:
-        return aliases[lowered]
-    match = re.fullmatch(r"radix\[(\d+)\]", trimmed, re.IGNORECASE)
-    if match is None:
-        return None
-    base = int(match.group(1))
-    return base if 2 <= base <= 64 else None
+    return resolve_radix_base_from_datatype(datatype).base
 
 
 def first_invalid_radix_digit(raw: str, radix: int) -> str | None:

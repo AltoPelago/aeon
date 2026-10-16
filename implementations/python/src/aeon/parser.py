@@ -5,7 +5,7 @@ import re
 from typing import cast
 
 from ._compat import dataclass
-from ._numbers import normalize_number_literal
+from ._numbers import normalize_number_literal, format_clarifier
 from .ast import (
     Attribute,
     AttributeEntry,
@@ -357,7 +357,7 @@ class Parser:
         name = name_token.value
         end = name_token.span.end
         generic_args: list[str] = []
-        clarifiers: list[str | int | float] = []
+        clarifiers: list[str | int | float | NumberLiteral] = []
         self.skip_layout()
         if self.check("LANGLE"):
             if generic_depth > self.max_generic_depth:
@@ -390,7 +390,7 @@ class Parser:
                     clarifiers.append(token.value)
                     self.advance()
                 elif token.kind == "NUMBER":
-                    clarifiers.append(self.parse_numeric_clarifier(token.value))
+                    clarifiers.append(NumberLiteral(value=normalize_number_literal(token.value), raw=token.value, span=token.span))
                     self.advance()
                 else:
                     raise SyntaxError("Expected clarifier value", token.span)
@@ -416,12 +416,8 @@ class Parser:
 
     def parse_generic_argument(self, generic_depth: int, components: list[int]) -> str:
         token = self.peek()
-        if token.kind not in DATATYPE_NAME_TOKEN_KINDS | {"NUMBER"}:
+        if token.kind not in DATATYPE_NAME_TOKEN_KINDS:
             raise SyntaxError("Expected generic argument", token.span)
-        if token.kind == "NUMBER":
-            self.advance()
-            self.count_datatype_component(components, token.span)
-            return token.value
         nested = self.parse_type_annotation(generic_depth + 1, components)
         return self.format_type_annotation(nested)
 
@@ -444,19 +440,8 @@ class Parser:
         return f"{annotation.name}{generic_suffix}{clarifier_suffix}"
 
     @staticmethod
-    def format_clarifier(value: str | int | float) -> str:
-        if isinstance(value, str):
-            return json.dumps(value, ensure_ascii=False)
-        return str(value)
-
-    @staticmethod
-    def parse_numeric_clarifier(value: str) -> int | float:
-        normalized = value.replace("_", "")
-        if normalized.startswith("+"):
-            normalized = normalized[1:]
-        if re.fullmatch(r"-?\d+", normalized):
-            return int(normalized)
-        return float(normalized)
+    def format_clarifier(value: str | int | float | NumberLiteral) -> str:
+        return format_clarifier(value)
 
     @staticmethod
     def is_valid_radix_base_spec(spec: str) -> bool:

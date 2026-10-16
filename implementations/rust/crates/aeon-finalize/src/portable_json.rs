@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
-use aeon_core::Diagnostic;
+use aeon_core::{Diagnostic, RadixBaseResolution, resolve_radix_base_from_components};
 use aes_telex::{
-    AEON_DOCUMENT_PROJECTION, COMPLETE_AES_PROFILE, ClarifierKind, TelexLimits, TelexRecord,
+    AEON_DOCUMENT_PROJECTION, COMPLETE_AES_PROFILE, TelexLimits, TelexRecord,
     validate_telex_records_with_projection_and_limits,
 };
 use serde_json::{Map, Number, Value as JsonValue};
@@ -669,38 +669,32 @@ fn null_value(value: &str, path: &str, ctx: &mut Context<'_>) -> JsonValue {
 
 fn radix_value(record: &TelexRecord, value: &str, path: &str, ctx: &mut Context<'_>) -> JsonValue {
     let normalized = value.replace('_', "");
-    if let Some(base) = declared_radix_base(record)
-        && normalized.chars().any(|character| {
-            !matches!(character, '+' | '-' | '.')
-                && radix_digit_value(character).is_none_or(|digit| digit >= base)
-        })
-    {
-        report(
-            ctx,
-            format!("Radix literal exceeds declared radix {base}: %{normalized}"),
-            "FINALIZE_INVALID_RADIX_BASE",
-            path,
-            false,
-        );
+    let resolved = resolve_radix_base_from_components(
+        record.get("datatype"),
+        record
+            .datatype()
+            .map_or(&[], |datatype| datatype.clarifiers.as_slice()),
+    );
+    let message = match resolved {
+        RadixBaseResolution::Invalid => Some(
+            "Invalid declared radix base: expected one integral number from 2 to 64".to_owned(),
+        ),
+        RadixBaseResolution::Base(base)
+            if normalized.chars().any(|character| {
+                !matches!(character, '+' | '-' | '.')
+                    && radix_digit_value(character).is_none_or(|digit| digit as usize >= base)
+            }) =>
+        {
+            Some(format!(
+                "Radix literal exceeds declared radix {base}: %{normalized}"
+            ))
+        }
+        _ => None,
+    };
+    if let Some(message) = message {
+        report(ctx, message, "FINALIZE_INVALID_RADIX_BASE", path, false);
     }
     JsonValue::String(normalized)
-}
-
-fn declared_radix_base(record: &TelexRecord) -> Option<u32> {
-    match record.get("datatype")? {
-        "decimal" => Some(10),
-        "radix2" => Some(2),
-        "radix6" => Some(6),
-        "radix8" => Some(8),
-        "radix12" => Some(12),
-        "radix" => record.datatype()?.clarifiers.first().and_then(|clarifier| {
-            (clarifier.kind == ClarifierKind::NumberLiteral)
-                .then(|| clarifier.value.parse::<u32>().ok())
-                .flatten()
-                .filter(|base| (2..=64).contains(base))
-        }),
-        _ => None,
-    }
 }
 
 fn radix_digit_value(character: char) -> Option<u32> {

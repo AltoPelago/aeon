@@ -1,4 +1,4 @@
-import type { TypeAnnotation } from '@altopelago/aeon-parser';
+import { formatClarifierValue, type TypeAnnotation } from '@altopelago/aeon-parser';
 
 export function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
     const name = datatype.name;
@@ -9,8 +9,4 @@ export function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
         ? `[${datatype.clarifiers.map(formatClarifierValue).join(', ')}]`
         : '';
     return `${name}${generics}${clarifiers}`;
-}
-
-function formatClarifierValue(value: string | number): string {
-    return typeof value === 'string' ? JSON.stringify(value) : String(value);
 }

@@ -538,22 +538,12 @@ impl AeonSansaBinding {
         if self.node().representation_kind() != "RadixLiteral" {
             return None;
         }
-        radix_base_from_datatype(self.node().datatype()).or_else(|| {
-            let clarifiers = self.node().clarifiers();
-            if self.node().datatype() != Some("radix") || clarifiers.len() != 1 {
-                return None;
-            }
-            match &clarifiers[0] {
-                DatatypeClarifier {
-                    kind: ClarifierKind::NumberLiteral,
-                    value,
-                } => value
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|base| (2..=64).contains(base)),
-                _ => None,
-            }
-        })
+        aeon_core::resolve_radix_base_from_components(
+            self.node().datatype(),
+            self.node().clarifiers(),
+        )
+        .base()
+        .map(|base| base as u32)
     }
 
     #[must_use]
@@ -953,20 +943,6 @@ fn address_in_plane(plane: Option<DocumentSourcePlane>, address: &str) -> String
         format!("$.{plane}")
     } else {
         format!("$.{plane}{}", &address[1..])
-    }
-}
-
-fn radix_base_from_datatype(datatype: Option<&str>) -> Option<u32> {
-    let datatype = datatype?.trim().to_ascii_lowercase();
-    if datatype == "decimal" {
-        return Some(10);
-    }
-    match datatype.as_str() {
-        "radix2" => Some(2),
-        "radix6" => Some(6),
-        "radix8" => Some(8),
-        "radix12" => Some(12),
-        _ => None,
     }
 }
 

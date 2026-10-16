@@ -12,8 +12,8 @@ use aes_telex::{
 };
 
 use aeon_core::{
-    SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions, SansaSelector,
-    parse_sansa_address, resolve_sansa_address,
+    RadixBaseResolution, SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions,
+    SansaSelector, parse_sansa_address, resolve_radix_base_from_datatype, resolve_sansa_address,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2658,7 +2658,10 @@ fn check_numeric_form(
             && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
         {
             let declared_radix = declared_radix_from_datatype(event.datatype.as_deref());
-            if (declared_radix.is_none()
+            if matches!(
+                resolve_radix_base_from_datatype(event.datatype.as_deref()),
+                RadixBaseResolution::Invalid
+            ) || (declared_radix.is_none()
                 && constraints
                     .get("allow_unspecified_radix")
                     .and_then(JsonValue::as_bool)
@@ -3071,7 +3074,10 @@ fn validate_attribute_entry(
                 .and_then(JsonValue::as_u64)
         {
             let declared_radix = declared_radix_from_datatype(entry.datatype.as_deref());
-            if (declared_radix.is_none()
+            if matches!(
+                resolve_radix_base_from_datatype(entry.datatype.as_deref()),
+                RadixBaseResolution::Invalid
+            ) || (declared_radix.is_none()
                 && effective_constraints
                     .get("allow_unspecified_radix")
                     .and_then(JsonValue::as_bool)
@@ -3654,7 +3660,10 @@ fn constraint_branch_matches_event(constraints: &JsonValue, event: &EventInfo) -
             && let Some(radix) = constraints.get("radix").and_then(JsonValue::as_u64)
         {
             let declared_radix = declared_radix_from_datatype(event.datatype.as_deref());
-            if (declared_radix.is_none()
+            if matches!(
+                resolve_radix_base_from_datatype(event.datatype.as_deref()),
+                RadixBaseResolution::Invalid
+            ) || (declared_radix.is_none()
                 && constraints
                     .get("allow_unspecified_radix")
                     .and_then(JsonValue::as_bool)
@@ -4028,24 +4037,7 @@ fn is_string_like_literal(value_type: &str) -> bool {
 }
 
 fn declared_radix_from_datatype(datatype: Option<&str>) -> Option<usize> {
-    let datatype = datatype?.trim().to_ascii_lowercase();
-    if datatype == "decimal" {
-        return Some(10);
-    }
-    if let Some(inner) = datatype
-        .strip_prefix("radix[")
-        .and_then(|rest| rest.strip_suffix(']'))
-    {
-        let base = inner.parse::<usize>().ok()?;
-        return (2..=64).contains(&base).then_some(base);
-    }
-    match datatype.as_str() {
-        "radix2" => Some(2),
-        "radix6" => Some(6),
-        "radix8" => Some(8),
-        "radix12" => Some(12),
-        _ => None,
-    }
+    resolve_radix_base_from_datatype(datatype).base()
 }
 
 fn has_digit_form_constraints(constraints: &JsonValue) -> bool {

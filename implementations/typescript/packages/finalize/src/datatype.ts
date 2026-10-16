@@ -1,7 +1,7 @@
 export function formatDatatypeAnnotation(datatype: {
     readonly name: string;
     readonly genericArgs?: readonly string[] | null;
-    readonly clarifiers?: readonly (string | number)[] | null;
+    readonly clarifiers?: readonly (string | number | { readonly type: 'NumberLiteral'; readonly value: string })[] | null;
     readonly radixBase?: number | null;
     readonly separators?: readonly string[] | null;
 } | null | undefined): string {
@@ -30,6 +30,6 @@ function legacyClarifiers(datatype: {
     return datatype.separators ?? [];
 }
 
-function formatClarifierValue(value: string | number): string {
-    return typeof value === 'string' ? JSON.stringify(value) : String(value);
+function formatClarifierValue(value: string | number | { readonly type: 'NumberLiteral'; readonly value: string }): string {
+    return typeof value === 'string' ? JSON.stringify(value) : typeof value === 'number' ? String(value) : value.value;
 }

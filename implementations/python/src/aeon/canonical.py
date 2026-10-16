@@ -4,7 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
-from ._numbers import normalize_number_literal
+from ._numbers import normalize_number_literal, format_clarifier
 from .ast import (
     Attribute,
     AttributePathSegment,
@@ -313,12 +313,6 @@ def render_type(datatype: TypeAnnotation | None) -> str:
     if datatype.clarifiers:
         text += "[" + ", ".join(format_clarifier(value) for value in datatype.clarifiers) + "]"
     return f":{text}"
-
-
-def format_clarifier(value: str | int | float) -> str:
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
 
 
 def render_value_inline(value: Value) -> str:

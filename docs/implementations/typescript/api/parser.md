@@ -47,6 +47,16 @@ interface ParseResult {
 
 ## Notes
 
+- Generic arguments are datatype descriptors, not literal parameters:
+  `custom<number>[1.0]` and `list<custom[1.0]>` are valid syntax;
+  `custom<1.0>` is not. Quoted strings cannot be generic type names either.
+- Parsed numeric datatype clarifiers use `NumberLiteral` nodes, just like
+  numeric values: `value` is normalized exact text, `raw` retains the source
+  spelling, and `span` identifies the numeric token. They are not JavaScript
+  `Number` values. String clarifiers remain strings, so `custom[123]` and
+  `custom["123"]` remain distinct. Caller-constructed annotations may still
+  supply native numbers, but precision already lost by a caller cannot be
+  recovered.
 - These options are implementation controls, not AEON document syntax.
 - The parser expects token input from `@altopelago/aeon-lexer`.
 - If you need the canonical high-level processing entry point, use `@altopelago/aeon-core` instead of calling parser phases manually.

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import { evaluateQuery, planMutation, resolveAddress, validateMutationPlanTarget } from '@altopelago/sansa';
 import { readAeon } from './index.js';
 import {
@@ -72,6 +73,20 @@ function bindingAt(namespace: AeonSansaNamespace, address: string): AeonSansaBin
   assert.equal(resolved.bindings.length, 1, `Expected one binding at ${address}`);
   return resolved.bindings[0]!;
 }
+
+test('radix metadata resolves exact integral decimals without rounding fractions', () => {
+  for (const [literal, base] of [['2.00', 2], ['2e0', 2], ['20e-1', 2], ['2.0000000000000001', undefined]] as const) {
+    const { namespace } = readAeonNamespace(`mask:radix[${literal}]=%1`);
+    assert.equal(bindingAt(namespace, '$.mask').radixBase, base);
+  }
+});
+
+test('radix metadata does not assign reserved semantics to mixed-case custom names', () => {
+  for (const { datatype, base } of datatypeNames) {
+    const { namespace } = readAeonNamespace(`mask:${datatype}=%1`);
+    assert.equal(bindingAt(namespace, '$.mask').radixBase, base ?? undefined, datatype);
+  }
+});
 
 test('reads AEON directly into a payload-scoped SANSA namespace', () => {
   const { namespace } = readAeonNamespace(INVENTORY_SOURCE);

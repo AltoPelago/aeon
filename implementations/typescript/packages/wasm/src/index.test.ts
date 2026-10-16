@@ -4,6 +4,10 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
+import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
+import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
+import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
+import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -13,6 +17,86 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm keeps custom mixed-case radix names unspecified in both finalizers', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { datatype, base, invalid } of datatypeNames) {
+    for (const [payload, digit] of [['1', 1], ['A', 10]] as const) {
+      const source = `mask:${datatype}=%${payload}`;
+      assert.deepEqual(runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom', finalize: false }).errors, [], source);
+      const legacy = runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom' });
+      const portable = runtime.materializeTelex(`telex.aes=1\n\npath=$.mask\nkind=RadixLiteral\ndatatype=${datatype}\nvalue=${payload}\n`, { finalizeMode: 'strict' });
+      const expected = invalid || (base !== null && digit >= base);
+      assert.equal(legacy.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expected, source);
+      assert.equal(portable.meta.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expected, source);
+      assert.deepEqual(portable.document, legacy.finalized.document, source);
+    }
+  }
+});
+
+test('generated wasm agrees on exact radix bases in source and portable finalization', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { literal, base } of radixBases.filter(f => f.testSource)) {
+    for (const payload of ['1', '2']) {
+      const source = `mask:radix[${literal}]=%${payload}`;
+      assert.deepEqual(runtime.processAeon(source, { validationMode: 'strict', finalize: false }).errors, []);
+      const legacy = runtime.processAeon(source, { validationMode: 'strict' });
+      const portable = runtime.materializeTelex(`telex.aes=1\n\npath=$.mask\nkind=RadixLiteral\ndatatype=radix[${literal}]\nvalue=${payload}\n`, { finalizeMode: 'strict' });
+      const expectedInvalid = base === null || Number(payload) >= base;
+      assert.equal(legacy.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expectedInvalid, source);
+      assert.equal(portable.meta.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expectedInvalid, source);
+      assert.deepEqual(portable.document, legacy.finalized.document);
+    }
+  }
+});
+
+test('generated wasm enforces type-only generic arguments in one-shot, canonical and streaming paths', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const fixture of genericArguments) {
+    const result = runtime.processAeon(fixture.source, { validationMode: 'loose', finalize: false });
+    assert.equal(result.ok, fixture.ok, fixture.source);
+    const canonical = runtime.processAeon(fixture.source, { validationMode: 'none', finalize: false });
+    assert.equal(canonical.ok, fixture.ok, fixture.source);
+    if (fixture.ok) assert.ok(canonical.canonical.text.includes(fixture.fragment), canonical.canonical.text);
+    else {
+      assert.ok(result.errors.some(error => error.code === 'SYNTAX_ERROR'));
+      assert.equal(canonical.canonical.text, '');
+    }
+    for (let split = 0; split <= fixture.source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(fixture.source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(fixture.source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      while (stream.pullBatch() !== null) { /* drain provisional events */ }
+      const terminal = stream.takeTerminal();
+      assert.equal(terminal.status, fixture.ok ? 'accepted' : 'invalidated', `${fixture.source}, split=${split}`);
+      if (!fixture.ok) assert.ok(terminal.errors.some(error => error.code === 'SYNTAX_ERROR'));
+    }
+  }
+});
+
+test('generated wasm preserves exact numeric clarifiers in canonical and streaming output', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { raw, normalized } of numericClarifiers) {
+    const source = `x:custom[${raw}]=${raw}`;
+    const result = runtime.processAeon(source, { validationMode: 'loose', finalize: false });
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.events[0]?.datatype, `custom[${normalized}]`);
+    const canonical = runtime.processAeon(source, { validationMode: 'none', finalize: false });
+    assert.deepEqual(canonical.errors, []);
+    assert.ok(canonical.canonical.text.includes(`custom[${normalized}]`), canonical.canonical.text);
+    for (let split = 0; split <= source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      const events: EventSummary[] = [];
+      for (let batch = stream.pullBatch(); batch !== null; batch = stream.pullBatch()) events.push(...batch.events);
+      assert.equal(events[0]?.datatype, `custom[${normalized}]`, `${raw}, split=${split}`);
+      assert.equal(stream.takeTerminal().status, 'accepted', `${raw}, split=${split}`);
+    }
+  }
+});
 
 test('generated wasm retains quoted datatype whitespace across every chunk split', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

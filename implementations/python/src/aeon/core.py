@@ -5,6 +5,7 @@ import json
 import re
 
 from ._compat import dataclass
+from ._numbers import format_clarifier
 from .ast import (
     Attribute,
     AttributePathSegment,
@@ -1634,12 +1635,6 @@ def format_datatype(datatype: TypeAnnotation | None) -> str | None:
     return f"{name}{generic}{clarifiers}"
 
 
-def format_clarifier(value: str | int | float) -> str:
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
-
-
 def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object] | None:
     if datatype is None:
         return None
@@ -1648,7 +1643,7 @@ def type_annotation_to_json(datatype: TypeAnnotation | None) -> dict[str, object
         "type": "TypeAnnotation",
         "name": name,
         "genericArgs": datatype.generic_args,
-        "clarifiers": datatype.clarifiers,
+        "clarifiers": [value_to_json(value) if isinstance(value, NumberLiteral) else value for value in datatype.clarifiers],
         "span": datatype.span.to_json(),
     }
 

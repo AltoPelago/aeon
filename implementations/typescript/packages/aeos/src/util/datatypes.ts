@@ -1,4 +1,4 @@
-import { aeonRadixBaseFromDatatype } from '@altopelago/aeon-aes';
+import { aeonRadixBaseFromDatatype, resolveAeonRadixBaseFromDatatype } from '@altopelago/aeon-aes';
 
 /**
  * Return the base name of a datatype without generic parameters or clarifiers.
@@ -33,4 +33,9 @@ export function parseClarifierValues(datatype: string): (string | number)[] {
  */
 export function declaredRadixFromDatatype(datatype: string | undefined): number | null {
     return aeonRadixBaseFromDatatype(datatype) ?? null;
+}
+
+/** An explicit invalid base must not be treated as an omitted declaration. */
+export function invalidDeclaredRadix(datatype: string | undefined): boolean {
+    return resolveAeonRadixBaseFromDatatype(datatype).kind === 'invalid';
 }

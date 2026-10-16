@@ -43,6 +43,10 @@ export {
     AEON_RADIX_MAX_BASE,
     AEON_RADIX_MIN_BASE,
     aeonRadixBaseFromDatatype,
+    aeonRadixBaseFromNumber,
+    resolveAeonRadixBaseFromComponents,
+    resolveAeonRadixBaseFromDatatype,
+    type RadixBaseResolution,
     aeonRadixDigitValue,
     aeonRadixScale,
 } from '@altopelago/aeon-aes';

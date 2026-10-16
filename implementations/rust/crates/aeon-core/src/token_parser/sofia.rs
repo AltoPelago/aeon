@@ -2607,27 +2607,6 @@ impl DatatypeFrame {
                         child: Frame::Datatype(Self::new(child_depth)),
                     }
                 }
-                TokenKind::Number => {
-                    let span = parser.advance().span;
-                    if let Err(error) = parser.count_datatype_component(span) {
-                        return Step::Failed(error);
-                    }
-                    let count = count + 1;
-                    if count > parser.max_generic_arguments {
-                        return Step::Failed(Diagnostic {
-                            code: String::from("GENERIC_ARGUMENTS_EXCEEDED"),
-                            path: Some(String::from("$")),
-                            span: Some(parser.previous().span),
-                            phase: None,
-                            message: format!(
-                                "Generic argument count {count} exceeds max_generic_arguments {}",
-                                parser.max_generic_arguments
-                            ),
-                        });
-                    }
-                    self.phase = DatatypePhase::GenericDelimiter { count };
-                    Step::Continue(Frame::Datatype(self))
-                }
                 _ => Step::Failed(parser.error_at_current("Expected generic argument")),
             },
             DatatypePhase::GenericChild { count } => {
@@ -4584,14 +4563,14 @@ items = [@{note:string = "first"}:number = 1]"#;
     fn iterative_datatype_frames_parse_generics_and_clarifiers() {
         let source = r#"payload:custom<
   tuple<string, number>,
-  3
+  domain[3]
 >["x", 1_0] = 1"#;
         let ParseOutcome::Parsed(bindings) = parse(source) else {
             panic!("generic datatype should use the Sofia frame path");
         };
         assert_eq!(
             bindings[0].datatype.as_deref(),
-            Some(r#"custom<tuple<string,number>,3>["x",10]"#)
+            Some(r#"custom<tuple<string,number>,domain[3]>["x",10]"#)
         );
     }
 

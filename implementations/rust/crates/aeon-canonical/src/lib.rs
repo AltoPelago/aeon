@@ -1239,7 +1239,30 @@ fn is_valid_second(value: u32) -> bool {
 }
 
 fn normalize_datatype(raw: &str) -> String {
-    raw.replace(',', ", ")
+    // Preserve quoted payloads while applying value-number normalization to
+    // numeric clarifier tokens. Do not parse them through host floats.
+    let lexed = aeon_core::tokenize(raw, aeon_core::LexerOptions::default());
+    let mut result = String::new();
+    let mut bracket_depth = 0usize;
+    for token in lexed.tokens {
+        match token.kind {
+            aeon_core::TokenKind::Eof => {}
+            aeon_core::TokenKind::LeftBracket => {
+                bracket_depth += 1;
+                result.push_str(&token.text);
+            }
+            aeon_core::TokenKind::RightBracket => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                result.push_str(&token.text);
+            }
+            aeon_core::TokenKind::Number if bracket_depth > 0 => {
+                result.push_str(&normalize_number(&token.text));
+            }
+            aeon_core::TokenKind::Comma => result.push_str(", "),
+            _ => result.push_str(&token.text),
+        }
+    }
+    result
 }
 
 fn normalize_raw(raw: &str) -> String {
@@ -1301,6 +1324,57 @@ fn validate_datatype_clarifiers(clarifiers: &[&str]) -> Result<(), String> {
         ));
     }
     validate_clarifier_list(clarifiers[0])
+}
+
+// The historical writer has its own parser. Match Core's type-only generic
+// arguments without interpreting quoted clarifier payloads as type syntax.
+fn validate_generic_type_names(raw: &str) -> Result<(), String> {
+    if !raw.contains('<') {
+        return Ok(());
+    }
+    let lexed = aeon_core::tokenize(raw, aeon_core::LexerOptions::default());
+    if !lexed.errors.is_empty() {
+        return Err(String::from("Invalid datatype annotation"));
+    }
+    let mut angle_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut expect_name = false;
+    for token in lexed.tokens {
+        use aeon_core::TokenKind;
+        match token.kind {
+            TokenKind::LeftBracket if angle_depth > 0 && expect_name => {
+                return Err(String::from("Expected type name for generic argument"));
+            }
+            TokenKind::LeftBracket => bracket_depth += 1,
+            TokenKind::RightBracket => bracket_depth = bracket_depth.saturating_sub(1),
+            _ if bracket_depth > 0 => {}
+            TokenKind::LeftAngle => {
+                angle_depth += 1;
+                expect_name = true;
+            }
+            TokenKind::RightAngle => {
+                if expect_name {
+                    return Err(String::from("Expected type name for generic argument"));
+                }
+                angle_depth = angle_depth.saturating_sub(1);
+            }
+            TokenKind::Comma if angle_depth > 0 => expect_name = true,
+            TokenKind::Comma | TokenKind::Eof => {}
+            _ if angle_depth > 0 => {
+                let mut chars = token.text.chars();
+                if !chars
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+                    || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                {
+                    return Err(String::from("Expected type name for generic argument"));
+                }
+                expect_name = false;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn validate_clarifier_list(payload: &str) -> Result<(), String> {
@@ -2435,6 +2509,9 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error("Expected token"));
         }
         if let Err(message) = validate_datatype_clarifiers(&datatype_bracket_specs(&value)) {
+            return Err(self.syntax_error(&message));
+        }
+        if let Err(message) = validate_generic_type_names(&value) {
             return Err(self.syntax_error(&message));
         }
         if let Err(message) = validate_reserved_datatype_adornments(&value) {
