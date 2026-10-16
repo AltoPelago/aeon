@@ -59,6 +59,7 @@ enum Value {
         trimticks: bool,
     },
     Symbol(String),
+    Separator(String),
     Number(String),
     Infinity(String),
     Null {
@@ -403,7 +404,13 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
     let prefix = " ".repeat(indent);
     let head = format!(
         "<{}{}{}{}",
-        render_canonical_key(&node.tag, node.canonical_key),
+        render_head_key(
+            &node.tag,
+            node.canonical_key,
+            node.structural_id.as_deref(),
+            &node.attributes,
+            node.datatype.as_deref()
+        ),
         render_structural_identity(node.structural_id.as_deref()),
         render_attributes(&node.attributes),
         render_canonical_datatype(node.datatype.as_deref(), node.canonical_key)
@@ -499,7 +506,13 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
         .map(|(key, entry)| {
             format!(
                 "{}{}{}{} = {}",
-                render_canonical_key(key, entry.rank.is_some()),
+                render_head_key(
+                    key,
+                    entry.rank.is_some(),
+                    entry.structural_id.as_deref(),
+                    &entry.attributes,
+                    entry.datatype.as_deref()
+                ),
                 render_structural_identity(entry.structural_id.as_deref()),
                 render_attributes(&entry.attributes),
                 render_canonical_datatype(entry.datatype.as_deref(), entry.rank.is_some()),
@@ -537,6 +550,8 @@ fn render_value_inline(value: &Value) -> String {
             }
         }
         Value::Symbol(value) => format_symbol(value),
+        // Native separators are literal data, not legacy raw/reference text.
+        Value::Separator(raw) => raw.clone(),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
         Value::Null { mode, value } => match mode {
@@ -589,7 +604,13 @@ fn render_value_inline(value: &Value) -> String {
         Value::Node(node) => {
             let head = format!(
                 "<{}{}{}{}",
-                render_canonical_key(&node.tag, node.canonical_key),
+                render_head_key(
+                    &node.tag,
+                    node.canonical_key,
+                    node.structural_id.as_deref(),
+                    &node.attributes,
+                    node.datatype.as_deref()
+                ),
                 if node.canonical_key {
                     render_structural_identity(node.structural_id.as_deref())
                 } else {
@@ -639,7 +660,34 @@ fn render_canonical_key(key: &str, canonical: bool) -> String {
 }
 
 fn render_binding_key(binding: &Binding) -> String {
-    render_canonical_key(&binding.key, binding.canonical_key)
+    render_head_key(
+        &binding.key,
+        binding.canonical_key,
+        binding.structural_id.as_deref(),
+        &binding.attributes,
+        binding.datatype.as_deref(),
+    )
+}
+
+fn render_head_key(
+    key: &str,
+    canonical: bool,
+    structural_id: Option<&str>,
+    attributes: &BTreeMap<String, AttributeEntry>,
+    datatype: Option<&str>,
+) -> String {
+    // Bare `aeon:` is one namespace token even inside metadata and node heads.
+    // An emitted identity or nonempty attribute head separates the key from
+    // the colon; otherwise preserve quoting when a datatype follows directly.
+    if canonical
+        && key == "aeon"
+        && structural_id.is_none()
+        && attributes.is_empty()
+        && datatype.is_some()
+    {
+        return String::from("\"aeon\"");
+    }
+    render_canonical_key(key, canonical)
 }
 
 fn compare_bindings(left: &Binding, right: &Binding) -> std::cmp::Ordering {
@@ -676,6 +724,7 @@ fn is_simple_scalar(value: &Value) -> bool {
         Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
+        | Value::Separator(_)
         | Value::Number(_)
         | Value::Infinity(_)
         | Value::Null { .. }
@@ -690,6 +739,7 @@ fn is_simple_value(value: &Value) -> bool {
         Value::Attributed { value, .. } => is_simple_value(value),
         Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
+        | Value::Separator(_)
         | Value::Number(_)
         | Value::Infinity(_)
         | Value::Null { .. }

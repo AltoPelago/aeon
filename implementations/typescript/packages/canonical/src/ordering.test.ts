@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes } from '@altopelago/aeon-aes';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
@@ -28,6 +29,31 @@ function semanticGraph(source: string) {
     return portable.map(({ span: _span, origin: _origin, ...entry }) => entry)
         .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
+
+for (const fixture of renderingFixtures) {
+    test(`reference-safe rendering preserves graph: ${fixture.id}`, () => {
+        const source = fixture.source.startsWith('aeon:header=') ? fixture.source : `aeon:header={}\n${fixture.source}`;
+        const result = canonicalize(source, options);
+        assert.deepEqual(result.errors, []);
+        assert.ok(result.text.includes(fixture.fragment), result.text);
+        assert.equal(canonicalize(result.text, options).text, result.text);
+        assert.deepEqual(semanticGraph(result.text), semanticGraph(source));
+    });
+}
+
+test('head quoting and empty-head normalization do not change historical bytes', () => {
+    for (const [source, suffix] of [
+        ['"aeon":custom=1', 'aeon:custom = 1\n'],
+        ['a@{"aeon":custom=1}=0', 'a@{aeon:custom = 1} = 0\n'],
+        ['a=<"aeon":custom>', 'a = <aeon:custom>\n'],
+        ['a@{}=0', 'a@{} = 0\n'],
+    ] as const) {
+        const legacy = canonicalize(source);
+        assert.deepEqual(legacy.errors, []);
+        assert.ok(legacy.text.endsWith(suffix), legacy.text);
+        assert.deepEqual(canonicalize(source, { ordering: 'lexical-v1' }), legacy);
+    }
+});
 
 const scenarios = [
     'd=3\nc=2\nb=~c\na=1',

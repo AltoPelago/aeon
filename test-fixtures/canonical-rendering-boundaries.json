@@ -1,0 +1,507 @@
+[
+  {
+    "id": "aeon-head-root-typed-key",
+    "source": "\"aeon\":custom=1",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-object-typed-key",
+    "source": "a={\"aeon\":custom=1}",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-header-typed-key",
+    "source": "aeon:header={\"aeon\":custom=1}",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-binding-metadata-typed-key",
+    "source": "a@{\"aeon\":custom=1}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-nested-metadata-typed-key",
+    "source": "a@{m@{\"aeon\":custom=1}=0}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-metadata-object-typed-key",
+    "source": "a@{m={\"aeon\":custom=1}}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-list-object-typed-key",
+    "source": "a=[{\"aeon\":custom=1}]",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-tuple-object-typed-key",
+    "source": "a=({\"aeon\":custom=1})",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-node-object-typed-key",
+    "source": "a=<tag({\"aeon\":custom=1})>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-node-typed-tag",
+    "source": "a=<\"aeon\":custom>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-metadata-node-typed-tag",
+    "source": "a@{m=<\"aeon\":custom>}=0",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-child-node-typed-tag",
+    "source": "a=<tag(<\"aeon\":custom>)>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-node-metadata-typed-key",
+    "source": "a=<tag@{\"aeon\":custom=1}>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-anonymous-metadata-typed-key",
+    "source": "a=[@{\"aeon\":custom=1}=0]",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-binding-attribute-prefix",
+    "source": "aeon@{m=1}:custom=1",
+    "fragment": "aeon@{m = 1}:custom"
+  },
+  {
+    "id": "aeon-head-binding-identity-prefix",
+    "source": "aeon\\ID\\:custom=1",
+    "fragment": "aeon\\ID\\:custom"
+  },
+  {
+    "id": "aeon-head-plain-key",
+    "source": "aeon=1",
+    "fragment": "aeon = 1"
+  },
+  {
+    "id": "aeon-head-case-sensitive-key",
+    "source": "Aeon:custom=1",
+    "fragment": "Aeon:custom"
+  },
+  {
+    "id": "aeon-head-metadata-identity-prefix",
+    "source": "a@{aeon\\ID\\:custom=1}=0",
+    "fragment": "aeon\\ID\\:custom"
+  },
+  {
+    "id": "aeon-head-metadata-attribute-prefix",
+    "source": "a@{aeon@{m=1}:custom=1}=0",
+    "fragment": "aeon@{m = 1}:custom"
+  },
+  {
+    "id": "aeon-head-node-identity-prefix",
+    "source": "a=<aeon\\ID\\:custom>",
+    "fragment": "<aeon\\ID\\:custom>"
+  },
+  {
+    "id": "aeon-head-node-attribute-prefix",
+    "source": "a=<aeon@{m=1}:custom>",
+    "fragment": "<aeon@{m = 1}:custom>"
+  },
+  {
+    "id": "aeon-head-binding-empty-prefix",
+    "source": "\"aeon\"@{}:custom=1",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-metadata-empty-prefix",
+    "source": "a@{\"aeon\"@{}:custom=1}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-node-empty-prefix",
+    "source": "a=<\"aeon\"@{}:custom>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-body-reference",
+    "source": "\"aeon\":custom=1\nz=~aeon",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-metadata-reference",
+    "source": "a@{\"aeon\":custom=1,b=~a.@.aeon}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-nested-metadata-reference",
+    "source": "a@{m@{\"aeon\":custom=1,b=~a.@.m.@.aeon}=0}=0",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-binding-to-node-head-reference",
+    "source": "a@{\"aeon\":custom=1}=<tag@{m=~a.@.aeon}>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "separator-1-root",
+    "source": "v=^'a.[\"foo\"]'",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-object",
+    "source": "a={v=^'a.[\"foo\"]'}",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-list",
+    "source": "a=[^'a.[\"foo\"]']",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-tuple",
+    "source": "a=(^'a.[\"foo\"]')",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-node",
+    "source": "a=<tag(^'a.[\"foo\"]')>",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-metadata",
+    "source": "a@{m=^'a.[\"foo\"]'}=0",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-metadata-object",
+    "source": "a@{m={v=^'a.[\"foo\"]'}}=0",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-node-metadata",
+    "source": "a=<tag@{m=^'a.[\"foo\"]'}>",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-header",
+    "source": "aeon:header={v=^'a.[\"foo\"]'}",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-2-root",
+    "source": "v=^'a.@.[\"meta\"]'",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-object",
+    "source": "a={v=^'a.@.[\"meta\"]'}",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-list",
+    "source": "a=[^'a.@.[\"meta\"]']",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-tuple",
+    "source": "a=(^'a.@.[\"meta\"]')",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-node",
+    "source": "a=<tag(^'a.@.[\"meta\"]')>",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-metadata",
+    "source": "a@{m=^'a.@.[\"meta\"]'}=0",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-metadata-object",
+    "source": "a@{m={v=^'a.@.[\"meta\"]'}}=0",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-node-metadata",
+    "source": "a=<tag@{m=^'a.@.[\"meta\"]'}>",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-header",
+    "source": "aeon:header={v=^'a.@.[\"meta\"]'}",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-3-root",
+    "source": "v=^'~$.a.[\"foo\"]'",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-object",
+    "source": "a={v=^'~$.a.[\"foo\"]'}",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-list",
+    "source": "a=[^'~$.a.[\"foo\"]']",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-tuple",
+    "source": "a=(^'~$.a.[\"foo\"]')",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-node",
+    "source": "a=<tag(^'~$.a.[\"foo\"]')>",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-metadata",
+    "source": "a@{m=^'~$.a.[\"foo\"]'}=0",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-metadata-object",
+    "source": "a@{m={v=^'~$.a.[\"foo\"]'}}=0",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-node-metadata",
+    "source": "a=<tag@{m=^'~$.a.[\"foo\"]'}>",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-header",
+    "source": "aeon:header={v=^'~$.a.[\"foo\"]'}",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-4-root",
+    "source": "v=^'~>$.a.@.[\"meta\"]'",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-object",
+    "source": "a={v=^'~>$.a.@.[\"meta\"]'}",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-list",
+    "source": "a=[^'~>$.a.@.[\"meta\"]']",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-tuple",
+    "source": "a=(^'~>$.a.@.[\"meta\"]')",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-node",
+    "source": "a=<tag(^'~>$.a.@.[\"meta\"]')>",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-metadata",
+    "source": "a@{m=^'~>$.a.@.[\"meta\"]'}=0",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-metadata-object",
+    "source": "a@{m={v=^'~>$.a.@.[\"meta\"]'}}=0",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-node-metadata",
+    "source": "a=<tag@{m=^'~>$.a.@.[\"meta\"]'}>",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-header",
+    "source": "aeon:header={v=^'~>$.a.@.[\"meta\"]'}",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-5-root",
+    "source": "v=^'a.[\"not-identifier\"]'",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-object",
+    "source": "a={v=^'a.[\"not-identifier\"]'}",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-list",
+    "source": "a=[^'a.[\"not-identifier\"]']",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-tuple",
+    "source": "a=(^'a.[\"not-identifier\"]')",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-node",
+    "source": "a=<tag(^'a.[\"not-identifier\"]')>",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-metadata",
+    "source": "a@{m=^'a.[\"not-identifier\"]'}=0",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-metadata-object",
+    "source": "a@{m={v=^'a.[\"not-identifier\"]'}}=0",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-node-metadata",
+    "source": "a=<tag@{m=^'a.[\"not-identifier\"]'}>",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-header",
+    "source": "aeon:header={v=^'a.[\"not-identifier\"]'}",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-6-root",
+    "source": "v=^'say \\'yes\\' a.[\"foo\"]'",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-object",
+    "source": "a={v=^'say \\'yes\\' a.[\"foo\"]'}",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-list",
+    "source": "a=[^'say \\'yes\\' a.[\"foo\"]']",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-tuple",
+    "source": "a=(^'say \\'yes\\' a.[\"foo\"]')",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-node",
+    "source": "a=<tag(^'say \\'yes\\' a.[\"foo\"]')>",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-metadata",
+    "source": "a@{m=^'say \\'yes\\' a.[\"foo\"]'}=0",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-metadata-object",
+    "source": "a@{m={v=^'say \\'yes\\' a.[\"foo\"]'}}=0",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-node-metadata",
+    "source": "a=<tag@{m=^'say \\'yes\\' a.[\"foo\"]'}>",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-header",
+    "source": "aeon:header={v=^'say \\'yes\\' a.[\"foo\"]'}",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-7-root",
+    "source": "v=^\"a.[\\\"foo\\\"]\"",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-object",
+    "source": "a={v=^\"a.[\\\"foo\\\"]\"}",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-list",
+    "source": "a=[^\"a.[\\\"foo\\\"]\"]",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-tuple",
+    "source": "a=(^\"a.[\\\"foo\\\"]\")",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-node",
+    "source": "a=<tag(^\"a.[\\\"foo\\\"]\")>",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-metadata",
+    "source": "a@{m=^\"a.[\\\"foo\\\"]\"}=0",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-metadata-object",
+    "source": "a@{m={v=^\"a.[\\\"foo\\\"]\"}}=0",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-node-metadata",
+    "source": "a=<tag@{m=^\"a.[\\\"foo\\\"]\"}>",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-header",
+    "source": "aeon:header={v=^\"a.[\\\"foo\\\"]\"}",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-8-root",
+    "source": "v=^'a.[\"foo\"]'.'b.@.[\"bar\"]'",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-object",
+    "source": "a={v=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-list",
+    "source": "a=[^'a.[\"foo\"]'.'b.@.[\"bar\"]']",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-tuple",
+    "source": "a=(^'a.[\"foo\"]'.'b.@.[\"bar\"]')",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-node",
+    "source": "a=<tag(^'a.[\"foo\"]'.'b.@.[\"bar\"]')>",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-metadata",
+    "source": "a@{m=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}=0",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-metadata-object",
+    "source": "a@{m={v=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}}=0",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-node-metadata",
+    "source": "a=<tag@{m=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}>",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-header",
+    "source": "aeon:header={v=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  }
+]

@@ -267,13 +267,13 @@ fn convert_value(value: &aeon_core::Value) -> Value {
                 span: *span,
             }
         }
+        Native::SeparatorLiteral { raw } => Value::Separator(raw.clone()),
         Native::SansaAddressLiteral { canonical, .. } => Value::Raw(canonical.clone()),
         Native::InfinityLiteral { raw, .. }
         | Native::NaNLiteral { raw, .. }
         | Native::ToggleLiteral { raw }
         | Native::BooleanLiteral { raw }
         | Native::HexLiteral { raw }
-        | Native::SeparatorLiteral { raw }
         | Native::EncodingLiteral { raw }
         | Native::RadixLiteral { raw }
         | Native::DateLiteral { raw }
@@ -949,6 +949,108 @@ mod tests {
                 .text
                 .ends_with("a = ~z\nz = 1\n")
         );
+    }
+
+    #[test]
+    fn rendering_boundaries_preserve_native_graph_and_fixed_points() {
+        fn attributes(entries: &mut BTreeMap<String, AttributeEntry>) {
+            for entry in entries.values_mut() {
+                entry.rank = None;
+                attributes(&mut entry.attributes);
+                value(&mut entry.value);
+            }
+        }
+        fn bindings(entries: &mut [Binding]) {
+            entries.sort_by(|a, b| a.key.cmp(&b.key));
+            for entry in entries {
+                entry.rank = None;
+                attributes(&mut entry.attributes);
+                value(&mut entry.value);
+            }
+        }
+        fn value(payload: &mut Value) {
+            match payload {
+                Value::Attributed {
+                    attributes: entries,
+                    value: inner,
+                    ..
+                } => {
+                    attributes(entries);
+                    value(inner);
+                }
+                Value::Object(entries) => bindings(entries),
+                Value::List(items) | Value::Tuple(items) => {
+                    for item in items {
+                        value(item);
+                    }
+                }
+                Value::Node(node) => {
+                    attributes(&mut node.attributes);
+                    for child in &mut node.children {
+                        value(child);
+                    }
+                }
+                Value::Reference { span, .. } => {
+                    let point = aeon_core::Position {
+                        line: 1,
+                        column: 1,
+                        offset: 0,
+                    };
+                    *span = Span {
+                        start: point,
+                        end: point,
+                    };
+                }
+                _ => {}
+            }
+        }
+        fn graph(source: &str) -> DocumentParts {
+            let parsed =
+                aeon_core::parse_document(source, &options().limits).expect("native parse");
+            let (mut header, mut body) = convert_document(&parsed).expect("native document");
+            if let Some(header) = header.as_mut() {
+                bindings(header);
+            }
+            bindings(&mut body);
+            (header, body)
+        }
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/canonical-rendering-boundaries.json"
+        ))
+        .expect("shared fixtures");
+        for fixture in fixtures.as_array().expect("fixture array") {
+            let source = fixture["source"].as_str().expect("source");
+            let authored = if source.starts_with("aeon:header=") {
+                source.to_owned()
+            } else {
+                format!("aeon:header={{}}\n{source}")
+            };
+            let output = canonical(&authored);
+            assert!(
+                output.contains(fixture["fragment"].as_str().expect("fragment")),
+                "{}: {output}",
+                fixture["id"]
+            );
+            assert_eq!(graph(&authored), graph(&output), "{}", fixture["id"]);
+        }
+    }
+
+    #[test]
+    fn head_and_separator_fixes_do_not_change_historical_bytes() {
+        for (source, suffix) in [
+            (r#""aeon":custom=1"#, "aeon:custom = 1\n"),
+            (r#"a@{"aeon":custom=1}=0"#, "a@{aeon:custom = 1} = 0\n"),
+            (r#"a=<"aeon":custom>"#, "a = <aeon:custom>\n"),
+            (r#"v=^'a.["foo"]'"#, "v = ^'a.foo'\n"),
+        ] {
+            let legacy = super::super::canonicalize(source);
+            assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
+            assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
+            assert_eq!(
+                canonicalize_with_options(source, &CanonicalizeOptions::default()),
+                legacy
+            );
+        }
     }
 
     #[test]

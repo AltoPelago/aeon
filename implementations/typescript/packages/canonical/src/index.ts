@@ -220,7 +220,7 @@ function renderHeader(document: Document, referencePath: ReferenceFormatter): st
 
 function renderBinding(binding: Binding, indent: number, referencePath: ReferenceFormatter): string[] {
     const prefix = ' '.repeat(indent);
-    const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
+    const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
 
     if (binding.value.type === 'ObjectNode') {
         return renderObjectBinding(prefix, key, binding.value, indent, referencePath);
@@ -438,7 +438,7 @@ function renderNodeValue(
     referencePath: ReferenceFormatter
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+    const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -486,11 +486,14 @@ function renderAttributes(attributes: readonly Attribute[], referencePath: Refer
         }
     }
     const sorted = Array.from(entries.entries());
+    // Empty heads carry no metadata and native Core does not retain their
+    // presence. Normalize them away only for the experimental contract.
+    if (referencePath.referenceSafe && sorted.length === 0) return '';
     const rendered = sorted.map(([key, value]) => {
         const nestedAttributes = renderAttributes(value.attributes, referencePath);
         const type = value.datatype ? renderType(value.datatype) : '';
         const formatted = renderValueInline(value.value, referencePath);
-        return `${formatBindingKey(key)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
+        return `${formatHeadKey(key, value, referencePath)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
     });
     return `@{${rendered.join(', ')}}`;
 }
@@ -541,7 +544,7 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'ObjectNode': {
             const sorted = value.bindings;
             const bindings = sorted.map((binding) => {
-                const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
+                const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
                 return `${key} = ${renderCompactInlineValue(binding.value, referencePath)}`;
             });
             return `{ ${bindings.join(', ')} }`;
@@ -551,7 +554,7 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element, referencePath)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+            const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
@@ -745,6 +748,14 @@ function renderScalarFromObject(value: unknown, path: string, errors: EmitError[
 
 function formatBindingKey(key: string): string {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+}
+
+function formatHeadKey(key: string, head: Pick<Binding, 'structuralId' | 'attributes' | 'datatype'>, contract: ReferenceFormatter): string {
+    // `aeon:` is lexed as a namespace token, not a key followed by a type.
+    // Only emitted head components can separate it; empty attributes vanish.
+    const hasAttributes = head.attributes.some(attribute => attribute.entries.size > 0);
+    return contract.referenceSafe && key === 'aeon' && head.datatype !== null && !head.structuralId && !hasAttributes
+        ? formatString(key) : formatBindingKey(key);
 }
 
 function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
+import renderingFixtures from '../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 
 const root = getRepoRoot();
 const manifestPath = path.resolve(resolveCTSPath('cts/canonical/v1/canonical-reference-ordering-cts.v1.next.json'));
@@ -106,6 +107,8 @@ console.log(`${backend} reference-safe-v1 API CTS: pass=${passed} fail=${failed}
 if (backend === 'rust') {
   const typescriptCanonicalize = (await load('canonical')).canonicalize;
   const sources = [];
+  const renderingSources = new Map(renderingFixtures.map(fixture => [fixture.source, fixture.fragment]));
+  sources.push(...renderingSources.keys());
   const headers = [
     { source: 'x@{root={leaf=1}}={leaf@{meta=2}={deep=3}}', paths: ['', '.@.root.leaf', '.leaf', '.leaf.@.meta', '.leaf.deep'] },
     { source: 'x=[@{meta=1}={leaf=2},3]', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
@@ -147,11 +150,17 @@ if (backend === 'rust') {
     try {
       const expected = typescriptCanonicalize(source, parityOptions);
       const actual = canonicalize(source, parityOptions);
+      if (renderingSources.has(source)) {
+        assert.deepEqual(expected.errors, [], 'rendering regression must be valid input');
+        assert.ok(actual.text.includes(renderingSources.get(source)), 'literal/head spelling preservation');
+      }
       assert.deepEqual(actual.errors.map(error => error.code), expected.errors.map(error => error.code), 'reference diagnostics');
       assert.equal(actual.text, expected.text, 'canonical bytes');
       if (actual.errors.length === 0) {
         assert.equal(canonicalize(actual.text, parityOptions).text, actual.text, 'fixed point bytes');
-        const parsed = parse(tokenize(source).tokens);
+        const parsed = parse(tokenize(source).tokens, { maxAttributeDepth: parityOptions.maxAttributeDepth });
+        assert.deepEqual(parsed.errors, [], 'parity source parser legality');
+        assert.ok(parsed.document);
         const includeHeaders = parsed.document.header !== null;
         assert.deepEqual(graph(actual.text, includeHeaders, 2), graph(source, includeHeaders, 2), 'semantic graph preservation');
       }
