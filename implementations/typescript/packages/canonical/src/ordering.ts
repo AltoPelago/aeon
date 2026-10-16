@@ -1,5 +1,6 @@
 import type { Attribute, AttributeValue, Binding, Document, ReferencePathSegment, Value } from '@altopelago/aeon-parser';
 import type { Span } from '@altopelago/aeon-lexer';
+import { emitEvents, resolvePaths } from '@altopelago/aeon-aes';
 
 export class CanonicalOrderingError extends Error {
     constructor(
@@ -51,8 +52,26 @@ function pathKey(path: Path): string {
 export function referenceSafeOrders(document: Document, maxEdges: number): Orders {
     const scopes: Scope[] = [];
     const targets = new Map<string, Membership | undefined>();
+    type Plane = 'header' | 'body';
+    const candidates = new Map<string, { path: Path; plane: Plane; membership: Membership | undefined }>();
     const claims: { target: Path; membership: Membership | undefined }[] = [];
-    const bodyKeys = new Set(document.bindings.map(binding => binding.key));
+    let plane: Plane = 'header';
+    // Use Core's indexed payload paths, not AST subtree containment. A body
+    // payload shadows the same exact header payload, but independently emitted
+    // header descendants remain addressable beneath a colliding parent path.
+    const emitted = emitEvents(resolvePaths(document, { indexedPaths: true }));
+    if (emitted.errors.length > 0) {
+        throw new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical ordering requires resolved payload paths', document.span);
+    }
+    const payloadPlanes = new Map<string, Plane>();
+    for (const event of emitted.events) {
+        const path = event.path.segments.flatMap<ReferencePathSegment>(segment =>
+            segment.type === 'root' ? [] : [segment.type === 'member' ? segment.key : segment.index]);
+        const key = pathKey(path);
+        const previous = payloadPlanes.get(key);
+        const eventPlane = event.sourcePlane ?? 'body';
+        if (previous === undefined || (previous === 'header' && eventPlane === 'body')) payloadPlanes.set(key, eventPlane);
+    }
 
     function scope(identity: object, keys: readonly string[]): Scope {
         const result: Scope = { identity, keys, successors: new Map(), indegree: keys.map(() => 0) };
@@ -80,11 +99,8 @@ export function referenceSafeOrders(document: Document, maxEdges: number): Order
         const object = scope(entries, entries.map(binding => binding.key));
         entries.forEach((binding, index) => {
             const key = header ? `aeon:${binding.key}` : binding.key;
-            // Core selects the entire body payload over a colliding header
-            // payload; header descendants and metadata cannot leak through.
-            const visible = targetable && !(header && bodyKeys.has(key));
             attributesAndValue(binding.attributes, binding.value, [...path, key],
-                { scope: object, entry: index, parent }, visible);
+                { scope: object, entry: index, parent }, targetable);
         });
     }
 
@@ -105,7 +121,8 @@ export function referenceSafeOrders(document: Document, maxEdges: number): Order
         }
         // Availability precedes descendants, not completion of the subtree.
         // Metadata has already been visited before its attached payload.
-        if (targetable) targets.set(pathKey(path), membership);
+        const candidateKey = `${plane}\0${pathKey(path)}`;
+        if (targetable && !candidates.has(candidateKey)) candidates.set(candidateKey, { path, plane, membership });
         if (payload.type === 'ObjectNode') {
             bindings(payload.bindings, path, membership, false, targetable);
         } else if (payload.type === 'ListNode' || payload.type === 'TupleLiteral' || payload.type === 'NodeLiteral') {
@@ -115,7 +132,20 @@ export function referenceSafeOrders(document: Document, maxEdges: number): Order
     }
 
     if (document.header) bindings(document.header.bindings, [], undefined, true);
+    plane = 'body';
     bindings(document.bindings, [], undefined);
+    for (const candidate of candidates.values()) {
+        // A metadata target belongs to its nearest actual payload occurrence,
+        // not to every AST value nested inside that metadata. This mirrors
+        // Core's exact-path/source-plane selection and hides shadowed metadata
+        // without discarding independently emitted descendant payloads.
+        for (let length = candidate.path.length; length > 0; length -= 1) {
+            const owner = payloadPlanes.get(pathKey(candidate.path.slice(0, length)));
+            if (owner === undefined) continue;
+            if (owner === candidate.plane) targets.set(pathKey(candidate.path), candidate.membership);
+            break;
+        }
+    }
     let edgeCount = 0;
     for (const claim of claims) {
         const targetKey = pathKey(claim.target);

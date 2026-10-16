@@ -70,6 +70,71 @@ test('reconsiders eligibility after each emission and projects through containin
     assert.deepEqual(document(nested.text).bindings.map(binding => binding.key), ['z', 'y', 'a']);
 });
 
+for (const source of [
+    'aeon:header={x={leaf=1}}\n"aeon:x"=2\ncopy=~["aeon:x"].leaf',
+    'aeon:header={x={leaf=1}}\n"aeon:x"=2\na=~>["aeon:x"].leaf',
+    'aeon:header={x={branch={leaf=1}}}\n"aeon:x"={branch=2}\na=~["aeon:x"].branch.leaf',
+    'aeon:header={x={leaf@{meta=1}=2}}\n"aeon:x"=0\na=~["aeon:x"].leaf.@.meta',
+    'aeon:header={x=[{leaf=1}]}\n"aeon:x"=0\na=~["aeon:x"][0].leaf',
+    'aeon:header={x=({leaf=1})}\n"aeon:x"=0\na=~>["aeon:x"][0].leaf',
+    'aeon:header={x=<tag({leaf=1})>}\n"aeon:x"=0\na=~["aeon:x"][0].leaf',
+    'aeon:header={x=[@{meta=1}=2]}\n"aeon:x"=0\na=~["aeon:x"][0].@.meta',
+    'aeon:header={x={"literal.@leaf"@{"z.z"=1}=2}}\n"aeon:x"=0\na=~["aeon:x"].["literal.@leaf"].@.["z.z"]',
+    'aeon:header={z={leaf=1},b=~["aeon:z"].leaf}\n"aeon:z"=2',
+    'aeon:header={x={leaf=1}}\na=<tag@{meta=~["aeon:x"].leaf}>\n"aeon:x"=0',
+] as const) {
+    test(`partial header collision preserves independent payloads: ${source}`, () => {
+        const result = canonicalize(source, options);
+        assert.deepEqual(result.errors, []);
+        assert.deepEqual(semanticGraph(result.text), semanticGraph(source));
+        assert.equal(canonicalize(result.text, options).text, result.text);
+        if (source.includes('\na=')) {
+            // The header descendant is already available. Its shadowed root
+            // body binding must not become an invented local predecessor.
+            assert.deepEqual(document(result.text).bindings.map(binding => binding.key), ['a', 'aeon:x']);
+        }
+        if (source.startsWith('aeon:header={z=')) {
+            assert.deepEqual(document(result.text).header!.bindings.map(binding => binding.key), ['z', 'b']);
+        }
+    });
+}
+
+test('exact descendant collisions select the body payload and its metadata', () => {
+    const source = 'aeon:header={x={leaf@{meta=1}=2}}\n"aeon:x"={leaf@{meta=3}=4}\na=~["aeon:x"].leaf.@.meta';
+    const result = canonicalize(source, options);
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(document(result.text).bindings.map(binding => binding.key), ['aeon:x', 'a']);
+    assert.deepEqual(semanticGraph(result.text), semanticGraph(source));
+    assert.equal(canonicalize(result.text, options).text, result.text);
+});
+
+test('partial-collision shape matrix matches Core exact-path ownership', () => {
+    const headers = [
+        { source: 'x@{root={leaf=1}}={leaf@{meta=2}={deep=3}}', paths: ['', '.@.root.leaf', '.leaf', '.leaf.@.meta', '.leaf.deep'] },
+        { source: 'x=[@{meta=1}={leaf=2},3]', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
+        { source: 'x=(@{meta=1}={leaf=2},3)', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
+        { source: 'x=<tag(@{meta=1}={leaf=2},3)>', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
+    ];
+    const bodies = ['0', '{}', '{leaf=0}', '{leaf@{meta=9}=0}', '{leaf={deep=9}}', '[]', '[0]', '({leaf=0})', '<tag(0)>'];
+    let checked = 0;
+    for (const header of headers) for (const body of bodies) for (const suffix of header.paths) for (const marker of ['~', '~>']) {
+        const source = `aeon:header={${header.source}}\n"aeon:x"=${body}\na=${marker}["aeon:x"]${suffix}`;
+        const emitted = emitEvents(resolvePaths(document(source), { indexedPaths: true }));
+        assert.deepEqual(emitted.errors, []);
+        const errors = validateReferences(emitted.events, { maxAttributeDepth: 2 }).errors;
+        const result = canonicalize(source, options);
+        assert.deepEqual(result.errors.map(error => error.code), errors.map(error => error.code), source);
+        if (errors.length === 0) {
+            assert.deepEqual(semanticGraph(result.text), semanticGraph(source), source);
+            assert.equal(canonicalize(result.text, options).text, result.text, source);
+        } else {
+            assert.equal(result.text, '', source);
+        }
+        checked += 1;
+    }
+    assert.equal(checked, 360);
+});
+
 test('historical bytes remain the explicit default during staged rollout', () => {
     const source = 'z=1\na=~z';
     const historical = canonicalize(source);
@@ -89,6 +154,10 @@ for (const [source, code] of [
     ['a=<tag@{z=1}>\nb=~a.@.z', 'MISSING_REFERENCE_TARGET'],
     ['aeon:version=1\na=~["aeon:version"]\n"aeon:version"=2', 'FORWARD_REFERENCE'],
     ['aeon:header={version@{z=1}=1}\n"aeon:version"=2\na=~["aeon:version"].@.z', 'MISSING_REFERENCE_TARGET'],
+    ['aeon:header={x@{hidden=1}={leaf=2}}\n"aeon:x"=0\na=~["aeon:x"].@.hidden', 'MISSING_REFERENCE_TARGET'],
+    ['aeon:header={x@{meta={leaf=1}}=0}\n"aeon:x"=2\na=~["aeon:x"].@.meta.leaf', 'MISSING_REFERENCE_TARGET'],
+    ['aeon:header={x={leaf@{hidden=1}={deep=2}}}\n"aeon:x"={leaf=0}\na=~["aeon:x"].leaf.@.hidden', 'MISSING_REFERENCE_TARGET'],
+    ['aeon:header={x={leaf=1}}\na=~["aeon:x"].leaf\n"aeon:x"={leaf=2}', 'FORWARD_REFERENCE'],
 ] as const) {
     test(`rejects authored references without repair: ${source}`, () => {
         const result = canonicalize(source, options);
